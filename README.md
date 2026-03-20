@@ -175,7 +175,4 @@ client/
     dpt.js          — DPT info, formatting, and i18n
     api.js          — REST API client
     state.js        — app state management
-scripts/
-  anonymize.js      — generate anonymized demo project
-  demo.sh           — demo project management
 ```
