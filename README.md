@@ -1,4 +1,4 @@
-# koolenex {style=text-transform:lowercase}
+# koolenex
 
 Open-source KNX project tool. Import `.knxproj` files from ETS6,
 manage your installation, and interact with a live KNX bus.
