@@ -1,0 +1,239 @@
+import { useState, useContext, useMemo } from 'react';
+import { useC, STATUS_COLOR, I18nCtx } from '../theme.js';
+import { PinContext } from '../contexts.js';
+import { Badge, Btn, TH, TD, SearchBox, SectionHeader, Empty, PinAddr } from '../primitives.jsx';
+import { SpaceTypeIcon, DeviceTypeIcon } from '../icons.jsx';
+import { useColumns, ColumnPicker, dlCSV } from '../columns.jsx';
+import { spaceUsageMap, localizedModel } from '../dpt.js';
+
+import { AddDeviceModal } from '../AddDeviceModal.jsx';
+
+export function LocationsView({ data, dispatch, onAddDevice }) {
+  const C = useC();
+  const pin = useContext(PinContext);
+  const { t: i18t } = useContext(I18nCtx);
+  const COLMAP = { actuator: C.actuator, sensor: C.sensor, router: C.router, generic: C.muted };
+  const { spaces = [], devices = [], deviceGAMap = {} } = data || {};
+  const [search, setSearch] = useState('');
+  const [addDefaults, setAddDefaults] = useState(null);
+  const [filterStatus, setFilterStatus] = useState('all');
+  const [collapsed, setCollapsed] = useState(() => {
+    try {
+      const stored = localStorage.getItem('knx-loc-collapsed');
+      if (stored) return new Set(JSON.parse(stored));
+    } catch {}
+    return new Set(spaces.filter(s => s.parent_id).map(s => s.id));
+  });
+  const toggleCollapse = (id) => setCollapsed(prev => {
+    const n = new Set(prev);
+    n.has(id) ? n.delete(id) : n.add(id);
+    try { localStorage.setItem('knx-loc-collapsed', JSON.stringify([...n])); } catch {}
+    return n;
+  });
+
+  const LOC_COLS = useMemo(() => [
+    { id: 'individual_address', label: 'Address',      visible: true },
+    { id: 'name',               label: 'Name',         visible: true },
+    { id: 'device_type',        label: 'Type',         visible: true },
+    { id: 'manufacturer',       label: 'Manufacturer', visible: true },
+    { id: 'model',              label: 'Model',        visible: true },
+    { id: 'serial_number',      label: 'Serial',       visible: false },
+    { id: 'status',             label: 'Status',       visible: true },
+    { id: 'gas',                label: 'GAs',          visible: true },
+  ], []);
+  const [locCols, saveLocCols] = useColumns('locations', LOC_COLS);
+  const lcv = id => locCols.find(c => c.id === id)?.visible !== false;
+  const visibleLocCols = locCols.filter(c => c.visible !== false);
+
+  if (!spaces.length) return (
+    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      <SectionHeader title="Locations" count={0} />
+      <Empty icon="◻" msg="No location data in this project — location info is stored in ETS under the Buildings tab" />
+    </div>
+  );
+
+  // Build tree
+  const nodeMap = {};
+  for (const s of spaces) nodeMap[s.id] = { ...s, children: [], devs: [] };
+  const roots = [];
+  for (const s of spaces) {
+    if (s.parent_id && nodeMap[s.parent_id]) nodeMap[s.parent_id].children.push(nodeMap[s.id]);
+    else roots.push(nodeMap[s.id]);
+  }
+  const sortSpaces = arr => arr.sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0) || a.name.localeCompare(b.name));
+  sortSpaces(roots);
+  for (const n of Object.values(nodeMap)) { sortSpaces(n.children); }
+  for (const d of devices) {
+    if (d.space_id && nodeMap[d.space_id]) nodeMap[d.space_id].devs.push(d);
+  }
+  for (const n of Object.values(nodeMap)) { n.devs.sort((a, b) => a.name.localeCompare(b.name)); }
+
+  const sq = search.toLowerCase();
+  const matchesSearch = (node) => {
+    if (!sq) return true;
+    if (node.name.toLowerCase().includes(sq)) return true;
+    if (node.devs.some(d => d.name.toLowerCase().includes(sq) || d.individual_address.includes(sq))) return true;
+    return node.children.some(c => matchesSearch(c));
+  };
+
+  const exportLocCSV = () => {
+    const allDevs = devices.filter(d =>
+      (filterStatus === 'all' || d.status === filterStatus) &&
+      (!sq || d.name.toLowerCase().includes(sq) || d.individual_address.includes(sq)));
+    dlCSV('koolenex-locations.csv', locCols, allDevs,
+      (id, d) => ({
+        individual_address: d.individual_address, name: d.name,
+        device_type: d.device_type, manufacturer: d.manufacturer || '',
+        model: d.model || '', serial_number: d.serial_number || '',
+        status: d.status, gas: (deviceGAMap[d.individual_address] || []).length,
+      })[id] ?? ''
+    );
+  };
+
+  const renderSpace = (node, depth) => {
+    if (!matchesSearch(node)) return null;
+    const isCollapsed  = sq ? false : collapsed.has(node.id);
+    const hasChildren  = node.children.length > 0 || node.devs.length > 0;
+    const filteredDevs = node.devs.filter(d =>
+      (filterStatus === 'all' || d.status === filterStatus) &&
+      (!sq || d.name.toLowerCase().includes(sq) || d.individual_address.includes(sq)));
+    return (
+      <div key={`sp-${node.id}`}>
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 7,
+          padding: depth === 0 ? '6px 14px' : `5px 14px 5px ${14 + depth * 18}px`,
+          background: depth === 0 ? C.surface : depth === 1 ? C.hover : 'transparent',
+          borderBottom: `1px solid ${C.border}`,
+          cursor: hasChildren ? 'pointer' : 'default',
+        }} onClick={() => hasChildren && toggleCollapse(node.id)}>
+          {hasChildren
+            ? <span style={{ color: C.dim, fontSize: 9, width: 10 }}>{isCollapsed ? '▸' : '▾'}</span>
+            : <span style={{ width: 10 }} />}
+          <span style={{ color: depth === 0 ? C.amber : C.dim }} title={node.type}><SpaceTypeIcon type={node.type} size={13} /></span>
+          <span
+            className={pin ? 'pa' : undefined} data-pin={pin ? '1' : undefined}
+            style={{ fontWeight: depth <= 1 ? 600 : 400, fontSize: depth === 0 ? 11 : 10, color: depth === 0 ? C.amber : pin ? C.amber : C.text, cursor: pin ? 'pointer' : 'default' }}
+            onClick={pin ? (e) => { e.stopPropagation(); pin('space', String(node.id)); } : undefined}
+          >{node.name}</span>
+          {node.type === 'Room' && spaceUsageMap()[node.usage_id] && (
+            <span style={{ color: C.dim, fontSize: 10, marginLeft: 4 }}>· {i18t(node.usage_id) || spaceUsageMap()[node.usage_id]}</span>
+          )}
+          {node.type === 'Floor' && dispatch && (
+            <span
+              onClick={(e) => { e.stopPropagation(); dispatch({ type: 'FLOORPLAN_JUMP', spaceId: node.id }); }}
+              title="View floor plan"
+              style={{ color: C.accent, fontSize: 9, marginLeft: 6, cursor: 'pointer', opacity: 0.7 }}>
+              floor plan
+            </span>
+          )}
+          {onAddDevice && (
+            <span
+              onClick={(e) => { e.stopPropagation(); setAddDefaults({ space_id: node.id }); }}
+              title="Add device to this space"
+              style={{ color: C.green, fontSize: 9, marginLeft: 4, cursor: 'pointer', opacity: 0.7 }}>
+              +
+            </span>
+          )}
+          {(filteredDevs.length > 0 || node.children.length > 0) && (
+            <span style={{ fontSize: 10, color: C.dim }}>· {filteredDevs.length + node.children.reduce((s, c) => s + c.devs.length, 0)}</span>
+          )}
+        </div>
+        {!isCollapsed && (
+          <>
+            {filteredDevs.length > 0 && (
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead><tr>
+                  {visibleLocCols.map(col => (
+                    <TH key={col.id} style={
+                      col.id === 'individual_address' ? { width: 100, paddingLeft: 14 + depth * 18 + 28 } :
+                      col.id === 'gas' ? { width: 50 } :
+                      col.id === 'status' ? { width: 100 } : {}
+                    }>{col.label.toUpperCase().replace('GAS','GAs')}</TH>
+                  ))}
+                </tr></thead>
+                <tbody>
+                  {filteredDevs.map(d => (
+                    <tr key={d.id} className="rh" style={{ borderLeft: '2px solid transparent' }}>
+                      {lcv('individual_address') && <TD style={{ paddingLeft: 14 + depth * 18 + 28 }}>
+                        <PinAddr address={d.individual_address} wtype="device" style={{ color: C.accent, fontFamily: 'monospace' }} />
+                      </TD>}
+                      {lcv('name') && <TD><span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <DeviceTypeIcon type={d.device_type} style={{ color: COLMAP[d.device_type] || C.muted }} />{d.name}
+                      </span></TD>}
+                      {lcv('device_type') && <TD><span style={{ color: C.muted }}>{d.device_type}</span></TD>}
+                      {lcv('manufacturer') && <TD><PinAddr address={d.manufacturer} wtype="manufacturer" style={{ color: C.amber }}>{d.manufacturer || '—'}</PinAddr></TD>}
+                      {lcv('model') && <TD><PinAddr address={d.model} wtype="model" style={{ color: C.amber, fontFamily: 'monospace', fontSize: 10 }}>{localizedModel(d) || '—'}</PinAddr></TD>}
+                      {lcv('serial_number') && <TD><span style={{ color: C.dim, fontFamily: 'monospace', fontSize: 10 }}>{d.serial_number || '—'}</span></TD>}
+                      {lcv('status') && <TD><Badge label={d.status.toUpperCase()} color={STATUS_COLOR[d.status] || C.dim} /></TD>}
+                      {lcv('gas') && <TD><span style={{ color: C.dim }}>{(deviceGAMap[d.individual_address] || []).length}</span></TD>}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+            {node.children.map(child => renderSpace(child, depth + 1))}
+          </>
+        )}
+      </div>
+    );
+  };
+
+  const unplaced = devices.filter(d => !d.space_id)
+    .filter(d => (filterStatus === 'all' || d.status === filterStatus) &&
+      (!sq || d.name.toLowerCase().includes(sq) || d.individual_address.includes(sq)));
+
+  return (
+    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      <SectionHeader title="Locations" count={spaces.length}
+        actions={[
+          <SearchBox key="s" value={search} onChange={setSearch} placeholder="Search spaces or devices…" />,
+          <ColumnPicker key="cp" cols={locCols} onChange={saveLocCols} C={C} />,
+          <Btn key="csv" onClick={exportLocCSV} color={C.muted} bg={C.surface}>↓ CSV</Btn>,
+        ]} />
+      <div style={{ flex: 1, overflow: 'auto' }}>
+        {roots.map(r => renderSpace(r, 0))}
+        {unplaced.length > 0 && (
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '6px 14px', background: C.surface, borderBottom: `1px solid ${C.border}` }}>
+              <span style={{ color: C.dim, fontSize: 12 }}>◉</span>
+              <span style={{ fontWeight: 600, fontSize: 11, color: C.muted }}>Unplaced</span>
+              <span style={{ fontSize: 10, color: C.dim }}>· {unplaced.length}</span>
+            </div>
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead><tr>
+                {visibleLocCols.map(col => (
+                  <TH key={col.id} style={col.id === 'individual_address' ? { width: 100, paddingLeft: 42 } : col.id === 'gas' ? { width: 50 } : col.id === 'status' ? { width: 100 } : {}}>
+                    {col.label.toUpperCase().replace('GAS','GAs')}
+                  </TH>
+                ))}
+              </tr></thead>
+              <tbody>
+                {unplaced.map(d => (
+                  <tr key={d.id} className="rh" style={{ borderLeft: '2px solid transparent' }}>
+                    {lcv('individual_address') && <TD style={{ paddingLeft: 42 }}><PinAddr address={d.individual_address} wtype="device" style={{ color: C.accent, fontFamily: 'monospace' }} /></TD>}
+                    {lcv('name') && <TD><span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><DeviceTypeIcon type={d.device_type} style={{ color: COLMAP[d.device_type] || C.muted }} />{d.name}</span></TD>}
+                    {lcv('device_type') && <TD><span style={{ color: C.muted }}>{d.device_type}</span></TD>}
+                    {lcv('manufacturer') && <TD><PinAddr address={d.manufacturer} wtype="manufacturer" style={{ color: C.amber }}>{d.manufacturer || '—'}</PinAddr></TD>}
+                    {lcv('model') && <TD><PinAddr address={d.model} wtype="model" style={{ color: C.amber, fontFamily: 'monospace', fontSize: 10 }}>{d.model || '—'}</PinAddr></TD>}
+                    {lcv('serial_number') && <TD><span style={{ color: C.dim, fontFamily: 'monospace', fontSize: 10 }}>{d.serial_number || '—'}</span></TD>}
+                    {lcv('status') && <TD><Badge label={d.status.toUpperCase()} color={STATUS_COLOR[d.status] || C.dim} /></TD>}
+                    {lcv('gas') && <TD><span style={{ color: C.dim }}>{(deviceGAMap[d.individual_address] || []).length}</span></TD>}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+      <div style={{ padding: '5px 14px', borderTop: `1px solid ${C.border}`, fontSize: 10, color: C.dim, display: 'flex', gap: 14, flexShrink: 0 }}>
+        {Object.entries(STATUS_COLOR).map(([s, c]) => (
+          <span key={s} className="rh" onClick={() => setFilterStatus(p => p === s ? 'all' : s)}
+            style={{ cursor: 'pointer', color: filterStatus === s ? c : C.dim, fontWeight: filterStatus === s ? 600 : 400 }}>
+            <span style={{ color: c }}>●</span> {devices.filter(d => d.status === s).length} {s}
+          </span>
+        ))}
+      </div>
+      {addDefaults && onAddDevice && <AddDeviceModal data={data} defaults={addDefaults} onAdd={onAddDevice} onClose={() => setAddDefaults(null)} />}
+    </div>
+  );
+}
