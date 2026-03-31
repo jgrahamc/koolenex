@@ -31,7 +31,9 @@ export function FloorPlanView({ data, activeProjectId, onUpdateDevice, jumpTo, o
       }
     };
     collectFloors(roots);
-    floors.sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0) || a.name.localeCompare(b.name));
+    const locSort = localStorage.getItem('knx-loc-sort') || 'import';
+    floors.sort((a, b) => locSort === 'name' ? a.name.localeCompare(b.name)
+      : (a.sort_order ?? 0) - (b.sort_order ?? 0) || a.name.localeCompare(b.name));
 
     const floorDevices = {};
     for (const floor of floors) {

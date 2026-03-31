@@ -1,7 +1,7 @@
 import { useState, useContext, useMemo } from 'react';
 import { useC, STATUS_COLOR, I18nCtx } from '../theme.js';
 import { PinContext } from '../contexts.js';
-import { Badge, Btn, TH, TD, SearchBox, SectionHeader, Empty, PinAddr } from '../primitives.jsx';
+import { Badge, Btn, Chip, TH, TD, SearchBox, SectionHeader, Empty, PinAddr } from '../primitives.jsx';
 import { SpaceTypeIcon, DeviceTypeIcon } from '../icons.jsx';
 import { useColumns, ColumnPicker, dlCSV } from '../columns.jsx';
 import { spaceUsageMap, localizedModel } from '../dpt.js';
@@ -17,6 +17,7 @@ export function LocationsView({ data, dispatch, onAddDevice, onUpdateDevice, onU
   const [search, setSearch] = useState('');
   const [addDefaults, setAddDefaults] = useState(null);
   const [filterStatus, setFilterStatus] = useState('all');
+  const [spaceSort, setSpaceSort] = useState(() => localStorage.getItem('knx-loc-sort') || 'import');
   const [editSpaceId, setEditSpaceId] = useState(null);
   const [editDevId, setEditDevId] = useState(null);
   const [collapsed, setCollapsed] = useState(() => {
@@ -62,7 +63,10 @@ export function LocationsView({ data, dispatch, onAddDevice, onUpdateDevice, onU
     if (s.parent_id && nodeMap[s.parent_id]) nodeMap[s.parent_id].children.push(nodeMap[s.id]);
     else roots.push(nodeMap[s.id]);
   }
-  const sortSpaces = arr => arr.sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0) || a.name.localeCompare(b.name));
+  const sortSpaces = arr => arr.sort((a, b) =>
+    spaceSort === 'name' ? a.name.localeCompare(b.name)
+    : (a.sort_order ?? 0) - (b.sort_order ?? 0) || a.name.localeCompare(b.name)
+  );
   sortSpaces(roots);
   for (const n of Object.values(nodeMap)) { sortSpaces(n.children); }
   for (const d of devices) {
@@ -205,6 +209,8 @@ export function LocationsView({ data, dispatch, onAddDevice, onUpdateDevice, onU
       <SectionHeader title="Locations" count={spaces.length}
         actions={[
           <SearchBox key="s" value={search} onChange={setSearch} placeholder="Search spaces or devices…" />,
+          <Chip key="si" active={spaceSort === 'import'} onClick={() => { setSpaceSort('import'); localStorage.setItem('knx-loc-sort', 'import'); }}>Import Order</Chip>,
+          <Chip key="sn" active={spaceSort === 'name'} onClick={() => { setSpaceSort('name'); localStorage.setItem('knx-loc-sort', 'name'); }}>By Name</Chip>,
           <ColumnPicker key="cp" cols={locCols} onChange={saveLocCols} C={C} />,
           <Btn key="csv" onClick={exportLocCSV} color={C.muted} bg={C.surface}>↓ CSV</Btn>,
         ]} />
