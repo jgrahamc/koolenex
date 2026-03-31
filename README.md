@@ -17,19 +17,24 @@ PROCEED AT YOUR OWN RISK.
 ## Features
 
 - **Project import** — parse ETS6 `.knxproj` files including password-protected projects
-- **Locations** — browse your building structure (floors, rooms, distribution boards)
+- **Locations** — browse your building structure (floors, rooms, distribution boards) with in-place name editing
 - **Topology** — view areas, lines, and devices in their physical layout
 - **Devices** — search, filter, sort, and edit devices; view parameters, group objects, and linked group addresses
-- **Group Addresses** — tree and flat views with DPT display, linked device counts, and inline creation
+- **Group Addresses** — tree and flat views with DPT display, linked device counts, inline creation, and in-place name editing at all three levels
 - **Group Objects** — browse communication objects across all devices
-- **Manufacturers** — devices grouped by manufacturer and model
+- **Manufacturers** — devices grouped by manufacturer and model with catalog links
+- **Product Catalog** — browse products from imported `.knxproj` files organized by manufacturer and category; import standalone `.knxprod` files to add new device types; add devices to projects directly from the catalog
 - **Bus Monitor** — live telegram feed with decoded values, flow diagrams, and CSV export
 - **Bus Scan** — discover devices on the KNX bus
+- **Bus Connection** — connect via KNXnet/IP tunnelling or USB interface
+- **Device Programming** — download application programs, parameters, group address tables, and association tables to devices (work in progress)
+- **Device Comparison** — compare two devices side by side, or select multiple devices of the same type for multi-device parameter diff
+- **Floor Plan** — upload floor plan images for each floor and drag devices onto them to visualize your installation layout
+- **Audit Log** — per-project log of all changes with before/after detail, viewable in the UI and downloadable as CSV
 - **Settings** — theme (dark/light), DPT display format (numeric/formal/friendly), language
 - **Editable fields** — click-to-edit names, descriptions, comments, and installation hints with RTF rendering
 - **CSV export** — export devices, group addresses, group objects, topology, locations, and manufacturers
-- **Floor Plan** — upload floor plan images for each floor and drag devices onto them to visualize your installation layout
-- **Undo/redo** — Ctrl+Z to undo edits
+- **Undo/redo** — Ctrl+Z to undo edits with a browsable undo history dropdown
 - **Global search** — find devices, group addresses, manufacturers, and models
 
 ## Screenshots
@@ -186,16 +191,20 @@ npm start
 
 ## KNX Bus Connection
 
-Enter your KNXnet/IP gateway address in **Settings**. Koolenex uses
-its own KNXnet/IP implementation with no external dependencies.
+Two connection methods are supported:
+
+- **KNXnet/IP** — enter your gateway IP address and port in the Project panel
+- **USB** — plug in a KNX USB interface and scan for devices in the Project panel (requires the optional `node-hid` package: `npm install node-hid`)
+
+koolenex uses its own KNX protocol implementation with no external KNX dependencies.
 
 ## Disclaimer
 
-Koolenex is an experimental tool for exploring and monitoring KNX
+koolenex is an experimental tool for exploring and monitoring KNX
 installations. It is very much under active development and has only
-been tested against two real-world `.knxproj` files — there are almost
-certainly incompatibilities with other projects, device types, and ETS
-configurations.
+been tested against a small number of real-world `.knxproj` files —
+there are almost certainly incompatibilities with other projects,
+device types, and ETS configurations.
 
 ## Stack
 
@@ -205,25 +214,67 @@ configurations.
 | Backend | Node.js + Express |
 | Database | SQLite via sql.js (in-memory, persisted to `koolenex.db`) |
 | Real-time | WebSocket |
-| Protocol | KNXnet/IP |
+| Protocol | KNXnet/IP (UDP tunnelling), KNX USB (HID) |
 
 ## Project Structure
 
 ```
 server/
-  index.js          — Express server, WebSocket setup
-  routes.js         — REST API endpoints
-  db.js             — SQLite database layer
-  ets-parser.js     — .knxproj file parser
-  knx-bus.js        — KNX bus connection manager
-  knx-protocol.js   — KNXnet/IP protocol implementation
-client/
-  src/
-    App.jsx         — main app shell, sidebar, routing
-    views/          — top-level views (Devices, GAs, Topology, etc.)
-    detail/         — pinned detail panels (device, GA, compare)
-    rtf.jsx         — RTF-to-HTML rendering
-    dpt.js          — DPT info, formatting, and i18n
-    api.js          — REST API client
-    state.js        — app state management
+  index.js            — Express server, WebSocket setup
+  routes.js           — REST API endpoints (~45 routes)
+  db.js               — SQLite database layer with audit logging
+  ets-parser.js       — .knxproj and .knxprod file parser
+  knx-bus.js          — KNX bus connection manager (IP + USB facade)
+  knx-connection.js   — KNX/IP protocol, device management, memory services
+  knx-protocol.js     — KNXnet/IP UDP tunnelling implementation
+  knx-usb.js          — KNX USB HID interface
+
+client/src/
+  App.jsx             — main app shell, sidebar, routing, undo system
+  api.js              — REST API client + WebSocket
+  state.js            — app state management (useReducer)
+  theme.js            — dark/light themes, color constants
+  contexts.js         — React contexts (DPT, pin, theme)
+  dpt.js              — DPT info, formatting, and i18n
+  search.jsx          — global search component
+  primitives.jsx      — shared UI components (Btn, Spinner, Toast, etc.)
+  columns.jsx         — table column definitions and CSV export
+  diagram.jsx         — SVG connection diagrams
+  icons.jsx           — SVG icon library
+  rtf.jsx             — RTF-to-HTML rendering and editable fields
+  hex.jsx             — hex display utilities
+  AddDeviceModal.jsx  — add device modal (used from multiple views)
+
+  views/
+    ProjectsView.jsx        — project list, import, delete
+    ProjectInfoView.jsx     — bus connection, project metadata, audit log
+    LocationsView.jsx       — building structure tree with device tables
+    FloorPlanView.jsx       — floor plan image with draggable devices
+    TopologyView.jsx        — bus topology diagram (areas/lines/devices)
+    DevicesView.jsx         — searchable/sortable device table
+    GroupAddressesView.jsx  — GA tree and flat views with inline editing
+    ComObjectsView.jsx      — communication objects table
+    ManufacturersView.jsx   — devices grouped by manufacturer/model
+    CatalogView.jsx         — product catalog browser with .knxprod import
+    BusMonitorView.jsx      — live telegram feed with timeline
+    BusScanView.jsx         — bus device discovery
+    ProgrammingView.jsx     — device programming (work in progress)
+    SettingsView.jsx        — theme, DPT format, language
+
+  detail/
+    PinDetailView.jsx       — pin type router and multi-compare panel
+    DevicePinPanel.jsx      — device detail (metadata, COs, linked GAs)
+    DeviceParameters.jsx    — parameter tree editor
+    DeviceProductTab.jsx    — product info and similar devices
+    GAPinPanel.jsx          — group address detail with linked devices
+    ComparePanel.jsx        — two-device comparison
+    PinTelegramFeed.jsx     — per-device/GA telegram feed
+
+data/
+  apps/                 — cached application program models (JSON)
+  floorplans/           — uploaded floor plan images
+  knx_master_*.xml      — per-project KNX master data
+
+research/               — implementation research and planning documents
+scripts/                — utility scripts (anonymize, demo)
 ```
