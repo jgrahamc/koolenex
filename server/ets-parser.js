@@ -156,27 +156,47 @@ function buildAppIndex(buf) {
 
   const appId = a(ap, 'Id');
 
-  // Parse Dynamic section with order-preserving parser
+  // Parse entire app XML with order-preserving parser to extract Dynamic sections
   let orderedDynamic = null;
+  const orderedModDynamics = {};
   try {
-    const dynMatch = rawXml.match(/<Dynamic>[\s\S]*?<\/Dynamic>/);
-    if (dynMatch) {
-      const parsed = orderedXmlParser.parse(dynMatch[0]);
-      orderedDynamic = parsed?.[0]?.Dynamic || null;
-    }
-  } catch (_) {}
+    const orderedXml = orderedXmlParser.parse(rawXml);
+    // Navigate: KNX > ManufacturerData > Manufacturer > ApplicationPrograms > ApplicationProgram > Dynamic
+    const findDynamic = (items) => {
+      if (!items) return null;
+      for (const el of Array.isArray(items) ? items : [items]) {
+        const tag = ordTag(el);
+        if (tag === 'Dynamic') return ordChildren(el);
+        // Recurse into known container elements
+        for (const key of ['KNX', 'ManufacturerData', 'Manufacturer', 'ApplicationPrograms', 'ApplicationProgram']) {
+          if (tag === key) {
+            const result = findDynamic(ordChildren(el));
+            if (result) return result;
+          }
+        }
+      }
+      return null;
+    };
+    orderedDynamic = findDynamic(orderedXml);
 
-  // Also parse ModuleDef Dynamic sections
-  const orderedModDynamics = {}; // ModuleDef Id → ordered Dynamic children
-  try {
-    const mdRe = /<ModuleDef[^>]*Id="([^"]*)"[^>]*>[\s\S]*?<Dynamic>([\s\S]*?)<\/Dynamic>[\s\S]*?<\/ModuleDef>/g;
-    let mdm;
-    while ((mdm = mdRe.exec(rawXml)) !== null) {
-      const mdId = mdm[1];
-      const dynXml = `<Dynamic>${mdm[2]}</Dynamic>`;
-      const parsed = orderedXmlParser.parse(dynXml);
-      orderedModDynamics[mdId] = parsed?.[0]?.Dynamic || null;
-    }
+    // Find ModuleDef Dynamic sections
+    const findModDefs = (items) => {
+      if (!items) return;
+      for (const el of Array.isArray(items) ? items : [items]) {
+        const tag = ordTag(el);
+        if (tag === 'ModuleDef') {
+          const mdId = ordA(el, 'Id');
+          for (const child of ordChildren(el)) {
+            if (ordTag(child) === 'Dynamic') orderedModDynamics[mdId] = ordChildren(child);
+          }
+        }
+        // Recurse into containers
+        for (const key of ['KNX', 'ManufacturerData', 'Manufacturer', 'ApplicationPrograms', 'ApplicationProgram', 'Static', 'ModuleDefs']) {
+          if (tag === key) findModDefs(ordChildren(el));
+        }
+      }
+    };
+    findModDefs(orderedXml);
   } catch (_) {}
 
   // 1. Translations: refId → { AttributeName → Text }
@@ -206,9 +226,7 @@ function buildAppIndex(buf) {
 
   const T = (id, attr) => trans[id]?.[attr] ?? '';
 
-  // Pick the first non-direction-label text from a list of candidates.
-  const DIR_RE = /^(input|output|in|out|eingang|ausgang|ein|aus|entrée|sortie|ingresso|uscita|entrada|salida)$/i;
-  const pickText = (...candidates) => candidates.find(t => t && !DIR_RE.test(t)) || '';
+  // No-op — removed pickName/pickText/DIR_RE. Text and FunctionText are stored separately.
 
   // 2. ComObject definitions (top-level Static + inside each ModuleDef Static)
   const coDefs = {};          // coId → { ft, dpt, objectSize, flags }
@@ -228,7 +246,8 @@ function buildAppIndex(buf) {
       if (!id) continue;
       coDefs[id] = {
         num:  parseInt(a(co, 'Number')) || 0,
-        ft:   pickText(T(id,'FunctionText'), a(co,'FunctionText'), T(id,'Text'), a(co,'Text')),
+        text: T(id,'Text') || a(co,'Text') || '',
+        ft:   T(id,'FunctionText') || a(co,'FunctionText') || '',
         dpt:  a(co, 'DatapointType'),
         size: a(co, 'ObjectSize'),
         read: a(co, 'ReadFlag'), write: a(co, 'WriteFlag'),
@@ -245,7 +264,8 @@ function buildAppIndex(buf) {
       if (!id) continue;
       corDefs[id] = {
         refId: a(cor, 'RefId'),
-        ft:    pickText(T(id,'FunctionText'), a(cor,'FunctionText'), T(id,'Text'), a(cor,'Text')) || null,
+        text:  T(id,'Text') || a(cor,'Text') || null,
+        ft:    T(id,'FunctionText') || a(cor,'FunctionText') || null,
         dpt:   a(cor, 'DatapointType') || null,
         size:  a(cor, 'ObjectSize') || null,
         read:  a(cor, 'ReadFlag') || null, write: a(cor, 'WriteFlag') || null,
@@ -313,7 +333,8 @@ function buildAppIndex(buf) {
   function resolveCoRef(relRefId, channelId) {
     const buildResult = (cor, co, args, channel) => ({
       objectNumber: co.num,
-      name:        interp(cor.ft || co.ft, args),
+      name:        interp(cor.text || co.text, args),
+      function_text: interp(cor.ft || co.ft, args),
       channel,
       dpt:         cor.dpt  || co.dpt  || '',
       objectSize:  cor.size || co.size || '',
@@ -720,6 +741,7 @@ function buildAppIndex(buf) {
   function evalDynamic(getVal) {
     const activeParams = new Set();
     const activeCorefs = new Set();
+    const activeCorefsByObjNum = new Map(); // objectNumber → [corIds] in walk order
 
     function etsTestMatch(val, tests) {
       const n = parseFloat(val);
@@ -753,7 +775,18 @@ function buildAppIndex(buf) {
       if (!items) return;
       for (const item of items) {
         if (item.type === 'paramRef') { if (item.refId) activeParams.add(item.refId); }
-        else if (item.type === 'comRef') { if (item.refId) activeCorefs.add(item.refId); }
+        else if (item.type === 'comRef') {
+          if (item.refId) {
+            activeCorefs.add(item.refId);
+            // Track per object number — prefer variants with specific Text/FunctionText overrides
+            const cor = corDefs[item.refId];
+            const co = cor ? coDefs[cor.refId] : null;
+            if (co) {
+              if (!activeCorefsByObjNum.has(co.num)) activeCorefsByObjNum.set(co.num, []);
+              activeCorefsByObjNum.get(co.num).push(item.refId);
+            }
+          }
+        }
         else if (item.type === 'block' || item.type === 'channel' || item.type === 'cib') { walkItems(item.items); }
         else if (item.type === 'choose') {
           // Skip if controlling param is known visible but not active (prevents phantom COs)
@@ -797,7 +830,7 @@ function buildAppIndex(buf) {
     // Pass 2: re-evaluate conditions, now skipping chooses on inactive params, collecting corefs
     if (mainItems) walkItems(mainItems);
     for (const mi of modItemsList) walkItems(mi);
-    return { activeParams, activeCorefs };
+    return { activeParams, activeCorefs, activeCorefsByObjNum };
   }
 
   // Resolve a COM object from its app-level ComObjectRef ID (no instance path).
@@ -812,7 +845,8 @@ function buildAppIndex(buf) {
     const args = mdMatch ? (modArgs[`${appId}_${mdMatch[1]}_${mdMatch[2]}`] || {}) : {};
     return {
       objectNumber: co.num,
-      name:         interp(cor.ft || co.ft, args),
+      name:         interp(cor.text || co.text, args),
+      function_text: interp(cor.ft || co.ft, args),
       dpt:          cor.dpt  || co.dpt  || '',
       objectSize:   cor.size || co.size || '',
       read:  (cor.read  ?? co.read)  === 'Enabled',
@@ -1369,10 +1403,10 @@ function parseKnxproj(buffer, password = null) {
 
           // Evaluate Dynamic conditions with this device's parameter values.
           // getVal returns the RAW value (not display-translated) for condition checks.
-          let activeParams = null, activeCorefs = null;
+          let activeParams = null, activeCorefs = null, activeCorefsByObjNum = null;
           if (appIdx?.evalDynamic) {
             const getVal = (prKey) => strippedValues.get(prKey) ?? appIdx.getDefault(prKey);
-            ({ activeParams, activeCorefs } = appIdx.evalDynamic(getVal));
+            ({ activeParams, activeCorefs, activeCorefsByObjNum } = appIdx.evalDynamic(getVal));
           }
 
           if (appIdx?.resolveParamRef) {
@@ -1454,9 +1488,11 @@ function parseKnxproj(buffer, password = null) {
             const channelId = a(cor,'ChannelId');
             const linksAttr = a(cor,'Links');
 
-            const DIR_RE = /^(input|output|in|out|eingang|ausgang|ein|aus|entrée|sortie|ingresso|uscita|entrada|salida)$/i;
-            let name = DIR_RE.test(a(cor,'Text')) ? '' : (a(cor,'Text') || '');
+            // Skip direction-label Text on instance refs — these are generic placeholders, not user-given names
+            const DIRECTION_RE = /^(input|output|input\/output|in|out|eingang|ausgang|ein\/ausgang|ein|aus|entrée|sortie|entrée\/sortie|ingresso|uscita|ingresso\/uscita|entrada|salida|entrada\/salida)$/i;
+            let name = DIRECTION_RE.test(a(cor,'Text')) ? '' : (a(cor,'Text') || '');
             let dpt  = a(cor,'DatapointType') || '';
+            let function_text = '';
             let objectSize = '';
             let channel = '';
             let read = false, write = false, comm = false, tx = false;
@@ -1467,12 +1503,27 @@ function parseKnxproj(buffer, password = null) {
               const resolved = appIdx.resolveCoRef(refId, channelId);
               if (resolved) {
                 if (!name) name = resolved.name;
+                function_text = resolved.function_text || '';
                 if (!dpt)  dpt  = resolved.dpt;
                 objectSize = resolved.objectSize;
                 channel    = resolved.channel;
                 read = resolved.read; write = resolved.write;
                 comm = resolved.comm; tx    = resolved.tx;
                 objNum = resolved.objectNumber ?? objNum;
+              }
+              // Also merge overrides from the active Dynamic tree variants
+              if (activeCorefsByObjNum && objNum != null) {
+                const corIds = activeCorefsByObjNum.get(objNum);
+                if (corIds) {
+                  for (const corId of corIds) {
+                    const r = appIdx.resolveCoRefById(corId);
+                    if (!r) continue;
+                    if (r.name) name = r.name;
+                    if (r.function_text) function_text = r.function_text;
+                    if (r.dpt) dpt = r.dpt;
+                    if (r.objectSize) objectSize = r.objectSize;
+                  }
+                }
               }
             }
 
@@ -1483,6 +1534,7 @@ function parseKnxproj(buffer, password = null) {
               object_number:  objNum,
               channel,
               name,
+              function_text,
               dpt,
               object_size: objectSize,
               flags,
@@ -1538,7 +1590,7 @@ function parseKnxproj(buffer, password = null) {
           // evalDynamic identified all COM objects valid for the current config.
           // Any that didn't appear in 0.xml have no GA assigned — add them
           // so the user can see and assign them without going back to ETS.
-          if (activeCorefs && appIdx?.resolveCoRefById) {
+          if (activeCorefsByObjNum && appIdx?.resolveCoRefById) {
             // Track which physical object numbers are already covered by 0.xml entries
             const linkedObjNums = new Set(
               toArr(dev.ComObjectInstanceRefs?.ComObjectInstanceRef).map(cor => {
@@ -1549,23 +1601,39 @@ function parseKnxproj(buffer, password = null) {
               }).filter(n => n != null)
             );
 
-            for (const corId of activeCorefs) {
+            // For each object number, resolve all active ComObjectRef variants and merge
+            for (const [objNum, corIds] of activeCorefsByObjNum) {
               try {
-              const r = appIdx.resolveCoRefById(corId);
-              if (!r || !r.name) continue;
-              if (linkedObjNums.has(r.objectNumber)) continue; // already covered
+              if (linkedObjNums.has(objNum)) continue;
+              // Resolve each variant and merge: later overrides win per-attribute
+              let merged = null;
+              for (const corId of corIds) {
+                const r = appIdx.resolveCoRefById(corId);
+                if (!r) continue;
+                if (!merged) {
+                  merged = { ...r };
+                } else {
+                  // Layer overrides: non-empty values from later variants win
+                  if (r.name) merged.name = r.name;
+                  if (r.function_text) merged.function_text = r.function_text;
+                  if (r.dpt) merged.dpt = r.dpt;
+                  if (r.objectSize) merged.objectSize = r.objectSize;
+                }
+              }
+              if (!merged || (!merged.name && !merged.function_text)) continue;
               comObjects.push({
                 device_address: ia,
-                object_number:  r.objectNumber,
-                channel:        r.channel,
-                name:           r.name,
-                dpt:            r.dpt,
-                object_size:    r.objectSize,
-                flags:          buildFlags(r),
-                direction:      r.tx && !r.write ? 'output' : !r.tx && r.write ? 'input' : 'both',
+                object_number:  merged.objectNumber,
+                channel:        merged.channel,
+                name:           merged.name,
+                function_text:  merged.function_text,
+                dpt:            merged.dpt,
+                object_size:    merged.objectSize,
+                flags:          buildFlags(merged),
+                direction:      merged.tx && !merged.write ? 'output' : !merged.tx && merged.write ? 'input' : 'both',
                 ga_address:     '',
               });
-              } catch (e) { console.error('[ETS] resolveCoRefById error:', corId, e.message); }
+              } catch (e) { console.error('[ETS] CO merge error:', objNum, e.message); }
             }
           }
         }

@@ -123,6 +123,7 @@ export function ComparePanel({ addrA, addrB, data, C }) {
             <thead><tr>
               <TH2 style={{ width: 36 }}>#</TH2>
               <TH2>NAME</TH2>
+              <TH2>OBJECT FUNCTION</TH2>
               <TH2 style={{ width: 70 }}>DPT</TH2>
               <TH2 style={{ width: 60 }}>FLAGS</TH2>
               <TH2 style={{ color: colA }}>GA — {addrA}</TH2>
@@ -140,7 +141,8 @@ export function ComparePanel({ addrA, addrB, data, C }) {
                 return (
                   <tr key={num}>
                     <TD2 style={{ background: rowBg, color: C.dim }}>{num}</TD2>
-                    <TD2 style={{ background: rowBg, color: C.muted }}>{co.name || co.function_text}</TD2>
+                    <TD2 style={{ background: rowBg, color: C.muted }}>{co.name || '—'}</TD2>
+                    <TD2 style={{ background: rowBg, color: C.dim }}>{co.function_text || '—'}</TD2>
                     <TD2 style={{ background: rowBg }}>
                       <span style={{ fontFamily: 'monospace', color: coA?.dpt !== coB?.dpt ? C.amber : C.dim }}
                         title={dpt.hover(co.dpt)}>{dpt.display(co.dpt)}</span>

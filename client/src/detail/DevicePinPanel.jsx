@@ -228,6 +228,7 @@ export function DevicePinPanel({ C, COLMAP, dev, devCOs, linkedGAs, spacePath, g
                   <TH style={{ width: 40 }}>#</TH>
                   <TH style={{ width: 120 }}>CHANNEL</TH>
                   <TH>NAME</TH>
+                  <TH>OBJECT FUNCTION</TH>
                   <TH style={{ width: 100 }}>DPT</TH>
                   <TH style={{ width: 90, whiteSpace: 'nowrap' }}>SIZE</TH>
                   <TH style={{ width: 60 }}>FLAGS</TH>
@@ -238,7 +239,8 @@ export function DevicePinPanel({ C, COLMAP, dev, devCOs, linkedGAs, spacePath, g
                     <tr key={i} className="rh">
                       <TD><span style={{ color: C.dim }}>{co.object_number}</span></TD>
                       <TD><span style={{ color: C.muted }}>{co.channel}</span></TD>
-                      <TD><span style={{ color: C.text }}>{co.name || co.function_text}</span></TD>
+                      <TD><span style={{ color: C.text }}>{co.name || '—'}</span></TD>
+                      <TD><span style={{ color: C.muted }}>{co.function_text || '—'}</span></TD>
                       <TD><span style={{ color: C.dim, fontFamily: 'monospace' }} title={dpt.hover(co.dpt || coGAs(co).map(a => gaMap[a]?.dpt).find(Boolean))}>{dpt.display(co.dpt || coGAs(co).map(a => gaMap[a]?.dpt).find(Boolean))}</span></TD>
                       <TD><span style={{ color: C.dim, whiteSpace: 'nowrap' }}>{co.object_size}</span></TD>
                       <TD><span style={{ color: C.dim, fontFamily: 'monospace' }}>{co.flags}</span></TD>

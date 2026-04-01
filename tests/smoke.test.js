@@ -161,23 +161,29 @@ describe('Smoke: communication objects', () => {
 
     // General COs (from Device settings and Manual operation channels)
     assert(byNum[4], 'CO #4 should exist');
-    assert.equal(byNum[4].name, 'Receive load shedding stage');
+    assert.equal(byNum[4].name, 'Central - Load shedding');
+    assert.equal(byNum[4].function_text, 'Receive load shedding stage');
 
     assert(byNum[13], 'CO #13 should exist');
-    assert.equal(byNum[13].name, 'Status Manual operation');
+    assert.equal(byNum[13].name, 'Manual operation - Manual operation');
+    assert.equal(byNum[13].function_text, 'Status Manual operation');
 
     assert(byNum[14], 'CO #14 should exist');
-    assert.equal(byNum[14].name, 'Enable/Block manual operation');
+    assert.equal(byNum[14].name, 'Manual operation - Manual operation');
+    assert.equal(byNum[14].function_text, 'Enable/Block manual operation');
 
     assert(byNum[15], 'CO #15 should exist');
-    assert.equal(byNum[15].name, 'Ending manual operation');
+    assert.equal(byNum[15].name, 'Manual operation - Manual operation');
+    assert.equal(byNum[15].function_text, 'Ending manual operation');
 
     // Per-channel shutter COs (channels A, C, E, G — configured as Shutter Actuator)
     assert(byNum[144], 'CO #144 (Channel A shutter) should exist');
-    assert(byNum[144].name.includes('Channel A'));
+    assert.equal(byNum[144].name, 'Channel A - Shutter');
+    assert.equal(byNum[144].function_text, 'Move Blind/Shutter Up/Down');
 
     assert(byNum[145], 'CO #145 (Channel A slat) should exist');
-    assert(byNum[145].name.includes('Slat') || byNum[145].name.includes('Stop'));
+    assert.equal(byNum[145].name, 'Channel A - Shutter');
+    assert.equal(byNum[145].function_text, 'Slat adjustment / Stop Up/Down');
 
     assert(byNum[187], 'CO #187 (Channel C shutter) should exist');
     assert(byNum[188], 'CO #188 (Channel C slat) should exist');
@@ -199,9 +205,36 @@ describe('Smoke: communication objects', () => {
   it('UD/S4.210.2.1 (1.1.3) has exactly these 21 com objects', () => {
     const cos = parsed.comObjects.filter(co => co.device_address === '1.1.3');
     assert.equal(cos.length, 21);
-    const nums = cos.map(co => co.object_number).sort((a, b) => a - b);
-    // Central COs + 4 channels x 4 COs (switching, dimming, value, flexible time)
-    assert.deepEqual(nums, [2, 3, 4, 5, 6, 7, 8, 9, 12, 18, 19, 20, 23, 29, 30, 31, 34, 40, 41, 42, 45]);
+    const byNum = Object.fromEntries(cos.map(co => [co.object_number, co]));
+
+    const expected = [
+      { num:  2, name: 'Central: Switching',                      ft: 'Input' },
+      { num:  3, name: 'Central: Dimming',                        ft: 'Input' },
+      { num:  4, name: 'Central: Value',                          ft: 'Input' },
+      { num:  5, name: 'Central: Activate switch-off brightness', ft: 'Input' },
+      { num:  6, name: 'Scene: Scene',                            ft: 'Input' },
+      { num:  7, name: 'Channel A: Switching',                    ft: 'Input' },
+      { num:  8, name: 'Channel A: Relative dimming',             ft: 'Input' },
+      { num:  9, name: 'Channel A: Brightness value',             ft: 'Input' },
+      { num: 12, name: 'Channel A: Flexible dimming time',        ft: 'Input' },
+      { num: 18, name: 'Channel B: Switching',                    ft: 'Input' },
+      { num: 19, name: 'Channel B: Relative dimming',             ft: 'Input' },
+      { num: 20, name: 'Channel B: Brightness value',             ft: 'Input' },
+      { num: 23, name: 'Channel B: Flexible dimming time',        ft: 'Input' },
+      { num: 29, name: 'Channel C: Switching',                    ft: 'Input' },
+      { num: 30, name: 'Channel C: Relative dimming',             ft: 'Input' },
+      { num: 31, name: 'Channel C: Brightness value',             ft: 'Input' },
+      { num: 34, name: 'Channel C: Flexible dimming time',        ft: 'Input' },
+      { num: 40, name: 'Channel D: Switching',                    ft: 'Input' },
+      { num: 41, name: 'Channel D: Relative dimming',             ft: 'Input' },
+      { num: 42, name: 'Channel D: Brightness value',             ft: 'Input' },
+      { num: 45, name: 'Channel D: Flexible dimming time',        ft: 'Input' },
+    ];
+    for (const e of expected) {
+      assert(byNum[e.num], `CO #${e.num} should exist`);
+      assert.equal(byNum[e.num].name, e.name, `CO #${e.num} name`);
+      assert.equal(byNum[e.num].function_text, e.ft, `CO #${e.num} function_text`);
+    }
   });
 
   it('LED dimmer channel A switching is linked to Chandelier On/Off and Status', () => {
@@ -212,9 +245,25 @@ describe('Smoke: communication objects', () => {
     assert(co.ga_address.includes('11/0/0'), 'should be linked to Chandelier Status');
   });
 
-  it('push-button coupler (1.1.5) has 3 com objects', () => {
+  it('push-button coupler (1.1.5) has exactly these 3 com objects', () => {
     const cos = parsed.comObjects.filter(co => co.device_address === '1.1.5');
     assert.equal(cos.length, 3);
+    const byNum = Object.fromEntries(cos.map(co => [co.object_number, co]));
+
+    assert(byNum[1], 'CO #1 should exist');
+    assert.equal(byNum[1].name, 'S1.1: Travel');
+    assert.equal(byNum[1].function_text, 'Input/Output');
+
+    assert(byNum[2], 'CO #2 should exist');
+    assert.equal(byNum[2].name, 'S1.1: Adjust');
+    assert.equal(byNum[2].function_text, 'Input/Output');
+
+    assert(byNum[16], 'CO #16 should exist');
+    assert.equal(byNum[16].name, 'S2.1: Switching');
+    assert.equal(byNum[16].function_text, 'Input/Output');
+
+    const nums = cos.map(co => co.object_number).sort((a, b) => a - b);
+    assert.deepEqual(nums, [1, 2, 16]);
   });
 
   it('US/U2.2 (1.1.4) has exactly these 2 com objects', () => {
@@ -223,10 +272,12 @@ describe('Smoke: communication objects', () => {
     const byNum = Object.fromEntries(cos.map(co => [co.object_number, co]));
 
     assert(byNum[0], 'CO #0 should exist');
-    assert.equal(byNum[0].name, 'Disable');
+    assert.equal(byNum[0].name, 'Input A');
+    assert.equal(byNum[0].function_text, 'Disable');
 
     assert(byNum[1], 'CO #1 should exist');
-    assert.equal(byNum[1].name, 'Telegr. switch');
+    assert.equal(byNum[1].name, 'Input A');
+    assert.equal(byNum[1].function_text, 'Telegr. switch');
 
     const nums = cos.map(co => co.object_number).sort((a, b) => a - b);
     assert.deepEqual(nums, [0, 1]);
