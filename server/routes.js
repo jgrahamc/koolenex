@@ -773,6 +773,34 @@ router.put('/projects/:pid/gas/:gid', (req, res) => {
 });
 
 // ── Spaces ───────────────────────────────────────────────────────────────────
+router.post('/projects/:pid/spaces', (req, res) => {
+  const pid = +req.params.pid;
+  const b = req.body;
+  if (!b.name?.trim()) return res.status(400).json({ error: 'name required' });
+  const { lastInsertRowid } = db.run(
+    'INSERT INTO spaces (project_id, name, type, parent_id, sort_order, usage_id) VALUES (?,?,?,?,?,?)',
+    [pid, b.name.trim(), b.type || 'Room', b.parent_id || null, b.sort_order ?? 0, b.usage_id || '']
+  );
+  const space = db.get('SELECT * FROM spaces WHERE id=?', [lastInsertRowid]);
+  db.audit(pid, 'create', 'space', b.name.trim(), `Created ${b.type || 'Room'} "${b.name.trim()}"`);
+  db.scheduleSave();
+  res.json(space);
+});
+
+router.delete('/projects/:pid/spaces/:sid', (req, res) => {
+  const { pid, sid } = req.params;
+  const old = db.get('SELECT * FROM spaces WHERE id=? AND project_id=?', [+sid, +pid]);
+  if (!old) return res.status(404).json({ error: 'Not found' });
+  // Unassign devices from this space
+  db.run('UPDATE devices SET space_id=NULL WHERE space_id=? AND project_id=?', [+sid, +pid]);
+  // Reparent child spaces to this space's parent
+  db.run('UPDATE spaces SET parent_id=? WHERE parent_id=? AND project_id=?', [old.parent_id || null, +sid, +pid]);
+  db.run('DELETE FROM spaces WHERE id=?', [+sid]);
+  db.audit(+pid, 'delete', 'space', old.name || sid, `Deleted ${old.type} "${old.name}"`);
+  db.scheduleSave();
+  res.json({ ok: true });
+});
+
 router.put('/projects/:pid/spaces/:sid', (req, res) => {
   const { pid, sid } = req.params;
   const b = req.body;

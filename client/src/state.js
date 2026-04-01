@@ -130,6 +130,18 @@ export function reducer(state, action) {
       const spaces = state.projectData.spaces.map(s => s.id === action.id ? { ...s, ...action.patch } : s);
       return { ...state, projectData: { ...state.projectData, spaces } };
     }
+    case 'ADD_SPACE': {
+      if (!state.projectData) return state;
+      const spaces = [...state.projectData.spaces, action.space];
+      return { ...state, projectData: { ...state.projectData, spaces } };
+    }
+    case 'DELETE_SPACE': {
+      if (!state.projectData) return state;
+      const spaces = state.projectData.spaces.filter(s => s.id !== action.id)
+        .map(s => s.parent_id === action.id ? { ...s, parent_id: action.newParentId } : s);
+      const devices = state.projectData.devices.map(d => d.space_id === action.id ? { ...d, space_id: null } : d);
+      return { ...state, projectData: { ...state.projectData, spaces, devices } };
+    }
     case 'DELETE_GA': {
       if (!state.projectData) return state;
       const gas = state.projectData.gas.filter(g => g.id !== action.id);

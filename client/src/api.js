@@ -62,7 +62,9 @@ export const api = {
   importKnxprod: (pid, formData) => req('POST', `/projects/${pid}/catalog/import`, formData, true),
 
   // Spaces
+  createSpace:    (pid, body)      => req('POST', `/projects/${pid}/spaces`, body),
   updateSpace:    (pid, sid, body) => req('PUT', `/projects/${pid}/spaces/${sid}`, body),
+  deleteSpace:    (pid, sid)       => req('DELETE', `/projects/${pid}/spaces/${sid}`),
 
   // Audit Log
   getAuditLog:    (pid, limit) => req('GET', `/projects/${pid}/audit-log?limit=${limit||500}`),

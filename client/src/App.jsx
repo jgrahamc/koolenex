@@ -367,6 +367,32 @@ export default function App() {
     });
   }, [state.activeProjectId, state.projectData, pushUndo]);
 
+  const handleCreateSpace = useCallback(async (body) => {
+    if (!state.activeProjectId) return null;
+    const space = await api.createSpace(state.activeProjectId, body);
+    dispatch({ type: 'ADD_SPACE', space });
+    const pid = state.activeProjectId;
+    pushUndo(`Create space "${space.name}"`, `${space.type}`, async () => {
+      await api.deleteSpace(pid, space.id);
+      dispatch({ type: 'DELETE_SPACE', id: space.id, newParentId: space.parent_id });
+    });
+    return space;
+  }, [state.activeProjectId, pushUndo]);
+
+  const handleDeleteSpace = useCallback(async (spaceId) => {
+    if (!state.activeProjectId) return;
+    const space = state.projectData?.spaces?.find(s => s.id === spaceId);
+    if (!space) return;
+    await api.deleteSpace(state.activeProjectId, spaceId);
+    dispatch({ type: 'DELETE_SPACE', id: spaceId, newParentId: space.parent_id });
+    const pid = state.activeProjectId;
+    const spaceData = { name: space.name, type: space.type, parent_id: space.parent_id, sort_order: space.sort_order };
+    pushUndo(`Delete space "${space.name}"`, `${space.type}`, async () => {
+      const restored = await api.createSpace(pid, spaceData);
+      dispatch({ type: 'ADD_SPACE', space: restored });
+    });
+  }, [state.activeProjectId, state.projectData, pushUndo]);
+
   const handleCreateGA = useCallback(async (body) => {
     if (!state.activeProjectId) return null;
     const ga = await api.createGA(state.activeProjectId, body);
@@ -601,7 +627,7 @@ export default function App() {
           {state.view === 'groups'      && hasProject && <GroupAddressesView data={state.projectData} busConnected={state.busStatus.connected} activeProjectId={state.activeProjectId} onWrite={handleWrite} onDeviceJump={handleDeviceJump} onPin={handlePin} onCreateGA={handleCreateGA} onDeleteGA={handleDeleteGA} onUpdateGA={handleUpdateGA} onRenameGAGroup={handleRenameGAGroup} jumpTo={state.gaJumpTo} />}
           {state.view === 'comobjects'     && hasProject && <ComObjectsView     data={state.projectData} onPin={handlePin} />}
           {state.view === 'manufacturers' && hasProject && <ManufacturersView  data={state.projectData} onAddDevice={handleAddDevice} dispatch={dispatch} />}
-          {state.view === 'locations'   && hasProject && <LocationsView   data={state.projectData} onPin={handlePin} dispatch={dispatch} onAddDevice={handleAddDevice} onUpdateDevice={handleUpdateDevice} onUpdateSpace={handleUpdateSpace} />}
+          {state.view === 'locations'   && hasProject && <LocationsView   data={state.projectData} onPin={handlePin} dispatch={dispatch} onAddDevice={handleAddDevice} onUpdateDevice={handleUpdateDevice} onUpdateSpace={handleUpdateSpace} onCreateSpace={handleCreateSpace} onDeleteSpace={handleDeleteSpace} />}
           {state.view === 'floorplan'   && hasProject && <FloorPlanView   data={state.projectData} activeProjectId={state.activeProjectId} onUpdateDevice={handleUpdateDevice} jumpTo={state.floorplanJumpTo} onAddDevice={handleAddDevice} />}
           {state.view === 'monitor'     && <BusMonitorView telegrams={state.telegrams} busConnected={state.busStatus.connected} activeProjectId={state.activeProjectId} onClear={handleClearTelegrams} onWrite={handleWrite} data={state.projectData} onPin={handlePin} />}
           {state.view === 'scan'        && <BusScanView scan={state.scan} busConnected={state.busStatus.connected} projectData={state.projectData} activeProjectId={state.activeProjectId} dispatch={dispatch} onAddDevice={handleAddScannedDevice} />}

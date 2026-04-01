@@ -8,7 +8,7 @@ import { spaceUsageMap, localizedModel } from '../dpt.js';
 
 import { AddDeviceModal } from '../AddDeviceModal.jsx';
 
-export function LocationsView({ data, dispatch, onAddDevice, onUpdateDevice, onUpdateSpace }) {
+export function LocationsView({ data, dispatch, onAddDevice, onUpdateDevice, onUpdateSpace, onCreateSpace, onDeleteSpace }) {
   const C = useC();
   const pin = useContext(PinContext);
   const { t: i18t } = useContext(I18nCtx);
@@ -20,6 +20,7 @@ export function LocationsView({ data, dispatch, onAddDevice, onUpdateDevice, onU
   const [spaceSort, setSpaceSort] = useState(() => localStorage.getItem('knx-loc-sort') || 'import');
   const [editSpaceId, setEditSpaceId] = useState(null);
   const [editDevId, setEditDevId] = useState(null);
+  const [addSpaceParent, setAddSpaceParent] = useState(null); // null = not adding, { parentId, defaultType }
   const [collapsed, setCollapsed] = useState(() => {
     try {
       const stored = localStorage.getItem('knx-loc-collapsed');
@@ -123,10 +124,13 @@ export function LocationsView({ data, dispatch, onAddDevice, onUpdateDevice, onU
           ) : (
             <span
               className={pin ? 'pa' : undefined} data-pin={pin ? '1' : undefined}
-              style={{ fontWeight: depth <= 1 ? 600 : 400, fontSize: depth === 0 ? 11 : 10, color: depth === 0 ? C.amber : pin ? C.amber : C.text, cursor: onUpdateSpace ? 'text' : pin ? 'pointer' : 'default' }}
-              onClick={onUpdateSpace ? (e) => { e.stopPropagation(); setEditSpaceId(node.id); } : pin ? (e) => { e.stopPropagation(); pin('space', String(node.id)); } : undefined}
-              title={onUpdateSpace ? 'Click to rename' : undefined}
+              style={{ fontWeight: depth <= 1 ? 600 : 400, fontSize: depth === 0 ? 11 : 10, color: depth === 0 ? C.amber : pin ? C.amber : C.text, cursor: pin ? 'pointer' : 'default' }}
+              onClick={pin ? (e) => { e.stopPropagation(); pin('space', String(node.id)); } : undefined}
             >{node.name}</span>
+          )}
+          {onUpdateSpace && editSpaceId !== node.id && (
+            <span onClick={(e) => { e.stopPropagation(); setEditSpaceId(node.id); }}
+              title="Rename" style={{ color: C.dim, fontSize: 9, cursor: 'pointer', opacity: 0.5 }} className="bg">edit</span>
           )}
           {node.type === 'Room' && spaceUsageMap()[node.usage_id] && (
             <span style={{ color: C.dim, fontSize: 10, marginLeft: 4 }}>· {i18t(node.usage_id) || spaceUsageMap()[node.usage_id]}</span>
@@ -139,18 +143,30 @@ export function LocationsView({ data, dispatch, onAddDevice, onUpdateDevice, onU
               floor plan
             </span>
           )}
-          {onAddDevice && (
+          <AddMenu nodeId={node.id} nodeType={node.type} nodeName={node.name} C={C}
+            onAddDevice={onAddDevice ? () => setAddDefaults({ space_id: node.id }) : null}
+            onAddSpace={onCreateSpace ? () => {
+              const childType = node.type === 'Building' ? 'Floor' : node.type === 'Floor' ? 'Room' : 'Room';
+              setAddSpaceParent({ parentId: node.id, defaultType: childType });
+            } : null}
+          />
+          {onDeleteSpace && node.devs.length === 0 && (
             <span
-              onClick={(e) => { e.stopPropagation(); setAddDefaults({ space_id: node.id }); }}
-              title="Add device to this space"
-              style={{ color: C.green, fontSize: 9, marginLeft: 4, cursor: 'pointer', opacity: 0.7 }}>
-              +
+              onClick={(e) => { e.stopPropagation(); onDeleteSpace(node.id); }}
+              title={`Delete ${node.name}`}
+              style={{ color: C.red, fontSize: 9, marginLeft: 4, cursor: 'pointer', opacity: 0.5 }}>
+              delete
             </span>
           )}
           {(filteredDevs.length > 0 || node.children.length > 0) && (
             <span style={{ fontSize: 10, color: C.dim }}>· {filteredDevs.length + node.children.reduce((s, c) => s + c.devs.length, 0)}</span>
           )}
         </div>
+        {addSpaceParent?.parentId === node.id && (
+          <AddSpaceForm parentId={node.id} defaultType={addSpaceParent.defaultType} C={C}
+            onSave={async (body) => { await onCreateSpace(body); setAddSpaceParent(null); }}
+            onCancel={() => setAddSpaceParent(null)} />
+        )}
         {!isCollapsed && (
           <>
             {filteredDevs.length > 0 && (
@@ -213,8 +229,14 @@ export function LocationsView({ data, dispatch, onAddDevice, onUpdateDevice, onU
           <Chip key="sn" active={spaceSort === 'name'} onClick={() => { setSpaceSort('name'); localStorage.setItem('knx-loc-sort', 'name'); }}>By Name</Chip>,
           <ColumnPicker key="cp" cols={locCols} onChange={saveLocCols} C={C} />,
           <Btn key="csv" onClick={exportLocCSV} color={C.muted} bg={C.surface}>↓ CSV</Btn>,
+          ...(onCreateSpace ? [<Btn key="add" onClick={() => setAddSpaceParent({ parentId: null, defaultType: 'Building' })} color={C.green} bg={C.surface}>+ Building</Btn>] : []),
         ]} />
       <div style={{ flex: 1, overflow: 'auto' }}>
+        {addSpaceParent?.parentId === null && (
+          <AddSpaceForm parentId={null} defaultType="Building" C={C}
+            onSave={async (body) => { await onCreateSpace(body); setAddSpaceParent(null); }}
+            onCancel={() => setAddSpaceParent(null)} />
+        )}
         {roots.map(r => renderSpace(r, 0))}
         {unplaced.length > 0 && (
           <div>
@@ -269,6 +291,71 @@ export function LocationsView({ data, dispatch, onAddDevice, onUpdateDevice, onU
         ))}
       </div>
       {addDefaults && onAddDevice && <AddDeviceModal data={data} defaults={addDefaults} onAdd={onAddDevice} onClose={() => setAddDefaults(null)} />}
+    </div>
+  );
+}
+
+function AddMenu({ nodeId, nodeType, nodeName, C, onAddDevice, onAddSpace }) {
+  const [open, setOpen] = useState(false);
+  const options = [
+    onAddDevice && { label: 'Add device', action: onAddDevice },
+    onAddSpace && { label: 'Add space', action: onAddSpace },
+  ].filter(Boolean);
+  if (options.length === 0) return null;
+  if (options.length === 1) {
+    return (
+      <span onClick={(e) => { e.stopPropagation(); options[0].action(); }}
+        title={options[0].label}
+        style={{ color: C.green, fontSize: 13, marginLeft: 4, cursor: 'pointer', opacity: 0.7, lineHeight: 1 }}>+</span>
+    );
+  }
+  return (
+    <span style={{ position: 'relative', marginLeft: 4 }}>
+      <span onClick={(e) => { e.stopPropagation(); setOpen(p => !p); }}
+        title="Add…"
+        style={{ color: C.green, fontSize: 13, cursor: 'pointer', opacity: 0.7, lineHeight: 1 }}>+</span>
+      {open && (
+        <>
+          <div onClick={() => setOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 999 }} />
+          <div style={{ position: 'absolute', top: '100%', left: 0, marginTop: 4, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 4, boxShadow: '0 4px 12px rgba(0,0,0,0.25)', zIndex: 1000, minWidth: 120, overflow: 'hidden' }}>
+            {options.map(o => (
+              <div key={o.label} onClick={(e) => { e.stopPropagation(); o.action(); setOpen(false); }}
+                className="rh"
+                style={{ padding: '6px 12px', fontSize: 10, color: C.text, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                {o.label}
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </span>
+  );
+}
+
+const SPACE_TYPES = ['Building', 'Floor', 'Room', 'Corridor', 'Stairway', 'DistributionBoard'];
+
+function AddSpaceForm({ parentId, defaultType, C, onSave, onCancel }) {
+  const [name, setName] = useState('');
+  const [type, setType] = useState(defaultType || 'Room');
+  const [saving, setSaving] = useState(false);
+  const save = async () => {
+    if (!name.trim()) return;
+    setSaving(true);
+    try { await onSave({ name: name.trim(), type, parent_id: parentId }); }
+    catch (_) {}
+    setSaving(false);
+  };
+  return (
+    <div style={{ padding: '8px 14px', borderBottom: `1px solid ${C.border}`, background: C.surface, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+      <select value={type} onChange={e => setType(e.target.value)}
+        style={{ background: C.inputBg, border: `1px solid ${C.border2}`, borderRadius: 4, padding: '5px 8px', color: C.text, fontSize: 10, fontFamily: 'inherit' }}>
+        {SPACE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+      </select>
+      <input value={name} onChange={e => setName(e.target.value)} placeholder="Name" autoFocus
+        onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') onCancel(); }}
+        style={{ background: C.inputBg, border: `1px solid ${C.border2}`, borderRadius: 4, padding: '5px 8px', color: C.text, fontSize: 10, fontFamily: 'inherit', flex: 1, minWidth: 120 }} />
+      <Btn onClick={save} disabled={saving || !name.trim()} color={C.green}>{saving ? 'Creating…' : 'Create'}</Btn>
+      <Btn onClick={onCancel} color={C.dim}>Cancel</Btn>
     </div>
   );
 }
