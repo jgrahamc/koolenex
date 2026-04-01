@@ -214,6 +214,21 @@ describe('Smoke: communication objects', () => {
     assert.equal(cos.length, 3);
   });
 
+  it('US/U2.2 (1.1.4) has exactly these 2 com objects', () => {
+    const cos = parsed.comObjects.filter(co => co.device_address === '1.1.4');
+    assert.equal(cos.length, 2);
+    const byNum = Object.fromEntries(cos.map(co => [co.object_number, co]));
+
+    assert(byNum[0], 'CO #0 should exist');
+    assert.equal(byNum[0].name, 'Disable');
+
+    assert(byNum[1], 'CO #1 should exist');
+    assert.equal(byNum[1].name, 'Telegr. switch');
+
+    const nums = cos.map(co => co.object_number).sort((a, b) => a - b);
+    assert.deepEqual(nums, [0, 1]);
+  });
+
   it('power supply (1.1.0) and USB interface (1.1.1) have no com objects', () => {
     assert.equal(parsed.comObjects.filter(co => co.device_address === '1.1.0').length, 0);
     assert.equal(parsed.comObjects.filter(co => co.device_address === '1.1.1').length, 0);
