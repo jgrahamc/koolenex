@@ -10,8 +10,12 @@ import { ComparePanel } from './ComparePanel.jsx';
 import { DevicePinPanel } from './DevicePinPanel.jsx';
 import { GAPinPanel } from './GAPinPanel.jsx';
 
-function SpacePanel({ spaceId, data, C }) {
+function SpacePanel({ spaceId, data, C, onUpdateSpace, onAddDevice }) {
   const { devices = [], spaces = [] } = data;
+  const [editing, setEditing] = useState(false);
+  const [editName, setEditName] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [showAdd, setShowAdd] = useState(false);
   const spaceMap = Object.fromEntries(spaces.map(s => [s.id, s]));
   const space = spaceMap[parseInt(spaceId)];
   if (!space) return <Empty icon="◈" msg="Space not found" />;
@@ -21,6 +25,15 @@ function SpacePanel({ spaceId, data, C }) {
   };
   const spaceIds = new Set(getDescendants(parseInt(spaceId)));
   const matches = devices.filter(d => spaceIds.has(d.space_id));
+
+  const handleSave = async () => {
+    if (!editName.trim() || !onUpdateSpace) return;
+    setSaving(true);
+    try { await onUpdateSpace(space.id, { name: editName.trim() }); setEditing(false); }
+    catch (_) {}
+    setSaving(false);
+  };
+
   return (
     <div style={{ padding: 24 }}>
       <div style={{ marginBottom: 20 }}>
@@ -28,9 +41,27 @@ function SpacePanel({ spaceId, data, C }) {
           <span style={{ color: C.amber }}><SpaceTypeIcon type={space.type} size={22} /></span>
           <span style={{ fontSize: 9, color: C.amber, letterSpacing: '0.1em' }}>{space.type?.toUpperCase()}</span>
         </div>
-        <div style={{ fontFamily: "'DM Mono',monospace", fontWeight: 700, fontSize: 20, color: C.text }}>{space.name}</div>
-        <div style={{ fontSize: 11, color: C.dim, marginTop: 4 }}>{matches.length} device{matches.length !== 1 ? 's' : ''}</div>
+        {editing ? (
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            <input value={editName} onChange={e => setEditName(e.target.value)} autoFocus
+              onKeyDown={e => { if (e.key === 'Enter') handleSave(); if (e.key === 'Escape') setEditing(false); }}
+              style={{ fontFamily: "'DM Mono',monospace", fontWeight: 700, fontSize: 20, color: C.text, background: C.inputBg, border: `1px solid ${C.accent}`, borderRadius: 4, padding: '2px 8px', flex: 1 }} />
+            <Btn onClick={handleSave} disabled={saving || !editName.trim()} color={C.green}>{saving ? 'Saving' : 'Save'}</Btn>
+            <Btn onClick={() => setEditing(false)} color={C.dim}>Cancel</Btn>
+          </div>
+        ) : (
+          <div style={{ fontFamily: "'DM Mono',monospace", fontWeight: 700, fontSize: 20, color: C.text, cursor: onUpdateSpace ? 'text' : 'default' }}
+            onClick={onUpdateSpace ? () => { setEditName(space.name); setEditing(true); } : undefined}
+            title={onUpdateSpace ? 'Click to rename' : undefined}>{space.name}</div>
+        )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
+          <span style={{ fontSize: 11, color: C.dim }}>{matches.length} device{matches.length !== 1 ? 's' : ''}</span>
+          {onAddDevice && <Btn onClick={() => setShowAdd(true)} color={C.green} style={{ fontSize: 9, padding: '2px 8px' }}>+ Add Device</Btn>}
+        </div>
       </div>
+      {showAdd && onAddDevice && (
+        <AddDeviceModal data={data} defaults={{ space_id: space.id }} onAdd={onAddDevice} onClose={() => setShowAdd(false)} />
+      )}
       {matches.length === 0 ? <Empty icon="◈" msg="No devices in this space" /> : (
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 10 }}>
           <thead><tr>
@@ -355,7 +386,7 @@ function MultiComparePanel({ addrs, data, C }) {
   );
 }
 
-export function PinDetailView({ pinKey, data, busStatus, telegrams = [], onWrite, activeProjectId, onUpdateGA, onUpdateDevice, onGroupJump, onAddDevice, onUpdateComObjectGAs, dispatch }) {
+export function PinDetailView({ pinKey, data, busStatus, telegrams = [], onWrite, activeProjectId, onUpdateGA, onUpdateDevice, onUpdateSpace, onGroupJump, onAddDevice, onUpdateComObjectGAs, dispatch }) {
   const C = useC();
   const COLMAP = { actuator: C.actuator, sensor: C.sensor, router: C.router, generic: C.muted };
   const scrollRef = useRef(null);
@@ -383,7 +414,7 @@ export function PinDetailView({ pinKey, data, busStatus, telegrams = [], onWrite
 
   let content;
   if (wtype === 'space') {
-    content = <SpacePanel spaceId={address} data={data} C={C} />;
+    content = <SpacePanel spaceId={address} data={data} C={C} onUpdateSpace={onUpdateSpace} onAddDevice={onAddDevice} />;
   } else if (GROUP_WTYPES[wtype]) {
     content = <DeviceGroupPanel wtype={wtype} value={address} data={data} C={C} onAddDevice={onAddDevice} dispatch={dispatch} />;
   } else if (wtype === 'multicompare') {

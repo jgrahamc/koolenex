@@ -634,7 +634,7 @@ export default function App() {
           {state.view === 'catalog'     && hasProject && <CatalogView activeProjectId={state.activeProjectId} data={state.projectData} onAddDevice={handleAddDevice} onPin={handlePin} jumpTo={state.catalogJumpTo} />}
           {state.view === 'printlabels' && hasProject && <PrintLabelsView data={state.projectData} dispatch={dispatch} />}
           {state.view === 'programming' && hasProject && <ProgrammingView data={state.projectData} onDeviceStatus={handleDeviceStatus} />}
-          {state.view === 'pin'         && hasProject && <PinDetailView pinKey={state.activePinKey} data={state.projectData} busStatus={state.busStatus} telegrams={state.telegrams} onWrite={handleWrite} activeProjectId={state.activeProjectId} onUpdateGA={handleUpdateGA} onUpdateDevice={handleUpdateDevice} onGroupJump={handleGAGroupJump} onAddDevice={handleAddDevice} onUpdateComObjectGAs={handleUpdateComObjectGAs} dispatch={dispatch} />}
+          {state.view === 'pin'         && hasProject && <PinDetailView pinKey={state.activePinKey} data={state.projectData} busStatus={state.busStatus} telegrams={state.telegrams} onWrite={handleWrite} activeProjectId={state.activeProjectId} onUpdateGA={handleUpdateGA} onUpdateDevice={handleUpdateDevice} onUpdateSpace={handleUpdateSpace} onGroupJump={handleGAGroupJump} onAddDevice={handleAddDevice} onUpdateComObjectGAs={handleUpdateComObjectGAs} dispatch={dispatch} />}
         </div>
         </PinContext.Provider>
       </div>

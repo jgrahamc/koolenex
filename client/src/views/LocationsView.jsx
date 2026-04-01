@@ -154,8 +154,8 @@ export function LocationsView({ data, dispatch, onAddDevice, onUpdateDevice, onU
             <span
               onClick={(e) => { e.stopPropagation(); onDeleteSpace(node.id); }}
               title={`Delete ${node.name}`}
-              style={{ color: C.red, fontSize: 9, marginLeft: 4, cursor: 'pointer', opacity: 0.5 }}>
-              delete
+              style={{ color: C.red, fontSize: 13, marginLeft: 4, cursor: 'pointer', opacity: 0.5, lineHeight: 1 }}>
+              −
             </span>
           )}
           {(filteredDevs.length > 0 || node.children.length > 0) && (
