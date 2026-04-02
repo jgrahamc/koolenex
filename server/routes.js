@@ -1393,7 +1393,7 @@ function decodeRawValue(rawHex, dptKey, info) {
   if (rawBuf.length === 1) {
     const v = rawBuf[0];
     const coeff = info?.coefficient;
-    return coeff ? (v * coeff).toFixed(1).replace(/\.0$/, '') : String(v);
+    return coeff != null ? (v * coeff).toFixed(1).replace(/\.0$/, '') : String(v);
   }
   if (rawBuf.length === 2) {
     if (major === 9) {
@@ -1407,13 +1407,13 @@ function decodeRawValue(rawHex, dptKey, info) {
       // DPT 7: 16-bit unsigned integer
       const v = rawBuf.readUInt16BE(0);
       const coeff = info?.coefficient;
-      return coeff ? (v * coeff).toFixed(1).replace(/\.0$/, '') : String(v);
+      return coeff != null ? (v * coeff).toFixed(1).replace(/\.0$/, '') : String(v);
     }
     if (major === 8) {
       // DPT 8: 16-bit signed integer
       const v = rawBuf.readInt16BE(0);
       const coeff = info?.coefficient;
-      return coeff ? (v * coeff).toFixed(1).replace(/\.0$/, '') : String(v);
+      return coeff != null ? (v * coeff).toFixed(1).replace(/\.0$/, '') : String(v);
     }
   }
   if (rawBuf.length === 4 && major === 14) {
@@ -1846,3 +1846,5 @@ module.exports.writeKnxFloat16 = writeKnxFloat16;
 module.exports.writeBits = writeBits;
 module.exports.normalizeDptKey = normalizeDptKey;
 module.exports.decodeRawValue = decodeRawValue;
+module.exports.buildGATable = buildGATable;
+module.exports.buildAssocTable = buildAssocTable;

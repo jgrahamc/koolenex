@@ -29,10 +29,14 @@ const crypto        = require('crypto');
 /** Returns true if the buffer is not plaintext XML (i.e. likely AES-encrypted). */
 function looksEncrypted(buf) {
   if (!buf || buf.length < 2) return false;
-  // UTF-8 BOM (EF BB BF) followed by '<'
-  if (buf[0] === 0xef && buf[1] === 0xbb) return false;
-  // Plain '<'
-  if (buf[0] === 0x3c) return false;
+  // Skip leading whitespace and BOM
+  let i = 0;
+  // UTF-8 BOM (EF BB BF)
+  if (buf[0] === 0xef && buf[1] === 0xbb) i = 3;
+  // Skip whitespace (space, tab, newline, carriage return)
+  while (i < buf.length && (buf[i] === 0x20 || buf[i] === 0x09 || buf[i] === 0x0a || buf[i] === 0x0d)) i++;
+  // Plain XML starts with '<'
+  if (i < buf.length && buf[i] === 0x3c) return false;
   return true;
 }
 
@@ -1059,8 +1063,9 @@ function parseLocationsRec(spaceEls, parentIdx, spaces, devSpaceMap, devInstById
 
 // ─── Main export ──────────────────────────────────────────────────────────────
 function parseKnxproj(buffer, password = null) {
-  const zip       = new AdmZip(buffer);
-  const entries   = zip.getEntries();
+  let zip, entries;
+  try { zip = new AdmZip(buffer); entries = zip.getEntries(); }
+  catch (e) { throw new Error('Invalid or corrupt .knxproj file: ' + e.message); }
   const byName    = Object.fromEntries(entries.map(e => [e.entryName, e]));
 
   // ── Manufacturer names ─────────────────────────────────────────────────────
@@ -1708,4 +1713,4 @@ function buildFlags({ read, write, comm, tx, u }) {
   return [comm&&'C', read&&'R', write&&'W', tx&&'T', u&&'U'].filter(Boolean).join('') || 'CW';
 }
 
-module.exports = { parseKnxproj, looksEncrypted };
+module.exports = { parseKnxproj, looksEncrypted, inferType, buildFlags };

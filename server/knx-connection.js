@@ -628,4 +628,13 @@ module.exports = {
   decodeDptBuffer,
   MC,
   delay,
+  // Export for testing
+  _apduGroupRead: apduGroupRead,
+  _apduGroupWrite: apduGroupWrite,
+  _apduGroupResponse: apduGroupResponse,
+  _apduControl: apduControl,
+  _apduPropertyValueRead: apduPropertyValueRead,
+  _apduPropertyValueWrite: apduPropertyValueWrite,
+  _TPCI: TPCI,
+  _APCI: APCI,
 };

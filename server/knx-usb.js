@@ -501,3 +501,16 @@ class KnxUsbConnection extends KnxConnection {
 }
 
 module.exports = { KnxUsbConnection };
+
+// Export pure helpers for testing
+module.exports._buildHidReports = buildHidReports;
+module.exports._parseHidReport = parseHidReport;
+module.exports._parseTransferHeader = parseTransferHeader;
+module.exports._buildFeatureGet = buildFeatureGet;
+module.exports._buildFeatureSet = buildFeatureSet;
+module.exports._PROTO_KNX_TUNNEL = PROTO_KNX_TUNNEL;
+module.exports._PROTO_BUS_FEATURE = PROTO_BUS_FEATURE;
+module.exports._EMI_ID = EMI_ID;
+module.exports._FEATURE = FEATURE;
+module.exports._PKT = PKT;
+module.exports._FEATURE_SVC = FEATURE_SVC;

@@ -490,6 +490,19 @@ describe('decodeRawValue', () => {
     assert.equal(decodeRawValue('80', '5.001', info), '50.2');
   });
 
+  it('DPT 5: coefficient 0 gives 0', () => {
+    assert.equal(decodeRawValue('ff', '5.001', { coefficient: 0 }), '0');
+    assert.equal(decodeRawValue('80', '5.001', { coefficient: 0 }), '0');
+  });
+
+  it('DPT 7: coefficient 0 gives 0', () => {
+    assert.equal(decodeRawValue('ffff', '7.001', { coefficient: 0 }), '0');
+  });
+
+  it('DPT 8: coefficient 0 gives 0', () => {
+    assert.equal(decodeRawValue('ff9c', '8.001', { coefficient: 0 }), '0');
+  });
+
   // DPT 7 — 16-bit unsigned
   it('DPT 7: decodes 16-bit unsigned', () => {
     assert.equal(decodeRawValue('0000', '7.001', {}), '0');

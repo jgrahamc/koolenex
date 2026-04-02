@@ -259,3 +259,13 @@ class KnxIpConnection extends KnxConnection {
 }
 
 module.exports = { KnxConnection: KnxIpConnection };
+
+// Export pure helpers for testing
+module.exports._hdr = hdr;
+module.exports._hpai = hpai;
+module.exports._pktConnect = pktConnect;
+module.exports._pktConnState = pktConnState;
+module.exports._pktDisconnect = pktDisconnect;
+module.exports._pktDisconnectRes = pktDisconnectRes;
+module.exports._pktTunnelingReq = pktTunnelingReq;
+module.exports._SVC = SVC;
