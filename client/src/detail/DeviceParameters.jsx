@@ -71,15 +71,17 @@ export function DeviceParameters({ dev, projectId, C }) {
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [activeSection, setActiveSection] = useState(null);
+  const [expandedGroups, setExpandedGroups] = useState({});
 
   const devId = dev.id;
 
   // Auto-load the model whenever the device changes (if it has an app_ref).
   // This means view mode always shows current saved values, not the stale ETS snapshot.
   useEffect(() => {
+    setModel(null); setValues({}); setMode('view'); setDirty(false); setLoading(false); setLoadErr(null);
     if (!dev.app_ref || !projectId || !devId) return;
     let cancelled = false;
-    setLoading(true); setLoadErr(null); setModel(null); setValues({}); setMode('view'); setDirty(false);
+    setLoading(true);
     api.getParamModel(projectId, devId)
       .then(data => {
         if (cancelled) return;
@@ -107,16 +109,7 @@ export function DeviceParameters({ dev, projectId, C }) {
     setSaving(false);
   };
 
-  if (mode === 'view' && !model) {
-    if (!dev.app_ref) return null;
-    return (
-      <div style={{ marginTop: 20, marginBottom: 20 }}>
-        <div style={{ fontSize: 10, color: C.dim, letterSpacing: '0.08em' }}>PARAMETERS</div>
-        {loading && <div style={{ color: C.dim, fontSize: 10, marginTop: 8 }}>Loading…</div>}
-        {loadErr && <div style={{ fontSize: 9, color: C.red, marginTop: 8 }}>{loadErr}</div>}
-      </div>
-    );
-  }
+  if (mode === 'view' && !model) return null;
 
   if (!model) return null;
   const { params, dynTree, modArgs } = model;
@@ -311,7 +304,11 @@ export function DeviceParameters({ dev, projectId, C }) {
     }
   }
 
-  const curSec = (activeSection !== null && sections.includes(activeSection)) ? activeSection : (sections[0] ?? '');
+  const visibleSections = sections.filter(key => {
+    const grp = secGroupMap[key] || '';
+    return !grp || !!expandedGroups[grp];
+  });
+  const curSec = (activeSection !== null && visibleSections.includes(activeSection)) ? activeSection : (visibleSections[0] ?? '');
 
   // Format a raw numeric value as hh:mm:ss (or hh:mm:ss.fff) for TypeTime display.
   const fmtDuration = (raw, unit, uiHint) => {
@@ -448,16 +445,22 @@ export function DeviceParameters({ dev, projectId, C }) {
                     const grp    = secGroupMap[key]  || '';
                     const indent = secIndentMap[key] || 0;
                     const lbl    = secLabelMap[key]  || key || 'General';
-                    // paddingLeft: extra depth when ETS uses leading spaces (4 spaces per level)
-                    const paddingLeft = indent > 0 ? 26 : grp ? 18 : 10;
                     if (grp !== lastGroup) {
                       lastGroup = grp;
-                      if (grp) items.push(
-                        <div key={'grp:' + grp} style={{ padding: '5px 10px 2px', fontSize: 9, color: C.dim, userSelect: 'none', whiteSpace: 'nowrap', letterSpacing: '0.05em', borderLeft: '2px solid transparent' }}>
-                          {grp}
-                        </div>
-                      );
+                      if (grp) {
+                        const collapsed = !expandedGroups[grp];
+                        items.push(
+                          <div key={'grp:' + grp}
+                            onClick={() => setExpandedGroups(prev => ({ ...prev, [grp]: !prev[grp] }))}
+                            style={{ position: 'relative', padding: '4px 10px 4px 14px', fontSize: 10, color: C.muted, userSelect: 'none', whiteSpace: 'nowrap', borderLeft: '2px solid transparent', cursor: 'pointer' }}>
+                            <span style={{ position: 'absolute', left: 5, top: '50%', transform: `translateY(-50%) rotate(${collapsed ? '-90deg' : '0deg'})`, fontSize: 7, transition: 'transform 0.15s' }}>&#9660;</span>
+                            {grp}
+                          </div>
+                        );
+                      }
                     }
+                    if (grp && !expandedGroups[grp]) continue;
+                    const paddingLeft = grp ? 24 : 14;
                     items.push(
                       <div key={key} onClick={() => setActiveSection(key)}
                         style={{ padding: `4px 10px 4px ${paddingLeft}px`, cursor: 'pointer', fontSize: 10, userSelect: 'none', whiteSpace: 'nowrap',

@@ -128,9 +128,9 @@ export function DevicePinPanel({ C, COLMAP, dev, devCOs, linkedGAs, spacePath, g
         {/* Tab bar */}
         <TabBar C={C} active={devTab} onChange={handleDevTab} tabs={[
           { id: 'overview',    label: 'OVERVIEW' },
-          { id: 'gas',         label: `GROUP ADDRESSES${linkedGAs.length ? ` (${linkedGAs.length})` : ''}` },
-          { id: 'comobjects',  label: `GROUP OBJECTS${devCOs.length ? ` (${devCOs.length})` : ''}` },
-          { id: 'parameters',  label: 'PARAMETERS' },
+          ...(linkedGAs.length ? [{ id: 'gas', label: `GROUP ADDRESSES (${linkedGAs.length})` }] : []),
+          ...(devCOs.length ? [{ id: 'comobjects', label: `GROUP OBJECTS (${devCOs.length})` }] : []),
+          ...(dev.app_ref ? [{ id: 'parameters', label: 'PARAMETERS' }] : []),
           { id: 'telegrams',   label: 'MONITOR' },
         ]} />
 
