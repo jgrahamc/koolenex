@@ -15,7 +15,7 @@ const {
 } = require('../server/knx-connection');
 
 const {
-  writeKnxFloat16, writeBits, normalizeDptKey,
+  writeKnxFloat16, writeBits, normalizeDptKey, decodeRawValue,
 } = require('../server/routes');
 
 // ── DPT encoding ────────────────────────────────────────────────────────────
@@ -449,5 +449,125 @@ describe('parseCEMI', () => {
     const cemi = buildCEMI('1.1.1', '1/0/0', apdu, true);
     const parsed = parseCEMI(cemi);
     assert.equal(parsed.tpciType, 'DATA_GROUP');
+  });
+});
+
+// ── decodeRawValue (pure DPT-aware decode) ──────────────────────────────────
+
+describe('decodeRawValue', () => {
+  it('returns null for missing inputs', () => {
+    assert.equal(decodeRawValue(null, '1.001', {}), null);
+    assert.equal(decodeRawValue('01', null, {}), null);
+    assert.equal(decodeRawValue('', '1.001', {}), null);
+  });
+
+  // DPT 1 — boolean with enums
+  it('DPT 1: decodes On/Off via enums', () => {
+    const info = { enums: { 0: 'Off', 1: 'On' } };
+    assert.equal(decodeRawValue('00', '1.001', info), 'Off');
+    assert.equal(decodeRawValue('01', '1.001', info), 'On');
+  });
+
+  // DPT 1 — without enums
+  it('DPT 1: decodes as numeric string without enums', () => {
+    assert.equal(decodeRawValue('00', '1.001', {}), '0');
+    assert.equal(decodeRawValue('01', '1.001', {}), '1');
+  });
+
+  // DPT 5 — 8-bit unsigned
+  it('DPT 5: decodes 8-bit unsigned', () => {
+    assert.equal(decodeRawValue('00', '5.001', {}), '0');
+    assert.equal(decodeRawValue('ff', '5.010', {}), '255');
+    assert.equal(decodeRawValue('80', '5.001', {}), '128');
+  });
+
+  // DPT 5 — with coefficient (e.g. DPT 5.001 scaling: 100/255)
+  it('DPT 5: applies coefficient', () => {
+    const info = { coefficient: 100 / 255 };
+    assert.equal(decodeRawValue('ff', '5.001', info), '100');
+    assert.equal(decodeRawValue('00', '5.001', info), '0');
+    // 128 * (100/255) ≈ 50.2
+    assert.equal(decodeRawValue('80', '5.001', info), '50.2');
+  });
+
+  // DPT 7 — 16-bit unsigned
+  it('DPT 7: decodes 16-bit unsigned', () => {
+    assert.equal(decodeRawValue('0000', '7.001', {}), '0');
+    assert.equal(decodeRawValue('ffff', '7.001', {}), '65535');
+    assert.equal(decodeRawValue('0100', '7.001', {}), '256');
+  });
+
+  it('DPT 7: applies coefficient', () => {
+    const info = { coefficient: 0.1 };
+    assert.equal(decodeRawValue('03e8', '7.002', info), '100');  // 1000 * 0.1
+    assert.equal(decodeRawValue('0001', '7.002', info), '0.1');
+  });
+
+  // DPT 8 — 16-bit signed
+  it('DPT 8: decodes 16-bit signed positive', () => {
+    assert.equal(decodeRawValue('0001', '8.001', {}), '1');
+    assert.equal(decodeRawValue('7fff', '8.001', {}), '32767');
+  });
+
+  it('DPT 8: decodes 16-bit signed negative', () => {
+    assert.equal(decodeRawValue('ffff', '8.001', {}), '-1');
+    assert.equal(decodeRawValue('8000', '8.001', {}), '-32768');
+  });
+
+  it('DPT 8: applies coefficient to signed', () => {
+    const info = { coefficient: 0.01 };
+    assert.equal(decodeRawValue('ff9c', '8.002', info), '-1');   // -100 * 0.01
+    assert.equal(decodeRawValue('0064', '8.002', info), '1');    // 100 * 0.01
+  });
+
+  // DPT 9 — 2-byte KNX float
+  it('DPT 9: decodes zero', () => {
+    assert.equal(decodeRawValue('0000', '9.001', {}), '0.00');
+  });
+
+  it('DPT 9: decodes positive temperature', () => {
+    // Encode 21.0 then verify decode
+    const buf = encodeDpt(21.0, '9.001');
+    const hex = buf.toString('hex');
+    const decoded = parseFloat(decodeRawValue(hex, '9.001', {}));
+    assert(Math.abs(decoded - 21.0) < 0.1, `decoded ${decoded}`);
+  });
+
+  it('DPT 9: decodes negative temperature', () => {
+    const buf = encodeDpt(-5.0, '9.001');
+    const hex = buf.toString('hex');
+    const decoded = parseFloat(decodeRawValue(hex, '9.001', {}));
+    assert(Math.abs(decoded - (-5.0)) < 0.5, `decoded ${decoded}`);
+  });
+
+  // DPT 14 — 4-byte IEEE float
+  it('DPT 14: decodes 4-byte float', () => {
+    const buf = Buffer.alloc(4);
+    buf.writeFloatBE(3.14);
+    const decoded = parseFloat(decodeRawValue(buf.toString('hex'), '14.068', {}));
+    assert(Math.abs(decoded - 3.14) < 0.01, `decoded ${decoded}`);
+  });
+
+  it('DPT 14: decodes negative float', () => {
+    const buf = Buffer.alloc(4);
+    buf.writeFloatBE(-273.15);
+    const decoded = parseFloat(decodeRawValue(buf.toString('hex'), '14.069', {}));
+    assert(Math.abs(decoded - (-273.15)) < 0.1, `decoded ${decoded}`);
+  });
+
+  // DPT 20 — HVAC enum
+  it('DPT 20: decodes enum value', () => {
+    const info = { enums: { 0: 'Auto', 1: 'Comfort', 2: 'Standby', 3: 'Economy', 4: 'Protection' } };
+    assert.equal(decodeRawValue('01', '20.102', info), 'Comfort');
+    assert.equal(decodeRawValue('03', '20.102', info), 'Economy');
+  });
+
+  // Unknown buffer size returns null
+  it('returns null for 3-byte buffer with non-DPT-14 type', () => {
+    assert.equal(decodeRawValue('aabbcc', '5.001', {}), null);
+  });
+
+  it('returns null for 4-byte buffer with non-DPT-14 type', () => {
+    assert.equal(decodeRawValue('aabbccdd', '7.001', {}), null);
   });
 });

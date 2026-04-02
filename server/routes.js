@@ -1376,6 +1376,53 @@ function normalizeDptKey(dpt) {
   return null;
 }
 
+// Pure DPT-aware decode: takes raw hex string, normalized DPT key, and optional
+// DPT info (enums, coefficient). Returns decoded string or null if no decoding applied.
+function decodeRawValue(rawHex, dptKey, info) {
+  if (!rawHex || !dptKey) return null;
+  const major = parseInt(dptKey.split('.')[0]);
+  const rawBuf = Buffer.from(rawHex, 'hex');
+  if (!rawBuf.length) return null;
+
+  // Use enums if available (e.g. DPT 1: On/Off, DPT 20: HVAC modes)
+  if (info?.enums) {
+    const v = rawBuf.length === 1 ? rawBuf[0] : rawBuf.readUInt16BE(0);
+    if (info.enums[v] !== undefined) return info.enums[v];
+  }
+
+  if (rawBuf.length === 1) {
+    const v = rawBuf[0];
+    const coeff = info?.coefficient;
+    return coeff ? (v * coeff).toFixed(1).replace(/\.0$/, '') : String(v);
+  }
+  if (rawBuf.length === 2) {
+    if (major === 9) {
+      // DPT 9: KNX 2-byte float
+      const raw = rawBuf.readUInt16BE(0);
+      const sign = (raw >> 15) & 1, exp = (raw >> 11) & 0xF, mant = raw & 0x7FF;
+      const signedMant = sign ? mant - 2048 : mant;
+      return (0.01 * signedMant * Math.pow(2, exp)).toFixed(2);
+    }
+    if (major === 7) {
+      // DPT 7: 16-bit unsigned integer
+      const v = rawBuf.readUInt16BE(0);
+      const coeff = info?.coefficient;
+      return coeff ? (v * coeff).toFixed(1).replace(/\.0$/, '') : String(v);
+    }
+    if (major === 8) {
+      // DPT 8: 16-bit signed integer
+      const v = rawBuf.readInt16BE(0);
+      const coeff = info?.coefficient;
+      return coeff ? (v * coeff).toFixed(1).replace(/\.0$/, '') : String(v);
+    }
+  }
+  if (rawBuf.length === 4 && major === 14) {
+    // DPT 14: 32-bit IEEE 754 float
+    return rawBuf.readFloatBE(0).toFixed(2);
+  }
+  return null;
+}
+
 function refineDecode(tg) {
   if (!tg.projectId || !tg.dst?.includes('/') || !tg.raw_value) return tg;
 
@@ -1385,50 +1432,9 @@ function refineDecode(tg) {
 
   const key = normalizeDptKey(ga.dpt);
   if (!key) return tg;
-  const major = parseInt(key.split('.')[0]);
   const info = getDptInfo(tg.projectId)[key];
-
-  const rawBuf = Buffer.from(tg.raw_value, 'hex');
-  if (!rawBuf.length) return tg;
-
-  let decoded = tg.decoded;
-
-  // Use enums if available (e.g. DPT 1: On/Off, DPT 20: HVAC modes)
-  if (info?.enums) {
-    const v = rawBuf.length === 1 ? rawBuf[0] : rawBuf.readUInt16BE(0);
-    if (info.enums[v] !== undefined) return { ...tg, decoded: info.enums[v] };
-  }
-
-  // Re-decode from raw bytes using correct format for the DPT major type
-  if (rawBuf.length === 1) {
-    const v = rawBuf[0];
-    const coeff = info?.coefficient;
-    decoded = coeff ? (v * coeff).toFixed(1).replace(/\.0$/, '') : String(v);
-  } else if (rawBuf.length === 2) {
-    if (major === 9) {
-      // DPT 9: KNX 2-byte float
-      const raw = rawBuf.readUInt16BE(0);
-      const sign = (raw >> 15) & 1, exp = (raw >> 11) & 0xF, mant = raw & 0x7FF;
-      const signedMant = sign ? mant - 2048 : mant;
-      const v = 0.01 * signedMant * Math.pow(2, exp);
-      decoded = v.toFixed(2);
-    } else if (major === 7) {
-      // DPT 7: 16-bit unsigned integer
-      const v = rawBuf.readUInt16BE(0);
-      const coeff = info?.coefficient;
-      decoded = coeff ? (v * coeff).toFixed(1).replace(/\.0$/, '') : String(v);
-    } else if (major === 8) {
-      // DPT 8: 16-bit signed integer
-      const v = rawBuf.readInt16BE(0);
-      const coeff = info?.coefficient;
-      decoded = coeff ? (v * coeff).toFixed(1).replace(/\.0$/, '') : String(v);
-    }
-  } else if (rawBuf.length === 4 && major === 14) {
-    // DPT 14: 32-bit IEEE 754 float
-    decoded = rawBuf.readFloatBE(0).toFixed(2);
-  }
-
-  return { ...tg, decoded };
+  const decoded = decodeRawValue(tg.raw_value, key, info);
+  return decoded != null ? { ...tg, decoded } : tg;
 }
 
 // Persist incoming telegrams from live bus
@@ -1839,3 +1845,4 @@ module.exports = router;
 module.exports.writeKnxFloat16 = writeKnxFloat16;
 module.exports.writeBits = writeBits;
 module.exports.normalizeDptKey = normalizeDptKey;
+module.exports.decodeRawValue = decodeRawValue;
