@@ -74,10 +74,6 @@ export function DeviceParameters({ dev, projectId, C }) {
 
   const devId = dev.id;
 
-  const viewParams = useMemo(() => {
-    try { return JSON.parse(dev.parameters || '[]'); } catch { return []; }
-  }, [dev.parameters]);
-
   // Auto-load the model whenever the device changes (if it has an app_ref).
   // This means view mode always shows current saved values, not the stale ETS snapshot.
   useEffect(() => {
@@ -112,53 +108,12 @@ export function DeviceParameters({ dev, projectId, C }) {
   };
 
   if (mode === 'view' && !model) {
-    if (!viewParams.length && !dev.app_ref) return null;
-    const sections = [];
-    const sectionMap = {};
-    for (const p of viewParams) {
-      const sec = p.section || '';
-      if (!sectionMap[sec]) { sectionMap[sec] = []; sections.push(sec); }
-      sectionMap[sec].push(p);
-    }
-    const curSec = (activeSection !== null && sections.includes(activeSection)) ? activeSection : sections[0] ?? '';
-
+    if (!dev.app_ref) return null;
     return (
       <div style={{ marginTop: 20, marginBottom: 20 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-          <div style={{ fontSize: 10, color: C.dim, letterSpacing: '0.08em' }}>PARAMETERS ({viewParams.length})</div>
-          {dev.app_ref && (
-            <button onClick={() => setMode('edit')} disabled={loading || !model}
-              style={{ fontSize: 9, background: 'none', border: `1px solid ${C.accent}`, borderRadius: 3, padding: '1px 6px', color: C.accent, cursor: 'pointer', opacity: (!model || loading) ? 0.5 : 1 }}>
-              {loading ? 'Loading…' : 'Edit'}
-            </button>
-          )}
-          {loadErr && <span style={{ fontSize: 9, color: C.red }}>{loadErr}</span>}
-        </div>
-        <div style={{ display: 'flex', gap: 0 }}>
-          {sections.length > 1 && (
-            <div style={{ minWidth: 120, borderRight: `1px solid ${C.border}`, marginRight: 12, paddingRight: 0, flexShrink: 0 }}>
-              {sections.map(s => (
-                <div key={s} onClick={() => setActiveSection(s)}
-                  style={{ padding: '5px 10px', cursor: 'pointer', fontSize: 10, userSelect: 'none', whiteSpace: 'nowrap',
-                    color: curSec === s ? C.accent : C.muted,
-                    borderLeft: `2px solid ${curSec === s ? C.accent : 'transparent'}`,
-                    background: curSec === s ? C.selected : 'transparent' }}>
-                  {s || 'General'}
-                </div>
-              ))}
-            </div>
-          )}
-          <table style={{ flex: 1, borderCollapse: 'collapse', fontSize: 10 }}>
-            <tbody>
-              {(sectionMap[curSec] || []).map((p, i) => (
-                <tr key={i} style={{ borderBottom: `1px solid ${C.border}` }}>
-                  <td style={{ padding: '4px 8px', color: C.muted, width: '55%' }}>{p.name}</td>
-                  <td style={{ padding: '4px 8px', color: C.text, fontFamily: 'monospace' }}>{p.value}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <div style={{ fontSize: 10, color: C.dim, letterSpacing: '0.08em' }}>PARAMETERS</div>
+        {loading && <div style={{ color: C.dim, fontSize: 10, marginTop: 8 }}>Loading…</div>}
+        {loadErr && <div style={{ fontSize: 9, color: C.red, marginTop: 8 }}>{loadErr}</div>}
       </div>
     );
   }
