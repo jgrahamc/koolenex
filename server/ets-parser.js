@@ -1713,4 +1713,4 @@ function buildFlags({ read, write, comm, tx, u }) {
   return [comm&&'C', read&&'R', write&&'W', tx&&'T', u&&'U'].filter(Boolean).join('') || 'CW';
 }
 
-module.exports = { parseKnxproj, looksEncrypted, inferType, buildFlags };
+module.exports = { parseKnxproj, looksEncrypted, inferType, buildFlags, clean, interp };

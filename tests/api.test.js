@@ -612,3 +612,134 @@ describe('Locations', () => {
     assert(updateDetail.includes('→'), `update detail should show before→after, got: ${updateDetail}`);
   });
 });
+
+// ── Com Object GA Associations ──────────────────────────────────────────────
+
+describe('Com Object GA Associations', () => {
+  let pid, devId, coId;
+
+  before(async () => {
+    const { data: proj } = await req('POST', '/projects', { name: 'CO GA Tests' });
+    pid = proj.id;
+    const { data: dev } = await req('POST', `/projects/${pid}/devices`, {
+      individual_address: '1.1.1', name: 'Test Actuator', area: 1, line: 1,
+    });
+    devId = dev.id;
+    coId = db.run(
+      'INSERT INTO com_objects (project_id, device_id, object_number, name, ga_address, ga_send, ga_receive) VALUES (?,?,?,?,?,?,?)',
+      [pid, devId, 0, 'Switch Output 1', '1/0/1', '1/0/1', '1/0/1']
+    ).lastInsertRowid;
+  });
+
+  after(async () => { await req('DELETE', `/projects/${pid}`); });
+
+  it('PATCH add appends a GA and rebuilds send/receive', async () => {
+    const { status, data } = await req('PATCH', `/projects/${pid}/comobjects/${coId}/gas`, {
+      add: '1/0/2',
+    });
+    assert.equal(status, 200);
+    assert.equal(data.ga_address, '1/0/1 1/0/2');
+    assert.equal(data.ga_send, '1/0/1', 'first GA should be send');
+    assert.equal(data.ga_receive, '1/0/1 1/0/2', 'all GAs should be receive');
+
+    const row = db.get('SELECT ga_address, ga_send, ga_receive FROM com_objects WHERE id=?', [coId]);
+    assert.equal(row.ga_address, '1/0/1 1/0/2');
+    assert.equal(row.ga_send, '1/0/1');
+    assert.equal(row.ga_receive, '1/0/1 1/0/2');
+  });
+
+  it('PATCH add does not duplicate an existing GA', async () => {
+    const { data } = await req('PATCH', `/projects/${pid}/comobjects/${coId}/gas`, {
+      add: '1/0/1',
+    });
+    assert.equal(data.ga_address, '1/0/1 1/0/2', 'duplicate GA should not be added');
+  });
+
+  it('PATCH remove deletes a GA and rebuilds send/receive', async () => {
+    const { data } = await req('PATCH', `/projects/${pid}/comobjects/${coId}/gas`, {
+      remove: '1/0/1',
+    });
+    assert.equal(data.ga_address, '1/0/2');
+    assert.equal(data.ga_send, '1/0/2', 'remaining GA becomes send');
+    assert.equal(data.ga_receive, '1/0/2');
+  });
+
+  it('PATCH remove of nonexistent GA is a no-op', async () => {
+    const { data } = await req('PATCH', `/projects/${pid}/comobjects/${coId}/gas`, {
+      remove: '9/9/9',
+    });
+    assert.equal(data.ga_address, '1/0/2', 'GA list should be unchanged');
+  });
+
+  it('PATCH reorder moves a GA to a new position and rebuilds send', async () => {
+    // Start with two GAs: 1/0/2 1/0/3
+    await req('PATCH', `/projects/${pid}/comobjects/${coId}/gas`, { add: '1/0/3' });
+    const { data } = await req('PATCH', `/projects/${pid}/comobjects/${coId}/gas`, {
+      reorder: '1/0/3', position: 0,
+    });
+    assert.equal(data.ga_address, '1/0/3 1/0/2');
+    assert.equal(data.ga_send, '1/0/3', 'reordered GA to position 0 becomes send');
+    assert.equal(data.ga_receive, '1/0/3 1/0/2');
+  });
+
+  it('PATCH reorder ignores request if GA not in list', async () => {
+    const { data } = await req('PATCH', `/projects/${pid}/comobjects/${coId}/gas`, {
+      reorder: '9/9/9', position: 0,
+    });
+    assert.equal(data.ga_address, '1/0/3 1/0/2', 'GA list should be unchanged');
+  });
+
+  it('PATCH add + remove in same request works', async () => {
+    const { data } = await req('PATCH', `/projects/${pid}/comobjects/${coId}/gas`, {
+      add: '1/0/4', remove: '1/0/2',
+    });
+    assert.equal(data.ga_address, '1/0/3 1/0/4');
+    assert.equal(data.ga_send, '1/0/3');
+    assert.equal(data.ga_receive, '1/0/3 1/0/4');
+  });
+
+  it('PATCH on empty com_object adds first GA', async () => {
+    const emptyCoId = db.run(
+      'INSERT INTO com_objects (project_id, device_id, object_number, name, ga_address, ga_send, ga_receive) VALUES (?,?,?,?,?,?,?)',
+      [pid, devId, 1, 'Empty CO', '', '', '']
+    ).lastInsertRowid;
+
+    const { data } = await req('PATCH', `/projects/${pid}/comobjects/${emptyCoId}/gas`, {
+      add: '2/0/1',
+    });
+    assert.equal(data.ga_address, '2/0/1');
+    assert.equal(data.ga_send, '2/0/1');
+    assert.equal(data.ga_receive, '2/0/1');
+  });
+
+  it('PATCH remove of last GA results in empty strings', async () => {
+    const { data } = await req('PATCH', `/projects/${pid}/comobjects/${coId}/gas`, {
+      remove: '1/0/3',
+    });
+    assert.equal(data.ga_address, '1/0/4');
+    const { data: data2 } = await req('PATCH', `/projects/${pid}/comobjects/${coId}/gas`, {
+      remove: '1/0/4',
+    });
+    assert.equal(data2.ga_address, '');
+    assert.equal(data2.ga_send, '');
+    assert.equal(data2.ga_receive, '');
+  });
+
+  it('PATCH returns 404 for nonexistent com_object', async () => {
+    const { status } = await req('PATCH', `/projects/${pid}/comobjects/99999/gas`, {
+      add: '1/0/1',
+    });
+    assert.equal(status, 404);
+  });
+
+  it('PATCH generates an audit log entry', async () => {
+    // Add a GA to trigger audit
+    await req('PATCH', `/projects/${pid}/comobjects/${coId}/gas`, { add: '3/0/1' });
+    const rows = db.all(
+      'SELECT * FROM audit_log WHERE project_id=? AND entity=? ORDER BY id DESC',
+      [pid, 'com_object']
+    );
+    assert(rows.length >= 1, 'should have audit entry for com_object');
+    assert(rows[0].detail.includes('ga_address'), 'audit detail should mention ga_address');
+  });
+});
