@@ -27,6 +27,9 @@ router.use('/', busRouter);
 // Wire up the rebuildDemoMap dependency: settings needs to call bus.rebuildDemoMap
 settingsRouter.setRebuildDemoMap(busRouter.rebuildDemoMap);
 
+// Inject bus instance (called from server/index.js after creating the instance)
+router.setBus = (bus) => { busRouter.setBus(bus); };
+
 module.exports = router;
 
 // Re-export test helpers so require('../server/routes') still works

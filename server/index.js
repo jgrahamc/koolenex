@@ -6,7 +6,8 @@ const { WebSocketServer } = require('ws');
 const path    = require('path');
 const fs      = require('fs');
 const db      = require('./db');
-const bus     = require('./knx-bus');
+const KnxBusManager = require('./knx-bus');
+const bus     = new KnxBusManager();
 
 const PORT = process.env.PORT || 4000;
 
@@ -16,6 +17,7 @@ async function start() {
 
   // Lazy-load routes after DB is ready
   const routes = require('./routes');
+  routes.setBus(bus);
 
   const app = express();
   app.use(cors({ origin: '*' }));

@@ -171,4 +171,4 @@ class KnxBusManager extends EventEmitter {
   }
 }
 
-module.exports = new KnxBusManager();
+module.exports = KnxBusManager;

@@ -3,10 +3,10 @@ const express = require('express');
 const path    = require('path');
 const fs      = require('fs');
 const db      = require('../db');
-const bus     = require('../knx-bus');
 const { APPS_DIR, getDptInfo } = require('./shared');
 const { buildGATable, buildAssocTable, resolveParamSegment, buildParamMem } = require('./knx-tables');
 
+let bus = null;
 const router = express.Router();
 
 // ── Demo mode address remapping ──────────────────────────────────────────────
@@ -134,20 +134,20 @@ function refineDecode(tg) {
   return decoded != null ? { ...tg, decoded } : tg;
 }
 
-// Set the remapper on the bus manager so live telegrams are also remapped and decoded
-bus.setRemapper((tg) => refineDecode(remapTelegram(tg)));
-// Load demo map on startup (after DB is initialized -- called from index.js)
-setTimeout(() => { try { rebuildDemoMap(); } catch(_) {} }, 0);
-
-// Persist incoming telegrams from live bus
-bus.on('telegram', (tg) => {
-  if (!tg.projectId) return;
-  try {
-    db.run('INSERT INTO bus_telegrams (project_id,src,dst,type,raw_value,decoded,priority) VALUES (?,?,?,?,?,?,?)',
-      [tg.projectId, tg.src, tg.dst, tg.type, tg.raw_value, tg.decoded, tg.priority||'low']);
+// Bus event wiring — deferred until setBus() is called
+function wireBusEvents() {
+  if (!bus) return;
+  bus.setRemapper((tg) => refineDecode(remapTelegram(tg)));
+  setTimeout(() => { try { rebuildDemoMap(); } catch(_) {} }, 0);
+  bus.on('telegram', (tg) => {
+    if (!tg.projectId) return;
+    try {
+      db.run('INSERT INTO bus_telegrams (project_id,src,dst,type,raw_value,decoded,priority) VALUES (?,?,?,?,?,?,?)',
+        [tg.projectId, tg.src, tg.dst, tg.type, tg.raw_value, tg.decoded, tg.priority||'low']);
     db.scheduleSave(500);
   } catch(_) {}
-});
+  });
+}
 
 // ── KNX Bus routes ───────────────────────────────────────────────────────────
 router.get('/bus/status', (req, res) => res.json(bus.status()));
@@ -376,3 +376,4 @@ module.exports = router;
 module.exports.normalizeDptKey = normalizeDptKey;
 module.exports.decodeRawValue = decodeRawValue;
 module.exports.rebuildDemoMap = rebuildDemoMap;
+module.exports.setBus = (b) => { bus = b; wireBusEvents(); };
