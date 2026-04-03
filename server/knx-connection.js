@@ -75,7 +75,10 @@ function decodeGroup(buf, off = 0) {
 function encodeDpt(value, dpt) {
   const d = String(dpt).split('.')[0];
   switch (d) {
-    case '1':  return Buffer.from([value === true || value === 'true' || value === '1' || value === 1 ? 1 : 0]);
+    case '1': {
+      const v = typeof value === 'string' ? value.toLowerCase().trim() : value;
+      return Buffer.from([v === true || v === 'true' || v === '1' || v === 1 || v === 'on' || v === 'yes' || v === 'enable' ? 1 : 0]);
+    }
     case '5':  return Buffer.from([Math.min(255, Math.max(0, parseInt(value)))]);
     case '9': {
       const v = parseFloat(value);

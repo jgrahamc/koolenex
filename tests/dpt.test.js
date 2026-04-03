@@ -32,6 +32,17 @@ describe('encodeDpt', () => {
     assert.deepEqual([...encodeDpt('0', '1.003')],   [0]);
   });
 
+  it('DPT 1 — string variants on/off/yes/no/enable', () => {
+    assert.deepEqual([...encodeDpt('on', '1.001')],     [1]);
+    assert.deepEqual([...encodeDpt('off', '1.001')],    [0]);
+    assert.deepEqual([...encodeDpt('ON', '1.001')],     [1]);
+    assert.deepEqual([...encodeDpt('OFF', '1.001')],    [0]);
+    assert.deepEqual([...encodeDpt('yes', '1.001')],    [1]);
+    assert.deepEqual([...encodeDpt('no', '1.001')],     [0]);
+    assert.deepEqual([...encodeDpt('enable', '1.001')], [1]);
+    assert.deepEqual([...encodeDpt(' On ', '1.001')],   [1]);
+  });
+
   it('DPT 5 — 8-bit unsigned', () => {
     assert.deepEqual([...encodeDpt(0, '5.001')],   [0x00]);
     assert.deepEqual([...encodeDpt(127, '5.001')], [0x7F]);
@@ -89,6 +100,21 @@ describe('encodeDpt', () => {
   it('unknown DPT falls back to single byte', () => {
     assert.deepEqual([...encodeDpt(42, '99')], [42]);
     assert.deepEqual([...encodeDpt(256, '99')], [0]); // masked to 0xFF → 0
+  });
+
+  it('DPT 9 — NaN input produces a valid buffer', () => {
+    const buf = encodeDpt(NaN, '9.001');
+    assert.equal(buf.length, 2);
+  });
+
+  it('DPT 5 — NaN input clamps to 0', () => {
+    assert.deepEqual([...encodeDpt(NaN, '5.001')], [0]);
+  });
+
+  it('DPT 14 — NaN input produces NaN float', () => {
+    const buf = encodeDpt(NaN, '14.068');
+    assert.equal(buf.length, 4);
+    assert(isNaN(buf.readFloatBE(0)));
   });
 });
 
@@ -192,6 +218,26 @@ describe('writeKnxFloat16', () => {
     writeKnxFloat16(buf, 0, 21.0);
     assert.equal(buf[0], 0xAA, 'too-small buffer should be unchanged');
   });
+
+  it('clamps at exp=15 for values outside DPT 9 range', () => {
+    // DPT 9 range is roughly -671088.64 to 670760.96
+    // Values beyond this hit the exp>15 guard — result is wrong but shouldn't crash
+    const buf = Buffer.alloc(2);
+    writeKnxFloat16(buf, 0, 1e10);
+    assert.equal(buf.length, 2, 'should produce 2 bytes without crashing');
+  });
+
+  it('handles NaN without crashing', () => {
+    const buf = Buffer.alloc(2, 0x00);
+    writeKnxFloat16(buf, 0, NaN);
+    assert.equal(buf.length, 2);
+  });
+
+  it('handles Infinity without crashing', () => {
+    const buf = Buffer.alloc(2, 0x00);
+    writeKnxFloat16(buf, 0, Infinity);
+    assert.equal(buf.length, 2);
+  });
 });
 
 // ── writeBits ───────────────────────────────────────────────────────────────
@@ -254,6 +300,18 @@ describe('writeBits', () => {
     writeBits(buf, 5, 0, 8, 0xFF);
     assert.equal(buf[0], 0xAA, 'out-of-bounds write should be no-op');
   });
+
+  it('bitSize 0 is a no-op', () => {
+    const buf = Buffer.from([0xAA]);
+    writeBits(buf, 0, 0, 0, 0xFF);
+    assert.equal(buf[0], 0xAA);
+  });
+
+  it('negative bitSize is a no-op', () => {
+    const buf = Buffer.from([0xAA]);
+    writeBits(buf, 0, 0, -1, 0xFF);
+    assert.equal(buf[0], 0xAA);
+  });
 });
 
 // ── normalizeDptKey (server) ────────────────────────────────────────────────
@@ -298,6 +356,16 @@ describe('encodePhysical / decodePhysical', () => {
       assert.equal(decodePhysical(encodePhysical(addr)), addr);
     }
   });
+
+  it('decodes at a non-zero offset', () => {
+    const buf = Buffer.from([0xFF, 0xFF, 0x11, 0x05, 0xAA]);
+    assert.equal(decodePhysical(buf, 2), '1.1.5');
+  });
+
+  it('decodes at offset 0 by default', () => {
+    const buf = Buffer.from([0x11, 0x05, 0xFF, 0xFF]);
+    assert.equal(decodePhysical(buf), '1.1.5');
+  });
 });
 
 describe('encodeGroup / decodeGroup', () => {
@@ -325,6 +393,16 @@ describe('encodeGroup / decodeGroup', () => {
     for (const [addr] of cases) {
       assert.equal(decodeGroup(encodeGroup(addr)), addr);
     }
+  });
+
+  it('decodes at a non-zero offset', () => {
+    const buf = Buffer.from([0xAA, 0xBB, 0x08, 0x00, 0xFF]);
+    assert.equal(decodeGroup(buf, 2), '1/0/0');
+  });
+
+  it('decodes at offset 0 by default', () => {
+    const buf = Buffer.from([0x08, 0x01, 0xFF, 0xFF]);
+    assert.equal(decodeGroup(buf), '1/0/1');
   });
 });
 
@@ -582,5 +660,18 @@ describe('decodeRawValue', () => {
 
   it('returns null for 4-byte buffer with non-DPT-14 type', () => {
     assert.equal(decodeRawValue('aabbccdd', '7.001', {}), null);
+  });
+
+  it('returns null for empty hex string', () => {
+    assert.equal(decodeRawValue('', '9.001', {}), null);
+  });
+
+  it('returns null for invalid hex (odd length)', () => {
+    // Buffer.from('f', 'hex') produces empty buffer
+    assert.equal(decodeRawValue('f', '5.001', {}), null);
+  });
+
+  it('returns null for non-hex characters', () => {
+    assert.equal(decodeRawValue('zzzz', '9.001', {}), null);
   });
 });
