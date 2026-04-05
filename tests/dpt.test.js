@@ -138,42 +138,16 @@ describe('decodeDptBuffer', () => {
     assert.equal(decodeDptBuffer(null), '');
   });
 
-  it('single byte 0 → Off', () => {
-    assert.equal(decodeDptBuffer(Buffer.from([0])), 'Off');
-  });
-
-  it('single byte 1 → On', () => {
-    assert.equal(decodeDptBuffer(Buffer.from([1])), 'On');
-  });
-
-  it('single byte >1 → numeric string', () => {
-    assert.equal(decodeDptBuffer(Buffer.from([42])), '42');
-    assert.equal(decodeDptBuffer(Buffer.from([255])), '255');
-  });
-
-  it('2-byte KNX float decodes correctly', () => {
-    // Encode 21.0 then decode — round-trip
-    const buf = encodeDpt(21.0, '9.001');
-    const decoded = parseFloat(decodeDptBuffer(buf));
-    assert(
-      Math.abs(decoded - 21.0) < 0.1,
-      `round-trip: ${decoded} should be ~21.0`,
+  it('returns hex for any non-empty buffer', () => {
+    assert.equal(decodeDptBuffer(Buffer.from([0])), '00');
+    assert.equal(decodeDptBuffer(Buffer.from([1])), '01');
+    assert.equal(decodeDptBuffer(Buffer.from([42])), '2a');
+    assert.equal(decodeDptBuffer(Buffer.from([0x00, 0x00])), '0000');
+    assert.equal(decodeDptBuffer(Buffer.from([0xff, 0x80, 0x00])), 'ff8000');
+    assert.equal(
+      decodeDptBuffer(Buffer.from([0xde, 0xad, 0xbe, 0xef])),
+      'deadbeef',
     );
-  });
-
-  it('2-byte KNX float zero', () => {
-    const decoded = parseFloat(decodeDptBuffer(Buffer.from([0x00, 0x00])));
-    assert.equal(decoded, 0);
-  });
-
-  it('3 bytes returns #hex string', () => {
-    const buf = Buffer.from([0xff, 0x80, 0x00]);
-    assert.equal(decodeDptBuffer(buf), '#ff8000');
-  });
-
-  it('4+ bytes returns hex string', () => {
-    const buf = Buffer.from([0xde, 0xad, 0xbe, 0xef]);
-    assert.equal(decodeDptBuffer(buf), 'deadbeef');
   });
 });
 
@@ -188,7 +162,9 @@ describe('DPT 9 round-trip', () => {
   for (const v of testValues) {
     it(`${v}`, () => {
       const buf = encodeDpt(v, '9.001');
-      const decoded = parseFloat(decodeDptBuffer(buf));
+      const decoded = parseFloat(
+        decodeRawValue(buf.toString('hex'), '9.001', {}),
+      );
       // DPT 9 has limited precision — tolerance depends on exponent
       const tolerance = Math.max(0.5, Math.abs(v) * 0.02);
       assert(
@@ -1244,6 +1220,291 @@ describe('DPT 251 — RGBW colour', () => {
     assert.equal(
       decodeRawValue(buf.toString('hex'), '251.600', {}),
       'RGBW(255,128,0,200)',
+    );
+  });
+});
+
+// ── Edge cases for DPT encode/decode ───────────────────────────────────────
+
+describe('DPT encode edge cases', () => {
+  // DPT 2: missing object keys
+  it('DPT 2: missing control/value keys default to 0', () => {
+    assert.deepEqual([...encodeDpt({}, '2.001')], [0x00]);
+    assert.deepEqual([...encodeDpt({ control: 1 }, '2.001')], [0x02]);
+    assert.deepEqual([...encodeDpt({ value: 1 }, '2.001')], [0x01]);
+  });
+
+  // DPT 3: stepcode > 7 is masked
+  it('DPT 3: stepcode > 7 is masked to 3 bits', () => {
+    assert.deepEqual(
+      [...encodeDpt({ control: 0, stepcode: 15 }, '3.007')],
+      [0x07],
+    );
+    assert.deepEqual(
+      [...encodeDpt({ control: 1, stepcode: 8 }, '3.007')],
+      [0x08],
+    ); // 8 & 0x07 = 0, so (1<<3)|0 = 8
+  });
+
+  // DPT 4: empty string
+  it('DPT 4: empty string produces [0]', () => {
+    assert.deepEqual([...encodeDpt('', '4.001')], [0x00]);
+  });
+
+  // DPT 10: invalid day name
+  it('DPT 10: invalid day name defaults to day=0', () => {
+    const buf = encodeDpt('Xyz 12:00:00', '10.001');
+    assert.equal((buf[0] >> 5) & 0x07, 0); // day = 0 (no day)
+    assert.equal(buf[0] & 0x1f, 12); // hour still parsed
+  });
+
+  // DPT 10: non-matching string
+  it('DPT 10: non-matching string defaults to all zeros', () => {
+    const buf = encodeDpt('garbage', '10.001');
+    assert.deepEqual([...buf], [0, 0, 0]);
+  });
+
+  // DPT 11: year outside 1990-2089 range throws
+  it('DPT 11: year < 1990 throws RangeError', () => {
+    assert.throws(
+      () => encodeDpt({ day: 1, month: 1, year: 1985 }, '11.001'),
+      RangeError,
+    );
+  });
+
+  it('DPT 11: day out of range throws RangeError', () => {
+    assert.throws(
+      () => encodeDpt({ day: 0, month: 1, year: 2000 }, '11.001'),
+      RangeError,
+    );
+    assert.throws(
+      () => encodeDpt({ day: 32, month: 1, year: 2000 }, '11.001'),
+      RangeError,
+    );
+  });
+
+  it('DPT 11: month out of range throws RangeError', () => {
+    assert.throws(
+      () => encodeDpt({ day: 1, month: 0, year: 2000 }, '11.001'),
+      RangeError,
+    );
+    assert.throws(
+      () => encodeDpt({ day: 1, month: 13, year: 2000 }, '11.001'),
+      RangeError,
+    );
+  });
+
+  it('DPT 11: year > 2089 throws RangeError', () => {
+    assert.throws(
+      () => encodeDpt({ day: 1, month: 1, year: 2090 }, '11.001'),
+      RangeError,
+    );
+  });
+
+  // DPT 12: negative input
+  it('DPT 12: negative input clamps to 0', () => {
+    const buf = encodeDpt(-5, '12.001');
+    assert.equal(buf.readUInt32BE(0), 0);
+  });
+
+  // DPT 12: boundary values
+  it('DPT 12: boundary values', () => {
+    assert.equal(encodeDpt(0, '12.001').readUInt32BE(0), 0);
+    assert.equal(encodeDpt(4294967295, '12.001').readUInt32BE(0), 4294967295);
+  });
+
+  // DPT 13: boundary values
+  it('DPT 13: boundary values', () => {
+    assert.equal(encodeDpt(2147483647, '13.001').readInt32BE(0), 2147483647);
+    assert.equal(encodeDpt(-2147483648, '13.001').readInt32BE(0), -2147483648);
+  });
+
+  // DPT 16: empty string produces 14 null bytes
+  it('DPT 16: empty string produces 14 null bytes', () => {
+    const buf = encodeDpt('', '16.000');
+    assert.equal(buf.length, 14);
+    for (let i = 0; i < 14; i++) assert.equal(buf[i], 0x00);
+  });
+
+  // DPT 18: raw number input
+  it('DPT 18: raw number input', () => {
+    assert.deepEqual([...encodeDpt(0x85, '18.001')], [0x85]); // learn scene 5
+    assert.deepEqual([...encodeDpt(5, '18.001')], [0x05]); // activate scene 5
+  });
+
+  // DPT 19: string date input
+  it('DPT 19: encode from ISO string', () => {
+    const buf = encodeDpt('2024-03-15T14:30:45', '19.001');
+    assert.equal(buf[0], 124); // 2024 - 1900
+    assert.equal(buf[1] & 0x0f, 3); // March
+    assert.equal(buf[2] & 0x1f, 15);
+    assert.equal(buf[3] & 0x1f, 14);
+    assert.equal(buf[4] & 0x3f, 30);
+    assert.equal(buf[5] & 0x3f, 45);
+  });
+
+  // DPT 232: values clamped by & 0xff
+  it('DPT 232: values > 255 are masked', () => {
+    const buf = encodeDpt({ r: 300, g: -10, b: 256 }, '232.600');
+    assert.equal(buf[0], 300 & 0xff); // 44
+    assert.equal(buf[1], -10 & 0xff); // 246
+    assert.equal(buf[2], 256 & 0xff); // 0
+  });
+
+  // DPT 242: x/y outside 0-1 are clamped
+  it('DPT 242: x/y outside 0-1 are clamped', () => {
+    const buf = encodeDpt({ x: 1.5, y: -0.5, brightness: 128 }, '242.600');
+    assert.equal(buf.readUInt16BE(0), 65535); // clamped to 1.0
+    assert.equal(buf.readUInt16BE(2), 0); // clamped to 0.0
+  });
+
+  // DPT 251: partial hex string (< 9 chars)
+  it('DPT 251: short hex string produces zeros', () => {
+    const buf = encodeDpt('#ff80', '251.600');
+    // too short for RGBW hex, falls through to alloc(6, 0)
+    assert.equal(buf.length, 6);
+    assert.deepEqual([...buf], [0, 0, 0, 0, 0, 0]);
+  });
+});
+
+describe('DPT decode edge cases', () => {
+  // DPT 6: coefficient application
+  it('DPT 6: coefficient applied to signed value', () => {
+    const buf = Buffer.alloc(1);
+    buf.writeInt8(-100);
+    // coefficient is applied in the generic 1-byte path, but DPT 6 returns signed first
+    // DPT 6 has its own decode path returning signed string
+    assert.equal(decodeRawValue(buf.toString('hex'), '6.001', {}), '-100');
+  });
+
+  // DPT 12: boundary decode
+  it('DPT 12: decode 0 and max', () => {
+    const zero = Buffer.alloc(4, 0);
+    assert.equal(decodeRawValue(zero.toString('hex'), '12.001', {}), '0');
+    const max = Buffer.alloc(4);
+    max.writeUInt32BE(4294967295);
+    assert.equal(
+      decodeRawValue(max.toString('hex'), '12.001', {}),
+      '4294967295',
+    );
+  });
+
+  // DPT 13: boundary decode
+  it('DPT 13: decode min and max', () => {
+    const max = Buffer.alloc(4);
+    max.writeInt32BE(2147483647);
+    assert.equal(
+      decodeRawValue(max.toString('hex'), '13.001', {}),
+      '2147483647',
+    );
+    const min = Buffer.alloc(4);
+    min.writeInt32BE(-2147483648);
+    assert.equal(
+      decodeRawValue(min.toString('hex'), '13.001', {}),
+      '-2147483648',
+    );
+  });
+
+  // DPT 12: coefficient
+  it('DPT 12: applies coefficient', () => {
+    const buf = Buffer.alloc(4);
+    buf.writeUInt32BE(1000);
+    assert.equal(
+      decodeRawValue(buf.toString('hex'), '12.001', { coefficient: 0.001 }),
+      '1',
+    );
+  });
+
+  // DPT 13: coefficient
+  it('DPT 13: applies coefficient', () => {
+    const buf = Buffer.alloc(4);
+    buf.writeInt32BE(-1000);
+    assert.equal(
+      decodeRawValue(buf.toString('hex'), '13.001', { coefficient: 0.01 }),
+      '-10',
+    );
+  });
+
+  // DPT 16: non-ASCII (Latin-1)
+  it('DPT 16: decodes Latin-1 characters', () => {
+    const buf = Buffer.alloc(14, 0x00);
+    buf[0] = 0xc4; // Ä
+    buf[1] = 0xd6; // Ö
+    buf[2] = 0xdc; // Ü
+    const decoded = decodeRawValue(buf.toString('hex'), '16.001', {});
+    assert.equal(decoded, 'ÄÖÜ');
+  });
+
+  // DPT 16: full 14-byte string (no null terminator)
+  it('DPT 16: decodes full 14-byte string without null', () => {
+    const buf = Buffer.alloc(14);
+    buf.write('12345678901234', 'latin1');
+    assert.equal(
+      decodeRawValue(buf.toString('hex'), '16.000', {}),
+      '12345678901234',
+    );
+  });
+
+  // DPT 19: direct hex decode (not via encode round-trip)
+  it('DPT 19: decode from known hex', () => {
+    // 2024-03-15 14:30:45 = year 124 (0x7c), month 3, day 15 (0x0f)
+    // Octet 3: (dayOfWeek << 5) | dayOfMonth — skip dow: (0 << 5) | 15 = 0x0f
+    // Hour 14 = 0x0e, min 30 = 0x1e, sec 45 = 0x2d
+    const hex = '7c030f0e1e2d0000';
+    const decoded = decodeRawValue(hex, '19.001', {});
+    assert.equal(decoded, '2024-03-15T14:30:45');
+  });
+
+  // DPT 10: all day names
+  it('DPT 10: decode all day names', () => {
+    const DAYS = ['', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    for (let d = 1; d <= 7; d++) {
+      const buf = encodeDpt({ day: d, hour: 0, min: 0, sec: 0 }, '10.001');
+      const decoded = decodeRawValue(buf.toString('hex'), '10.001', {});
+      assert(decoded.startsWith(DAYS[d]), `day ${d}: got ${decoded}`);
+    }
+  });
+
+  // DPT 17: decode masks upper bits
+  it('DPT 17: upper bits ignored', () => {
+    assert.equal(decodeRawValue('c5', '17.001', {}), '5'); // 0xC5 & 0x3F = 5
+  });
+
+  // DPT 18: decode all combinations
+  it('DPT 18: decode scene 0 and 63', () => {
+    assert.equal(decodeRawValue('00', '18.001', {}), 'activate scene 0');
+    assert.equal(decodeRawValue('3f', '18.001', {}), 'activate scene 63');
+    assert.equal(decodeRawValue('80', '18.001', {}), 'learn scene 0');
+    assert.equal(decodeRawValue('bf', '18.001', {}), 'learn scene 63');
+  });
+
+  // DPT 232: decode black and white
+  it('DPT 232: black and white', () => {
+    assert.equal(decodeRawValue('000000', '232.600', {}), '#000000');
+    assert.equal(decodeRawValue('ffffff', '232.600', {}), '#ffffff');
+  });
+
+  // DPT 242: decode with validity flags
+  it('DPT 242: decode with all zeros', () => {
+    assert.equal(
+      decodeRawValue('000000000000', '242.600', {}),
+      'xyY(0.000, 0.000, 0%)',
+    );
+  });
+
+  // DPT 251: decode all zeros
+  it('DPT 251: decode all zeros', () => {
+    assert.equal(
+      decodeRawValue('000000000000', '251.600', {}),
+      'RGBW(0,0,0,0)',
+    );
+  });
+
+  // DPT 251: decode max values
+  it('DPT 251: decode max RGBW', () => {
+    assert.equal(
+      decodeRawValue('ffffffff000f', '251.600', {}),
+      'RGBW(255,255,255,255)',
     );
   });
 });

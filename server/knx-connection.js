@@ -181,13 +181,11 @@ function encodeDpt(value, dpt) {
     }
     case '11': {
       // DPT 11: 3 bytes — date
-      let day = 1,
-        month = 1,
-        year = 2000;
+      let day, month, year;
       if (typeof value === 'object' && value !== null) {
-        day = parseInt(value.day) || 1;
-        month = parseInt(value.month) || 1;
-        year = parseInt(value.year) || 2000;
+        day = parseInt(value.day);
+        month = parseInt(value.month);
+        year = parseInt(value.year);
       } else if (typeof value === 'string') {
         const parts = value.split('-');
         if (parts.length === 3) {
@@ -196,13 +194,14 @@ function encodeDpt(value, dpt) {
           day = parseInt(parts[2]);
         }
       }
-      const y =
-        year >= 1990 && year < 2000
-          ? year - 1900
-          : year >= 2000
-            ? year - 2000
-            : year;
-      return Buffer.from([day & 0x1f, month & 0x0f, y & 0x7f]);
+      if (day < 1 || day > 31)
+        throw new RangeError(`DPT 11 day must be 1-31, got ${day}`);
+      if (month < 1 || month > 12)
+        throw new RangeError(`DPT 11 month must be 1-12, got ${month}`);
+      if (year < 1990 || year > 2089)
+        throw new RangeError(`DPT 11 year must be 1990-2089, got ${year}`);
+      const y = year >= 2000 ? year - 2000 : year - 1900;
+      return Buffer.from([day, month, y]);
     }
     case '12': {
       // DPT 12: 4 bytes — 32-bit unsigned
@@ -352,24 +351,6 @@ function encodeDpt(value, dpt) {
 
 function decodeDptBuffer(buf) {
   if (!buf || buf.length === 0) return '';
-  if (buf.length === 1) {
-    if (buf[0] <= 1) return buf[0] ? 'On' : 'Off';
-    return String(buf[0]);
-  }
-  if (buf.length === 2) {
-    const raw = (buf[0] << 8) | buf[1];
-    const sign = (raw >> 15) & 1,
-      exp = (raw >> 11) & 0xf,
-      mant = raw & 0x7ff;
-    const signedMant = sign ? mant - 2048 : mant;
-    const v = 0.01 * signedMant * Math.pow(2, exp);
-    return v.toFixed(2);
-  }
-  if (buf.length === 3) {
-    // Could be DPT 10 (time), DPT 11 (date), or DPT 232 (RGB) —
-    // without DPT context, show as RGB hex
-    return '#' + buf.toString('hex');
-  }
   return buf.toString('hex');
 }
 
