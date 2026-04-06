@@ -45,7 +45,7 @@ async function req(method, urlPath, body, isFormData = false) {
 before(async () => {
   db = require('../server/db.ts');
   await db.init();
-  const routes = require('../server/routes');
+  const { router: routes } = require('../server/routes/index.ts');
   const app = express();
   app.use(express.json());
   app.use('/api', routes);

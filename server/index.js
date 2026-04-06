@@ -16,7 +16,7 @@ async function start() {
   await db.init();
 
   // Lazy-load routes after DB is ready
-  const routes = require('./routes');
+  const { router: routes } = require('./routes/index.ts');
   routes.setBus(bus);
 
   const app = express();

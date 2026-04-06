@@ -24,7 +24,7 @@ const {
   normalizeDptKey,
   decodeRawValue,
   etsTestMatch,
-} = require('../server/routes');
+} = require('../server/routes/index.ts');
 
 // ── DPT encoding ────────────────────────────────────────────────────────────
 

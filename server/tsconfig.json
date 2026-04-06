@@ -3,6 +3,7 @@
   "compilerOptions": {
     "module": "nodenext",
     "moduleDetection": "force",
+    "allowImportingTsExtensions": true,
     "rootDir": "..",
     "paths": {
       "#shared/*": ["../shared/*"]

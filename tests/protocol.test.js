@@ -386,7 +386,7 @@ describe('APDU: apduPropertyValueWrite', () => {
 
 // ── GA and association table builders ───────────────────────────────────────
 
-const { buildGATable, buildAssocTable } = require('../server/routes');
+const { buildGATable, buildAssocTable } = require('../server/routes/index.ts');
 
 describe('buildGATable', () => {
   it('encodes group addresses into binary table', () => {

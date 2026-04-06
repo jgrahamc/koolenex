@@ -1,11 +1,11 @@
-'use strict';
-const express = require('express');
-const multer = require('multer');
-const path = require('path');
-const fs = require('fs');
-const db = require('../db.ts');
-const { parseKnxproj } = require('../ets-parser');
-const { APPS_DIR } = require('./shared.ts');
+import express from 'express';
+import type { Request, Response } from 'express';
+import multer from 'multer';
+import path from 'path';
+import fs from 'fs';
+import * as db from '../db.ts';
+import { parseKnxproj } from '../ets-parser.js';
+import { APPS_DIR } from './shared.ts';
 
 const router = express.Router();
 const upload = multer({
@@ -14,8 +14,8 @@ const upload = multer({
 });
 
 // ── Catalog ──────────────────────────────────────────────────────────────────
-router.get('/projects/:id/catalog', (req, res) => {
-  const pid = +req.params.id;
+router.get('/projects/:id/catalog', (req: Request, res: Response): void => {
+  const pid = +req.params.id!;
   const sections = db.all(
     'SELECT * FROM catalog_sections WHERE project_id=? ORDER BY manufacturer, number, name',
     [pid],
@@ -27,13 +27,19 @@ router.get('/projects/:id/catalog', (req, res) => {
   // Mark which product_refs are in use by devices in this project
   const usedRefs = new Set(
     db
-      .all('SELECT product_ref FROM devices WHERE project_id=?', [pid])
+      .all<{ product_ref: string }>(
+        'SELECT product_ref FROM devices WHERE project_id=?',
+        [pid],
+      )
       .map((r) => r.product_ref)
       .filter(Boolean),
   );
   res.json({
     sections,
-    items: items.map((i) => ({ ...i, in_use: usedRefs.has(i.product_ref) })),
+    items: items.map((i) => ({
+      ...i,
+      in_use: usedRefs.has(i.product_ref as string),
+    })),
   });
 });
 
@@ -41,23 +47,42 @@ router.get('/projects/:id/catalog', (req, res) => {
 router.post(
   '/projects/:id/catalog/import',
   upload.single('file'),
-  (req, res) => {
-    const pid = +req.params.id;
-    if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
-    if (!req.file.originalname.toLowerCase().endsWith('.knxprod'))
-      return res.status(400).json({ error: 'File must be a .knxprod file' });
+  (req: Request, res: Response): void => {
+    const pid = +req.params.id!;
+    if (!req.file) {
+      res.status(400).json({ error: 'No file uploaded' });
+      return;
+    }
+    if (!req.file.originalname.toLowerCase().endsWith('.knxprod')) {
+      res.status(400).json({ error: 'File must be a .knxprod file' });
+      return;
+    }
     const project = db.get('SELECT * FROM projects WHERE id=?', [pid]);
-    if (!project) return res.status(404).json({ error: 'Project not found' });
-
-    let parsed;
-    try {
-      parsed = parseKnxproj(req.file.buffer, null);
-    } catch (err) {
-      console.error('.knxprod parse error:', err);
-      return res.status(422).json({ error: `Parse failed: ${err.message}` });
+    if (!project) {
+      res.status(404).json({ error: 'Project not found' });
+      return;
     }
 
-    const { catalogSections = [], catalogItems = [], paramModels } = parsed;
+    let parsed: Record<string, unknown>;
+    try {
+      parsed = parseKnxproj(req.file.buffer, null) as Record<string, unknown>;
+    } catch (err) {
+      console.error('.knxprod parse error:', err);
+      res
+        .status(422)
+        .json({ error: `Parse failed: ${(err as Error).message}` });
+      return;
+    }
+
+    const {
+      catalogSections = [],
+      catalogItems = [],
+      paramModels,
+    } = parsed as {
+      catalogSections?: Array<Record<string, unknown>>;
+      catalogItems?: Array<Record<string, unknown>>;
+      paramModels?: Record<string, unknown>;
+    };
 
     try {
       db.transaction(({ run }) => {
@@ -110,7 +135,9 @@ router.post(
               path.join(APPS_DIR, safe + '.json'),
               JSON.stringify(model),
             );
-          } catch (_) {}
+          } catch (_) {
+            // ignore write errors for individual models
+          }
         }
       }
 
@@ -132,7 +159,10 @@ router.post(
       );
       const usedRefs = new Set(
         db
-          .all('SELECT product_ref FROM devices WHERE project_id=?', [pid])
+          .all<{ product_ref: string }>(
+            'SELECT product_ref FROM devices WHERE project_id=?',
+            [pid],
+          )
           .map((r) => r.product_ref)
           .filter(Boolean),
       );
@@ -141,14 +171,16 @@ router.post(
         sections,
         items: items.map((i) => ({
           ...i,
-          in_use: usedRefs.has(i.product_ref),
+          in_use: usedRefs.has(i.product_ref as string),
         })),
       });
     } catch (err) {
       console.error('.knxprod import error:', err);
-      res.status(500).json({ error: `Import failed: ${err.message}` });
+      res
+        .status(500)
+        .json({ error: `Import failed: ${(err as Error).message}` });
     }
   },
 );
 
-module.exports = router;
+export { router };

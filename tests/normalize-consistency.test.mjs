@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { normalizeDpt } from '../client/src/dpt.js';
 import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
-const { normalizeDptKey } = require('../server/routes');
+const { normalizeDptKey } = require('../server/routes/index.ts');
 
 describe('normalizeDpt (client) vs normalizeDptKey (server) consistency', () => {
   // Inputs where both should produce the same non-null result
