@@ -12,7 +12,9 @@ const fs = require('fs');
 
 const SMOKE_PROJECT = path.join(__dirname, 'smoke-test.knxproj');
 if (!fs.existsSync(SMOKE_PROJECT)) {
-  describe('Params UI: 1.1.4', () => { it('skipped — smoke-test.knxproj not found', () => {}); });
+  describe('Params UI: 1.1.4', () => {
+    it('skipped — smoke-test.knxproj not found', () => {});
+  });
   return;
 }
 
@@ -23,16 +25,17 @@ const { parseKnxproj } = require('../server/ets-parser');
 function etsTestMatch(val, tests) {
   const n = parseFloat(val);
   for (const t of tests || []) {
-    const rm = typeof t === 'string' && t.match(/^(!=|=|[<>]=?)(-?\d+(?:\.\d+)?)$/);
+    const rm =
+      typeof t === 'string' && t.match(/^(!=|=|[<>]=?)(-?\d+(?:\.\d+)?)$/);
     if (rm) {
       if (isNaN(n)) continue;
       const rv = parseFloat(rm[2]);
       const op = rm[1];
-      if (op === '<'  && n <  rv) return true;
-      if (op === '>'  && n >  rv) return true;
+      if (op === '<' && n < rv) return true;
+      if (op === '>' && n > rv) return true;
       if (op === '<=' && n <= rv) return true;
       if (op === '>=' && n >= rv) return true;
-      if (op === '='  && n === rv) return true;
+      if (op === '=' && n === rv) return true;
       if (op === '!=' && n !== rv) return true;
     } else if (String(t) === val) return true;
   }
@@ -47,13 +50,28 @@ function buildParamUI(model) {
 
   const active = new Set();
   function evalChoiceActive(c) {
-    if (c.paramRefId && !c.accessNone && params[c.paramRefId] && !active.has(c.paramRefId)) return;
+    if (
+      c.paramRefId &&
+      !c.accessNone &&
+      params[c.paramRefId] &&
+      !active.has(c.paramRefId)
+    )
+      return;
     const raw = getVal(c.paramRefId);
-    const val = String(raw !== '' && raw != null ? raw : (c.defaultValue ?? ''));
-    let matched = false, defItems = null;
+    const val = String(
+      raw !== '' && raw != null ? raw : (c.defaultValue ?? ''),
+    );
+    let matched = false,
+      defItems = null;
     for (const w of c.whens || []) {
-      if (w.isDefault) { defItems = w.items; continue; }
-      if (etsTestMatch(val, w.test)) { matched = true; walkActive(w.items); }
+      if (w.isDefault) {
+        defItems = w.items;
+        continue;
+      }
+      if (etsTestMatch(val, w.test)) {
+        matched = true;
+        walkActive(w.items);
+      }
     }
     if (!matched && defItems) walkActive(defItems);
   }
@@ -61,7 +79,12 @@ function buildParamUI(model) {
     if (!items) return;
     for (const item of items) {
       if (item.type === 'paramRef') active.add(item.refId);
-      else if (item.type === 'block' || item.type === 'channel' || item.type === 'cib') walkActive(item.items);
+      else if (
+        item.type === 'block' ||
+        item.type === 'channel' ||
+        item.type === 'cib'
+      )
+        walkActive(item.items);
       else if (item.type === 'choose') evalChoiceActive(item);
     }
   }
@@ -74,15 +97,31 @@ function buildParamUI(model) {
   function collectRenames(items) {
     if (!items) return;
     for (const item of items) {
-      if (item.type === 'rename' && item.refId && item.text) blockRenames[item.refId] = item.text;
+      if (item.type === 'rename' && item.refId && item.text)
+        blockRenames[item.refId] = item.text;
       else if (item.type === 'choose') {
-        if (item.paramRefId && !item.accessNone && params[item.paramRefId] && !active.has(item.paramRefId)) continue;
+        if (
+          item.paramRefId &&
+          !item.accessNone &&
+          params[item.paramRefId] &&
+          !active.has(item.paramRefId)
+        )
+          continue;
         const raw = getVal(item.paramRefId);
-        const val = String(raw !== '' && raw != null ? raw : (item.defaultValue ?? ''));
-        let matched = false, defItems = null;
+        const val = String(
+          raw !== '' && raw != null ? raw : (item.defaultValue ?? ''),
+        );
+        let matched = false,
+          defItems = null;
         for (const w of item.whens || []) {
-          if (w.isDefault) { defItems = w.items; continue; }
-          if (etsTestMatch(val, w.test)) { matched = true; collectRenames(w.items); }
+          if (w.isDefault) {
+            defItems = w.items;
+            continue;
+          }
+          if (etsTestMatch(val, w.test)) {
+            matched = true;
+            collectRenames(w.items);
+          }
         }
         if (!matched && defItems) collectRenames(defItems);
       } else if (item.items) collectRenames(item.items);
@@ -90,18 +129,36 @@ function buildParamUI(model) {
   }
 
   function addItem(sec, label, type) {
-    if (!secMap[sec]) { secMap[sec] = []; sections.push(sec); }
+    if (!secMap[sec]) {
+      secMap[sec] = [];
+      sections.push(sec);
+    }
     secMap[sec].push({ label, type: type || 'param' });
   }
 
   function evalChooseUI(item, secLabel, walkFn) {
-    if (item.paramRefId && !item.accessNone && params[item.paramRefId] && !active.has(item.paramRefId)) return;
+    if (
+      item.paramRefId &&
+      !item.accessNone &&
+      params[item.paramRefId] &&
+      !active.has(item.paramRefId)
+    )
+      return;
     const raw = getVal(item.paramRefId);
-    const val = String(raw !== '' && raw != null ? raw : (item.defaultValue ?? ''));
-    let matched = false, defItems = null;
+    const val = String(
+      raw !== '' && raw != null ? raw : (item.defaultValue ?? ''),
+    );
+    let matched = false,
+      defItems = null;
     for (const w of item.whens || []) {
-      if (w.isDefault) { defItems = w.items; continue; }
-      if (etsTestMatch(val, w.test)) { matched = true; walkFn(w.items, secLabel); }
+      if (w.isDefault) {
+        defItems = w.items;
+        continue;
+      }
+      if (etsTestMatch(val, w.test)) {
+        matched = true;
+        walkFn(w.items, secLabel);
+      }
     }
     if (!matched && defItems) walkFn(defItems, secLabel);
   }
@@ -111,13 +168,18 @@ function buildParamUI(model) {
     for (const item of items) {
       if (item.type === 'paramRef') {
         if (!params[item.refId] || !active.has(item.refId)) continue;
-        addItem(secLabel, params[item.refId].label, item.cell ? 'cell:' + item.cell : 'param');
+        addItem(
+          secLabel,
+          params[item.refId].label,
+          item.cell ? 'cell:' + item.cell : 'param',
+        );
       } else if (item.type === 'separator') {
         addItem(secLabel, item.text || '', 'sep:' + item.uiHint);
       } else if (item.type === 'block') {
         collectRenames(item.items);
-        if (item.access === 'None') { /* hidden */ }
-        else if (item.inline) walkItems(item.items, secLabel);
+        if (item.access === 'None') {
+          /* hidden */
+        } else if (item.inline) walkItems(item.items, secLabel);
         else {
           const renamed = item.id ? blockRenames[item.id] : null;
           const blockLabel = renamed || item.text || item.name || secLabel;
@@ -161,36 +223,43 @@ let parsed, model, ui;
 before(() => {
   const buf = fs.readFileSync(SMOKE_PROJECT);
   parsed = parseKnxproj(buf);
-  const dev = parsed.devices.find(d => d.individual_address === '1.1.4');
+  const dev = parsed.devices.find((d) => d.individual_address === '1.1.4');
   model = parsed.paramModels[dev.app_ref];
   ui = buildParamUI(model);
 });
 
 describe('Params UI: 1.1.4 (US/U2.2 Universal Interface)', () => {
-
   it('has exactly the expected sections in the correct order', () => {
-    assert.deepEqual(ui.sections, [
-      'General',
-      'Channel A',
-      'Channel B',
-    ]);
+    assert.deepEqual(ui.sections, ['General', 'Channel A', 'Channel B']);
   });
 
   it('section labels are English translations, not German internal names', () => {
     // The XML has Name="R_Allgemein", "R_Kanal A", "R_Kanal B" as internal names.
     // The labels must come from ParamRefId → TypeNone parameter translations.
     for (const sec of ui.sections) {
-      assert(!sec.startsWith('R_'), `"${sec}" looks like a German internal name`);
+      assert(
+        !sec.startsWith('R_'),
+        `"${sec}" looks like a German internal name`,
+      );
     }
-    assert(ui.sections.includes('General'), 'should have "General" not "R_Allgemein"');
-    assert(ui.sections.includes('Channel A'), 'should have "Channel A" not "R_Kanal A"');
-    assert(ui.sections.includes('Channel B'), 'should have "Channel B" not "R_Kanal B"');
+    assert(
+      ui.sections.includes('General'),
+      'should have "General" not "R_Allgemein"',
+    );
+    assert(
+      ui.sections.includes('Channel A'),
+      'should have "Channel A" not "R_Kanal A"',
+    );
+    assert(
+      ui.sections.includes('Channel B'),
+      'should have "Channel B" not "R_Kanal B"',
+    );
   });
 
   it('parser resolves block labels via ParamRefId translations', () => {
     // Verify the dynTree itself has translated text, not just the UI walk
     const ch = model.dynTree.main.items[0];
-    const blocks = ch.items.filter(i => i.type === 'block');
+    const blocks = ch.items.filter((i) => i.type === 'block');
     assert.equal(blocks.length, 3);
     assert.equal(blocks[0].text, 'General');
     assert.equal(blocks[0].name, 'R_Allgemein');
@@ -203,21 +272,23 @@ describe('Params UI: 1.1.4 (US/U2.2 Universal Interface)', () => {
   it('General section has 5 params', () => {
     const items = ui.secMap['General'];
     assert(items);
-    const paramCount = items.filter(i => !i.type.startsWith('sep:')).length;
+    const paramCount = items.filter((i) => !i.type.startsWith('sep:')).length;
     assert.equal(paramCount, 5);
   });
 
   it('General section params include expected labels', () => {
     const items = ui.secMap['General'];
-    const labels = items.filter(i => !i.type.startsWith('sep:')).map(i => i.label);
-    assert(labels.some(l => l.includes('Transmission delay')));
-    assert(labels.some(l => l.includes('Limit number of telegrams')));
+    const labels = items
+      .filter((i) => !i.type.startsWith('sep:'))
+      .map((i) => i.label);
+    assert(labels.some((l) => l.includes('Transmission delay')));
+    assert(labels.some((l) => l.includes('Limit number of telegrams')));
   });
 
   it('Channel A has 1 param (Function of the channel)', () => {
     const items = ui.secMap['Channel A'];
     assert(items);
-    const params = items.filter(i => !i.type.startsWith('sep:'));
+    const params = items.filter((i) => !i.type.startsWith('sep:'));
     assert.equal(params.length, 1);
     assert.equal(params[0].label, 'Function of the channel');
   });
@@ -225,7 +296,7 @@ describe('Params UI: 1.1.4 (US/U2.2 Universal Interface)', () => {
   it('Channel B has 1 param (Function of the channel)', () => {
     const items = ui.secMap['Channel B'];
     assert(items);
-    const params = items.filter(i => !i.type.startsWith('sep:'));
+    const params = items.filter((i) => !i.type.startsWith('sep:'));
     assert.equal(params.length, 1);
     assert.equal(params[0].label, 'Function of the channel');
   });
@@ -239,15 +310,23 @@ describe('Params UI: 1.1.4 (US/U2.2 Universal Interface)', () => {
 
   it('per-section param and separator counts are correct', () => {
     const expected = {
-      'General':   { params: 5, seps: 0 },
+      General: { params: 5, seps: 0 },
       'Channel A': { params: 1, seps: 0 },
       'Channel B': { params: 1, seps: 0 },
     };
     for (const [sec, counts] of Object.entries(expected)) {
       const items = ui.secMap[sec];
       assert(items, `section "${sec}" should exist`);
-      assert.equal(items.filter(i => !i.type.startsWith('sep:')).length, counts.params, `${sec} params`);
-      assert.equal(items.filter(i => i.type.startsWith('sep:')).length, counts.seps, `${sec} separators`);
+      assert.equal(
+        items.filter((i) => !i.type.startsWith('sep:')).length,
+        counts.params,
+        `${sec} params`,
+      );
+      assert.equal(
+        items.filter((i) => i.type.startsWith('sep:')).length,
+        counts.seps,
+        `${sec} separators`,
+      );
     }
   });
 });

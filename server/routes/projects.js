@@ -276,12 +276,10 @@ router.post('/projects/import', upload.single('file'), (req, res) => {
     parsed = parseUploadedKnxproj(req);
   } catch (err) {
     if (err.code === 'PASSWORD_REQUIRED')
-      return res
-        .status(422)
-        .json({
-          error: 'Project is password-protected',
-          code: 'PASSWORD_REQUIRED',
-        });
+      return res.status(422).json({
+        error: 'Project is password-protected',
+        code: 'PASSWORD_REQUIRED',
+      });
     if (err.code === 'PASSWORD_INCORRECT')
       return res
         .status(422)
@@ -363,12 +361,10 @@ router.post('/projects/:id/reimport', upload.single('file'), (req, res) => {
     parsed = parseUploadedKnxproj(req);
   } catch (err) {
     if (err.code === 'PASSWORD_REQUIRED')
-      return res
-        .status(422)
-        .json({
-          error: 'Project is password-protected',
-          code: 'PASSWORD_REQUIRED',
-        });
+      return res.status(422).json({
+        error: 'Project is password-protected',
+        code: 'PASSWORD_REQUIRED',
+      });
     if (err.code === 'PASSWORD_INCORRECT')
       return res
         .status(422)

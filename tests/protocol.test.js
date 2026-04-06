@@ -9,10 +9,14 @@ const assert = require('node:assert/strict');
 // ── KNXnet/IP packet builders ───────────────────────────────────────────────
 
 const {
-  _hdr: hdr, _hpai: hpai,
-  _pktConnect: pktConnect, _pktConnState: pktConnState,
-  _pktDisconnect: pktDisconnect, _pktDisconnectRes: pktDisconnectRes,
-  _pktTunnelingReq: pktTunnelingReq, _SVC: SVC,
+  _hdr: hdr,
+  _hpai: hpai,
+  _pktConnect: pktConnect,
+  _pktConnState: pktConnState,
+  _pktDisconnect: pktDisconnect,
+  _pktDisconnectRes: pktDisconnectRes,
+  _pktTunnelingReq: pktTunnelingReq,
+  _SVC: SVC,
 } = require('../server/knx-protocol');
 
 describe('KNXnet/IP: hdr', () => {
@@ -30,8 +34,8 @@ describe('KNXnet/IP: hpai', () => {
   it('encodes IP and port into 8-byte HPAI', () => {
     const h = hpai('192.168.1.100', 3671);
     assert.equal(h.length, 8);
-    assert.equal(h[0], 0x08);  // length
-    assert.equal(h[1], 0x01);  // protocol code (UDP)
+    assert.equal(h[0], 0x08); // length
+    assert.equal(h[1], 0x01); // protocol code (UDP)
     assert.equal(h[2], 192);
     assert.equal(h[3], 168);
     assert.equal(h[4], 1);
@@ -54,9 +58,9 @@ describe('KNXnet/IP: pktConnect', () => {
     assert.equal(pkt.readUInt16BE(2), SVC.CONNECT_REQ);
     assert.equal(pkt.readUInt16BE(4), 26);
     // CRI at end: tunnel connection, layer 2
-    assert.equal(pkt[22], 0x04);  // CRI length
-    assert.equal(pkt[23], 0x04);  // tunnel connection
-    assert.equal(pkt[24], 0x02);  // link layer
+    assert.equal(pkt[22], 0x04); // CRI length
+    assert.equal(pkt[23], 0x04); // tunnel connection
+    assert.equal(pkt[24], 0x02); // link layer
   });
 });
 
@@ -65,7 +69,7 @@ describe('KNXnet/IP: pktConnState', () => {
     const pkt = pktConnState(0x42, '192.168.1.10', 50000);
     assert.equal(pkt.length, 16);
     assert.equal(pkt.readUInt16BE(2), SVC.CONNSTATE_REQ);
-    assert.equal(pkt[6], 0x42);  // channel ID
+    assert.equal(pkt[6], 0x42); // channel ID
   });
 });
 
@@ -84,21 +88,23 @@ describe('KNXnet/IP: pktDisconnectRes', () => {
     assert.equal(pkt.length, 8);
     assert.equal(pkt.readUInt16BE(2), SVC.DISCONNECT_RES);
     assert.equal(pkt[6], 0x42);
-    assert.equal(pkt[7], 0x00);  // status OK
+    assert.equal(pkt[7], 0x00); // status OK
   });
 });
 
 describe('KNXnet/IP: pktTunnelingReq', () => {
   it('wraps CEMI in a tunneling request', () => {
-    const cemi = Buffer.from([0x11, 0x00, 0xBC, 0xE0, 0x00, 0x00, 0x08, 0x00, 0x01, 0x00, 0x81]);
+    const cemi = Buffer.from([
+      0x11, 0x00, 0xbc, 0xe0, 0x00, 0x00, 0x08, 0x00, 0x01, 0x00, 0x81,
+    ]);
     const pkt = pktTunnelingReq(0x42, 5, cemi);
     assert.equal(pkt.readUInt16BE(2), SVC.TUNNELING_REQ);
     assert.equal(pkt.readUInt16BE(4), 10 + cemi.length);
     // Connection header
-    assert.equal(pkt[6], 0x04);  // header length
-    assert.equal(pkt[7], 0x42);  // channel ID
-    assert.equal(pkt[8], 5);     // sequence
-    assert.equal(pkt[9], 0x00);  // reserved
+    assert.equal(pkt[6], 0x04); // header length
+    assert.equal(pkt[7], 0x42); // channel ID
+    assert.equal(pkt[8], 5); // sequence
+    assert.equal(pkt[9], 0x00); // reserved
     // CEMI follows
     assert.deepEqual([...pkt.slice(10)], [...cemi]);
   });
@@ -106,34 +112,45 @@ describe('KNXnet/IP: pktTunnelingReq', () => {
   it('wraps sequence number to 8 bits', () => {
     const cemi = Buffer.from([0x11, 0x00]);
     const pkt = pktTunnelingReq(1, 256, cemi);
-    assert.equal(pkt[8], 0);  // 256 & 0xFF
+    assert.equal(pkt[8], 0); // 256 & 0xFF
   });
 });
 
 // ── USB HID framing ─────────────────────────────────────────────────────────
 
 const {
-  _buildHidReports: buildHidReports, _parseHidReport: parseHidReport,
+  _buildHidReports: buildHidReports,
+  _parseHidReport: parseHidReport,
   _parseTransferHeader: parseTransferHeader,
-  _buildFeatureGet: buildFeatureGet, _buildFeatureSet: buildFeatureSet,
-  _PROTO_KNX_TUNNEL: PROTO_KNX_TUNNEL, _PROTO_BUS_FEATURE: PROTO_BUS_FEATURE,
-  _EMI_ID: EMI_ID, _FEATURE: FEATURE, _FEATURE_SVC: FEATURE_SVC, _PKT: PKT,
+  _buildFeatureGet: buildFeatureGet,
+  _buildFeatureSet: buildFeatureSet,
+  _PROTO_KNX_TUNNEL: PROTO_KNX_TUNNEL,
+  _PROTO_BUS_FEATURE: PROTO_BUS_FEATURE,
+  _EMI_ID: EMI_ID,
+  _FEATURE: FEATURE,
+  _FEATURE_SVC: FEATURE_SVC,
+  _PKT: PKT,
 } = require('../server/knx-usb');
 
 describe('USB HID: buildHidReports', () => {
   it('builds a single 64-byte report for small frames', () => {
-    const body = Buffer.from([0x11, 0x00, 0xBC]);
+    const body = Buffer.from([0x11, 0x00, 0xbc]);
     const reports = buildHidReports(PROTO_KNX_TUNNEL, EMI_ID.COMMON, body);
     assert.equal(reports.length, 1);
     assert.equal(reports[0].length, 64);
-    assert.equal(reports[0][0], 0x01);  // report ID
-    assert.equal(reports[0][1] & 0x0F, PKT.START_END);
-    assert.equal(reports[0][2], 8 + body.length);  // header + body
+    assert.equal(reports[0][0], 0x01); // report ID
+    assert.equal(reports[0][1] & 0x0f, PKT.START_END);
+    assert.equal(reports[0][2], 8 + body.length); // header + body
   });
 
   it('transfer header has correct fields', () => {
-    const body = Buffer.from([0xAA]);
-    const reports = buildHidReports(PROTO_KNX_TUNNEL, EMI_ID.COMMON, body, 0x1234);
+    const body = Buffer.from([0xaa]);
+    const reports = buildHidReports(
+      PROTO_KNX_TUNNEL,
+      EMI_ID.COMMON,
+      body,
+      0x1234,
+    );
     const hdr = parseTransferHeader(reports[0].slice(3));
     assert.equal(hdr.protocolId, PROTO_KNX_TUNNEL);
     assert.equal(hdr.emiId, EMI_ID.COMMON);
@@ -142,26 +159,29 @@ describe('USB HID: buildHidReports', () => {
   });
 
   it('splits large frames into multiple reports', () => {
-    const body = Buffer.alloc(120, 0xBB);  // 120 + 8 header = 128 > 61
+    const body = Buffer.alloc(120, 0xbb); // 120 + 8 header = 128 > 61
     const reports = buildHidReports(PROTO_KNX_TUNNEL, EMI_ID.COMMON, body);
-    assert(reports.length > 1, `should need multiple reports, got ${reports.length}`);
+    assert(
+      reports.length > 1,
+      `should need multiple reports, got ${reports.length}`,
+    );
     for (const r of reports) assert.equal(r.length, 64);
     // First report is START
-    assert.equal(reports[0][1] & 0x0F, PKT.START);
+    assert.equal(reports[0][1] & 0x0f, PKT.START);
     // Last report is END
-    assert.equal(reports[reports.length - 1][1] & 0x0F, PKT.END);
+    assert.equal(reports[reports.length - 1][1] & 0x0f, PKT.END);
   });
 
   it('handles null body', () => {
     const reports = buildHidReports(PROTO_BUS_FEATURE, FEATURE_SVC.GET, null);
     assert.equal(reports.length, 1);
-    assert.equal(reports[0][2], 8);  // header only, no body
+    assert.equal(reports[0][2], 8); // header only, no body
   });
 });
 
 describe('USB HID: parseHidReport', () => {
   it('parses a report built by buildHidReports', () => {
-    const body = Buffer.from([0x11, 0x00, 0xBC]);
+    const body = Buffer.from([0x11, 0x00, 0xbc]);
     const reports = buildHidReports(PROTO_KNX_TUNNEL, EMI_ID.COMMON, body);
     const parsed = parseHidReport(reports[0]);
     assert(parsed);
@@ -175,7 +195,7 @@ describe('USB HID: parseHidReport', () => {
   });
 
   it('extracts sequence number', () => {
-    const body = Buffer.from([0xAA]);
+    const body = Buffer.from([0xaa]);
     const reports = buildHidReports(PROTO_KNX_TUNNEL, EMI_ID.COMMON, body);
     const parsed = parseHidReport(reports[0]);
     assert.equal(parsed.seq, 1);
@@ -219,7 +239,7 @@ describe('USB HID: buildFeatureGet / buildFeatureSet', () => {
     const hdr = parseTransferHeader(reports[0].slice(3));
     assert.equal(hdr.protocolId, PROTO_BUS_FEATURE);
     assert.equal(hdr.emiId, FEATURE_SVC.SET);
-    assert.equal(hdr.bodyLength, 2);  // featureId + data
+    assert.equal(hdr.bodyLength, 2); // featureId + data
   });
 });
 
@@ -227,12 +247,16 @@ describe('USB HID: buildFeatureGet / buildFeatureSet', () => {
 
 const {
   parseCEMI,
-  _apduGroupRead: apduGroupRead, _apduGroupWrite: apduGroupWrite,
-  _apduGroupResponse: apduGroupResponse, _apduControl: apduControl,
+  _apduGroupRead: apduGroupRead,
+  _apduGroupWrite: apduGroupWrite,
+  _apduGroupResponse: apduGroupResponse,
+  _apduControl: apduControl,
   _apduPropertyValueRead: apduPropertyValueRead,
   _apduPropertyValueWrite: apduPropertyValueWrite,
-  _TPCI: TPCI, _APCI: APCI,
-  buildCEMI, encodeDpt,
+  _TPCI: TPCI,
+  _APCI: APCI,
+  buildCEMI,
+  encodeDpt,
 } = require('../server/knx-connection');
 
 describe('APDU: apduGroupRead', () => {
@@ -255,12 +279,12 @@ describe('APDU: apduGroupWrite', () => {
     const apdu = apduGroupWrite(true, '1.001');
     assert.equal(apdu.length, 2);
     // APCI=GroupValue_Write(2) → bits 3-2 = 10, short data = 1
-    assert.equal(apdu[1] & 0x3F, 1);  // short data
+    assert.equal(apdu[1] & 0x3f, 1); // short data
   });
 
   it('encodes DPT 9 float as extended data', () => {
     const apdu = apduGroupWrite(21.0, '9.001');
-    assert.equal(apdu.length, 4);  // 2-byte header + 2-byte float
+    assert.equal(apdu.length, 4); // 2-byte header + 2-byte float
     const cemi = buildCEMI('1.1.1', '1/0/0', apdu, true);
     const p = parseCEMI(cemi);
     assert.equal(p.apciName, 'GroupValue_Write');
@@ -270,12 +294,12 @@ describe('APDU: apduGroupWrite', () => {
   it('encodes DPT 5 value ≤ 0x3F as short data', () => {
     const apdu = apduGroupWrite(63, '5.001');
     assert.equal(apdu.length, 2);
-    assert.equal(apdu[1] & 0x3F, 63);
+    assert.equal(apdu[1] & 0x3f, 63);
   });
 
   it('encodes DPT 5 value > 0x3F as extended data', () => {
     const apdu = apduGroupWrite(64, '5.001');
-    assert.equal(apdu.length, 3);  // 2-byte header + 1-byte payload
+    assert.equal(apdu.length, 3); // 2-byte header + 1-byte payload
     const cemi = buildCEMI('1.1.1', '1/0/0', apdu, true);
     const p = parseCEMI(cemi);
     assert.equal(p.apciName, 'GroupValue_Write');
@@ -288,18 +312,18 @@ describe('APDU: apduGroupResponse', () => {
   it('encodes short data for single-byte values ≤ 0x3F', () => {
     const apdu = apduGroupResponse(Buffer.from([1]));
     assert.equal(apdu.length, 2);
-    assert.equal(apdu[1] & 0x3F, 1);
+    assert.equal(apdu[1] & 0x3f, 1);
   });
 
   it('encodes extended data for multi-byte values', () => {
     const enc = encodeDpt(21.0, '9.001');
     const apdu = apduGroupResponse(enc);
-    assert.equal(apdu.length, 4);  // 2 header + 2 payload
+    assert.equal(apdu.length, 4); // 2 header + 2 payload
   });
 
   it('encodes extended data for single-byte values > 0x3F', () => {
     const apdu = apduGroupResponse(Buffer.from([0x80]));
-    assert.equal(apdu.length, 3);  // 2 header + 1 payload
+    assert.equal(apdu.length, 3); // 2 header + 1 payload
   });
 });
 
@@ -333,11 +357,11 @@ describe('APDU: apduControl', () => {
 
 describe('APDU: apduPropertyValueRead', () => {
   it('builds a property read request', () => {
-    const apdu = apduPropertyValueRead(0, 0, 56);  // seq=0, objIdx=0, propId=56 (PID_TABLE_REFERENCE)
-    assert.equal(apdu.length, 6);  // 2 header + 4 meta
+    const apdu = apduPropertyValueRead(0, 0, 56); // seq=0, objIdx=0, propId=56 (PID_TABLE_REFERENCE)
+    assert.equal(apdu.length, 6); // 2 header + 4 meta
     // Meta: objIdx, propId, 0x10, 0x01
-    assert.equal(apdu[2], 0);   // objIdx
-    assert.equal(apdu[3], 56);  // propId
+    assert.equal(apdu[2], 0); // objIdx
+    assert.equal(apdu[3], 56); // propId
     assert.equal(apdu[4], 0x10);
     assert.equal(apdu[5], 0x01);
   });
@@ -345,18 +369,18 @@ describe('APDU: apduPropertyValueRead', () => {
 
 describe('APDU: apduPropertyValueWrite', () => {
   it('builds a property write request with data', () => {
-    const data = Buffer.from([0xAA, 0xBB]);
+    const data = Buffer.from([0xaa, 0xbb]);
     const apdu = apduPropertyValueWrite(1, 0, 56, data);
-    assert.equal(apdu.length, 8);  // 2 header + 4 meta + 2 data
+    assert.equal(apdu.length, 8); // 2 header + 4 meta + 2 data
     assert.equal(apdu[2], 0);
     assert.equal(apdu[3], 56);
-    assert.equal(apdu[6], 0xAA);
-    assert.equal(apdu[7], 0xBB);
+    assert.equal(apdu[6], 0xaa);
+    assert.equal(apdu[7], 0xbb);
   });
 
   it('builds a property write request without data', () => {
     const apdu = apduPropertyValueWrite(0, 0, 56, null);
-    assert.equal(apdu.length, 6);  // 2 header + 4 meta only
+    assert.equal(apdu.length, 6); // 2 header + 4 meta only
   });
 });
 
@@ -372,7 +396,7 @@ describe('buildGATable', () => {
       { main_g: 11, middle_g: 0, sub_g: 0 },
     ];
     const buf = buildGATable(gaLinks);
-    assert.equal(buf[0], 3);  // count
+    assert.equal(buf[0], 3); // count
     assert.equal(buf.length, 1 + 3 * 2);
     // GA 1/0/0 = 0x08, 0x00
     assert.equal(buf[1], 0x08);
@@ -403,17 +427,17 @@ describe('buildAssocTable', () => {
       { object_number: 8, ga_address: '1/0/0' },
     ];
     const buf = buildAssocTable(coRows, gaLinks);
-    assert.equal(buf[0], 3);  // 3 entries: CO7→GA0, CO8→GA0, CO7→GA1
+    assert.equal(buf[0], 3); // 3 entries: CO7→GA0, CO8→GA0, CO7→GA1
     assert.equal(buf.length, 1 + 3 * 2);
     // Sorted by GA index then CO number
     // GA index 0 (1/0/0): CO 7 and CO 8
-    assert.equal(buf[1], 7);   // CO 7
-    assert.equal(buf[2], 0);   // GA index 0
-    assert.equal(buf[3], 8);   // CO 8
-    assert.equal(buf[4], 0);   // GA index 0
+    assert.equal(buf[1], 7); // CO 7
+    assert.equal(buf[2], 0); // GA index 0
+    assert.equal(buf[3], 8); // CO 8
+    assert.equal(buf[4], 0); // GA index 0
     // GA index 1 (1/0/1): CO 7
-    assert.equal(buf[5], 7);   // CO 7
-    assert.equal(buf[6], 1);   // GA index 1
+    assert.equal(buf[5], 7); // CO 7
+    assert.equal(buf[6], 1); // GA index 1
   });
 
   it('handles empty inputs', () => {
@@ -426,17 +450,21 @@ describe('buildAssocTable', () => {
     const gaLinks = [{ address: '1/0/0', main_g: 1, middle_g: 0, sub_g: 0 }];
     const coRows = [{ object_number: 1, ga_address: '1/0/0 9/9/9' }];
     const buf = buildAssocTable(coRows, gaLinks);
-    assert.equal(buf[0], 1);  // only 1/0/0 matched
+    assert.equal(buf[0], 1); // only 1/0/0 matched
   });
 });
 
 // ── ETS parser helpers ──────────────────────────────────────────────────────
 
-const { looksEncrypted, inferType, buildFlags } = require('../server/ets-parser');
+const {
+  looksEncrypted,
+  inferType,
+  buildFlags,
+} = require('../server/ets-parser');
 
 describe('looksEncrypted', () => {
   it('returns false for UTF-8 BOM + XML', () => {
-    assert.equal(looksEncrypted(Buffer.from([0xEF, 0xBB, 0xBF, 0x3C])), false);
+    assert.equal(looksEncrypted(Buffer.from([0xef, 0xbb, 0xbf, 0x3c])), false);
   });
 
   it('returns false for plain XML starting with <', () => {
@@ -494,16 +522,31 @@ describe('inferType', () => {
 
 describe('buildFlags', () => {
   it('builds CRWTU for all flags set', () => {
-    assert.equal(buildFlags({ comm: true, read: true, write: true, tx: true, u: true }), 'CRWTU');
+    assert.equal(
+      buildFlags({ comm: true, read: true, write: true, tx: true, u: true }),
+      'CRWTU',
+    );
   });
 
   it('builds CW for comm + write', () => {
-    assert.equal(buildFlags({ comm: true, read: false, write: true, tx: false, u: false }), 'CW');
+    assert.equal(
+      buildFlags({ comm: true, read: false, write: true, tx: false, u: false }),
+      'CW',
+    );
   });
 
   it('defaults to CW when no flags set', () => {
     assert.equal(buildFlags({}), 'CW');
-    assert.equal(buildFlags({ comm: false, read: false, write: false, tx: false, u: false }), 'CW');
+    assert.equal(
+      buildFlags({
+        comm: false,
+        read: false,
+        write: false,
+        tx: false,
+        u: false,
+      }),
+      'CW',
+    );
   });
 
   it('builds CR for comm + read', () => {

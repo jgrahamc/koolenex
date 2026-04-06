@@ -194,22 +194,18 @@ router.get('/projects/:pid/devices/:did/param-model', (req, res) => {
   ]);
   if (!dev) return res.status(404).json({ error: 'Device not found' });
   if (!dev.app_ref)
-    return res
-      .status(404)
-      .json({
-        error: 'no_model',
-        message:
-          'No param model available. Re-import the project to enable editing.',
-      });
+    return res.status(404).json({
+      error: 'no_model',
+      message:
+        'No param model available. Re-import the project to enable editing.',
+    });
   const safe = dev.app_ref.replace(/[^a-zA-Z0-9_-]/g, '_');
   const modelPath = path.join(APPS_DIR, safe + '.json');
   if (!fs.existsSync(modelPath))
-    return res
-      .status(404)
-      .json({
-        error: 'no_model',
-        message: 'Param model file not found. Re-import the project.',
-      });
+    return res.status(404).json({
+      error: 'no_model',
+      message: 'Param model file not found. Re-import the project.',
+    });
   let model;
   try {
     model = JSON.parse(fs.readFileSync(modelPath, 'utf8'));

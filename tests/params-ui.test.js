@@ -13,7 +13,9 @@ const fs = require('fs');
 
 const SMOKE_PROJECT = path.join(__dirname, 'smoke-test.knxproj');
 if (!fs.existsSync(SMOKE_PROJECT)) {
-  describe('Params UI: 1.1.2', () => { it('skipped — smoke-test.knxproj not found', () => {}); });
+  describe('Params UI: 1.1.2', () => {
+    it('skipped — smoke-test.knxproj not found', () => {});
+  });
   return;
 }
 
@@ -24,16 +26,17 @@ const { parseKnxproj } = require('../server/ets-parser');
 function etsTestMatch(val, tests) {
   const n = parseFloat(val);
   for (const t of tests || []) {
-    const rm = typeof t === 'string' && t.match(/^(!=|=|[<>]=?)(-?\d+(?:\.\d+)?)$/);
+    const rm =
+      typeof t === 'string' && t.match(/^(!=|=|[<>]=?)(-?\d+(?:\.\d+)?)$/);
     if (rm) {
       if (isNaN(n)) continue;
       const rv = parseFloat(rm[2]);
       const op = rm[1];
-      if (op === '<'  && n <  rv) return true;
-      if (op === '>'  && n >  rv) return true;
+      if (op === '<' && n < rv) return true;
+      if (op === '>' && n > rv) return true;
       if (op === '<=' && n <= rv) return true;
       if (op === '>=' && n >= rv) return true;
-      if (op === '='  && n === rv) return true;
+      if (op === '=' && n === rv) return true;
       if (op === '!=' && n !== rv) return true;
     } else if (String(t) === val) return true;
   }
@@ -51,11 +54,20 @@ function buildParamUI(model) {
   function evalChoiceActive(c) {
     if (c.paramRefId && !c.accessNone && !active.has(c.paramRefId)) return;
     const raw = getVal(c.paramRefId);
-    const val = String(raw !== '' && raw != null ? raw : (c.defaultValue ?? ''));
-    let matched = false, defItems = null;
+    const val = String(
+      raw !== '' && raw != null ? raw : (c.defaultValue ?? ''),
+    );
+    let matched = false,
+      defItems = null;
     for (const w of c.whens || []) {
-      if (w.isDefault) { defItems = w.items; continue; }
-      if (etsTestMatch(val, w.test)) { matched = true; walkActive(w.items); }
+      if (w.isDefault) {
+        defItems = w.items;
+        continue;
+      }
+      if (etsTestMatch(val, w.test)) {
+        matched = true;
+        walkActive(w.items);
+      }
     }
     if (!matched && defItems) walkActive(defItems);
   }
@@ -63,7 +75,12 @@ function buildParamUI(model) {
     if (!items) return;
     for (const item of items) {
       if (item.type === 'paramRef') active.add(item.refId);
-      else if (item.type === 'block' || item.type === 'channel' || item.type === 'cib') walkActive(item.items);
+      else if (
+        item.type === 'block' ||
+        item.type === 'channel' ||
+        item.type === 'cib'
+      )
+        walkActive(item.items);
       else if (item.type === 'choose') evalChoiceActive(item);
     }
   }
@@ -77,15 +94,26 @@ function buildParamUI(model) {
   function collectRenames(items) {
     if (!items) return;
     for (const item of items) {
-      if (item.type === 'rename' && item.refId && item.text) blockRenames[item.refId] = item.text;
+      if (item.type === 'rename' && item.refId && item.text)
+        blockRenames[item.refId] = item.text;
       else if (item.type === 'choose') {
-        if (item.paramRefId && !item.accessNone && !active.has(item.paramRefId)) continue;
+        if (item.paramRefId && !item.accessNone && !active.has(item.paramRefId))
+          continue;
         const raw = getVal(item.paramRefId);
-        const val = String(raw !== '' && raw != null ? raw : (item.defaultValue ?? ''));
-        let matched = false, defItems = null;
+        const val = String(
+          raw !== '' && raw != null ? raw : (item.defaultValue ?? ''),
+        );
+        let matched = false,
+          defItems = null;
         for (const w of item.whens || []) {
-          if (w.isDefault) { defItems = w.items; continue; }
-          if (etsTestMatch(val, w.test)) { matched = true; collectRenames(w.items); }
+          if (w.isDefault) {
+            defItems = w.items;
+            continue;
+          }
+          if (etsTestMatch(val, w.test)) {
+            matched = true;
+            collectRenames(w.items);
+          }
         }
         if (!matched && defItems) collectRenames(defItems);
       } else if (item.items) collectRenames(item.items);
@@ -93,18 +121,31 @@ function buildParamUI(model) {
   }
 
   function addItem(sec, label, type) {
-    if (!secMap[sec]) { secMap[sec] = []; sections.push(sec); }
+    if (!secMap[sec]) {
+      secMap[sec] = [];
+      sections.push(sec);
+    }
     secMap[sec].push({ label, type: type || 'param' });
   }
 
   function evalChooseUI(item, secLabel, walkFn) {
-    if (item.paramRefId && !item.accessNone && !active.has(item.paramRefId)) return;
+    if (item.paramRefId && !item.accessNone && !active.has(item.paramRefId))
+      return;
     const raw = getVal(item.paramRefId);
-    const val = String(raw !== '' && raw != null ? raw : (item.defaultValue ?? ''));
-    let matched = false, defItems = null;
+    const val = String(
+      raw !== '' && raw != null ? raw : (item.defaultValue ?? ''),
+    );
+    let matched = false,
+      defItems = null;
     for (const w of item.whens || []) {
-      if (w.isDefault) { defItems = w.items; continue; }
-      if (etsTestMatch(val, w.test)) { matched = true; walkFn(w.items, secLabel); }
+      if (w.isDefault) {
+        defItems = w.items;
+        continue;
+      }
+      if (etsTestMatch(val, w.test)) {
+        matched = true;
+        walkFn(w.items, secLabel);
+      }
     }
     if (!matched && defItems) walkFn(defItems, secLabel);
   }
@@ -114,13 +155,18 @@ function buildParamUI(model) {
     for (const item of items) {
       if (item.type === 'paramRef') {
         if (!params[item.refId] || !active.has(item.refId)) continue;
-        addItem(secLabel, params[item.refId].label, item.cell ? 'cell:' + item.cell : 'param');
+        addItem(
+          secLabel,
+          params[item.refId].label,
+          item.cell ? 'cell:' + item.cell : 'param',
+        );
       } else if (item.type === 'separator') {
         addItem(secLabel, item.text || '', 'sep:' + item.uiHint);
       } else if (item.type === 'block') {
         collectRenames(item.items);
-        if (item.access === 'None') { /* hidden */ }
-        else if (item.inline) walkItems(item.items, secLabel);
+        if (item.access === 'None') {
+          /* hidden */
+        } else if (item.inline) walkItems(item.items, secLabel);
         else {
           const renamed = item.id ? blockRenames[item.id] : null;
           const blockLabel = renamed || item.text || item.name || secLabel;
@@ -165,13 +211,12 @@ let parsed, model, ui;
 before(() => {
   const buf = fs.readFileSync(SMOKE_PROJECT);
   parsed = parseKnxproj(buf);
-  const dev = parsed.devices.find(d => d.individual_address === '1.1.2');
+  const dev = parsed.devices.find((d) => d.individual_address === '1.1.2');
   model = parsed.paramModels[dev.app_ref];
   ui = buildParamUI(model);
 });
 
 describe('Params UI: 1.1.2 (SAH/S8.6.7.1)', () => {
-
   it('has exactly the expected sections in the correct order', () => {
     assert.deepEqual(ui.sections, [
       'Configuration',
@@ -202,8 +247,13 @@ describe('Params UI: 1.1.2 (SAH/S8.6.7.1)', () => {
   });
 
   it('does NOT have phantom sections', () => {
-    const bad = ['Par_TableApplications', 'Common parameter', 'Channel parameter',
-                 'Switch Actuator functions', 'Shutter Actuator A+B'];
+    const bad = [
+      'Par_TableApplications',
+      'Common parameter',
+      'Channel parameter',
+      'Switch Actuator functions',
+      'Shutter Actuator A+B',
+    ];
     for (const name of bad) {
       assert(!ui.sections.includes(name), `"${name}" should not be a section`);
     }
@@ -218,28 +268,35 @@ describe('Params UI: 1.1.2 (SAH/S8.6.7.1)', () => {
 
   it('Configuration has Channel configuration headline and table cells', () => {
     const items = ui.secMap['Configuration'];
-    const headline = items.find(i => i.type === 'sep:Headline' && i.label === 'Channel configuration');
+    const headline = items.find(
+      (i) => i.type === 'sep:Headline' && i.label === 'Channel configuration',
+    );
     assert(headline, 'should have Channel configuration headline');
-    const cells = items.filter(i => i.type.startsWith('cell:'));
+    const cells = items.filter((i) => i.type.startsWith('cell:'));
     assert(cells.length === 8, `expected 8 table cells, got ${cells.length}`);
     // 4 enable cells (col 1) and 4 application cells (col 2)
-    const col1 = cells.filter(i => i.type.endsWith(',1'));
-    const col2 = cells.filter(i => i.type.endsWith(',2'));
+    const col1 = cells.filter((i) => i.type.endsWith(',1'));
+    const col2 = cells.filter((i) => i.type.endsWith(',2'));
     assert.equal(col1.length, 4);
     assert.equal(col2.length, 4);
   });
 
   it('Configuration has Enable Logic/Threshold headline after ruler', () => {
     const items = ui.secMap['Configuration'];
-    const rulerIdx = items.findIndex(i => i.type === 'sep:HorizontalRuler');
+    const rulerIdx = items.findIndex((i) => i.type === 'sep:HorizontalRuler');
     assert(rulerIdx > -1, 'should have a HorizontalRuler');
-    const headlineIdx = items.findIndex(i => i.type === 'sep:Headline' && i.label === 'Enable Logic/Threshold');
-    assert(headlineIdx > rulerIdx, 'Enable Logic/Threshold should come after the ruler');
+    const headlineIdx = items.findIndex(
+      (i) => i.type === 'sep:Headline' && i.label === 'Enable Logic/Threshold',
+    );
+    assert(
+      headlineIdx > rulerIdx,
+      'Enable Logic/Threshold should come after the ruler',
+    );
   });
 
   it('Configuration has correct param count', () => {
     const items = ui.secMap['Configuration'];
-    const paramCount = items.filter(i => !i.type.startsWith('sep:')).length;
+    const paramCount = items.filter((i) => !i.type.startsWith('sep:')).length;
     assert.equal(paramCount, 17);
   });
 
@@ -248,8 +305,12 @@ describe('Params UI: 1.1.2 (SAH/S8.6.7.1)', () => {
       const sec = `Logic/Threshold ${i}`;
       const items = ui.secMap[sec];
       assert(items, `section "${sec}" should exist`);
-      const params = items.filter(it => !it.type.startsWith('sep:'));
-      assert.equal(params.length, 1, `${sec} should have 1 param, got ${params.length}`);
+      const params = items.filter((it) => !it.type.startsWith('sep:'));
+      assert.equal(
+        params.length,
+        1,
+        `${sec} should have 1 param, got ${params.length}`,
+      );
       assert.equal(params[0].label, 'Function of the logic gate');
     }
   });
@@ -258,8 +319,10 @@ describe('Params UI: 1.1.2 (SAH/S8.6.7.1)', () => {
     for (const sec of ui.sections) {
       const items = ui.secMap[sec];
       for (const item of items) {
-        assert(!item.label?.includes('threshold'),
-          `"${item.label}" should not be visible when logic gate is None (in section "${sec}")`);
+        assert(
+          !item.label?.includes('threshold'),
+          `"${item.label}" should not be visible when logic gate is None (in section "${sec}")`,
+        );
       }
     }
   });
@@ -272,24 +335,24 @@ describe('Params UI: 1.1.2 (SAH/S8.6.7.1)', () => {
 
   it('Shutter Actuator functions has correct param count', () => {
     const items = ui.secMap['Shutter Actuator functions'];
-    const paramCount = items.filter(i => !i.type.startsWith('sep:')).length;
+    const paramCount = items.filter((i) => !i.type.startsWith('sep:')).length;
     assert.equal(paramCount, 24);
   });
 
   it('per-section param counts are correct', () => {
     const expected = {
-      'Configuration': 17,
+      Configuration: 17,
       'Device settings': 9,
       'Manual operation': 4,
       'Safety/Weather alarms': 15,
       'Basic settings': 15,
-      'Safety': 3,
+      Safety: 3,
       'Load shedding': 7,
       'Delay for switching on and off': 3,
       'Staircase lighting': 9,
-      'Flashing': 5,
+      Flashing: 5,
       'Scene assignments': 34,
-      'Drive': 10,
+      Drive: 10,
       'Blind/Shutter': 15,
       'Automatic sun protection': 9,
       'Status Messages': 9,
@@ -298,25 +361,29 @@ describe('Params UI: 1.1.2 (SAH/S8.6.7.1)', () => {
     for (const [sec, count] of Object.entries(expected)) {
       const items = ui.secMap[sec];
       assert(items, `section "${sec}" should exist`);
-      const paramCount = items.filter(i => !i.type.startsWith('sep:')).length;
-      assert.equal(paramCount, count, `${sec}: expected ${count} params, got ${paramCount}`);
+      const paramCount = items.filter((i) => !i.type.startsWith('sep:')).length;
+      assert.equal(
+        paramCount,
+        count,
+        `${sec}: expected ${count} params, got ${paramCount}`,
+      );
     }
   });
 
   it('per-section separator counts are correct', () => {
     const expected = {
-      'Configuration': 5,
+      Configuration: 5,
       'Device settings': 5,
       'Manual operation': 3,
       'Safety/Weather alarms': 15,
       'Basic settings': 19,
-      'Safety': 5,
+      Safety: 5,
       'Load shedding': 2,
       'Delay for switching on and off': 2,
       'Staircase lighting': 3,
-      'Flashing': 3,
+      Flashing: 3,
       'Scene assignments': 7,
-      'Drive': 17,
+      Drive: 17,
       'Blind/Shutter': 19,
       'Automatic sun protection': 5,
       'Status Messages': 14,
@@ -325,8 +392,12 @@ describe('Params UI: 1.1.2 (SAH/S8.6.7.1)', () => {
     for (const [sec, count] of Object.entries(expected)) {
       const items = ui.secMap[sec];
       assert(items, `section "${sec}" should exist`);
-      const sepCount = items.filter(i => i.type.startsWith('sep:')).length;
-      assert.equal(sepCount, count, `${sec}: expected ${count} separators, got ${sepCount}`);
+      const sepCount = items.filter((i) => i.type.startsWith('sep:')).length;
+      assert.equal(
+        sepCount,
+        count,
+        `${sec}: expected ${count} separators, got ${sepCount}`,
+      );
     }
   });
 });

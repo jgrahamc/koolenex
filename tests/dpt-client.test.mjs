@@ -4,8 +4,17 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  normalizeDpt, dptInfo, dptUnit, dptName, dptTitle, dptToRefId,
-  setDptInfo, DPT_INFO, setI18nT, setI18nLang, localizedModel,
+  normalizeDpt,
+  dptInfo,
+  dptUnit,
+  dptName,
+  dptTitle,
+  dptToRefId,
+  setDptInfo,
+  DPT_INFO,
+  setI18nT,
+  setI18nLang,
+  localizedModel,
 } from '../client/src/dpt.js';
 
 // ── normalizeDpt ────────────────────────────────────────────────────────────
@@ -139,10 +148,10 @@ describe('dptName', () => {
   });
 
   it('uses i18n translation when available', () => {
-    setI18nT((refId) => refId === 'DPST-9-1' ? 'temperature (°C)' : null);
+    setI18nT((refId) => (refId === 'DPST-9-1' ? 'temperature (°C)' : null));
     assert.equal(dptName('9.001'), 'temperature (°C)');
-    assert.equal(dptName('1.001'), 'DPT_Switch');  // no translation → fallback
-    setI18nT(() => null);  // reset
+    assert.equal(dptName('1.001'), 'DPT_Switch'); // no translation → fallback
+    setI18nT(() => null); // reset
   });
 });
 
@@ -156,14 +165,23 @@ describe('dptTitle', () => {
 
   it('returns name with unit for known DPTs', () => {
     const title = dptTitle('9.001');
-    assert(title.includes('DPT_Value_Temp'), `should contain name, got: ${title}`);
+    assert(
+      title.includes('DPT_Value_Temp'),
+      `should contain name, got: ${title}`,
+    );
   });
 
   it('uses i18n translation when available', () => {
-    setI18nT((refId) => refId === 'DPST-9-1' ? 'temperature (°C)' : null);
+    setI18nT((refId) => (refId === 'DPST-9-1' ? 'temperature (°C)' : null));
     const title = dptTitle('9.001');
-    assert(title.includes('temperature'), `should contain translation, got: ${title}`);
-    assert(title.includes('DPT_Value_Temp'), `should contain code name, got: ${title}`);
+    assert(
+      title.includes('temperature'),
+      `should contain translation, got: ${title}`,
+    );
+    assert(
+      title.includes('DPT_Value_Temp'),
+      `should contain code name, got: ${title}`,
+    );
     setI18nT(() => null);
   });
 });
@@ -180,17 +198,23 @@ describe('localizedModel', () => {
   });
 
   it('returns model when translations is empty', () => {
-    assert.equal(localizedModel({ model: 'SAH/S8.6.7.1', model_translations: '{}' }), 'SAH/S8.6.7.1');
+    assert.equal(
+      localizedModel({ model: 'SAH/S8.6.7.1', model_translations: '{}' }),
+      'SAH/S8.6.7.1',
+    );
   });
 
   it('returns translated model for matching language', () => {
     setI18nLang('de-DE');
     const dev = {
       model: 'Switch Actuator',
-      model_translations: JSON.stringify({ 'de-DE': 'Schaltaktor', 'fr-FR': 'Actionneur' }),
+      model_translations: JSON.stringify({
+        'de-DE': 'Schaltaktor',
+        'fr-FR': 'Actionneur',
+      }),
     };
     assert.equal(localizedModel(dev), 'Schaltaktor');
-    setI18nLang('en-US');  // reset
+    setI18nLang('en-US'); // reset
   });
 
   it('falls back to model when language not in translations', () => {

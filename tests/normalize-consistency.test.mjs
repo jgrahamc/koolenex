@@ -12,18 +12,18 @@ const { normalizeDptKey } = require('../server/routes');
 describe('normalizeDpt (client) vs normalizeDptKey (server) consistency', () => {
   // Inputs where both should produce the same non-null result
   const agreeCases = [
-    ['DPST-9-1',   '9.001'],
-    ['DPT-9-1',    '9.001'],
+    ['DPST-9-1', '9.001'],
+    ['DPT-9-1', '9.001'],
     ['DPST-14-68', '14.068'],
-    ['DPST-1-1',   '1.001'],
-    ['dpst-5-1',   '5.001'],
-    ['DPT-232-600','232.600'],
-    ['9.001',      '9.001'],
-    ['9.1',        '9.001'],
-    ['14.68',      '14.068'],
-    ['1.1',        '1.001'],
-    ['232.600',    '232.600'],
-    ['5.001',      '5.001'],
+    ['DPST-1-1', '1.001'],
+    ['dpst-5-1', '5.001'],
+    ['DPT-232-600', '232.600'],
+    ['9.001', '9.001'],
+    ['9.1', '9.001'],
+    ['14.68', '14.068'],
+    ['1.1', '1.001'],
+    ['232.600', '232.600'],
+    ['5.001', '5.001'],
   ];
 
   for (const [input, expected] of agreeCases) {

@@ -82,7 +82,10 @@ describe('interp()', () => {
   });
 
   test('handles multiple placeholders in one string', () => {
-    assert.equal(interp('{{0: Move}} {{argCH}} Up/Down', { 0: 'Raise', argCH: 'Blind' }), 'Raise Blind Up/Down');
+    assert.equal(
+      interp('{{0: Move}} {{argCH}} Up/Down', { 0: 'Raise', argCH: 'Blind' }),
+      'Raise Blind Up/Down',
+    );
   });
 
   test('applies clean() to result (control chars, whitespace)', () => {
@@ -92,7 +95,10 @@ describe('interp()', () => {
 
   test('handles realistic ETS function text templates', () => {
     const map = { argCH: 'Output 1', 0: 'Brightness' };
-    assert.equal(interp('Set {{0: Value}} on {{argCH}}', map), 'Set Brightness on Output 1');
+    assert.equal(
+      interp('Set {{0: Value}} on {{argCH}}', map),
+      'Set Brightness on Output 1',
+    );
     assert.equal(interp('Value {{argCH}}:', map), 'Value Output 1');
   });
 
@@ -103,7 +109,10 @@ describe('interp()', () => {
 
   test('passes through string with no placeholders', () => {
     assert.equal(interp('Plain text', {}), 'Plain text');
-    assert.equal(interp('No placeholders here', { argCH: 'X' }), 'No placeholders here');
+    assert.equal(
+      interp('No placeholders here', { argCH: 'X' }),
+      'No placeholders here',
+    );
   });
 
   test('passes through malformed unclosed {{', () => {
@@ -113,6 +122,10 @@ describe('interp()', () => {
 
   test('handles empty default {{0: }}', () => {
     assert.equal(interp('{{0: }}', {}), '');
-    assert.equal(interp('Label: {{0: }}', {}), 'Label', 'trailing colon is stripped after empty default resolves');
+    assert.equal(
+      interp('Label: {{0: }}', {}),
+      'Label',
+      'trailing colon is stripped after empty default resolves',
+    );
   });
 });

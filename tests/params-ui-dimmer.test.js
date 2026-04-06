@@ -10,7 +10,9 @@ const fs = require('fs');
 
 const SMOKE_PROJECT = path.join(__dirname, 'smoke-test.knxproj');
 if (!fs.existsSync(SMOKE_PROJECT)) {
-  describe('Params UI: 1.1.3', () => { it('skipped — smoke-test.knxproj not found', () => {}); });
+  describe('Params UI: 1.1.3', () => {
+    it('skipped — smoke-test.knxproj not found', () => {});
+  });
   return;
 }
 
@@ -21,16 +23,17 @@ const { parseKnxproj } = require('../server/ets-parser');
 function etsTestMatch(val, tests) {
   const n = parseFloat(val);
   for (const t of tests || []) {
-    const rm = typeof t === 'string' && t.match(/^(!=|=|[<>]=?)(-?\d+(?:\.\d+)?)$/);
+    const rm =
+      typeof t === 'string' && t.match(/^(!=|=|[<>]=?)(-?\d+(?:\.\d+)?)$/);
     if (rm) {
       if (isNaN(n)) continue;
       const rv = parseFloat(rm[2]);
       const op = rm[1];
-      if (op === '<'  && n <  rv) return true;
-      if (op === '>'  && n >  rv) return true;
+      if (op === '<' && n < rv) return true;
+      if (op === '>' && n > rv) return true;
       if (op === '<=' && n <= rv) return true;
       if (op === '>=' && n >= rv) return true;
-      if (op === '='  && n === rv) return true;
+      if (op === '=' && n === rv) return true;
       if (op === '!=' && n !== rv) return true;
     } else if (String(t) === val) return true;
   }
@@ -47,11 +50,20 @@ function buildParamUI(model) {
   function evalChoiceActive(c) {
     if (c.paramRefId && !c.accessNone && !active.has(c.paramRefId)) return;
     const raw = getVal(c.paramRefId);
-    const val = String(raw !== '' && raw != null ? raw : (c.defaultValue ?? ''));
-    let matched = false, defItems = null;
+    const val = String(
+      raw !== '' && raw != null ? raw : (c.defaultValue ?? ''),
+    );
+    let matched = false,
+      defItems = null;
     for (const w of c.whens || []) {
-      if (w.isDefault) { defItems = w.items; continue; }
-      if (etsTestMatch(val, w.test)) { matched = true; walkActive(w.items); }
+      if (w.isDefault) {
+        defItems = w.items;
+        continue;
+      }
+      if (etsTestMatch(val, w.test)) {
+        matched = true;
+        walkActive(w.items);
+      }
     }
     if (!matched && defItems) walkActive(defItems);
   }
@@ -59,7 +71,12 @@ function buildParamUI(model) {
     if (!items) return;
     for (const item of items) {
       if (item.type === 'paramRef') active.add(item.refId);
-      else if (item.type === 'block' || item.type === 'channel' || item.type === 'cib') walkActive(item.items);
+      else if (
+        item.type === 'block' ||
+        item.type === 'channel' ||
+        item.type === 'cib'
+      )
+        walkActive(item.items);
       else if (item.type === 'choose') evalChoiceActive(item);
     }
   }
@@ -72,15 +89,26 @@ function buildParamUI(model) {
   function collectRenames(items) {
     if (!items) return;
     for (const item of items) {
-      if (item.type === 'rename' && item.refId && item.text) blockRenames[item.refId] = item.text;
+      if (item.type === 'rename' && item.refId && item.text)
+        blockRenames[item.refId] = item.text;
       else if (item.type === 'choose') {
-        if (item.paramRefId && !item.accessNone && !active.has(item.paramRefId)) continue;
+        if (item.paramRefId && !item.accessNone && !active.has(item.paramRefId))
+          continue;
         const raw = getVal(item.paramRefId);
-        const val = String(raw !== '' && raw != null ? raw : (item.defaultValue ?? ''));
-        let matched = false, defItems = null;
+        const val = String(
+          raw !== '' && raw != null ? raw : (item.defaultValue ?? ''),
+        );
+        let matched = false,
+          defItems = null;
         for (const w of item.whens || []) {
-          if (w.isDefault) { defItems = w.items; continue; }
-          if (etsTestMatch(val, w.test)) { matched = true; collectRenames(w.items); }
+          if (w.isDefault) {
+            defItems = w.items;
+            continue;
+          }
+          if (etsTestMatch(val, w.test)) {
+            matched = true;
+            collectRenames(w.items);
+          }
         }
         if (!matched && defItems) collectRenames(defItems);
       } else if (item.items) collectRenames(item.items);
@@ -88,18 +116,31 @@ function buildParamUI(model) {
   }
 
   function addItem(sec, label, type) {
-    if (!secMap[sec]) { secMap[sec] = []; sections.push(sec); }
+    if (!secMap[sec]) {
+      secMap[sec] = [];
+      sections.push(sec);
+    }
     secMap[sec].push({ label, type: type || 'param' });
   }
 
   function evalChooseUI(item, secLabel, walkFn) {
-    if (item.paramRefId && !item.accessNone && !active.has(item.paramRefId)) return;
+    if (item.paramRefId && !item.accessNone && !active.has(item.paramRefId))
+      return;
     const raw = getVal(item.paramRefId);
-    const val = String(raw !== '' && raw != null ? raw : (item.defaultValue ?? ''));
-    let matched = false, defItems = null;
+    const val = String(
+      raw !== '' && raw != null ? raw : (item.defaultValue ?? ''),
+    );
+    let matched = false,
+      defItems = null;
     for (const w of item.whens || []) {
-      if (w.isDefault) { defItems = w.items; continue; }
-      if (etsTestMatch(val, w.test)) { matched = true; walkFn(w.items, secLabel); }
+      if (w.isDefault) {
+        defItems = w.items;
+        continue;
+      }
+      if (etsTestMatch(val, w.test)) {
+        matched = true;
+        walkFn(w.items, secLabel);
+      }
     }
     if (!matched && defItems) walkFn(defItems, secLabel);
   }
@@ -109,13 +150,18 @@ function buildParamUI(model) {
     for (const item of items) {
       if (item.type === 'paramRef') {
         if (!params[item.refId] || !active.has(item.refId)) continue;
-        addItem(secLabel, params[item.refId].label, item.cell ? 'cell:' + item.cell : 'param');
+        addItem(
+          secLabel,
+          params[item.refId].label,
+          item.cell ? 'cell:' + item.cell : 'param',
+        );
       } else if (item.type === 'separator') {
         addItem(secLabel, item.text || '', 'sep:' + item.uiHint);
       } else if (item.type === 'block') {
         collectRenames(item.items);
-        if (item.access === 'None') { /* hidden */ }
-        else if (item.inline) walkItems(item.items, secLabel);
+        if (item.access === 'None') {
+          /* hidden */
+        } else if (item.inline) walkItems(item.items, secLabel);
         else {
           const renamed = item.id ? blockRenames[item.id] : null;
           const blockLabel = renamed || item.text || item.name || secLabel;
@@ -159,13 +205,12 @@ let parsed, model, ui;
 before(() => {
   const buf = fs.readFileSync(SMOKE_PROJECT);
   parsed = parseKnxproj(buf);
-  const dev = parsed.devices.find(d => d.individual_address === '1.1.3');
+  const dev = parsed.devices.find((d) => d.individual_address === '1.1.3');
   model = parsed.paramModels[dev.app_ref];
   ui = buildParamUI(model);
 });
 
 describe('Params UI: 1.1.3 (UD/S4.210.2.1 LED Dimmer)', () => {
-
   it('has exactly the expected sections in the correct order', () => {
     assert.deepEqual(ui.sections, [
       'Channel allocation',
@@ -194,38 +239,40 @@ describe('Params UI: 1.1.3 (UD/S4.210.2.1 LED Dimmer)', () => {
   it('Channel allocation has correct structure', () => {
     const items = ui.secMap['Channel allocation'];
     assert(items);
-    const params = items.filter(i => !i.type.startsWith('sep:'));
+    const params = items.filter((i) => !i.type.startsWith('sep:'));
     assert.equal(params.length, 5);
-    assert(params.some(p => p.label === 'Bundling outputs (parallel switching)'));
-    assert(params.some(p => p.label === 'Output A'));
-    assert(params.some(p => p.label === 'Output B'));
-    assert(params.some(p => p.label === 'Output C'));
-    assert(params.some(p => p.label === 'Output D'));
+    assert(
+      params.some((p) => p.label === 'Bundling outputs (parallel switching)'),
+    );
+    assert(params.some((p) => p.label === 'Output A'));
+    assert(params.some((p) => p.label === 'Output B'));
+    assert(params.some((p) => p.label === 'Output C'));
+    assert(params.some((p) => p.label === 'Output D'));
   });
 
   it('General has 3 params', () => {
     const items = ui.secMap['General'];
     assert(items);
-    const params = items.filter(i => !i.type.startsWith('sep:'));
+    const params = items.filter((i) => !i.type.startsWith('sep:'));
     assert.equal(params.length, 3);
   });
 
   it('Configure scenes has 32 params', () => {
     const items = ui.secMap['Configure scenes'];
     assert(items);
-    const params = items.filter(i => !i.type.startsWith('sep:'));
+    const params = items.filter((i) => !i.type.startsWith('sep:'));
     assert.equal(params.length, 32);
   });
 
   it('per-section param counts are correct', () => {
     const expected = {
       'Channel allocation': 5,
-      'General': 3,
+      General: 3,
       'Configure scenes': 32,
       'Basic settings': 21,
       'Feedback and error messages': 8,
       'Block and forced function': 5,
-      'Faults': 9,
+      Faults: 9,
       'Central objects': 7,
       'Correction of characteristic': 5,
       'Channel 1': 1,
@@ -237,20 +284,24 @@ describe('Params UI: 1.1.3 (UD/S4.210.2.1 LED Dimmer)', () => {
     for (const [sec, count] of Object.entries(expected)) {
       const items = ui.secMap[sec];
       assert(items, `section "${sec}" should exist`);
-      const paramCount = items.filter(i => !i.type.startsWith('sep:')).length;
-      assert.equal(paramCount, count, `${sec}: expected ${count} params, got ${paramCount}`);
+      const paramCount = items.filter((i) => !i.type.startsWith('sep:')).length;
+      assert.equal(
+        paramCount,
+        count,
+        `${sec}: expected ${count} params, got ${paramCount}`,
+      );
     }
   });
 
   it('per-section separator counts are correct', () => {
     const expected = {
       'Channel allocation': 2,
-      'General': 2,
+      General: 2,
       'Configure scenes': 0,
       'Basic settings': 12,
       'Feedback and error messages': 7,
       'Block and forced function': 4,
-      'Faults': 9,
+      Faults: 9,
       'Central objects': 4,
       'Correction of characteristic': 4,
       'Channel 1': 0,
@@ -262,8 +313,12 @@ describe('Params UI: 1.1.3 (UD/S4.210.2.1 LED Dimmer)', () => {
     for (const [sec, count] of Object.entries(expected)) {
       const items = ui.secMap[sec];
       assert(items, `section "${sec}" should exist`);
-      const sepCount = items.filter(i => i.type.startsWith('sep:')).length;
-      assert.equal(sepCount, count, `${sec}: expected ${count} separators, got ${sepCount}`);
+      const sepCount = items.filter((i) => i.type.startsWith('sep:')).length;
+      assert.equal(
+        sepCount,
+        count,
+        `${sec}: expected ${count} separators, got ${sepCount}`,
+      );
     }
   });
 
@@ -272,7 +327,7 @@ describe('Params UI: 1.1.3 (UD/S4.210.2.1 LED Dimmer)', () => {
       const sec = `Channel ${i}`;
       const items = ui.secMap[sec];
       assert(items, `section "${sec}" should exist`);
-      const params = items.filter(it => !it.type.startsWith('sep:'));
+      const params = items.filter((it) => !it.type.startsWith('sep:'));
       assert.equal(params.length, 1, `${sec} should have 1 param`);
       assert.equal(params[0].label, 'Application');
     }
