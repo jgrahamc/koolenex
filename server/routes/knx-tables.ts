@@ -1,10 +1,107 @@
-'use strict';
-
 // ── KNX table builders ────────────────────────────────────────────────────────
 
+// ── ETS dynamic tree types ───────────────────────────────────────────────────
+
+export interface DynNode {
+  paramRefs?: string[];
+  blocks?: DynNode[];
+  choices?: DynChoice[];
+  assigns?: DynAssign[];
+}
+
+export interface DynWhen {
+  test?: string[];
+  isDefault?: boolean;
+  node?: DynNode;
+}
+
+export interface DynChoice {
+  paramRefId: string;
+  defaultValue?: string;
+  whens?: DynWhen[];
+}
+
+export interface DynAssign {
+  target: string;
+  source: string | null;
+  value: string | null;
+}
+
+export interface DynChannel {
+  node?: DynNode;
+}
+
+export interface DynSection {
+  channels?: DynChannel[];
+  cib?: DynNode[];
+  pb?: DynNode[];
+  choices?: DynChoice[];
+}
+
+export interface DynTree {
+  main?: DynSection;
+}
+
+export interface ParamDef {
+  defaultValue?: string;
+  [key: string]: unknown;
+}
+
+export interface ParamMemEntry {
+  offset: number | null;
+  bitOffset: number;
+  bitSize: number;
+  defaultValue?: string;
+  isText?: boolean;
+  isFloat?: boolean;
+  coefficient?: number;
+  fromMemoryChild?: boolean;
+  isVisible?: boolean;
+}
+
+export interface LoadProcedureStep {
+  type: string;
+  size?: number;
+  fill?: number;
+  lsmIdx?: number;
+  data?: string | null;
+  [key: string]: unknown;
+}
+
+export interface AbsSegData {
+  size: number;
+  hex?: string | null;
+}
+
+export interface DeviceModel {
+  loadProcedures?: LoadProcedureStep[];
+  relSegData?: Record<number, string>;
+  absSegData?: Record<string, AbsSegData>;
+  paramMemLayout?: Record<string, ParamMemEntry>;
+  dynTree?: DynTree;
+  params?: Record<string, ParamDef>;
+}
+
+export interface ParamSegmentResult {
+  paramSize: number;
+  paramFill: number;
+  relSegHex: string | null;
+}
+
+export interface GaLink {
+  address?: string;
+  main_g: number;
+  middle_g: number;
+  sub_g: number;
+}
+
+export interface CoRow {
+  object_number: number;
+  ga_address: string;
+}
+
 // Build GA table bytes: [count(1)] + [GA_encoded(2) x count]
-// gaLinks: array of { main_g, middle_g, sub_g }
-function buildGATable(gaLinks) {
+export function buildGATable(gaLinks: GaLink[]): Buffer {
   const count = gaLinks.length;
   const buf = Buffer.alloc(1 + count * 2);
   buf[0] = count & 0xff;
@@ -18,15 +115,13 @@ function buildGATable(gaLinks) {
 }
 
 // Build association table bytes: [count(1)] + [CO_num(1), GA_idx(1)] x count
-// coRows: array of { object_number, ga_address } from com_objects
-// gaLinks: sorted GA list (GA index = position in sorted list)
-function buildAssocTable(coRows, gaLinks) {
-  const gaIndexMap = {};
+export function buildAssocTable(coRows: CoRow[], gaLinks: GaLink[]): Buffer {
+  const gaIndexMap: Record<string, number> = {};
   gaLinks.forEach((ga, i) => {
-    gaIndexMap[ga.address] = i;
+    if (ga.address) gaIndexMap[ga.address] = i;
   });
 
-  const entries = [];
+  const entries: [number, number][] = [];
   for (const co of coRows) {
     const gas = (co.ga_address || '').split(/\s+/).filter(Boolean);
     for (const gaAddr of gas) {
@@ -46,15 +141,17 @@ function buildAssocTable(coRows, gaLinks) {
 }
 
 // Test whether a numeric/string value matches an ETS when-test condition.
-// Tests can be exact values or relational operators (<, >, <=, >=).
-function etsTestMatch(val, tests) {
-  const n = parseFloat(val);
+export function etsTestMatch(
+  val: string | number,
+  tests: (string | number)[] | null | undefined,
+): boolean {
+  const n = parseFloat(String(val));
   for (const t of tests || []) {
     const rm =
       typeof t === 'string' && t.match(/^(!=|=|[<>]=?)(-?\d+(?:\.\d+)?)$/);
     if (rm) {
       if (isNaN(n)) continue;
-      const rv = parseFloat(rm[2]);
+      const rv = parseFloat(rm[2]!);
       const op = rm[1];
       if (op === '<' && n < rv) return true;
       if (op === '>' && n > rv) return true;
@@ -69,20 +166,13 @@ function etsTestMatch(val, tests) {
   return false;
 }
 
-// Walk the ETS dynamic parameter tree (stored as app.dynTree) and collect paramRef IDs
-// that are CONDITIONALLY active — i.e., reachable only through at least one choose/when branch.
-// Unconditionally-visible params (always shown regardless of other param values) are excluded.
-//
-// ETS programming convention for RelSeg devices:
-//   - Unconditionally-visible params: ETS leaves the RelSeg blob value in place.
-//   - Conditionally-visible params (inside a choose/when that evaluates true):
-//       if the param IS in the project XML -> write that value (handled by currentValues)
-//       if NOT in project XML -> write the XML default (this function identifies these).
-// Build the set of paramRefs that are unconditionally reachable from top-level channels/cib/pb
-// without passing through any choice/when branch. These are always-active params.
-function buildUnconditionalChannelSet(dynTree) {
-  const s = new Set();
-  function walk(node) {
+// Build the set of paramRefs that are unconditionally reachable from top-level
+// channels/cib/pb without passing through any choice/when branch.
+export function buildUnconditionalChannelSet(
+  dynTree: DynTree | null | undefined,
+): Set<string> {
+  const s = new Set<string>();
+  function walk(node: DynNode | undefined): void {
     if (!node) return;
     for (const r of node.paramRefs || []) s.add(r);
     for (const b of node.blocks || []) walk(b);
@@ -94,32 +184,36 @@ function buildUnconditionalChannelSet(dynTree) {
   return s;
 }
 
-function evalConditionallyActiveParamRefs(dynTree, params, currentValues) {
-  const conditional = new Set();
-  const getVal = (prKey) => {
+export function evalConditionallyActiveParamRefs(
+  dynTree: DynTree | null | undefined,
+  params: Record<string, ParamDef>,
+  currentValues: Record<string, unknown>,
+): Set<string> {
+  const conditional = new Set<string>();
+  const getVal = (prKey: string): string => {
     if (prKey in currentValues) return String(currentValues[prKey]);
     return String(params[prKey]?.defaultValue ?? '');
   };
-  function evalChoice(choice, _inChoice) {
+  function evalChoice(choice: DynChoice, _inChoice: boolean): void {
     const raw = getVal(choice.paramRefId);
     const val = String(
       raw !== '' && raw != null ? raw : (choice.defaultValue ?? ''),
     );
-    let matched = false,
-      defNode = null;
+    let matched = false;
+    let defNode: DynNode | undefined;
     for (const w of choice.whens || []) {
       if (w.isDefault) {
         defNode = w.node;
         continue;
       }
-      if (etsTestMatch(val, w.test)) {
+      if (etsTestMatch(val, w.test ?? null)) {
         matched = true;
         walkNode(w.node, true);
       }
     }
     if (!matched && defNode) walkNode(defNode, true);
   }
-  function walkNode(node, inChoice) {
+  function walkNode(node: DynNode | undefined, inChoice: boolean): void {
     if (!node) return;
     for (const r of node.paramRefs || []) {
       if (inChoice) conditional.add(r);
@@ -127,7 +221,7 @@ function evalConditionallyActiveParamRefs(dynTree, params, currentValues) {
     for (const b of node.blocks || []) walkNode(b, inChoice);
     for (const choice of node.choices || []) evalChoice(choice, inChoice);
   }
-  function walkDynSection(section) {
+  function walkDynSection(section: DynSection | undefined): void {
     if (!section) return;
     for (const ch of section.channels || []) walkNode(ch.node, false);
     for (const ci of section.cib || []) walkNode(ci, false);
@@ -138,18 +232,15 @@ function evalConditionallyActiveParamRefs(dynTree, params, currentValues) {
   return conditional;
 }
 
-// Write `bitSize` bits of `value` into buf at byte `byteOffset`, starting from bit `bitOffset`.
-// KNX/ETS6 convention:
-//   - Multi-byte aligned values (bitOffset=0, bitSize multiple of 8): big-endian (MSB first).
-//   - Sub-byte values: bitOffset is from the MSB of the byte (bit 0 = MSB = bit 7 in LSB notation).
-//     A field at bitOffset=k, bitSize=n occupies byte bits [7-k .. 8-k-n] (LSB indexing).
-//     value bit 0 (LSB) maps to byte bit (8 - bitOffset - bitSize).
 // Encode a value as KNX 2-byte float (DPT 9.x) and write big-endian at byteOffset.
 // Format: sign(1) + exponent(4) + mantissa(11). value = 0.01 x mantissa x 2^exponent
-function writeKnxFloat16(buf, byteOffset, value) {
+export function writeKnxFloat16(
+  buf: Buffer,
+  byteOffset: number,
+  value: number,
+): void {
   if (byteOffset + 2 > buf.length) return;
-  // Encode: find exponent such that mantissa fits in 11-bit signed range [-2048..2047]
-  let m = Math.round(value * 100); // 0.01 factor
+  let m = Math.round(value * 100);
   let e = 0;
   while (m < -2048 || m > 2047) {
     m = Math.round(m / 2);
@@ -157,13 +248,20 @@ function writeKnxFloat16(buf, byteOffset, value) {
     if (e > 15) break;
   }
   const sign = m < 0 ? 1 : 0;
-  if (sign) m = m + 2048; // two's complement 11-bit: negative mantissa stored as 2048 + m
+  if (sign) m = m + 2048;
   const raw = (sign << 15) | ((e & 0xf) << 11) | (m & 0x7ff);
   buf[byteOffset] = (raw >> 8) & 0xff;
   buf[byteOffset + 1] = raw & 0xff;
 }
 
-function writeBits(buf, byteOffset, bitOffset, bitSize, value) {
+// Write `bitSize` bits of `value` into buf at byte `byteOffset`, starting from bit `bitOffset`.
+export function writeBits(
+  buf: Buffer,
+  byteOffset: number,
+  bitOffset: number,
+  bitSize: number,
+  value: number,
+): void {
   if (byteOffset >= buf.length || bitSize <= 0) return;
   const mask = bitSize >= 32 ? 0xffffffff : (1 << bitSize) - 1;
   value = value & mask;
@@ -178,7 +276,6 @@ function writeBits(buf, byteOffset, bitOffset, bitSize, value) {
     return;
   }
   // Sub-byte: bitOffset from MSB (KNX convention: bitOffset=0 is bit 7 of the byte).
-  // Handle spanning two bytes by splitting recursively (matches ETS DptValueConverter.WriteBits).
   if (bitOffset + bitSize > 8) {
     const bitsInFirstByte = 8 - bitOffset;
     writeBits(
@@ -193,43 +290,46 @@ function writeBits(buf, byteOffset, bitOffset, bitSize, value) {
   }
   const shift = 8 - bitOffset - bitSize;
   const bmask = ((1 << bitSize) - 1) << shift;
-  buf[byteOffset] = (buf[byteOffset] & ~bmask) | ((value << shift) & bmask);
+  buf[byteOffset] = (buf[byteOffset]! & ~bmask) | ((value << shift) & bmask);
 }
 
 // Collect Assign operations whose when-branch is currently active.
-// Returns array of { target, source, value } where source is a paramRef key (or null for literal assigns).
-function collectActiveAssigns(dynTree, params, currentValues) {
-  const result = [];
-  const getVal = (prKey) => {
+export function collectActiveAssigns(
+  dynTree: DynTree | null | undefined,
+  params: Record<string, ParamDef>,
+  currentValues: Record<string, unknown>,
+): DynAssign[] {
+  const result: DynAssign[] = [];
+  const getVal = (prKey: string): string => {
     if (prKey in currentValues) return String(currentValues[prKey]);
     return String(params[prKey]?.defaultValue ?? '');
   };
-  function walkNode(node) {
+  function walkNode(node: DynNode | undefined): void {
     if (!node) return;
     for (const ass of node.assigns || []) result.push(ass);
     for (const b of node.blocks || []) walkNode(b);
     for (const choice of node.choices || []) evalChoice(choice);
   }
-  function evalChoice(choice) {
+  function evalChoice(choice: DynChoice): void {
     const raw = getVal(choice.paramRefId);
     const val = String(
       raw !== '' && raw != null ? raw : (choice.defaultValue ?? ''),
     );
-    let matched = false,
-      defNode = null;
+    let matched = false;
+    let defNode: DynNode | undefined;
     for (const w of choice.whens || []) {
       if (w.isDefault) {
         defNode = w.node;
         continue;
       }
-      if (etsTestMatch(val, w.test)) {
+      if (etsTestMatch(val, w.test ?? null)) {
         matched = true;
         walkNode(w.node);
       }
     }
     if (!matched && defNode) walkNode(defNode);
   }
-  function walkDynSection(section) {
+  function walkDynSection(section: DynSection | undefined): void {
     if (!section) return;
     for (const ch of section.channels || []) walkNode(ch.node);
     for (const ci of section.cib || []) walkNode(ci);
@@ -241,36 +341,34 @@ function collectActiveAssigns(dynTree, params, currentValues) {
 }
 
 // Determine parameter segment size and base data for a device model.
-// Handles both RelativeSegment (System B) and AbsoluteSegment (ProductProcedure) devices.
-function resolveParamSegment(model) {
-  const lps = model.loadProcedures || [];
+export function resolveParamSegment(model: DeviceModel): ParamSegmentResult {
+  const lps = model.loadProcedures ?? [];
   // Try RelativeSegment path first (most common)
   const writeMemStep = lps.find((s) => s.type === 'WriteRelMem');
   const relSegStep = lps.find((s) => s.type === 'RelSegment');
   if (writeMemStep || relSegStep) {
-    const paramSize = writeMemStep?.size || relSegStep?.size || 0;
+    const paramSize = writeMemStep?.size ?? relSegStep?.size ?? 0;
     const paramFill = relSegStep?.fill ?? 0xff;
     const paramLsmIdx = relSegStep?.lsmIdx ?? 4;
-    const relSegHex = model.relSegData?.[paramLsmIdx] || null;
+    const relSegHex = model.relSegData?.[paramLsmIdx] ?? null;
     return { paramSize, paramFill, relSegHex };
   }
-  // Try AbsoluteSegment path: find the segment whose address range covers the parameter offsets.
-  const absSegs = model.absSegData || {};
-  const layout = model.paramMemLayout || {};
+  // Try AbsoluteSegment path
+  const absSegs = model.absSegData ?? {};
+  const layout = model.paramMemLayout ?? {};
   const paramOffsets = Object.values(layout)
     .map((v) => v.offset)
-    .filter((v) => v != null);
+    .filter((v): v is number => v != null);
   if (paramOffsets.length === 0 || Object.keys(absSegs).length === 0) {
     return { paramSize: 0, paramFill: 0xff, relSegHex: null };
   }
   const maxOffset = Math.max(...paramOffsets);
-  // Find the AbsoluteSegment that contains the parameter range.
   for (const seg of Object.values(absSegs)) {
     if (seg.size > maxOffset) {
       return {
         paramSize: seg.size,
         paramFill: 0x00,
-        relSegHex: seg.hex || null,
+        relSegHex: seg.hex ?? null,
       };
     }
   }
@@ -282,30 +380,25 @@ function resolveParamSegment(model) {
     return {
       paramSize: largest[1].size,
       paramFill: 0x00,
-      relSegHex: largest[1].hex || null,
+      relSegHex: largest[1].hex ?? null,
     };
   }
   return { paramSize: 0, paramFill: 0xff, relSegHex: null };
 }
 
-// Build parameter memory segment from the paramMemLayout (all params, including hidden ones).
-// currentValues: { [paramRefId]: rawValue } — user overrides (may be sparse)
-// fill: byte value to initialize the buffer with (from LdCtrlRelSegment.@Fill)
-// relSegHex: optional hex string from Static/Code/RelativeSegment/Data — when present,
-//   used as the base buffer (encodes factory defaults) instead of a fill byte.
-function buildParamMem(
-  size,
-  paramMemLayout,
-  currentValues,
+// Build parameter memory segment from the paramMemLayout.
+export function buildParamMem(
+  size: number,
+  paramMemLayout: Record<string, ParamMemEntry>,
+  currentValues: Record<string, unknown>,
   fill = 0xff,
-  relSegHex = null,
-  dynTree = null,
-  params = null,
-) {
+  relSegHex: string | null = null,
+  dynTree: DynTree | null = null,
+  params: Record<string, ParamDef> | null = null,
+): Buffer {
   const relSegBase = relSegHex ? Buffer.from(relSegHex, 'hex') : null;
 
-  // Start with relSeg blob as base (factory defaults), or fill byte if no blob
-  let buf;
+  let buf: Buffer;
   if (relSegBase) {
     buf = Buffer.alloc(size, fill);
     relSegBase.copy(buf, 0, 0, Math.min(relSegBase.length, size));
@@ -313,7 +406,6 @@ function buildParamMem(
     buf = Buffer.alloc(size, fill);
   }
 
-  // Determine which params are conditionally active based on choose/when evaluation
   const conditionallyActive =
     dynTree && params
       ? evalConditionallyActiveParamRefs(dynTree, params, currentValues)
@@ -325,14 +417,12 @@ function buildParamMem(
   for (const [prId, info] of Object.entries(paramMemLayout)) {
     if (info.offset === null || info.offset === undefined) continue;
 
-    // Determine if this param should be written based on conditional visibility
     if (info.fromMemoryChild) {
       if (!info.isVisible && prId in currentValues) {
         // User explicitly set a hidden param — write it
       } else if (unconditionalChannel && unconditionalChannel.has(prId)) {
         // Unconditionally visible — write it
       } else {
-        // Conditionally visible — only write if the choose/when branch is active
         const passConditional =
           conditionallyActive &&
           conditionallyActive.has(prId) &&
@@ -342,19 +432,20 @@ function buildParamMem(
     }
 
     const rawVal =
-      prId in currentValues ? currentValues[prId] : info.defaultValue;
+      prId in currentValues
+        ? (currentValues[prId] as string | number | null)
+        : info.defaultValue;
     if (rawVal === '' || rawVal === null || rawVal === undefined) continue;
 
-    // Write at the exact offset — no shifting, no convention detection
     if (info.isText) {
       const byteSize = Math.floor(info.bitSize / 8);
       if (info.offset + byteSize > buf.length) continue;
-      const strBuf = Buffer.from(rawVal, 'latin1');
+      const strBuf = Buffer.from(String(rawVal), 'latin1');
       strBuf.copy(buf, info.offset, 0, Math.min(strBuf.length, byteSize));
       continue;
     }
     if (info.isFloat) {
-      const fVal = parseFloat(rawVal);
+      const fVal = parseFloat(String(rawVal));
       if (isNaN(fVal)) continue;
       const scaledVal = info.coefficient ? fVal / info.coefficient : fVal;
       if (info.bitSize === 16) {
@@ -368,7 +459,7 @@ function buildParamMem(
       }
       continue;
     }
-    const numVal = parseFloat(rawVal);
+    const numVal = parseFloat(String(rawVal));
     if (isNaN(numVal)) continue;
     const intVal = info.coefficient
       ? Math.round(numVal / info.coefficient)
@@ -387,19 +478,24 @@ function buildParamMem(
         targetInfo.offset === undefined
       )
         continue;
-      let rawVal;
+      let assignRawVal: string | number | null | undefined;
       if (source) {
         const sourceParam = params[source];
         if (!sourceParam) continue;
-        rawVal =
+        assignRawVal =
           source in currentValues
-            ? currentValues[source]
+            ? (currentValues[source] as string | number | null)
             : sourceParam.defaultValue;
       } else {
-        rawVal = value;
+        assignRawVal = value;
       }
-      if (rawVal === '' || rawVal === null || rawVal === undefined) continue;
-      const intVal = parseInt(rawVal);
+      if (
+        assignRawVal === '' ||
+        assignRawVal === null ||
+        assignRawVal === undefined
+      )
+        continue;
+      const intVal = parseInt(String(assignRawVal));
       if (isNaN(intVal)) continue;
       writeBits(
         buf,
@@ -413,16 +509,3 @@ function buildParamMem(
 
   return buf;
 }
-
-module.exports = {
-  buildGATable,
-  buildAssocTable,
-  etsTestMatch,
-  buildUnconditionalChannelSet,
-  evalConditionallyActiveParamRefs,
-  writeKnxFloat16,
-  writeBits,
-  collectActiveAssigns,
-  resolveParamSegment,
-  buildParamMem,
-};

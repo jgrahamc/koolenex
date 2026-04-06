@@ -13,7 +13,7 @@ const {
   collectActiveAssigns,
   resolveParamSegment,
   buildParamMem,
-} = require('../server/routes/knx-tables');
+} = require('../server/routes/knx-tables.ts');
 
 // ── buildUnconditionalChannelSet ────────────────────────────────────────────
 

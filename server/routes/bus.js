@@ -9,7 +9,7 @@ const {
   buildAssocTable,
   resolveParamSegment,
   buildParamMem,
-} = require('./knx-tables');
+} = require('./knx-tables.ts');
 
 let bus = null;
 const router = express.Router();

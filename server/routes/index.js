@@ -7,7 +7,7 @@ const devicesRouter = require('./devices');
 const gasRouter = require('./gas');
 const catalogRouter = require('./catalog');
 const busRouter = require('./bus');
-const knxTables = require('./knx-tables');
+const knxTables = require('./knx-tables.ts');
 
 const router = express.Router();
 
