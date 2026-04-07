@@ -76,7 +76,15 @@ export interface AppState {
   projects: any[];
   activeProjectId: number | null;
   projectData: any;
-  busStatus: { connected: boolean; host: string | null; hasLib: boolean };
+  busStatus: {
+    connected: boolean;
+    host: string | null;
+    hasLib: boolean;
+    type?: string;
+    port?: number;
+    path?: string;
+    [key: string]: any;
+  };
   telegrams: any[];
   view: string;
   loading: boolean;

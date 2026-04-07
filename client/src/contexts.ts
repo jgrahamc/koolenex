@@ -4,7 +4,8 @@ import { normalizeDpt, dptInfo, dptToRefId, _i18nT } from './dpt.ts';
 export type DptMode = 'numeric' | 'formal' | 'friendly';
 
 export const DptCtx = createContext<DptMode>('numeric');
-export const PinContext = createContext<string | null>(null);
+export type PinFn = ((wtype: string, address: string) => void) | null;
+export const PinContext = createContext<PinFn>(null);
 
 /**
  * Three display modes for DPT:
