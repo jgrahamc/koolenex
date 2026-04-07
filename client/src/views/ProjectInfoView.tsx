@@ -10,8 +10,8 @@ interface ProjectInfoViewProps {
   onLangChange: (lang: string) => void;
   languages: any[] | null;
   busStatus: any;
-  onConnect: (host: string, port: number) => Promise<void>;
-  onConnectUsb: (path: string) => Promise<void>;
+  onConnect: (host: string, port: number) => Promise<unknown>;
+  onConnectUsb: (path: string) => Promise<unknown>;
   onDisconnect: () => void;
 }
 
@@ -92,7 +92,10 @@ export function ProjectInfoView({
     setUsbLoading(true);
     setError(null);
     try {
-      const res = await api.busUsbDevices();
+      const res = (await api.busUsbDevices()) as {
+        devices?: any[];
+        error?: string;
+      };
       setUsbDevices(res.devices || []);
       if (res.error) setError(res.error);
       if (res.devices?.length === 1) setSelectedUsb(res.devices[0].path);
@@ -553,7 +556,7 @@ function AuditLogSection({ projectId, C }: AuditLogSectionProps) {
     setLoading(true);
     api
       .getAuditLog(projectId, 200)
-      .then(setLogs)
+      .then((data) => setLogs(data as any[] | null))
       .catch(() => setLogs([]))
       .finally(() => setLoading(false));
   }, [projectId]);

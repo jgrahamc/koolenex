@@ -110,7 +110,9 @@ export function DevicePinPanel({
     setReachability('checking');
     try {
       const gaAddresses = linkedGAs.map((g: any) => g.address);
-      const result = await api.busPing(gaAddresses, devAddr);
+      const result = (await api.busPing(gaAddresses, devAddr)) as {
+        reachable: boolean;
+      };
       setReachability(result.reachable ? 'reachable' : 'unreachable');
     } catch (_) {
       setReachability('unreachable');

@@ -74,7 +74,10 @@ export function CatalogView({
     try {
       const fd = new FormData();
       fd.append('file', file);
-      const result = await api.importKnxprod(activeProjectId, fd);
+      const result = (await api.importKnxprod(activeProjectId, fd)) as {
+        sections: any[];
+        items: any[];
+      };
       setCatalog({ sections: result.sections, items: result.items });
     } catch (err) {
       console.error('knxprod import error:', err);

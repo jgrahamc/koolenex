@@ -25,6 +25,14 @@ import {
   setSpaceUsages,
 } from './dpt.ts';
 import { initialState, reducer } from './state.ts';
+import type {
+  DeviceStatus,
+  EnrichedGA,
+  Device,
+  Space,
+  Topology,
+  BusTelegram,
+} from '../../shared/types.ts';
 import {
   IconLocations,
   IconTopology,
@@ -192,15 +200,19 @@ export default function App() {
         .catch(() => {});
       api
         .getMediumTypes(pid)
-        .then(setMediumTypes)
+        .then((d) => setMediumTypes(d as Record<string, any>))
         .catch(() => {});
       api
         .getMaskVersions(pid)
-        .then(setMaskVersions)
+        .then((d) => setMaskVersions(d as Record<string, any>))
         .catch(() => {});
       api
         .getTranslations(pid)
-        .then(setI18nData)
+        .then((d) =>
+          setI18nData(
+            d as { languages: any[]; translations: Record<string, any> },
+          ),
+        )
         .catch(() => {});
     }
   }, [state.activeProjectId]);
@@ -229,15 +241,19 @@ export default function App() {
       .catch(() => {});
     api
       .getMediumTypes()
-      .then(setMediumTypes)
+      .then((d) => setMediumTypes(d as Record<string, any>))
       .catch(() => {});
     api
       .getMaskVersions()
-      .then(setMaskVersions)
+      .then((d) => setMaskVersions(d as Record<string, any>))
       .catch(() => {});
     api
       .getTranslations()
-      .then(setI18nData)
+      .then((d) =>
+        setI18nData(
+          d as { languages: any[]; translations: Record<string, any> },
+        ),
+      )
       .catch(() => {});
 
     (async () => {
@@ -266,22 +282,25 @@ export default function App() {
     })();
     api
       .busStatus()
-      .then((s: any) => dispatch({ type: 'SET_BUS', status: s }))
+      .then((s) => dispatch({ type: 'SET_BUS', status: s }))
       .catch(() => {});
 
     // WebSocket for live telegrams + bus events
-    const ws = createWS((msg: any) => {
+    const ws = createWS((msg: Record<string, unknown>) => {
       if (msg.type === 'knx:telegram') {
-        dispatch({ type: 'ADD_TELEGRAM', telegram: msg.telegram });
+        dispatch({
+          type: 'ADD_TELEGRAM',
+          telegram: msg.telegram as BusTelegram,
+        });
       } else if (msg.type === 'knx:connected') {
         dispatch({
           type: 'SET_BUS',
           status: {
             connected: true,
-            type: msg.type === 'usb' ? 'usb' : 'udp',
-            host: msg.host,
-            port: msg.port,
-            path: msg.path,
+            type: msg.connectionType === 'usb' ? 'usb' : 'udp',
+            host: (msg.host as string | null) ?? null,
+            port: msg.port as number | undefined,
+            path: msg.path as string | undefined,
             hasLib: true,
           },
         });
@@ -291,9 +310,23 @@ export default function App() {
           status: { connected: false, host: null, hasLib: true },
         });
       } else if (msg.type === 'scan:progress') {
-        dispatch({ type: 'SCAN_PROGRESS', progress: msg });
+        dispatch({
+          type: 'SCAN_PROGRESS',
+          progress: msg as Record<string, unknown> & {
+            address?: string;
+            descriptor?: string;
+            reachable?: boolean;
+            done?: number;
+            total?: number;
+          },
+        });
       } else if (msg.type === 'scan:done') {
-        dispatch({ type: 'SCAN_DONE', results: msg.results || [] });
+        dispatch({
+          type: 'SCAN_DONE',
+          results:
+            (msg.results as Array<{ address: string; descriptor: string }>) ||
+            [],
+        });
       } else if (msg.type === 'scan:error') {
         dispatch({ type: 'SCAN_RESET' });
       }
@@ -303,7 +336,7 @@ export default function App() {
   }, []);
 
   const handleDeviceStatus = useCallback(
-    async (deviceId: number, status: string) => {
+    async (deviceId: number, status: DeviceStatus) => {
       if (!state.activeProjectId) return;
       await api.setDeviceStatus(state.activeProjectId, deviceId, status);
       dispatch({ type: 'SET_DEVICE_STATUS', deviceId, status });
@@ -494,26 +527,38 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey);
   }, [performUndo]);
 
-  const diffDetail = (prev: any, patch: any): string =>
+  const diffDetail = (
+    prev: Record<string, unknown>,
+    patch: Record<string, unknown>,
+  ): string =>
     Object.keys(patch)
       .filter((k) => String(prev[k] ?? '') !== String(patch[k] ?? ''))
       .map((k) => `${k}: "${prev[k] ?? ''}" → "${patch[k]}"`)
       .join('; ');
 
   const handleUpdateGA = useCallback(
-    async (gaId: number, patch: any) => {
+    async (gaId: number, patch: Record<string, unknown>) => {
       if (!state.activeProjectId) return;
-      const prev = state.projectData?.gas?.find((g: any) => g.id === gaId);
+      const prev = state.projectData?.gas?.find((g) => g.id === gaId);
       if (!prev) return;
-      const prevPatch: any = {};
-      for (const k of Object.keys(patch)) prevPatch[k] = prev[k] ?? '';
-      const detail = diffDetail(prev, patch);
+      const prevRec = prev as unknown as Record<string, unknown>;
+      const prevPatch: Record<string, unknown> = {};
+      for (const k of Object.keys(patch)) prevPatch[k] = prevRec[k] ?? '';
+      const detail = diffDetail(prevRec, patch);
       await api.updateGA(state.activeProjectId, gaId, patch);
-      dispatch({ type: 'PATCH_GA', id: gaId, patch });
+      dispatch({
+        type: 'PATCH_GA',
+        id: gaId,
+        patch: patch as Partial<EnrichedGA>,
+      });
       const pid = state.activeProjectId;
       pushUndo(`Edit GA ${prev.address}`, detail, async () => {
         await api.updateGA(pid, gaId, prevPatch);
-        dispatch({ type: 'PATCH_GA', id: gaId, patch: prevPatch });
+        dispatch({
+          type: 'PATCH_GA',
+          id: gaId,
+          patch: prevPatch as Partial<EnrichedGA>,
+        });
       });
     },
     [state.activeProjectId, state.projectData, pushUndo],
@@ -544,49 +589,63 @@ export default function App() {
   );
 
   const handleUpdateDevice = useCallback(
-    async (deviceId: number, patch: any) => {
+    async (deviceId: number, patch: Record<string, unknown>) => {
       if (!state.activeProjectId) return;
-      const prev = state.projectData?.devices?.find(
-        (d: any) => d.id === deviceId,
-      );
+      const prev = state.projectData?.devices?.find((d) => d.id === deviceId);
       if (!prev) return;
-      const prevPatch: any = {};
-      for (const k of Object.keys(patch)) prevPatch[k] = prev[k] ?? '';
-      const detail = diffDetail(prev, patch);
+      const prevRec = prev as unknown as Record<string, unknown>;
+      const prevPatch: Record<string, unknown> = {};
+      for (const k of Object.keys(patch)) prevPatch[k] = prevRec[k] ?? '';
+      const detail = diffDetail(prevRec, patch);
       await api.updateDevice(state.activeProjectId, deviceId, patch);
-      dispatch({ type: 'PATCH_DEVICE', id: deviceId, patch });
+      dispatch({
+        type: 'PATCH_DEVICE',
+        id: deviceId,
+        patch: patch as Partial<Device>,
+      });
       const pid = state.activeProjectId;
       pushUndo(`Edit device ${prev.individual_address}`, detail, async () => {
         await api.updateDevice(pid, deviceId, prevPatch);
-        dispatch({ type: 'PATCH_DEVICE', id: deviceId, patch: prevPatch });
+        dispatch({
+          type: 'PATCH_DEVICE',
+          id: deviceId,
+          patch: prevPatch as Partial<Device>,
+        });
       });
     },
     [state.activeProjectId, state.projectData, pushUndo],
   );
 
   const handleUpdateSpace = useCallback(
-    async (spaceId: number, patch: any) => {
+    async (spaceId: number, patch: Record<string, unknown>) => {
       if (!state.activeProjectId) return;
-      const prev = state.projectData?.spaces?.find(
-        (s: any) => s.id === spaceId,
-      );
+      const prev = state.projectData?.spaces?.find((s) => s.id === spaceId);
       if (!prev) return;
-      const prevPatch: any = {};
-      for (const k of Object.keys(patch)) prevPatch[k] = prev[k] ?? '';
-      const detail = diffDetail(prev, patch);
+      const prevRec = prev as unknown as Record<string, unknown>;
+      const prevPatch: Record<string, unknown> = {};
+      for (const k of Object.keys(patch)) prevPatch[k] = prevRec[k] ?? '';
+      const detail = diffDetail(prevRec, patch);
       await api.updateSpace(state.activeProjectId, spaceId, patch);
-      dispatch({ type: 'PATCH_SPACE', id: spaceId, patch });
+      dispatch({
+        type: 'PATCH_SPACE',
+        id: spaceId,
+        patch: patch as Partial<Space>,
+      });
       const pid = state.activeProjectId;
       pushUndo(`Edit space "${prev.name}"`, detail, async () => {
         await api.updateSpace(pid, spaceId, prevPatch);
-        dispatch({ type: 'PATCH_SPACE', id: spaceId, patch: prevPatch });
+        dispatch({
+          type: 'PATCH_SPACE',
+          id: spaceId,
+          patch: prevPatch as Partial<Space>,
+        });
       });
     },
     [state.activeProjectId, state.projectData, pushUndo],
   );
 
   const handleCreateTopology = useCallback(
-    async (body: any) => {
+    async (body: Record<string, unknown>) => {
       if (!state.activeProjectId) return null;
       const entry = await api.createTopology(state.activeProjectId, body);
       dispatch({ type: 'ADD_TOPOLOGY', entry });
@@ -605,24 +664,31 @@ export default function App() {
   );
 
   const handleUpdateTopology = useCallback(
-    async (topoId: number, patch: any) => {
+    async (topoId: number, patch: Record<string, unknown>) => {
       if (!state.activeProjectId) return;
-      const prev = state.projectData?.topology?.find(
-        (t: any) => t.id === topoId,
-      );
+      const prev = state.projectData?.topology?.find((t) => t.id === topoId);
       if (!prev) return;
-      const prevPatch: any = {};
-      for (const k of Object.keys(patch)) prevPatch[k] = prev[k] ?? '';
-      const detail = diffDetail(prev, patch);
+      const prevRec = prev as unknown as Record<string, unknown>;
+      const prevPatch: Record<string, unknown> = {};
+      for (const k of Object.keys(patch)) prevPatch[k] = prevRec[k] ?? '';
+      const detail = diffDetail(prevRec, patch);
       await api.updateTopology(state.activeProjectId, topoId, patch);
-      dispatch({ type: 'PATCH_TOPOLOGY', id: topoId, patch });
+      dispatch({
+        type: 'PATCH_TOPOLOGY',
+        id: topoId,
+        patch: patch as Partial<Topology>,
+      });
       const pid = state.activeProjectId;
       pushUndo(
         `Edit ${prev.line != null ? 'line' : 'area'} ${prev.line != null ? prev.area + '.' + prev.line : prev.area}`,
         detail,
         async () => {
           await api.updateTopology(pid, topoId, prevPatch);
-          dispatch({ type: 'PATCH_TOPOLOGY', id: topoId, patch: prevPatch });
+          dispatch({
+            type: 'PATCH_TOPOLOGY',
+            id: topoId,
+            patch: prevPatch as Partial<Topology>,
+          });
         },
       );
     },
@@ -632,9 +698,7 @@ export default function App() {
   const handleDeleteTopology = useCallback(
     async (topoId: number) => {
       if (!state.activeProjectId) return;
-      const entry = state.projectData?.topology?.find(
-        (t: any) => t.id === topoId,
-      );
+      const entry = state.projectData?.topology?.find((t) => t.id === topoId);
       if (!entry) return;
       await api.deleteTopology(state.activeProjectId, topoId);
       dispatch({ type: 'DELETE_TOPOLOGY', id: topoId });
@@ -658,7 +722,7 @@ export default function App() {
   );
 
   const handleCreateSpace = useCallback(
-    async (body: any) => {
+    async (body: Record<string, unknown>) => {
       if (!state.activeProjectId) return null;
       const space = await api.createSpace(state.activeProjectId, body);
       dispatch({ type: 'ADD_SPACE', space });
@@ -679,9 +743,7 @@ export default function App() {
   const handleDeleteSpace = useCallback(
     async (spaceId: number) => {
       if (!state.activeProjectId) return;
-      const space = state.projectData?.spaces?.find(
-        (s: any) => s.id === spaceId,
-      );
+      const space = state.projectData?.spaces?.find((s) => s.id === spaceId);
       if (!space) return;
       await api.deleteSpace(state.activeProjectId, spaceId);
       dispatch({
@@ -722,7 +784,7 @@ export default function App() {
   const handleDeleteGA = useCallback(
     async (gaId: number) => {
       if (!state.activeProjectId) return;
-      const ga = state.projectData?.gas?.find((g: any) => g.id === gaId);
+      const ga = state.projectData?.gas?.find((g) => g.id === gaId);
       if (!ga) return;
       await api.deleteGA(state.activeProjectId, gaId);
       dispatch({ type: 'DELETE_GA', id: gaId });
@@ -755,11 +817,11 @@ export default function App() {
   const handleUpdateComObjectGAs = useCallback(
     async (coId: number, body: any) => {
       if (!state.activeProjectId) return;
-      const updated = await api.updateComObjectGAs(
+      const updated = (await api.updateComObjectGAs(
         state.activeProjectId,
         coId,
         body,
-      );
+      )) as { ga_address: string; ga_send: string; ga_receive: string };
       dispatch({
         type: 'PATCH_COMOBJECT',
         id: coId,
@@ -1243,7 +1305,7 @@ export default function App() {
                               const cmpGA = (a: string, b: string) => {
                                 const ga = (addr: string) => {
                                   const g = state.projectData?.gas?.find(
-                                    (g: any) => g.address === addr,
+                                    (ga) => ga.address === addr,
                                   );
                                   return [
                                     g?.main_g ?? 0,
@@ -1253,7 +1315,7 @@ export default function App() {
                                 };
                                 const [x, y] = [ga(a), ga(b)];
                                 for (let i = 0; i < 3; i++) {
-                                  const d = x[i] - y[i];
+                                  const d = (x[i] ?? 0) - (y[i] ?? 0);
                                   if (d) return d;
                                 }
                                 return 0;
@@ -1271,9 +1333,10 @@ export default function App() {
                               );
                               if (!group.length) return null;
                               const spaceMap = Object.fromEntries(
-                                (state.projectData?.spaces || []).map(
-                                  (s: any) => [s.id, s],
-                                ),
+                                (state.projectData?.spaces || []).map((s) => [
+                                  s.id,
+                                  s,
+                                ]),
                               );
                               const spacePath = (spaceId: number): string => {
                                 const parts: string[] = [];
@@ -1283,7 +1346,7 @@ export default function App() {
                                     parts.unshift(cur.name);
                                   cur = cur.parent_id
                                     ? spaceMap[cur.parent_id]
-                                    : null;
+                                    : undefined;
                                 }
                                 return parts.join(' › ');
                               };
@@ -1310,13 +1373,11 @@ export default function App() {
                                       const [a, b] = w.address.split('|');
                                       const nA =
                                         state.projectData?.devices?.find(
-                                          (d: any) =>
-                                            d.individual_address === a,
+                                          (d) => d.individual_address === a,
                                         )?.name;
                                       const nB =
                                         state.projectData?.devices?.find(
-                                          (d: any) =>
-                                            d.individual_address === b,
+                                          (d) => d.individual_address === b,
                                         )?.name;
                                       displayAddr = `${a} ⇄ ${b}`;
                                       displayLabel = [nA, nB]
@@ -1325,16 +1386,15 @@ export default function App() {
                                     } else if (wtype === 'ga') {
                                       displayLabel =
                                         state.projectData?.gas?.find(
-                                          (g: any) => g.address === w.address,
-                                        )?.name;
+                                          (g) => g.address === w.address,
+                                        )?.name ?? null;
                                     } else if (wtype === 'space') {
                                       const sp =
                                         state.projectData?.spaces?.find(
-                                          (s: any) =>
-                                            s.id === parseInt(w.address),
+                                          (s) => s.id === parseInt(w.address),
                                         );
                                       displayAddr = sp?.name ?? w.address;
-                                      displayLabel = sp?.type;
+                                      displayLabel = sp?.type ?? null;
                                     } else if (
                                       GROUP_WTYPES[
                                         wtype as keyof typeof GROUP_WTYPES
@@ -1344,10 +1404,10 @@ export default function App() {
                                     } else {
                                       const dev =
                                         state.projectData?.devices?.find(
-                                          (d: any) =>
+                                          (d) =>
                                             d.individual_address === w.address,
                                         );
-                                      displayLabel = dev?.name;
+                                      displayLabel = dev?.name ?? null;
                                       const location = dev?.space_id
                                         ? spacePath(dev.space_id)
                                         : null;

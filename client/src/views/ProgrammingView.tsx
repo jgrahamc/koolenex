@@ -11,10 +11,11 @@ import {
 } from '../primitives.tsx';
 import { DeviceTypeIcon } from '../icons.tsx';
 import { api } from '../api.ts';
+import type { DeviceStatus } from '../../../shared/types.ts';
 
 interface ProgrammingViewProps {
   data: any;
-  onDeviceStatus: (deviceId: any, status: string) => void;
+  onDeviceStatus: (deviceId: number, status: DeviceStatus) => void;
 }
 
 export function ProgrammingView({
