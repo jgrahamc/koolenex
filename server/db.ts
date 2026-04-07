@@ -11,12 +11,13 @@ import path from 'path';
 import fs from 'fs';
 import type {
   ComObjectWithDevice,
-  GAMaps,
   GaGroupName,
   EnrichedGA,
   ProjectFull,
   RunResult,
 } from '../shared/types.ts';
+export { buildGAMaps } from '../shared/ga-maps.ts';
+import { buildGAMaps } from '../shared/ga-maps.ts';
 
 const DB_PATH = path.join(process.cwd(), 'koolenex.db');
 
@@ -25,23 +26,6 @@ let db: SqlJsDatabase | null = null;
 
 function assertDb(d: SqlJsDatabase | null): asserts d is SqlJsDatabase {
   if (!d) throw new Error('Database not initialised — call init() first');
-}
-
-export function buildGAMaps(
-  comObjects: Array<{ device_address: string; ga_address: string }>,
-): GAMaps {
-  const deviceGAMap: Record<string, string[]> = {};
-  const gaDeviceMap: Record<string, string[]> = {};
-  for (const co of comObjects) {
-    const da = co.device_address;
-    for (const ga of (co.ga_address || '').split(/\s+/).filter(Boolean)) {
-      if (!deviceGAMap[da]) deviceGAMap[da] = [];
-      if (!deviceGAMap[da]!.includes(ga)) deviceGAMap[da]!.push(ga);
-      if (!gaDeviceMap[ga]) gaDeviceMap[ga] = [];
-      if (!gaDeviceMap[ga]!.includes(da)) gaDeviceMap[ga]!.push(da);
-    }
-  }
-  return { deviceGAMap, gaDeviceMap };
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────

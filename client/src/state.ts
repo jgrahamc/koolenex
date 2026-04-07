@@ -1,29 +1,6 @@
 // ── App state reducer ─────────────────────────────────────────────────────────
 
-interface ComObject {
-  id: number;
-  device_address: string;
-  ga_address?: string;
-  [key: string]: any;
-}
-
-function buildGAMaps(comObjects: ComObject[]): {
-  deviceGAMap: Record<string, string[]>;
-  gaDeviceMap: Record<string, string[]>;
-} {
-  const deviceGAMap: Record<string, string[]> = {};
-  const gaDeviceMap: Record<string, string[]> = {};
-  for (const co of comObjects) {
-    const da = co.device_address;
-    for (const ga of (co.ga_address || '').split(/\s+/).filter(Boolean)) {
-      if (!deviceGAMap[da]) deviceGAMap[da] = [];
-      if (!deviceGAMap[da].includes(ga)) deviceGAMap[da].push(ga);
-      if (!gaDeviceMap[ga]) gaDeviceMap[ga] = [];
-      if (!gaDeviceMap[ga].includes(da)) gaDeviceMap[ga].push(da);
-    }
-  }
-  return { deviceGAMap, gaDeviceMap };
-}
+import { buildGAMaps } from '../../shared/ga-maps.ts';
 
 interface WindowEntry {
   key: string;

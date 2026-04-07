@@ -13,14 +13,25 @@
  *   - Group addresses: 3-level address assembly, DPT, range names
  *   - All GA links via Links="GA-3 GA-5" short-ID or full-ID resolution
  *
- * Password-protected projects: ETS6 encrypts inner XML files with AES-256-CBC.
- *   Format: [20-byte salt][4-byte iteration count BE][16-byte IV][ciphertext]
- *   Key:    PBKDF2-HMAC-SHA256(password_utf16le, salt, iterations, 32)
+ * Password-protected projects:
+ *   ETS6 ZIP-level: inner P-*.zip is AES-encrypted. The ZIP password is derived as
+ *     base64(PBKDF2-HMAC-SHA256(password_utf16le, "21.project.ets.knx.org", 65536, 32))
+ *   ETS5/6 file-level: individual XML files encrypted with AES-256-CBC.
+ *     Format: [20-byte salt][4-byte iteration count BE][16-byte IV][ciphertext]
+ *     Key:    PBKDF2-HMAC-SHA256(password_utf16le, salt, iterations, 32)
  */
 
 import { createRequire } from 'module';
 import { XMLParser } from 'fast-xml-parser';
 import crypto from 'crypto';
+
+interface MinizipEntry {
+  filepath: string;
+}
+interface MinizipInstance {
+  list(): MinizipEntry[];
+  extract(filepath: string, options?: { password?: string }): Uint8Array;
+}
 
 // ─── XML node types ──────────────────────────────────────────────────────────
 // fast-xml-parser returns untyped objects. These aliases are semantically
@@ -381,6 +392,9 @@ interface ParamModel {
 // @ts-expect-error TS1470: import.meta is valid at runtime
 const require_ = createRequire(import.meta.url);
 const AdmZip = require_('adm-zip') as new (buffer: Buffer) => AdmZipInstance;
+const Minizip = require_('minizip-asm.js') as new (
+  data: Buffer,
+) => MinizipInstance;
 
 interface AdmZipInstance {
   getEntries(): ZipEntry[];
@@ -414,6 +428,24 @@ export function looksEncrypted(buf: Buffer | null | undefined): boolean {
 /**
  * Decrypt an ETS6-encrypted file buffer using the given password.
  * Throws with code 'PASSWORD_INCORRECT' if padding is invalid.
+ */
+/**
+ * Derive the ZIP password for an ETS6 password-protected inner archive.
+ * ETS6 uses PBKDF2-HMAC-SHA256 with a fixed salt, then base64-encodes the result.
+ */
+function deriveZipPassword(password: string): string {
+  const derived = crypto.pbkdf2Sync(
+    Buffer.from(password, 'utf16le'),
+    '21.project.ets.knx.org',
+    65536,
+    32,
+    'sha256',
+  );
+  return derived.toString('base64');
+}
+
+/**
+ * Decrypt an ETS5/6 file-level AES-256-CBC encrypted buffer.
  */
 function decryptEntry(buf: Buffer, password: string): Buffer {
   if (buf.length < 40)
@@ -1892,6 +1924,53 @@ export function parseKnxproj(
   const byName: Record<string, ZipEntry> = Object.fromEntries(
     entries.map((e) => [e.entryName, e]),
   );
+
+  // ── ETS6 ZIP-level password protection ────────────────────────────────────
+  // ETS6 puts installation files inside an AES-encrypted inner P-*.zip.
+  // Detect, derive the ZIP password, and merge extracted entries.
+  const innerZipEntries = entries.filter((e) =>
+    /^P-[^/]+\.zip$/i.test(e.entryName),
+  );
+  for (const innerZipEntry of innerZipEntries) {
+    const prefix = innerZipEntry.entryName.replace('.zip', '') + '/';
+    // Skip if the inner ZIP's contents are already in the outer ZIP (unprotected project)
+    if (
+      entries.some(
+        (e) => e.entryName.startsWith(prefix) && e.entryName.endsWith('.xml'),
+      )
+    )
+      continue;
+
+    if (!password)
+      throw Object.assign(new Error('Project is password-protected'), {
+        code: 'PASSWORD_REQUIRED',
+      });
+
+    const zipPw = deriveZipPassword(password);
+    let mz: MinizipInstance;
+    try {
+      mz = new Minizip(innerZipEntry.getData());
+    } catch (_) {
+      continue;
+    }
+
+    for (const f of mz.list()) {
+      try {
+        const data = Buffer.from(mz.extract(f.filepath, { password: zipPw }));
+        const entryName = prefix + f.filepath;
+        const virtualEntry: ZipEntry = {
+          entryName,
+          getData: () => data,
+        };
+        entries.push(virtualEntry);
+        byName[entryName] = virtualEntry;
+      } catch (_) {
+        throw Object.assign(new Error('Incorrect password'), {
+          code: 'PASSWORD_INCORRECT',
+        });
+      }
+    }
+  }
 
   // ── Manufacturer names ─────────────────────────────────────────────────────
   const mfrById: Record<string, string> = {}; // "M-00FA" → "KNX Association"
