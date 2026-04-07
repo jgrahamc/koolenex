@@ -119,23 +119,24 @@ class KnxBusManager extends EventEmitter {
     if (this.connection) this.disconnect();
 
     this.host = host;
-    this.port = port || 3671;
+    const resolvedPort = port || 3671;
+    this.port = resolvedPort;
     this.projectId = projectId ?? null;
     this.type = 'udp';
 
     const conn = new KnxIpConnection() as unknown as KnxConnectionInstance;
     this._attachEvents(conn);
 
-    return (conn.connect(host, this.port) as Promise<void>).then(() => {
+    return (conn.connect(host, resolvedPort) as Promise<void>).then(() => {
       this.connection = conn;
       this.connected = true;
-      console.log(`[KNX] Connected to ${host}:${this.port}`);
+      console.log(`[KNX] Connected to ${host}:${resolvedPort}`);
       this.broadcast('knx:connected', {
         host,
-        port: this.port!,
+        port: resolvedPort,
         type: 'udp',
       });
-      return { host, port: this.port! };
+      return { host, port: resolvedPort };
     });
   }
 

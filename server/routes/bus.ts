@@ -82,6 +82,15 @@ interface ProgressEvent {
 let bus: BusInstance | null = null;
 export const router = express.Router();
 
+/** Return the bus instance or send a 503 and return null. */
+function requireBus(res: Response): BusInstance | null {
+  if (!bus) {
+    res.status(503).json({ error: 'Bus not initialised' });
+    return null;
+  }
+  return bus;
+}
+
 // ── Demo mode address remapping ──────────────────────────────────────────────
 let _demoDevMap: Record<string, string> | null = null;
 let _demoGaMap: Record<string, string> | null = null;
@@ -118,7 +127,8 @@ export function rebuildDemoMap(): void {
 }
 
 function isDemoProjectActive(): boolean {
-  const pid = bus!.projectId;
+  if (!bus) return false;
+  const pid = bus.projectId;
   if (!pid) return false;
   const proj = db.get<{ name: string }>(
     'SELECT name FROM projects WHERE id=?',
@@ -364,11 +374,15 @@ function wireBusEvents(): void {
 }
 
 // ── KNX Bus routes ───────────────────────────────────────────────────────────
-router.get('/bus/status', (_req: Request, res: Response) =>
-  res.json(bus!.status()),
-);
+router.get('/bus/status', (_req: Request, res: Response) => {
+  const b = requireBus(res);
+  if (!b) return;
+  res.json(b.status());
+});
 
 router.post('/bus/connect', async (req: Request, res: Response) => {
+  const b = requireBus(res);
+  if (!b) return;
   const { host, port, projectId } = req.body as {
     host?: string;
     port?: string | number;
@@ -376,7 +390,7 @@ router.post('/bus/connect', async (req: Request, res: Response) => {
   };
   if (!host) return res.status(400).json({ error: 'host required' });
   try {
-    const result = await bus!.connect(
+    const result = await b.connect(
       host,
       parseInt(String(port)) || 3671,
       projectId,
@@ -394,8 +408,10 @@ router.post('/bus/connect', async (req: Request, res: Response) => {
 });
 
 router.get('/bus/usb-devices', (_req: Request, res: Response) => {
+  const b = requireBus(res);
+  if (!b) return;
   try {
-    const devices = bus!.listUsbDevices();
+    const devices = b.listUsbDevices();
     res.json({ devices });
   } catch (e) {
     const err = e as Error;
@@ -404,8 +420,10 @@ router.get('/bus/usb-devices', (_req: Request, res: Response) => {
 });
 
 router.get('/bus/usb-devices/all', (_req: Request, res: Response) => {
+  const b = requireBus(res);
+  if (!b) return;
   try {
-    const devices = bus!.listAllHidDevices();
+    const devices = b.listAllHidDevices();
     res.json({ devices });
   } catch (e) {
     const err = e as Error;
@@ -414,6 +432,8 @@ router.get('/bus/usb-devices/all', (_req: Request, res: Response) => {
 });
 
 router.post('/bus/connect-usb', async (req: Request, res: Response) => {
+  const b = requireBus(res);
+  if (!b) return;
   const { devicePath, projectId } = req.body as {
     devicePath?: string;
     projectId?: number;
@@ -421,7 +441,7 @@ router.post('/bus/connect-usb', async (req: Request, res: Response) => {
   if (!devicePath)
     return res.status(400).json({ error: 'devicePath required' });
   try {
-    const result = await bus!.connectUsb(devicePath, projectId);
+    const result = await b.connectUsb(devicePath, projectId);
     res.json({ ok: true, type: 'usb', ...result });
   } catch (e) {
     const err = e as Error;
@@ -430,17 +450,23 @@ router.post('/bus/connect-usb', async (req: Request, res: Response) => {
 });
 
 router.post('/bus/project', (req: Request, res: Response) => {
+  const b = requireBus(res);
+  if (!b) return;
   const { projectId } = req.body as { projectId?: number | null };
-  bus!.projectId = projectId || null;
+  b.projectId = projectId || null;
   res.json({ ok: true });
 });
 
 router.post('/bus/disconnect', (_req: Request, res: Response) => {
-  bus!.disconnect();
+  const b = requireBus(res);
+  if (!b) return;
+  b.disconnect();
   res.json({ ok: true });
 });
 
 router.post('/bus/write', (req: Request, res: Response) => {
+  const b = requireBus(res);
+  if (!b) return;
   const { ga, value, dpt, projectId } = req.body as {
     ga?: string;
     value?: unknown;
@@ -450,7 +476,7 @@ router.post('/bus/write', (req: Request, res: Response) => {
   if (!ga) return res.status(400).json({ error: 'ga required' });
   try {
     const busGa = demoToReal(ga);
-    const result = bus!.write(busGa, value, dpt);
+    const result = b.write(busGa, value, dpt);
     if (projectId) {
       db.run(
         'INSERT INTO bus_telegrams (project_id,src,dst,type,raw_value,decoded,priority) VALUES (?,?,?,?,?,?,?)',
@@ -465,7 +491,7 @@ router.post('/bus/write', (req: Request, res: Response) => {
         ],
       );
       db.scheduleSave();
-      bus!.broadcast('knx:telegram', {
+      b.broadcast('knx:telegram', {
         telegram: {
           timestamp: new Date().toISOString(),
           src: 'local',
@@ -485,8 +511,10 @@ router.post('/bus/write', (req: Request, res: Response) => {
 });
 
 router.post('/bus/read', async (req: Request, res: Response) => {
+  const b = requireBus(res);
+  if (!b) return;
   try {
-    res.json(await bus!.read((req.body as { ga: string }).ga));
+    res.json(await b.read((req.body as { ga: string }).ga));
   } catch (e) {
     const err = e as Error;
     res.status(502).json({ error: err.message });
@@ -495,12 +523,14 @@ router.post('/bus/read', async (req: Request, res: Response) => {
 
 // Probe device reachability
 router.post('/bus/ping', async (req: Request, res: Response) => {
+  const b = requireBus(res);
+  if (!b) return;
   const { gaAddresses = [], deviceAddress } = req.body as {
     gaAddresses?: string[];
     deviceAddress?: string;
   };
   try {
-    const result = await bus!.ping(gaAddresses, deviceAddress || null);
+    const result = await b.ping(gaAddresses, deviceAddress || null);
     res.json(result);
   } catch (e) {
     const err = e as Error;
@@ -512,11 +542,13 @@ router.post('/bus/ping', async (req: Request, res: Response) => {
 
 // Flash programming LED on device
 router.post('/bus/identify', async (req: Request, res: Response) => {
+  const b = requireBus(res);
+  if (!b) return;
   const { deviceAddress } = req.body as { deviceAddress?: string };
   if (!deviceAddress)
     return res.status(400).json({ error: 'deviceAddress required' });
   try {
-    await bus!.identify(deviceAddress);
+    await b.identify(deviceAddress);
     res.json({ ok: true });
   } catch (e) {
     const err = e as Error;
@@ -529,6 +561,8 @@ router.post('/bus/identify', async (req: Request, res: Response) => {
 // Bus scan -- streams progress via WebSocket, returns immediately
 let _activeScan: Promise<void> | null = null;
 router.post('/bus/scan', (req: Request, res: Response) => {
+  const b = requireBus(res);
+  if (!b) return;
   const {
     area = 1,
     line = 1,
@@ -538,20 +572,20 @@ router.post('/bus/scan', (req: Request, res: Response) => {
     line?: number | string;
     timeout?: number | string;
   };
-  if (!bus!.connected) return res.status(409).json({ error: 'Not connected' });
-  if (_activeScan) bus!.abortScan();
+  if (!b.connected) return res.status(409).json({ error: 'Not connected' });
+  if (_activeScan) b.abortScan();
   res.json({ ok: true });
-  _activeScan = bus!
+  _activeScan = b
     .scan(
       parseInt(String(area)),
       parseInt(String(line)),
       parseInt(String(timeout)),
       (prog) => {
-        bus!.broadcast('scan:progress', prog);
+        b.broadcast('scan:progress', prog);
       },
     )
     .then((results) => {
-      bus!.broadcast('scan:done', {
+      b.broadcast('scan:done', {
         results,
         area: parseInt(String(area)),
         line: parseInt(String(line)),
@@ -559,25 +593,29 @@ router.post('/bus/scan', (req: Request, res: Response) => {
       _activeScan = null;
     })
     .catch((err: Error) => {
-      bus!.broadcast('scan:error', { error: err.message });
+      b.broadcast('scan:error', { error: err.message });
       _activeScan = null;
     });
 });
 
 router.post('/bus/scan/abort', (_req: Request, res: Response) => {
-  bus!.abortScan();
+  const b = requireBus(res);
+  if (!b) return;
+  b.abortScan();
   _activeScan = null;
   res.json({ ok: true });
 });
 
 // ── Device info ──────────────────────────────────────────────────────────────
 router.post('/bus/device-info', async (req: Request, res: Response) => {
+  const b = requireBus(res);
+  if (!b) return;
   const { deviceAddress } = req.body as { deviceAddress?: string };
   if (!deviceAddress)
     return res.status(400).json({ error: 'deviceAddress required' });
-  if (!bus!.connected) return res.status(409).json({ error: 'Not connected' });
+  if (!b.connected) return res.status(409).json({ error: 'Not connected' });
   try {
-    const info = await bus!.readDeviceInfo(deviceAddress);
+    const info = await b.readDeviceInfo(deviceAddress);
     res.json(info);
   } catch (e) {
     const err = e as Error;
@@ -589,12 +627,13 @@ router.post('/bus/device-info', async (req: Request, res: Response) => {
 
 // Write individual address (device must be in programming mode)
 router.post('/bus/program-ia', async (req: Request, res: Response) => {
+  const b = requireBus(res);
+  if (!b) return;
   const { newAddr } = req.body as { newAddr?: string };
   if (!newAddr) return res.status(400).json({ error: 'newAddr required' });
-  if (!bus!.connected)
-    return res.status(409).json({ error: 'Bus not connected' });
+  if (!b.connected) return res.status(409).json({ error: 'Bus not connected' });
   try {
-    const result = await bus!.programIA(newAddr);
+    const result = await b.programIA(newAddr);
     res.json(result);
   } catch (e) {
     const err = e as Error;
@@ -604,6 +643,8 @@ router.post('/bus/program-ia', async (req: Request, res: Response) => {
 
 // Full application download for a device
 router.post('/bus/program-device', async (req: Request, res: Response) => {
+  const b = requireBus(res);
+  if (!b) return;
   const { deviceAddress, projectId, deviceId } = req.body as {
     deviceAddress?: string;
     projectId?: number;
@@ -611,8 +652,7 @@ router.post('/bus/program-device', async (req: Request, res: Response) => {
   };
   if (!deviceAddress)
     return res.status(400).json({ error: 'deviceAddress required' });
-  if (!bus!.connected)
-    return res.status(409).json({ error: 'Bus not connected' });
+  if (!b.connected) return res.status(409).json({ error: 'Bus not connected' });
 
   // Load device data
   const dev = deviceId
@@ -715,11 +755,11 @@ router.post('/bus/program-device', async (req: Request, res: Response) => {
 
   // Stream progress via WebSocket
   const onProgress = (p: ProgressEvent): void =>
-    bus!.broadcast('program:progress', { deviceAddress, ...p });
+    b.broadcast('program:progress', { deviceAddress, ...p });
   onProgress({ msg: `Starting download to ${deviceAddress}`, pct: 0 });
 
   try {
-    await bus!.downloadDevice(
+    await b.downloadDevice(
       deviceAddress,
       steps,
       gaTable,
