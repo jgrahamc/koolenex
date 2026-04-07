@@ -197,9 +197,6 @@ export interface GAMaps {
 
 // Normalised GA with group names and device list (returned by getProjectFull)
 export interface NormalisedGA extends GroupAddress {
-  main: number;
-  middle: number;
-  sub: number;
   main_group_name: string;
   middle_group_name: string;
   devices: string[];

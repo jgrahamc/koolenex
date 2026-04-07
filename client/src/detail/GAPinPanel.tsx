@@ -238,7 +238,7 @@ export function GAPinPanel({
               }}
             >
               <div
-                onClick={() => onGroupJump?.(ga.main, null)}
+                onClick={() => onGroupJump?.(ga.main_g, null)}
                 style={{
                   background: C.surface,
                   border: `1px solid ${C.border}`,
@@ -255,11 +255,11 @@ export function GAPinPanel({
                   data-pin="1"
                   style={{ fontSize: 10, color: C.purple, display: 'inline' }}
                 >
-                  {ga.main} &mdash; {ga.main_group_name || ''}
+                  {ga.main_g} &mdash; {ga.main_group_name || ''}
                 </div>
               </div>
               <div
-                onClick={() => onGroupJump?.(ga.main, ga.middle)}
+                onClick={() => onGroupJump?.(ga.main_g, ga.middle_g)}
                 style={{
                   background: C.surface,
                   border: `1px solid ${C.border}`,
@@ -276,7 +276,7 @@ export function GAPinPanel({
                   data-pin="1"
                   style={{ fontSize: 10, color: C.purple, display: 'inline' }}
                 >
-                  {ga.middle} &mdash; {ga.middle_group_name || ''}
+                  {ga.middle_g} &mdash; {ga.middle_group_name || ''}
                 </div>
               </div>
               <SubNameCard ga={ga} C={C} onUpdateGA={onUpdateGA} />
@@ -488,7 +488,9 @@ function SubNameCard({ ga, C, onUpdateGA }: SubNameCardProps) {
       <div style={{ fontSize: 9, color: C.dim, marginBottom: 3 }}>Sub</div>
       {editing ? (
         <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-          <span style={{ fontSize: 10, color: C.text }}>{ga.sub} &mdash;</span>
+          <span style={{ fontSize: 10, color: C.text }}>
+            {ga.sub_g} &mdash;
+          </span>
           <input
             value={name}
             onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
@@ -541,7 +543,7 @@ function SubNameCard({ ga, C, onUpdateGA }: SubNameCardProps) {
           }}
           title={onUpdateGA ? 'Click to rename' : undefined}
         >
-          {ga.sub} &mdash; {ga.name}
+          {ga.sub_g} &mdash; {ga.name}
         </div>
       )}
     </div>

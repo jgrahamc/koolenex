@@ -389,8 +389,8 @@ export default function App() {
     dispatch({ type: 'DEVICE_JUMP', address });
   }, []);
   const handleGAGroupJump = useCallback(
-    (main: number, middle: number | null) => {
-      dispatch({ type: 'GA_GROUP_JUMP', main, middle });
+    (main_g: number, middle_g: number | null) => {
+      dispatch({ type: 'GA_GROUP_JUMP', main_g, middle_g });
     },
     [],
   );
@@ -532,7 +532,13 @@ export default function App() {
       // Update local state: patch all GAs in this group
       const field =
         midVal !== undefined ? 'middle_group_name' : 'main_group_name';
-      dispatch({ type: 'RENAME_GA_GROUP', main, middle: midVal, field, name });
+      dispatch({
+        type: 'RENAME_GA_GROUP',
+        main_g: main,
+        middle_g: midVal,
+        field,
+        name,
+      });
     },
     [state.activeProjectId],
   );
@@ -1240,9 +1246,9 @@ export default function App() {
                                     (g: any) => g.address === addr,
                                   );
                                   return [
-                                    g?.main ?? 0,
-                                    g?.middle ?? 0,
-                                    g?.sub ?? 0,
+                                    g?.main_g ?? 0,
+                                    g?.middle_g ?? 0,
+                                    g?.sub_g ?? 0,
                                   ];
                                 };
                                 const [x, y] = [ga(a), ga(b)];

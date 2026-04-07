@@ -105,8 +105,8 @@ export function GroupAddressesView({
           name: g.name,
           dpt: g.dpt,
           devices: (gaDeviceMap[g.address] || []).length,
-          main_group: `${g.main}${g.main_group_name ? ' — ' + g.main_group_name : ''}`,
-          middle_group: `${g.middle}${g.middle_group_name ? ' — ' + g.middle_group_name : ''}`,
+          main_group: `${g.main_g}${g.main_group_name ? ' — ' + g.main_group_name : ''}`,
+          middle_group: `${g.middle_g}${g.middle_group_name ? ' — ' + g.middle_group_name : ''}`,
           description: g.description || '',
           comment: g.comment || '',
         })[id] ?? '',
@@ -114,12 +114,12 @@ export function GroupAddressesView({
 
   useEffect(() => {
     if (!jumpTo) return;
-    const { main, middle } = jumpTo;
+    const { main_g, middle_g } = jumpTo;
     const newExpand: Record<string, boolean> = {};
     for (const g of gas) {
-      newExpand[g.main] = g.main === main;
-      newExpand[`${g.main}/${g.middle}`] =
-        g.main === main && middle !== null && g.middle === middle;
+      newExpand[g.main_g] = g.main_g === main_g;
+      newExpand[`${g.main_g}/${g.middle_g}`] =
+        g.main_g === main_g && middle_g !== null && g.middle_g === middle_g;
     }
     setViewMode('tree');
     setSearch('');
@@ -147,16 +147,18 @@ export function GroupAddressesView({
 
   const nextAddrForMain = (main: number) => {
     const mids = gas
-      .filter((g: any) => g.main === main)
-      .map((g: any) => g.middle);
+      .filter((g: any) => g.main_g === main)
+      .map((g: any) => g.middle_g);
     const maxMid = mids.length ? Math.max(...mids) : -1;
     return `${main}/${maxMid + 1}`;
   };
 
   const nextAddrForMid = (main: number, mid: number) => {
     const subs = gas
-      .filter((g: any) => g.main === main && g.middle === mid && g.sub != null)
-      .map((g: any) => g.sub);
+      .filter(
+        (g: any) => g.main_g === main && g.middle_g === mid && g.sub_g != null,
+      )
+      .map((g: any) => g.sub_g);
     const maxSub = subs.length ? Math.max(...subs) : -1;
     return `${main}/${mid}/${maxSub + 1}`;
   };
@@ -218,7 +220,7 @@ export function GroupAddressesView({
       g.dpt.toLowerCase().includes(s)
     );
   });
-  const mains: any[] = [...new Set(filtered.map((g: any) => g.main))].sort(
+  const mains: any[] = [...new Set(filtered.map((g: any) => g.main_g))].sort(
     (a: any, b: any) => a - b,
   );
 
@@ -322,7 +324,7 @@ export function GroupAddressesView({
         {gcv('main_group') && (
           <TD>
             <span style={{ color: C.dim, fontSize: 10 }}>
-              {g.main}
+              {g.main_g}
               {g.main_group_name ? ` — ${g.main_group_name}` : ''}
             </span>
           </TD>
@@ -330,7 +332,7 @@ export function GroupAddressesView({
         {gcv('middle_group') && (
           <TD>
             <span style={{ color: C.dim, fontSize: 10 }}>
-              {g.middle}
+              {g.middle_g}
               {g.middle_group_name ? ` — ${g.middle_group_name}` : ''}
             </span>
           </TD>
@@ -563,9 +565,9 @@ export function GroupAddressesView({
             </table>
           ) : (
             mains.map((main: any) => {
-              const mainGAs = filtered.filter((g: any) => g.main === main);
+              const mainGAs = filtered.filter((g: any) => g.main_g === main);
               const middles: any[] = [
-                ...new Set(mainGAs.map((g: any) => g.middle)),
+                ...new Set(mainGAs.map((g: any) => g.middle_g)),
               ].sort((a: any, b: any) => a - b);
               const mainExpanded = search ? true : expand[main] !== false;
               const mainName = mainGAs[0]?.main_group_name;
@@ -729,13 +731,13 @@ export function GroupAddressesView({
                   {mainExpanded &&
                     middles.map((mid: any) => {
                       const allInGroup = filtered.filter(
-                        (g: any) => g.main === main && g.middle === mid,
+                        (g: any) => g.main_g === main && g.middle_g === mid,
                       );
                       const placeholder2 = allInGroup.find(
-                        (g: any) => g.sub === null,
+                        (g: any) => g.sub_g === null,
                       );
                       const subs = allInGroup.filter(
-                        (g: any) => g.sub !== null,
+                        (g: any) => g.sub_g !== null,
                       );
                       const midKey = `${main}/${mid}`;
                       const midExpanded = search

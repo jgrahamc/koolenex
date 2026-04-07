@@ -313,9 +313,9 @@ describe('getProjectFull()', () => {
     const full = db.getProjectFull(projectId);
     const ga = full.gas.find((g) => g.address === '1/2/3');
     assert.ok(ga, 'GA 1/2/3 not found');
-    assert.equal(ga.main, 1);
-    assert.equal(ga.middle, 2);
-    assert.equal(ga.sub, 3);
+    assert.equal(ga.main_g, 1);
+    assert.equal(ga.middle_g, 2);
+    assert.equal(ga.sub_g, 3);
   });
 
   it('builds deviceGAMap from com_objects', () => {

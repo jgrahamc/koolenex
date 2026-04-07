@@ -496,15 +496,12 @@ export function getProjectFull(projectId: number): ProjectFull | null {
     else midNameMap[`${gn.main_g}/${gn.middle_g}`] = gn.name;
   }
 
-  // Normalise column names for GAs
+  // Attach group names and device lists to GAs
   const normGas: NormalisedGA[] = gas.map((g: Record<string, unknown>) => {
-    const main = (g.main_g ?? g.main ?? 0) as number;
-    const middle = (g.middle_g ?? g.middle ?? 0) as number;
+    const main = g.main_g as number;
+    const middle = g.middle_g as number;
     return {
       ...g,
-      main,
-      middle,
-      sub: (g.sub_g ?? g.sub ?? 0) as number,
       main_group_name: mainNameMap[main] ?? '',
       middle_group_name: midNameMap[`${main}/${middle}`] ?? '',
       devices: gaDeviceMap[g.address as string] ?? [],

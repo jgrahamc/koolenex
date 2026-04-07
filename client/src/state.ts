@@ -95,7 +95,7 @@ export interface AppState {
   navHistory: NavEntry[];
   navIndex: number;
   deviceJumpTo?: { address: string; ts: number };
-  gaJumpTo?: { main: number; middle: number | null; ts: number };
+  gaJumpTo?: { main_g: number; middle_g: number | null; ts: number };
   catalogJumpTo?: { manufacturer: string; ts: number };
   floorplanJumpTo?: { spaceId: number; ts: number };
 }
@@ -131,7 +131,7 @@ export type Action =
   | { type: 'SET_VIEW'; view: string }
   | { type: 'GRAPH_JUMP' }
   | { type: 'DEVICE_JUMP'; address: string }
-  | { type: 'GA_GROUP_JUMP'; main: number; middle?: number | null }
+  | { type: 'GA_GROUP_JUMP'; main_g: number; middle_g?: number | null }
   | { type: 'CATALOG_JUMP'; manufacturer: string }
   | { type: 'FLOORPLAN_JUMP'; spaceId: number }
   | { type: 'SET_BUS'; status: AppState['busStatus'] }
@@ -151,8 +151,8 @@ export type Action =
   | {
       type: 'RENAME_GA_GROUP';
       field: string;
-      main: number;
-      middle?: number;
+      main_g: number;
+      middle_g?: number;
       name: string;
     }
   | { type: 'PATCH_SPACE'; id: number; patch: any }
@@ -219,8 +219,8 @@ export function reducer(state: AppState, action: Action): AppState {
     }
     case 'GA_GROUP_JUMP': {
       const jt = {
-        main: action.main,
-        middle: action.middle ?? null,
+        main_g: action.main_g,
+        middle_g: action.middle_g ?? null,
         ts: Date.now(),
       };
       const nav = pushNav(state, { view: 'groups', activePinKey: null });
@@ -336,12 +336,12 @@ export function reducer(state: AppState, action: Action): AppState {
     case 'RENAME_GA_GROUP': {
       if (!state.projectData) return state;
       const gas = state.projectData.gas.map((g: any) => {
-        if (action.field === 'main_group_name' && g.main === action.main)
+        if (action.field === 'main_group_name' && g.main_g === action.main_g)
           return { ...g, main_group_name: action.name };
         if (
           action.field === 'middle_group_name' &&
-          g.main === action.main &&
-          g.middle === action.middle
+          g.main_g === action.main_g &&
+          g.middle_g === action.middle_g
         )
           return { ...g, middle_group_name: action.name };
         return g;
@@ -405,16 +405,13 @@ export function reducer(state: AppState, action: Action): AppState {
       if (!state.projectData) return state;
       const ga = {
         ...action.ga,
-        main: action.ga.main_g || 0,
-        middle: action.ga.middle_g || 0,
-        sub: action.ga.sub_g ?? null,
         devices: [],
       };
       const gas = [...state.projectData.gas, ga].sort(
         (a: any, b: any) =>
-          a.main - b.main ||
-          a.middle - b.middle ||
-          (a.sub ?? -1) - (b.sub ?? -1),
+          a.main_g - b.main_g ||
+          a.middle_g - b.middle_g ||
+          (a.sub_g ?? -1) - (b.sub_g ?? -1),
       );
       return { ...state, projectData: { ...state.projectData, gas } };
     }
