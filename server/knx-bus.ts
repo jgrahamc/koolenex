@@ -4,41 +4,16 @@
  */
 
 import EventEmitter from 'events';
+import {
+  KnxConnection,
+  type DownloadStep,
+  type DownloadProgress,
+  type ScanProgress,
+  type DeviceInfo,
+} from './knx-connection.ts';
 import { KnxConnection as KnxIpConnection } from './knx-protocol.ts';
 import { KnxUsbConnection } from './knx-usb.ts';
 import type { Telegram } from '../shared/types.ts';
-
-interface KnxConnectionInstance {
-  connected: boolean;
-  connect(...args: unknown[]): Promise<unknown>;
-  disconnect(): void;
-  write(ga: string, value: unknown, dpt?: string): Record<string, unknown>;
-  read(ga: string, timeoutMs?: number): Promise<Record<string, unknown>>;
-  ping(
-    gaAddresses: string[],
-    deviceAddress: string | null,
-    timeoutMs?: number,
-  ): Promise<Record<string, unknown>>;
-  identify(deviceAddress: string): Promise<void>;
-  scan(
-    area: number,
-    line: number,
-    timeoutMs: number,
-    onProgress: ((prog: Record<string, unknown>) => void) | null,
-  ): Promise<Record<string, unknown>[]>;
-  abortScan(): void;
-  readDeviceInfo(deviceAddr: string): Promise<Record<string, unknown>>;
-  programIA(newAddr: string): Promise<Record<string, unknown>>;
-  downloadDevice(
-    deviceAddr: string,
-    steps: unknown[],
-    gaTable: Buffer,
-    assocTable: Buffer,
-    paramMem: Buffer | null,
-    onProgress: (p: Record<string, unknown>) => void,
-  ): Promise<void>;
-  on(event: string, fn: (...args: unknown[]) => void): unknown;
-}
 
 interface WebSocketClient {
   readyState: number;
@@ -50,7 +25,7 @@ interface WebSocketServer {
 }
 
 class KnxBusManager extends EventEmitter {
-  connection: KnxConnectionInstance | null;
+  connection: KnxConnection | null;
   connected: boolean;
   host: string | null;
   port: number | null;
@@ -88,7 +63,7 @@ class KnxBusManager extends EventEmitter {
     });
   }
 
-  _attachEvents(conn: KnxConnectionInstance): void {
+  _attachEvents(conn: KnxConnection): void {
     conn.on('telegram', (...args: unknown[]) => {
       const telegram = args[0] as Telegram;
       const tg = { ...telegram, projectId: this.projectId ?? undefined };
@@ -124,7 +99,7 @@ class KnxBusManager extends EventEmitter {
     this.projectId = projectId ?? null;
     this.type = 'udp';
 
-    const conn = new KnxIpConnection() as unknown as KnxConnectionInstance;
+    const conn = new KnxIpConnection();
     this._attachEvents(conn);
 
     return (conn.connect(host, resolvedPort) as Promise<void>).then(() => {
@@ -151,7 +126,7 @@ class KnxBusManager extends EventEmitter {
     this.host = null;
     this.port = null;
 
-    const conn = new KnxUsbConnection() as unknown as KnxConnectionInstance;
+    const conn = new KnxUsbConnection();
     this._attachEvents(conn);
 
     return (conn.connect(devicePath) as Promise<Record<string, unknown>>).then(
@@ -190,14 +165,19 @@ class KnxBusManager extends EventEmitter {
   write(
     groupAddress: string,
     value: unknown,
-    dpt: string = '1',
-  ): Record<string, unknown> {
+    dpt: string | number = '1',
+  ): Promise<{
+    ok: boolean;
+    ga: string;
+    value: unknown;
+    dpt: string | number;
+  }> {
     if (!this.connection || !this.connected)
       throw new Error('Not connected to KNX bus');
     return this.connection.write(groupAddress, value, dpt);
   }
 
-  read(groupAddress: string): Promise<Record<string, unknown>> {
+  read(groupAddress: string): Promise<{ ga: string; value: string }> {
     if (!this.connection || !this.connected)
       throw new Error('Not connected to KNX bus');
     return this.connection.read(groupAddress);
@@ -207,10 +187,10 @@ class KnxBusManager extends EventEmitter {
     gaAddresses: string[],
     deviceAddress: string | null = null,
     timeoutMs: number = 2000,
-  ): Promise<Record<string, unknown>> {
+  ): Promise<{ reachable: boolean; ga: string | null }> {
     if (!this.connection || !this.connected)
       return Promise.reject(new Error('Not connected to KNX bus'));
-    return this.connection.ping(gaAddresses, deviceAddress, timeoutMs);
+    return this.connection.ping(gaAddresses, deviceAddress ?? '', timeoutMs);
   }
 
   identify(deviceAddress: string): Promise<void> {
@@ -223,25 +203,24 @@ class KnxBusManager extends EventEmitter {
     area: number,
     line: number,
     timeoutMs: number = 200,
-    onProgress: ((prog: Record<string, unknown>) => void) | null = null,
-  ): Promise<Record<string, unknown>[]> {
+    onProgress?: (prog: ScanProgress) => void,
+  ): Promise<Array<{ address: string; descriptor: string }>> {
     if (!this.connection || !this.connected)
       return Promise.reject(new Error('Not connected to KNX bus'));
     return this.connection.scan(area, line, timeoutMs, onProgress);
   }
 
   abortScan(): void {
-    if (this.connection)
-      (this.connection as unknown as { abortScan(): void }).abortScan();
+    if (this.connection) this.connection.abortScan();
   }
 
-  readDeviceInfo(deviceAddr: string): Promise<Record<string, unknown>> {
+  readDeviceInfo(deviceAddr: string): Promise<DeviceInfo> {
     if (!this.connection || !this.connected)
       return Promise.reject(new Error('Not connected to KNX bus'));
     return this.connection.readDeviceInfo(deviceAddr);
   }
 
-  programIA(newAddr: string): Promise<Record<string, unknown>> {
+  programIA(newAddr: string): Promise<{ ok: boolean; newAddr: string }> {
     if (!this.connection || !this.connected)
       return Promise.reject(new Error('Not connected to KNX bus'));
     return this.connection.programIA(newAddr);
@@ -249,11 +228,11 @@ class KnxBusManager extends EventEmitter {
 
   downloadDevice(
     deviceAddr: string,
-    steps: unknown[],
-    gaTable: Buffer,
-    assocTable: Buffer,
+    steps: DownloadStep[],
+    gaTable: Buffer | null,
+    assocTable: Buffer | null,
     paramMem: Buffer | null,
-    onProgress: (p: Record<string, unknown>) => void,
+    onProgress?: (p: DownloadProgress) => void,
   ): Promise<void> {
     if (!this.connection || !this.connected)
       return Promise.reject(new Error('Not connected to KNX bus'));
@@ -267,7 +246,13 @@ class KnxBusManager extends EventEmitter {
     );
   }
 
-  status(): Record<string, unknown> {
+  status(): {
+    connected: boolean;
+    type: string | null;
+    host: string | null;
+    port: number | null;
+    hasLib: boolean;
+  } {
     return {
       connected: this.connected,
       type: this.type,

@@ -578,7 +578,7 @@ interface Telegram {
 
 // ── Download step type ─────────────────────────────────────────────────────────
 
-interface DownloadStep {
+export interface DownloadStep {
   type: string;
   objIdx: number;
   propId: number;
@@ -587,7 +587,7 @@ interface DownloadStep {
   offset?: number;
 }
 
-interface DownloadProgress {
+export interface DownloadProgress {
   msg: string;
   pct?: number;
   done?: boolean;
@@ -595,7 +595,7 @@ interface DownloadProgress {
 
 // ── Device info type ───────────────────────────────────────────────────────────
 
-interface DeviceInfo {
+export interface DeviceInfo {
   descriptor: string;
   address: string;
   serialNumber?: string;
@@ -613,7 +613,7 @@ interface DeviceInfo {
 
 // ── Scan progress type ─────────────────────────────────────────────────────────
 
-interface ScanProgress {
+export interface ScanProgress {
   address: string;
   reachable: boolean;
   descriptor: string | null;
@@ -650,6 +650,11 @@ export class KnxConnection extends EventEmitter {
    */
   sendCEMI(_cemi: Buffer): Promise<void> {
     throw new Error('sendCEMI() must be implemented by transport subclass');
+  }
+
+  /** Disconnect from the bus. Must be implemented by transport subclass. */
+  disconnect(): void {
+    throw new Error('disconnect() must be implemented by transport subclass');
   }
 
   /** Called by transport subclass when a CEMI frame is received from the bus. */
