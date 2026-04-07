@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 /**
  * ETS6 .knxproj parser  —  full extraction
  *
@@ -22,6 +21,362 @@
 import { createRequire } from 'module';
 import { XMLParser } from 'fast-xml-parser';
 import crypto from 'crypto';
+
+// ─── XML node types ──────────────────────────────────────────────────────────
+// fast-xml-parser returns untyped objects. These aliases are semantically
+// clearer than `any` — they say "parsed XML node with unknown structure".
+type XmlNode = Record<string, unknown>;
+type OrdXmlNode = Record<string, unknown>;
+
+// ─── Internal lookup map value types ─────────────────────────────────────────
+interface CoDef {
+  num: number;
+  text: string;
+  ft: string;
+  dpt: string;
+  size: string;
+  read: string;
+  write: string;
+  comm: string;
+  tx: string;
+}
+
+interface CorDef {
+  refId: string;
+  text: string | null;
+  ft: string | null;
+  dpt: string | null;
+  size: string | null;
+  read: string | null;
+  write: string | null;
+  comm: string | null;
+  tx: string | null;
+}
+
+interface ParamType {
+  kind: string;
+  enums: Record<string, string>;
+  min?: number | null;
+  max?: number | null;
+  step?: number | null;
+  sizeInBit?: number;
+  coefficient?: number;
+  unit?: string;
+  uiHint?: string;
+}
+
+interface ParamDef {
+  text: string;
+  typeRef: string;
+  value: string;
+  access: string | null;
+  offset: number | null;
+  bitOffset: number;
+  fromMemoryChild: boolean;
+  isDefaultUnionParam: boolean;
+}
+
+interface ParamRefDef {
+  paramId: string;
+  text: string | null;
+  access: string | null;
+  prDefault: string | null;
+}
+
+interface HwInfo {
+  manufacturer: string;
+  model: string;
+  orderNumber: string;
+  hwSerial: string;
+  busCurrent: number;
+  widthMm: number;
+  isPowerSupply: boolean;
+  isCoupler: boolean;
+  isRailMounted: boolean;
+  modelTranslations?: Record<string, string> | null;
+}
+
+// ─── Dynamic tree serialized item types ──────────────────────────────────────
+interface DynItemParamRef {
+  type: 'paramRef';
+  refId: string;
+  cell?: string;
+}
+interface DynItemSeparator {
+  type: 'separator';
+  id: string;
+  text: string;
+  uiHint: string;
+}
+interface DynItemBlock {
+  type: 'block';
+  id: string;
+  text: string;
+  name: string;
+  inline: boolean;
+  access?: string;
+  layout?: string;
+  rows?: { id: string; text: string }[];
+  columns?: { id: string; text: string; width?: string }[];
+  items: DynItem[];
+}
+interface DynItemChoose {
+  type: 'choose';
+  paramRefId: string;
+  accessNone: boolean;
+  defaultValue: string | null;
+  whens: DynWhen[];
+}
+interface DynWhen {
+  test: string[];
+  isDefault: boolean;
+  items: DynItem[];
+}
+interface DynItemRename {
+  type: 'rename';
+  refId: string;
+  text: string;
+}
+interface DynItemAssign {
+  type: 'assign';
+  target: string;
+  source: string | null;
+  value: string | null;
+}
+interface DynItemComRef {
+  type: 'comRef';
+  refId: string;
+}
+interface DynItemChannel {
+  type: 'channel';
+  id: string;
+  label: string;
+  textParamRefId?: string;
+  items: DynItem[];
+}
+interface DynItemCib {
+  type: 'cib';
+  items: DynItem[];
+}
+type DynItem =
+  | DynItemParamRef
+  | DynItemSeparator
+  | DynItemBlock
+  | DynItemChoose
+  | DynItemRename
+  | DynItemAssign
+  | DynItemComRef
+  | DynItemChannel
+  | DynItemCib;
+
+// ─── Load procedure step types ───────────────────────────────────────────────
+interface LpRelSegment {
+  type: 'RelSegment';
+  lsmIdx: number;
+  size: number;
+  mode: string;
+  fill: number;
+}
+interface LpWriteProp {
+  type: 'WriteProp';
+  objIdx: number;
+  propId: number;
+  data: string;
+}
+interface LpCompareProp {
+  type: 'CompareProp';
+  objIdx: number;
+  propId: number;
+  data: string;
+}
+interface LpWriteRelMem {
+  type: 'WriteRelMem';
+  objIdx: number;
+  offset: number;
+  size: number;
+  mode: string;
+}
+interface LpLoadImageProp {
+  type: 'LoadImageProp';
+  objIdx: number;
+  propId: number;
+}
+interface LpAbsSegment {
+  type: 'AbsSegment';
+  lsmIdx: number;
+  address: number;
+  size: number;
+}
+type LoadProcedureStep =
+  | LpRelSegment
+  | LpWriteProp
+  | LpCompareProp
+  | LpWriteRelMem
+  | LpLoadImageProp
+  | LpAbsSegment;
+
+// ─── Parsed output record types ──────────────────────────────────────────────
+interface ParsedDevice {
+  individual_address: string;
+  name: string;
+  description: string;
+  comment: string;
+  installation_hints: string;
+  manufacturer: string;
+  model: string;
+  order_number: string;
+  serial_number: string;
+  product_ref: string;
+  area: number;
+  area_name: string;
+  line: number;
+  line_name: string;
+  medium: string;
+  device_type: string;
+  status: string;
+  last_modified: string;
+  last_download: string;
+  apdu_length: string;
+  app_loaded: boolean;
+  comm_loaded: boolean;
+  ia_loaded: boolean;
+  params_loaded: boolean;
+  app_number: string;
+  app_version: string;
+  parameters: ResolvedParam[];
+  app_ref: string;
+  param_values: Record<string, string>;
+  model_translations: Record<string, string> | null;
+  bus_current: number;
+  width_mm: number;
+  is_power_supply: boolean;
+  is_coupler: boolean;
+  is_rail_mounted: boolean;
+}
+
+interface ResolvedParam {
+  section: string;
+  group: string;
+  name: string;
+  value: string;
+}
+
+interface ParsedGroupAddress {
+  address: string;
+  name: string;
+  dpt: string;
+  comment: string;
+  description: string;
+  main: number;
+  mainGroupName: string;
+  middle: number;
+  middleGroupName: string;
+  sub: number;
+}
+
+interface ParsedComObject {
+  device_address: string;
+  object_number: number;
+  channel: string;
+  name: string;
+  function_text: string;
+  dpt: string;
+  object_size: string;
+  flags: string;
+  direction: string;
+  ga_address: string;
+  ga_send?: string;
+  ga_receive?: string;
+}
+
+interface ParsedSpace {
+  name: string;
+  type: string;
+  usage_id: string;
+  parent_idx: number | null;
+  sort_order: number;
+}
+
+interface CatalogSection {
+  id: string;
+  name: string;
+  number: string;
+  parent_id: string | null;
+  mfr_id: string;
+  manufacturer: string;
+}
+
+interface CatalogItem {
+  id: string;
+  name: string;
+  number: string;
+  description: string;
+  section_id: string;
+  product_ref: string;
+  h2p_ref: string;
+  order_number: string;
+  manufacturer: string;
+  mfr_id: string;
+  model: string;
+  bus_current: number;
+  width_mm: number;
+  is_power_supply: boolean;
+  is_coupler: boolean;
+  is_rail_mounted: boolean;
+}
+
+interface TopologyEntry {
+  area: number;
+  line: number | null;
+  name: string;
+  medium: string;
+}
+
+// ─── Parameter model types ───────────────────────────────────────────────────
+interface ParamModelEntry {
+  label: string;
+  section: string;
+  group: string;
+  sectionIndent: number;
+  typeKind: string;
+  enums: Record<string, string>;
+  min: number | null;
+  max: number | null;
+  step: number | null;
+  uiHint: string;
+  unit: string;
+  defaultValue: string;
+  readOnly: boolean;
+  offset: number | null;
+  bitOffset: number;
+  bitSize: number;
+}
+
+interface ParamMemLayoutEntry {
+  offset: number;
+  bitOffset: number;
+  bitSize: number;
+  defaultValue: string;
+  isText: boolean;
+  isFloat: boolean;
+  fromMemoryChild: boolean;
+  isVisible: boolean;
+  coefficient?: number;
+}
+
+interface ParamModel {
+  appId: string;
+  params: Record<string, ParamModelEntry>;
+  dynTree: {
+    main: { items: DynItem[] } | null;
+    moduleDefs: { id: string; items: DynItem[] }[];
+  };
+  modArgs: Record<string, Record<string, string | number>>;
+  paramMemLayout: Record<string, ParamMemLayoutEntry>;
+  relSegData: Record<number, string>;
+  absSegData: Record<number, { size: number; hex: string }>;
+  loadProcedures?: LoadProcedureStep[];
+}
 
 // @ts-expect-error TS1470: import.meta is valid at runtime
 const require_ = createRequire(import.meta.url);
@@ -153,19 +508,25 @@ const orderedXmlParser = new XMLParser({
   htmlEntities: true,
   trimValues: false,
 });
-const ordAttr = (el: any, name: string): string =>
-  sanitizeText(el?.[':@']?.[`@_${name}`] ?? '');
-const ordRawAttr = (el: any, name: string): string =>
-  (el?.[':@']?.[`@_${name}`] ?? '').toString();
-const ordTagName = (el: any): string | undefined =>
+const ordAttr = (el: OrdXmlNode | null | undefined, name: string): string =>
+  sanitizeText(
+    (el?.[':@'] as Record<string, unknown> | undefined)?.[`@_${name}`] ?? '',
+  );
+const ordRawAttr = (el: OrdXmlNode | null | undefined, name: string): string =>
+  (
+    ((el?.[':@'] as Record<string, unknown> | undefined)?.[`@_${name}`] ??
+      '') as string | number
+  ).toString();
+const ordTagName = (el: OrdXmlNode | null | undefined): string | undefined =>
   Object.keys(el || {}).find((k) => k !== ':@');
-const ordChildNodes = (el: any): any[] => {
+const ordChildNodes = (el: OrdXmlNode | null | undefined): OrdXmlNode[] => {
   const tag = ordTagName(el);
-  const c = tag ? el[tag] : null;
-  return Array.isArray(c) ? c : [];
+  const c = tag ? el?.[tag] : null;
+  return Array.isArray(c) ? (c as OrdXmlNode[]) : [];
 };
 
 // ─── Tiny helpers ─────────────────────────────────────────────────────────────
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const toArr = (v: any): any[] => (v == null ? [] : Array.isArray(v) ? v : [v]);
 
 /**
@@ -177,7 +538,7 @@ const toArr = (v: any): any[] => (v == null ? [] : Array.isArray(v) ? v : [v]);
  *   2. Remove every ASCII control character (codes 0–31 and 127) that results.
  *   3. Collapse runs of whitespace and trim.
  */
-export const sanitizeText = (s: any): string => {
+export const sanitizeText = (s: unknown): string => {
   let str = (s ?? '').toString();
   // Decode hex numeric character references: &#xD; &#x0D; &#XA; etc.
   str = str.replace(/&#[xX]([0-9a-fA-F]+);/g, (_: string, h: string) =>
@@ -192,17 +553,20 @@ export const sanitizeText = (s: any): string => {
   str = str.replace(/[\x00-\x1F\x7F]+/g, ' ');
   return str.replace(/ {2,}/g, ' ').trim();
 };
-const attr = (el: any, name: string): string =>
-  sanitizeText(el?.[`@_${name}`] ?? '');
-export const interpolate = (tpl: any, map: Record<string, any>): string =>
+const attr = (el: XmlNode | unknown, name: string): string =>
+  sanitizeText((el as XmlNode)?.[`@_${name}`] ?? '');
+export const interpolate = (
+  tpl: unknown,
+  map: Record<string, string | number>,
+): string =>
   sanitizeText(
-    (tpl || '')
+    ((tpl || '') as string)
       // Named args: {{argCH}} → map.argCH ?? ''
-      .replace(/\{\{(\w+)\}\}/g, (_: string, k: string) => map[k] ?? '')
+      .replace(/\{\{(\w+)\}\}/g, (_: string, k: string) => String(map[k] ?? ''))
       // Numbered args with default text: {{0: Channel A}} → use default text if arg 0 not in map
       .replace(
         /\{\{(\d+)\s*:\s*([^}]*)\}\}/g,
-        (_: string, n: string, def: string) => map[n] ?? def.trim(),
+        (_: string, n: string, def: string) => String(map[n] ?? def.trim()),
       ),
   )
     .replace(/[\s:\-–—]+$/, '')
@@ -229,7 +593,7 @@ interface AppIndex {
     refId: string,
     value: string,
   ) => { section: string; group: string; name: string; value: string } | null;
-  evalDynamic: (getVal: (prKey: string) => any) => {
+  evalDynamic: (getVal: (prKey: string) => string | null) => {
     activeParams: Set<string>;
     activeCorefs: Set<string>;
     activeCorefsByObjNum: Map<number, { corId: string; channel: string }[]>;
@@ -246,23 +610,24 @@ interface AppIndex {
     tx: boolean;
     channel: string;
   } | null;
-  buildParamModel: () => any;
+  buildParamModel: () => ParamModel;
   appId: string;
   paramRefKeys: string[];
   moduleKeys: string[];
   getDefault: (prKey: string) => string | null;
-  getModArgs: (mk: string) => Record<string, any> | null;
-  loadProcedures: any[];
+  getModArgs: (mk: string) => Record<string, string | number> | null;
+  loadProcedures: LoadProcedureStep[];
 }
 
 // ─── Build per-application-program index ─────────────────────────────────────
 function buildAppIndex(buf: Buffer): AppIndex | null {
   const rawXml = buf.toString('utf8');
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let xml: any;
   try {
     xml = xmlParser.parse(rawXml);
-  } catch (e: any) {
-    console.error('[ETS] app parse:', e.message);
+  } catch (e: unknown) {
+    console.error('[ETS] app parse:', (e as Error).message);
     return null;
   }
 
@@ -279,8 +644,8 @@ function buildAppIndex(buf: Buffer): AppIndex | null {
   // Parse entire app XML with order-preserving parser to extract Dynamic sections
   // and ParameterBlock indent levels (leading spaces in Text attributes that the
   // main parser trims).
-  let orderedDynamic: any[] | null = null;
-  const orderedModDynamics: Record<string, any[]> = {};
+  let orderedDynamic: OrdXmlNode[] | null = null;
+  const orderedModDynamics: Record<string, OrdXmlNode[]> = {};
   const pbIndentMap: Record<string, number> = {};
   try {
     const orderedXml = orderedXmlParser.parse(rawXml);
@@ -288,7 +653,7 @@ function buildAppIndex(buf: Buffer): AppIndex | null {
     // Walk ordered tree to collect ParameterBlock Text indent levels.
     // ETS uses leading spaces in ParameterBlock Text to encode visual hierarchy.
     // The ordered parser is configured with trimValues:false so we can count them.
-    const collectPbIndents = (items: any[]) => {
+    const collectPbIndents = (items: OrdXmlNode[]) => {
       if (!Array.isArray(items)) return;
       for (const el of items) {
         const tag = ordTagName(el);
@@ -306,7 +671,9 @@ function buildAppIndex(buf: Buffer): AppIndex | null {
     };
     collectPbIndents(orderedXml);
     // Navigate: KNX > ManufacturerData > Manufacturer > ApplicationPrograms > ApplicationProgram > Dynamic
-    const findDynamic = (items: any): any[] | null => {
+    const findDynamic = (
+      items: OrdXmlNode | OrdXmlNode[] | null,
+    ): OrdXmlNode[] | null => {
       if (!items) return null;
       for (const el of Array.isArray(items) ? items : [items]) {
         const tag = ordTagName(el);
@@ -330,7 +697,7 @@ function buildAppIndex(buf: Buffer): AppIndex | null {
     orderedDynamic = findDynamic(orderedXml);
 
     // Find ModuleDef Dynamic sections
-    const findModDefs = (items: any) => {
+    const findModDefs = (items: OrdXmlNode | OrdXmlNode[] | null) => {
       if (!items) return;
       for (const el of Array.isArray(items) ? items : [items]) {
         const tag = ordTagName(el);
@@ -361,7 +728,7 @@ function buildAppIndex(buf: Buffer): AppIndex | null {
   // 1. Translations: refId → { AttributeName → Text }
   //    Collect from all Language elements, English first so it wins over other languages.
   const trans: Record<string, Record<string, string>> = {};
-  const collectTrans = (langs: any[]) => {
+  const collectTrans = (langs: XmlNode[]) => {
     for (const langNode of toArr(langs)) {
       for (const tu of toArr(langNode?.TranslationUnit)) {
         for (const el of toArr(tu?.TranslationElement)) {
@@ -379,11 +746,11 @@ function buildAppIndex(buf: Buffer): AppIndex | null {
   };
   const allLangs = toArr(mfrNode?.Languages?.Language);
   // English-speaking locales first so they take priority
-  const enLangs = allLangs.filter((l: any) =>
+  const enLangs = allLangs.filter((l: XmlNode) =>
     /^en/i.test(attr(l, 'Identifier')),
   );
   const otherLangs = allLangs.filter(
-    (l: any) => !/^en/i.test(attr(l, 'Identifier')),
+    (l: XmlNode) => !/^en/i.test(attr(l, 'Identifier')),
   );
   collectTrans(enLangs);
   collectTrans(otherLangs);
@@ -393,10 +760,10 @@ function buildAppIndex(buf: Buffer): AppIndex | null {
   // No-op — removed pickName/pickText/DIR_RE. Text and FunctionText are stored separately.
 
   // 2. ComObject definitions (top-level Static + inside each ModuleDef Static)
-  const coDefs: Record<string, any> = {}; // coId → { ft, dpt, objectSize, flags }
+  const coDefs: Record<string, CoDef> = {};
   const allStaticSections = [
     ap.Static,
-    ...toArr(ap.ModuleDefs?.ModuleDef).map((md: any) => md.Static),
+    ...toArr(ap.ModuleDefs?.ModuleDef).map((md: XmlNode) => md.Static),
   ].filter(Boolean);
 
   for (const st of allStaticSections) {
@@ -423,7 +790,7 @@ function buildAppIndex(buf: Buffer): AppIndex | null {
   }
 
   // 3. ComObjectRef definitions (same two scopes)
-  const corDefs: Record<string, any> = {}; // corId → { refId, overrides... }
+  const corDefs: Record<string, CorDef> = {};
   for (const st of allStaticSections) {
     for (const cor of toArr(st.ComObjectRefs?.ComObjectRef)) {
       const id = attr(cor, 'Id');
@@ -450,12 +817,12 @@ function buildAppIndex(buf: Buffer): AppIndex | null {
   }
 
   // 5. Module instantiations (Dynamic section): fullModId → { argName: value, _count: N }
-  const modArgs: Record<string, any> = {};
-  const collectMods = (mods: any[]) => {
+  const modArgs: Record<string, Record<string, string | number>> = {};
+  const collectMods = (mods: XmlNode[]) => {
     for (const mod of mods) {
       const mid = attr(mod, 'Id');
       if (!mid) continue;
-      const args: Record<string, any> = {};
+      const args: Record<string, string | number> = {};
       for (const na of toArr(mod.NumericArg)) {
         const name = argDefs[attr(na, 'RefId')];
         if (name) args[name] = attr(na, 'Value');
@@ -471,6 +838,7 @@ function buildAppIndex(buf: Buffer): AppIndex | null {
 
   // 6. Channel definitions: fullChanId → text template
   const chanDefs: Record<string, string> = {};
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   for (const ch of toArr(ap.ModuleDefs?.ModuleDef).flatMap((md: any) =>
     toArr(md.Dynamic?.Channel),
   )) {
@@ -503,7 +871,12 @@ function buildAppIndex(buf: Buffer): AppIndex | null {
    * or null if unresolvable.
    */
   function resolveCoRef(relRefId: string, channelId: string) {
-    const buildResult = (cor: any, co: any, args: any, channel: string) => ({
+    const buildResult = (
+      cor: CorDef,
+      co: CoDef,
+      args: Record<string, string | number>,
+      channel: string,
+    ) => ({
       objectNumber: co.num,
       name: interpolate(cor.text || co.text, args),
       function_text: interpolate(cor.ft || co.ft, args),
@@ -571,7 +944,7 @@ function buildAppIndex(buf: Buffer): AppIndex | null {
 
   // 7. ParameterType definitions: typeId → { kind, enums }
   //    kind: 'enum' | 'number' | 'none' | 'other'
-  const paramTypes: Record<string, any> = {};
+  const paramTypes: Record<string, ParamType> = {};
   for (const st of allStaticSections) {
     for (const pt of toArr(st.ParameterTypes?.ParameterType)) {
       const tid = attr(pt, 'Id');
@@ -681,11 +1054,11 @@ function buildAppIndex(buf: Buffer): AppIndex | null {
   //    Parameters are always flat under Static/Parameters or inside Union elements.
   //    Parameter.Access is stored so ParameterRef resolution can inherit it when the ref
   //    itself has no Access override. Access="None" means download-only (not shown in ETS UI).
-  const paramDefs: Record<string, any> = {};
+  const paramDefs: Record<string, ParamDef> = {};
   // baseFromMem: true when the parent Union's offset came from a <Memory> child element.
   // In that convention, all Union child params use relSeg-index offsets (not absolute ETS offsets),
   // so they must be treated identically to standalone params with <Memory> children.
-  const addParam = (p: any, baseOffset = 0, baseFromMem = false) => {
+  const addParam = (p: XmlNode, baseOffset = 0, baseFromMem = false) => {
     const id = attr(p, 'Id');
     if (!id) return;
     let rawOff = attr(p, 'Offset');
@@ -747,7 +1120,7 @@ function buildAppIndex(buf: Buffer): AppIndex | null {
 
   // 9. ParameterRef definitions: fullRefId → { paramId, text override, access override }
   //    Collected before 8b so the section-map walk can use it for label resolution.
-  const paramRefDefs: Record<string, any> = {};
+  const paramRefDefs: Record<string, ParamRefDef> = {};
   for (const st of allStaticSections) {
     for (const pr of toArr(st.ParameterRefs?.ParameterRef)) {
       const id = attr(pr, 'Id');
@@ -772,7 +1145,7 @@ function buildAppIndex(buf: Buffer): AppIndex | null {
   // ETS uses leading spaces in ParameterBlock Text to encode visual hierarchy.
   // fast-xml-parser trims attribute values, but pbIndentMap captures the count from raw XML.
   const pbLabel = (
-    pb: any,
+    pb: XmlNode,
     fallback: string,
   ): { label: string; indent: number } => {
     const id = attr(pb, 'Id');
@@ -801,7 +1174,7 @@ function buildAppIndex(buf: Buffer): AppIndex | null {
   const paramRefGroupMap: Record<string, string> = {};
   const paramRefSectionIndentMap: Record<string, number> = {}; // indent (leading spaces) of the PB label — encodes ETS hierarchy
   const walkDynamic = (
-    items: any[],
+    items: XmlNode[],
     sectionTpl: string,
     groupLabel = '',
     sectionIndent = 0,
@@ -825,6 +1198,7 @@ function buildAppIndex(buf: Buffer): AppIndex | null {
       }
     }
   };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const walkDynSection = (dyn: any) => {
     if (!dyn) return;
     for (const ch of toArr(dyn.Channel)) {
@@ -872,7 +1246,7 @@ function buildAppIndex(buf: Buffer): AppIndex | null {
     if (effectiveAccess === 'None') return null;
 
     // Module args for template substitution (e.g. channel number in section label)
-    let args: Record<string, any> = {};
+    let args: Record<string, string | number> = {};
     const modMatch = refId.match(/_(MD-\d+)_(M-\d+)_MI-\d+_/);
     if (modMatch)
       args = modArgs[`${appId}_${modMatch[1]}_${modMatch[2]}`] || {};
@@ -912,13 +1286,13 @@ function buildAppIndex(buf: Buffer): AppIndex | null {
     return pd ? pd.value : null;
   };
 
-  const getModArgs = (mk: string): Record<string, any> | null =>
+  const getModArgs = (mk: string): Record<string, string | number> | null =>
     modArgs[mk] || null;
 
   // ── Serialize ordered Dynamic tree into items arrays ──────────────────────
-  function serOrderedItems(ordItems: any[]): any[] {
+  function serOrderedItems(ordItems: OrdXmlNode[]): DynItem[] {
     if (!ordItems || !ordItems.length) return [];
-    const result: any[] = [];
+    const result: DynItem[] = [];
     for (const el of ordItems) {
       const tag = ordTagName(el);
       if (!tag) continue;
@@ -941,7 +1315,8 @@ function buildAppIndex(buf: Buffer): AppIndex | null {
       } else if (tag === 'ParameterBlock') {
         const id = ordAttr(el, 'Id');
         const children = ordChildNodes(el);
-        let rows: any[] | undefined, columns: any[] | undefined;
+        let rows: { id: string; text: string }[] | undefined,
+          columns: { id: string; text: string; width?: string }[] | undefined;
         if (ordAttr(el, 'Layout') === 'Table') {
           rows = [];
           columns = [];
@@ -976,7 +1351,8 @@ function buildAppIndex(buf: Buffer): AppIndex | null {
           if (prId) {
             const pr = paramRefDefs[prId];
             const pd = pr ? paramDefs[pr.paramId] : null;
-            blockText = T(pr?.paramId, 'Text') || pr?.text || pd?.text || '';
+            blockText =
+              (pr ? T(pr.paramId, 'Text') : '') || pr?.text || pd?.text || '';
           }
         }
         result.push({
@@ -996,7 +1372,7 @@ function buildAppIndex(buf: Buffer): AppIndex | null {
         const pr = paramRefDefs[prId];
         const pd = pr ? paramDefs[pr.paramId] : null;
         const effectiveAccess = pr?.access ?? pd?.access ?? '';
-        const whens: any[] = [];
+        const whens: DynWhen[] = [];
         for (const w of ordChildNodes(el)) {
           if (ordTagName(w) !== 'when') continue;
           const test = (ordAttr(w, 'test') || ordAttr(w, 'Value') || '')
@@ -1059,7 +1435,7 @@ function buildAppIndex(buf: Buffer): AppIndex | null {
   // Returns { activeParams: Set<prKey>, activeCorefs: Set<corId> }.
   // Uses the ordered Dynamic tree to correctly evaluate choose/when conditions
   // including operator tests (!=, <, >, etc.) and TypeNone page-marker params.
-  function evalDynamic(getVal: (prKey: string) => any) {
+  function evalDynamic(getVal: (prKey: string) => string | null) {
     const activeParams = new Set<string>();
     const activeCorefs = new Set<string>();
     const activeCorefsByObjNum = new Map<
@@ -1067,7 +1443,7 @@ function buildAppIndex(buf: Buffer): AppIndex | null {
       { corId: string; channel: string }[]
     >(); // objectNumber → [{corId, channel}] in walk order
 
-    function etsTestMatch(val: string, tests: any[]): boolean {
+    function etsTestMatch(val: string, tests: string[]): boolean {
       const n = parseFloat(val);
       for (const t of tests) {
         const rm =
@@ -1096,7 +1472,7 @@ function buildAppIndex(buf: Buffer): AppIndex | null {
       return ti?.kind === 'none';
     }
 
-    function walkItems(items: any[] | null, channelLabel: string) {
+    function walkItems(items: DynItem[] | null, channelLabel: string) {
       if (!items) return;
       for (const item of items) {
         if (item.type === 'paramRef') {
@@ -1143,7 +1519,7 @@ function buildAppIndex(buf: Buffer): AppIndex | null {
             raw !== '' && raw != null ? raw : (item.defaultValue ?? ''),
           );
           let matched = false,
-            defItems: any[] | null = null;
+            defItems: DynItem[] | null = null;
           for (const w of item.whens || []) {
             if (w.isDefault) {
               defItems = w.items;
@@ -1162,9 +1538,9 @@ function buildAppIndex(buf: Buffer): AppIndex | null {
     const mainItems = orderedDynamic ? serOrderedItems(orderedDynamic) : null;
     const modItemsList = Object.entries(orderedModDynamics)
       .map(([_id, od]) => (od ? serOrderedItems(od) : null))
-      .filter(Boolean) as any[][];
+      .filter(Boolean) as DynItem[][];
     // Pass 1: evaluate conditions to collect active params, but don't collect corefs yet
-    function walkPass1(items: any[] | null) {
+    function walkPass1(items: DynItem[] | null) {
       if (!items) return;
       for (const item of items) {
         if (item.type === 'paramRef') {
@@ -1183,7 +1559,7 @@ function buildAppIndex(buf: Buffer): AppIndex | null {
             raw !== '' && raw != null ? raw : (item.defaultValue ?? ''),
           );
           let matched = false,
-            defItems: any[] | null = null;
+            defItems: DynItem[] | null = null;
           for (const w of item.whens || []) {
             if (w.isDefault) {
               defItems = w.items;
@@ -1233,9 +1609,9 @@ function buildAppIndex(buf: Buffer): AppIndex | null {
     };
   }
 
-  function buildParamModel(): any {
-    const params: Record<string, any> = {};
-    for (const [prKey, pr] of Object.entries(paramRefDefs) as [string, any][]) {
+  function buildParamModel(): ParamModel {
+    const params: Record<string, ParamModelEntry> = {};
+    for (const [prKey, pr] of Object.entries(paramRefDefs)) {
       const pd = paramDefs[pr.paramId];
       if (!pd) continue;
       // Effective access: ParameterRef.Access overrides Parameter.Access.
@@ -1270,22 +1646,25 @@ function buildAppIndex(buf: Buffer): AppIndex | null {
     const dynTree = {
       main: orderedDynamic ? { items: serOrderedItems(orderedDynamic) } : null,
       moduleDefs: toArr(ap.ModuleDefs?.ModuleDef)
-        .map((md: any) => {
+        .map((md: XmlNode) => {
           const mdId = attr(md, 'Id');
           const ordDyn = orderedModDynamics[mdId];
           return { id: mdId, items: ordDyn ? serOrderedItems(ordDyn) : [] };
         })
-        .filter((m: any) => m.items.length > 0),
+        .filter((m: { id: string; items: DynItem[] }) => m.items.length > 0),
     };
 
     // paramMemLayout: ALL paramRefs (including Access=None download-only params)
     // keyed by paramRefId → { offset, bitOffset, bitSize, defaultValue }
     // Used by the download engine to build the parameter memory segment.
-    const paramMemLayout: Record<string, any> = {};
-    for (const [prId, pr] of Object.entries(paramRefDefs) as [string, any][]) {
+    const paramMemLayout: Record<string, ParamMemLayoutEntry> = {};
+    for (const [prId, pr] of Object.entries(paramRefDefs)) {
       const pd = paramDefs[pr.paramId];
       if (!pd || pd.offset === null || pd.offset === undefined) continue;
-      const ti = paramTypes[pd.typeRef] || {};
+      const ti: ParamType = paramTypes[pd.typeRef] || {
+        kind: 'other',
+        enums: {},
+      };
       // effectiveAccess: ParameterRef.Access overrides Parameter.Access.
       // Access='None' = download-only (hidden from UI). Other values = user-configurable.
       // isVisible: true for params the user can set in ETS. When a visible param is at its
@@ -1366,7 +1745,7 @@ function buildAppIndex(buf: Buffer): AppIndex | null {
 
   // ── LoadProcedures ────────────────────────────────────────────────────────
   // Parse the download steps from Static/LoadProcedures.
-  const loadProcedures: any[] = [];
+  const loadProcedures: LoadProcedureStep[] = [];
   for (const lp of toArr(ap.Static?.LoadProcedures?.LoadProcedure)) {
     for (const el of toArr(lp.LdCtrlRelSegment)) {
       const lsmIdx = parseInt(attr(el, 'LsmIdx')) || 4;
@@ -1451,9 +1830,9 @@ function buildAppIndex(buf: Buffer): AppIndex | null {
  * individual_address → space index.
  */
 function parseLocationsRec(
-  spaceEls: any[],
+  spaceEls: XmlNode[],
   parentIdx: number | null,
-  spaces: any[],
+  spaces: ParsedSpace[],
   devSpaceMap: Record<string, number>,
   devInstById: Record<string, string>,
 ): void {
@@ -1478,19 +1857,19 @@ function parseLocationsRec(
 // ─── ParsedProject interface ─────────────────────────────────────────────────
 export interface ParsedProject {
   projectName: string;
-  devices: any[];
-  groupAddresses: any[];
-  comObjects: any[];
+  devices: ParsedDevice[];
+  groupAddresses: ParsedGroupAddress[];
+  comObjects: ParsedComObject[];
   links: { deviceAddress: string; gaAddress: string }[];
-  spaces: any[];
+  spaces: ParsedSpace[];
   devSpaceMap: Record<string, number>;
-  paramModels: Record<string, any>;
+  paramModels: Record<string, ParamModel>;
   thumbnail: string | null;
   projectInfo: Record<string, string> | null;
   knxMasterXml: string | null;
-  catalogSections: any[];
-  catalogItems: any[];
-  topologyEntries: any[];
+  catalogSections: CatalogSection[];
+  catalogItems: CatalogItem[];
+  topologyEntries: TopologyEntry[];
 }
 
 // ─── Main export ──────────────────────────────────────────────────────────────
@@ -1502,10 +1881,13 @@ export function parseKnxproj(
   try {
     zip = new AdmZip(buffer);
     entries = zip.getEntries();
-  } catch (e: any) {
-    throw new Error('Invalid or corrupt .knxproj file: ' + e.message, {
-      cause: e,
-    });
+  } catch (e: unknown) {
+    throw new Error(
+      'Invalid or corrupt .knxproj file: ' + (e as Error).message,
+      {
+        cause: e,
+      },
+    );
   }
   const byName: Record<string, ZipEntry> = Object.fromEntries(
     entries.map((e) => [e.entryName, e]),
@@ -1527,8 +1909,8 @@ export function parseKnxproj(
   }
 
   // ── Hardware lookup ────────────────────────────────────────────────────────
-  const hwByProd: Record<string, any> = {}; // productRefId → {manufacturer,model,orderNumber,hwSerial}
-  const hwByH2P: Record<string, any> = {}; // h2pRefId     → same
+  const hwByProd: Record<string, HwInfo> = {};
+  const hwByH2P: Record<string, HwInfo> = {};
 
   for (const e of entries.filter((e) =>
     /M-[^/]+\/Hardware\.xml$/i.test(e.entryName),
@@ -1545,11 +1927,11 @@ export function parseKnxproj(
         const hwTrans: Record<string, string> = {};
         const hwTransAll: Record<string, Record<string, string>> = {};
         const hwLangs = toArr(mNode?.Languages?.Language);
-        const hwEnLangs = hwLangs.filter((l: any) =>
+        const hwEnLangs = hwLangs.filter((l: XmlNode) =>
           /^en/i.test(attr(l, 'Identifier')),
         );
         const hwOtherLangs = hwLangs.filter(
-          (l: any) => !/^en/i.test(attr(l, 'Identifier')),
+          (l: XmlNode) => !/^en/i.test(attr(l, 'Identifier')),
         );
         for (const langs of [hwEnLangs, hwOtherLangs]) {
           for (const lang of langs) {
@@ -1646,14 +2028,14 @@ export function parseKnxproj(
           }
         }
       }
-    } catch (e: any) {
-      console.error('[ETS] Hardware.xml:', e.message);
+    } catch (e: unknown) {
+      console.error('[ETS] Hardware.xml:', (e as Error).message);
     }
   }
 
   // ── Catalog lookup ──────────────────────────────────────────────────────────
-  const catalogSections: any[] = []; // { id, name, number, parent_id (null for roots), mfr_id }
-  const catalogItems: any[] = []; // { id, name, number, description, section_id, product_ref, h2p_ref, order_number, manufacturer }
+  const catalogSections: CatalogSection[] = [];
+  const catalogItems: CatalogItem[] = [];
 
   for (const e of entries.filter((e) =>
     /M-[^/]+\/Catalog\.xml$/i.test(e.entryName),
@@ -1666,8 +2048,8 @@ export function parseKnxproj(
       for (const mNode of toArr(cx?.KNX?.ManufacturerData?.Manufacturer)) {
         // Build translation map for catalog names
         const catTrans: Record<string, string> = {};
-        for (const lang of toArr(mNode?.Languages?.Language).filter((l: any) =>
-          /^en/i.test(attr(l, 'Identifier')),
+        for (const lang of toArr(mNode?.Languages?.Language).filter(
+          (l: XmlNode) => /^en/i.test(attr(l, 'Identifier')),
         )) {
           for (const tu of toArr(lang?.TranslationUnit)) {
             for (const el of toArr(tu?.TranslationElement)) {
@@ -1684,7 +2066,7 @@ export function parseKnxproj(
         }
         const ct = (id: string): string => catTrans[id] || '';
 
-        const walkSections = (sections: any, parentId: string | null) => {
+        const walkSections = (sections: XmlNode[], parentId: string | null) => {
           for (const sec of toArr(sections)) {
             const secId = attr(sec, 'Id');
             const secName = ct(secId) || attr(sec, 'Name') || '';
@@ -1702,7 +2084,8 @@ export function parseKnxproj(
               const itemId = attr(item, 'Id');
               const prodRef = attr(item, 'ProductRefId') || '';
               const h2pRef = attr(item, 'Hardware2ProgramRefId') || '';
-              const hw = hwByProd[prodRef] || hwByH2P[h2pRef] || {};
+              const hw: Partial<HwInfo> =
+                hwByProd[prodRef] || hwByH2P[h2pRef] || ({} as Partial<HwInfo>);
               catalogItems.push({
                 id: itemId,
                 name: ct(itemId) || attr(item, 'Name') || hw.model || '',
@@ -1730,8 +2113,8 @@ export function parseKnxproj(
         const catalog = mNode?.Catalog;
         walkSections(toArr(catalog?.CatalogSection), null);
       }
-    } catch (e: any) {
-      console.error('[ETS] Catalog.xml:', e.message);
+    } catch (e: unknown) {
+      console.error('[ETS] Catalog.xml:', (e as Error).message);
     }
   }
 
@@ -1745,8 +2128,8 @@ export function parseKnxproj(
     try {
       const idx = buildAppIndex(e.getData());
       if (idx?.appId) appByAppId[idx.appId] = idx;
-    } catch (e: any) {
-      console.error('[ETS] app XML:', e.message);
+    } catch (e: unknown) {
+      console.error('[ETS] app XML:', (e as Error).message);
     }
   }
 
@@ -1794,13 +2177,13 @@ export function parseKnxproj(
 
   let projectName = 'Imported Project';
   let projectInfo: Record<string, string> | null = null;
-  const devices: any[] = [];
-  const groupAddresses: any[] = [];
-  const comObjects: any[] = [];
+  const devices: ParsedDevice[] = [];
+  const groupAddresses: ParsedGroupAddress[] = [];
+  const comObjects: ParsedComObject[] = [];
   const links: { deviceAddress: string; gaAddress: string }[] = [];
-  const spaces: any[] = []; // flat list of { name, type, parent_idx, sort_order }
-  const devSpaceMap: Record<string, number> = {}; // individual_address → index in spaces[]
-  const topologyEntries: any[] = []; // { area, line (null for area-level), name, medium }
+  const spaces: ParsedSpace[] = [];
+  const devSpaceMap: Record<string, number> = {};
+  const topologyEntries: TopologyEntry[] = [];
 
   for (const entry of installEntries) {
     // Try project.xml for name first
@@ -1836,11 +2219,12 @@ export function parseKnxproj(
       }
     }
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let xml: any;
     try {
       xml = xmlParser.parse(entryBuf.toString('utf8'));
-    } catch (e: any) {
-      console.error('[ETS] 0.xml:', entry.entryName, e.message);
+    } catch (e: unknown) {
+      console.error('[ETS] 0.xml:', entry.entryName, (e as Error).message);
       continue;
     }
 
@@ -1926,7 +2310,9 @@ export function parseKnxproj(
 
         const allDevs = [
           ...toArr(line.DeviceInstance),
-          ...toArr(line.Segment).flatMap((s: any) => toArr(s.DeviceInstance)),
+          ...toArr(line.Segment).flatMap((s: XmlNode) =>
+            toArr(s.DeviceInstance),
+          ),
         ];
 
         for (const dev of allDevs) {
@@ -1934,7 +2320,8 @@ export function parseKnxproj(
           const ia = `${areaNum}.${lineNum}.${devNum}`;
           const prodRef = attr(dev, 'ProductRefId');
           const h2pRef = attr(dev, 'Hardware2ProgramRefId');
-          const hw: any = hwByProd[prodRef] || hwByH2P[h2pRef] || {};
+          const hw: Partial<HwInfo> =
+            hwByProd[prodRef] || hwByH2P[h2pRef] || ({} as Partial<HwInfo>);
           const appIdx = getAppIdx(h2pRef);
 
           // Serial: ETS stores as base64 — decode to hex
@@ -1956,7 +2343,7 @@ export function parseKnxproj(
           if (devInstId) devInstById[devInstId] = ia;
 
           // ── Parameters ─────────────────────────────────────────────────────
-          const parameters: any[] = [];
+          const parameters: ResolvedParam[] = [];
           const pirEls = toArr(dev.ParameterInstanceRefs?.ParameterInstanceRef);
 
           // instanceValues: full instance key → raw value (from 0.xml)
@@ -1981,7 +2368,7 @@ export function parseKnxproj(
           if (appIdx?.moduleKeys) {
             for (const mk of appIdx.moduleKeys) {
               const modInfo = appIdx.getModArgs?.(mk);
-              const count = modInfo?._count || 1;
+              const count = Number(modInfo?._count) || 1;
               for (let i = 1; i <= count; i++) {
                 const miKey = `${mk}_MI-${i}`;
                 if (!seenModInstances.has(miKey)) seenModInstances.add(miKey);
@@ -2139,7 +2526,7 @@ export function parseKnxproj(
 
             const updateFlag = attr(cor, 'UpdateFlag') === 'Enabled';
             const flags = buildFlags({ read, write, comm, tx, u: updateFlag });
-            const coObj: any = {
+            const coObj: ParsedComObject = {
               device_address: ia,
               object_number: objNum,
               channel,
@@ -2214,13 +2601,13 @@ export function parseKnxproj(
             // Track which physical object numbers are already covered by 0.xml entries
             const linkedObjNums = new Set(
               toArr(dev.ComObjectInstanceRefs?.ComObjectInstanceRef)
-                .map((cor: any) => {
+                .map((cor: XmlNode) => {
                   const refId = attr(cor, 'RefId');
                   if (!refId) return null;
                   const r = appIdx.resolveCoRef(refId, attr(cor, 'ChannelId'));
                   return r ? r.objectNumber : null;
                 })
-                .filter((n: any) => n != null),
+                .filter((n: number | null) => n != null),
             );
 
             // For each object number, resolve all active ComObjectRef variants and merge
@@ -2228,7 +2615,18 @@ export function parseKnxproj(
               try {
                 if (linkedObjNums.has(objNum)) continue;
                 // Resolve each variant and merge: later overrides win per-attribute
-                let merged: any = null;
+                let merged: {
+                  objectNumber: number;
+                  name: string;
+                  function_text: string;
+                  dpt: string;
+                  objectSize: string;
+                  read: boolean;
+                  write: boolean;
+                  comm: boolean;
+                  tx: boolean;
+                  channel: string;
+                } | null = null;
                 let mergedChannel = '';
                 for (const { corId, channel: ch } of dynEntries) {
                   const r = appIdx.resolveCoRefById(corId);
@@ -2263,8 +2661,12 @@ export function parseKnxproj(
                         : 'both',
                   ga_address: '',
                 });
-              } catch (e: any) {
-                console.error('[ETS] CO merge error:', objNum, e.message);
+              } catch (e: unknown) {
+                console.error(
+                  '[ETS] CO merge error:',
+                  objNum,
+                  (e as Error).message,
+                );
               }
             }
           }
@@ -2292,7 +2694,7 @@ export function parseKnxproj(
   });
 
   // Build param models for all app programs found
-  const paramModels: Record<string, any> = {};
+  const paramModels: Record<string, ParamModel> = {};
   for (const [aid, idx] of Object.entries(appByAppId)) {
     try {
       const m = idx.buildParamModel?.();
@@ -2336,7 +2738,7 @@ export function inferType(
   name: string,
   productRef: string,
   model: string,
-  hw: Record<string, any> = {},
+  hw: Partial<HwInfo> = {},
 ): string {
   if (hw.isCoupler) return 'router';
   const n = `${name} ${productRef} ${model}`.toLowerCase();
