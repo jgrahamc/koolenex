@@ -1,4 +1,3 @@
-'use strict';
 /**
  * KnxConnection — base class for KNX bus communication.
  * Contains all shared protocol logic (CEMI, APDU, management sessions, etc.)

@@ -19,7 +19,6 @@ describe('init', () => {
       'devices',
       'group_addresses',
       'com_objects',
-      'ga_device_links',
       'spaces',
       'bus_telegrams',
       'settings',

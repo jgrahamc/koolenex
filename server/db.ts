@@ -122,15 +122,6 @@ export async function init(): Promise<void> {
     db.run("ALTER TABLE com_objects ADD COLUMN ga_receive TEXT DEFAULT ''");
   } catch {}
 
-  // Legacy table — kept for backward compatibility but no longer used.
-  // Device↔GA mappings are now derived from com_objects.ga_address.
-  db.run(`
-    CREATE TABLE IF NOT EXISTS ga_device_links (
-      ga_id     INTEGER,
-      device_id INTEGER,
-      PRIMARY KEY(ga_id, device_id)
-    )
-  `);
   db.run(`
     CREATE TABLE IF NOT EXISTS spaces (
       id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -164,6 +155,26 @@ export async function init(): Promise<void> {
   db.run(`INSERT OR IGNORE INTO settings VALUES ('knxip_host', '224.0.23.12')`);
   db.run(`INSERT OR IGNORE INTO settings VALUES ('knxip_port', '3671')`);
   db.run(`INSERT OR IGNORE INTO settings VALUES ('active_project_id', '')`);
+
+  // ── Indexes on project_id for query performance ───────────────────────────
+  db.run(
+    'CREATE INDEX IF NOT EXISTS idx_devices_project ON devices(project_id)',
+  );
+  db.run(
+    'CREATE INDEX IF NOT EXISTS idx_gas_project ON group_addresses(project_id)',
+  );
+  db.run(
+    'CREATE INDEX IF NOT EXISTS idx_co_project ON com_objects(project_id)',
+  );
+  db.run('CREATE INDEX IF NOT EXISTS idx_co_device ON com_objects(device_id)');
+  db.run('CREATE INDEX IF NOT EXISTS idx_spaces_project ON spaces(project_id)');
+  db.run('CREATE INDEX IF NOT EXISTS idx_topo_project ON topology(project_id)');
+  db.run(
+    'CREATE INDEX IF NOT EXISTS idx_telegrams_project ON bus_telegrams(project_id)',
+  );
+  db.run(
+    'CREATE INDEX IF NOT EXISTS idx_audit_project ON audit_log(project_id)',
+  );
 
   // ── Migrations: add columns introduced after initial schema ──────────────
   // SQLite has no ADD COLUMN IF NOT EXISTS, so we check pragma first.

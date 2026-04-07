@@ -257,9 +257,12 @@ export function createWS(onMessage: (data: Record<string, unknown>) => void): {
   close: () => void;
 } {
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  // In dev (Vite on :5173) connect directly to backend; in prod use same host
+  // In dev (Vite dev server) connect directly to backend on :4000; in prod use same host
+  const serverPort = '4000';
   const host =
-    location.port === '5173' ? `${location.hostname}:4000` : location.host;
+    location.port !== serverPort
+      ? `${location.hostname}:${serverPort}`
+      : location.host;
 
   let ws: WebSocket;
   let closed = false;

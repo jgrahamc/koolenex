@@ -23,6 +23,19 @@ async function start(): Promise<void> {
   app.use(express.json());
   app.use('/api', routes);
 
+  // Error handling middleware — catch unhandled route errors
+  app.use(
+    (
+      err: Error,
+      _req: express.Request,
+      res: express.Response,
+      _next: express.NextFunction,
+    ) => {
+      console.error('[API] Unhandled error:', err.message);
+      res.status(500).json({ error: err.message || 'Internal server error' });
+    },
+  );
+
   // Serve built frontend
   const frontendDist = path.join(process.cwd(), 'client', 'dist');
   if (fs.existsSync(frontendDist)) {
