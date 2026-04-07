@@ -4,6 +4,7 @@
  */
 
 import EventEmitter from 'events';
+import { logger } from './log.ts';
 import {
   KnxConnection,
   type DownloadStep,
@@ -105,7 +106,7 @@ class KnxBusManager extends EventEmitter {
     return (conn.connect(host, resolvedPort) as Promise<void>).then(() => {
       this.connection = conn;
       this.connected = true;
-      console.log(`[KNX] Connected to ${host}:${resolvedPort}`);
+      logger.info('knx', `Connected to ${host}:${resolvedPort}`);
       this.broadcast('knx:connected', {
         host,
         port: resolvedPort,
@@ -133,7 +134,7 @@ class KnxBusManager extends EventEmitter {
       (info) => {
         this.connection = conn;
         this.connected = true;
-        console.log(`[KNX] Connected via USB: ${devicePath}`);
+        logger.info('knx', `Connected via USB: ${devicePath}`);
         this.broadcast('knx:connected', { type: 'usb', path: devicePath });
         return info;
       },

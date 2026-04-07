@@ -52,14 +52,12 @@ router.get('/projects/:id/gas', (req: Request, res: Response): void => {
 router.post('/projects/:id/gas', (req: Request, res: Response): void => {
   const b = validateBody(
     req,
-    res,
     z.object({
       address: z.string().min(1),
       name: z.string().optional(),
       dpt: z.string().optional(),
     }),
   );
-  if (!b) return;
   const pid = paramId(req, 'id');
   const parts = b.address.split('/');
   const is2level = parts.length === 2;
@@ -97,7 +95,6 @@ router.put('/projects/:pid/gas/:gid', (req: Request, res: Response): void => {
   const gid = req.params.gid as string;
   const b = validateBody(
     req,
-    res,
     z.object({
       name: z.string().min(1).optional(),
       dpt: z.string().optional(),
@@ -105,7 +102,6 @@ router.put('/projects/:pid/gas/:gid', (req: Request, res: Response): void => {
       comment: z.string().optional(),
     }),
   );
-  if (!b) return;
   const oldGA = db.get<GroupAddress>(
     'SELECT * FROM group_addresses WHERE id=? AND project_id=?',
     [+gid, +pid],
@@ -145,14 +141,12 @@ router.patch(
     const pid = paramId(req, 'pid');
     const b = validateBody(
       req,
-      res,
       z.object({
         main: z.number(),
         middle: z.number().nullable().optional(),
         name: z.string(),
       }),
     );
-    if (!b) return;
     const { main, middle, name } = b;
 
     const midKey = middle !== undefined && middle !== null ? middle : -1;
@@ -230,7 +224,6 @@ router.patch(
     }
     const b = validateBody(
       req,
-      res,
       z.object({
         add: z.string().optional(),
         remove: z.string().optional(),
@@ -238,7 +231,6 @@ router.patch(
         position: z.number().optional(),
       }),
     );
-    if (!b) return;
     const { add, remove, reorder, position } = b;
     let gaAddr = ((co.ga_address as string) || '').split(/\s+/).filter(Boolean);
 

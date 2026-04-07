@@ -23,6 +23,7 @@ import type {
 } from '../shared/types.ts';
 export { buildGAMaps } from '../shared/ga-maps.ts';
 import { buildGAMaps } from '../shared/ga-maps.ts';
+import { logger } from './log.ts';
 
 const DB_PATH = path.join(process.cwd(), 'koolenex.db');
 
@@ -41,10 +42,10 @@ export async function init(): Promise<void> {
   if (fs.existsSync(DB_PATH)) {
     const buf = fs.readFileSync(DB_PATH);
     db = new SQL.Database(buf);
-    console.log('[DB] Loaded from', DB_PATH);
+    logger.info('db', `Loaded from ${DB_PATH}`);
   } else {
     db = new SQL.Database();
-    console.log('[DB] Created new database at', DB_PATH);
+    logger.info('db', `Created new database at ${DB_PATH}`);
   }
 
   db.run('PRAGMA foreign_keys = ON');

@@ -6,6 +6,7 @@ import fs from 'fs';
 import * as db from '../db.ts';
 import { parseKnxproj } from '../ets-parser.ts';
 import { APPS_DIR } from './shared.ts';
+import { logger } from '../log.ts';
 import { paramId } from '../validate.ts';
 
 const router = express.Router();
@@ -71,7 +72,9 @@ router.post(
         unknown
       >;
     } catch (err) {
-      console.error('.knxprod parse error:', err);
+      logger.error('ets', '.knxprod parse error', {
+        error: (err as Error).message,
+      });
       res
         .status(422)
         .json({ error: `Parse failed: ${(err as Error).message}` });
@@ -179,7 +182,9 @@ router.post(
         })),
       });
     } catch (err) {
-      console.error('.knxprod import error:', err);
+      logger.error('ets', '.knxprod import error', {
+        error: (err as Error).message,
+      });
       res
         .status(500)
         .json({ error: `Import failed: ${(err as Error).message}` });

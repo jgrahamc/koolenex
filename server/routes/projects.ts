@@ -6,6 +6,7 @@ import * as db from '../db.ts';
 import { parseKnxproj } from '../ets-parser.ts';
 import type { ParsedProject } from '../ets-parser.ts';
 import { saveModelsAndMasterXml } from './shared.ts';
+import { logger } from '../log.ts';
 import { validateBody, paramId } from '../validate.ts';
 import type { Project, RunResult } from '../../shared/types.ts';
 
@@ -223,12 +224,7 @@ router.get('/projects', (_req: Request, res: Response) => {
 });
 
 router.post('/projects', (req: Request, res: Response) => {
-  const body = validateBody(
-    req,
-    res,
-    z.object({ name: z.string().trim().min(1) }),
-  );
-  if (!body) return;
+  const body = validateBody(req, z.object({ name: z.string().trim().min(1) }));
   const { name } = body;
   const { lastInsertRowid } = db.run('INSERT INTO projects (name) VALUES (?)', [
     name,
@@ -253,8 +249,7 @@ router.get('/projects/:id', (req: Request, res: Response) => {
 });
 
 router.put('/projects/:id', (req: Request, res: Response) => {
-  const body = validateBody(req, res, z.object({ name: z.string().min(1) }));
-  if (!body) return;
+  const body = validateBody(req, z.object({ name: z.string().min(1) }));
   const { name } = body;
   const id = paramId(req, 'id');
   const oldProj = db.get<{ name: string }>(
@@ -306,8 +301,7 @@ router.post(
     if (!req.file.originalname.toLowerCase().endsWith('.knxproj'))
       return res.status(400).json({ error: 'File must be a .knxproj file' });
 
-    const body = validateBody(req, res, importBodySchema);
-    if (!body) return;
+    const body = validateBody(req, importBodySchema);
 
     let parsed: ParsedProject;
     try {
@@ -323,7 +317,7 @@ router.post(
         return res
           .status(422)
           .json({ error: 'Incorrect password', code: 'PASSWORD_INCORRECT' });
-      console.error('ETS parse error:', err.message);
+      logger.error('ets', 'ETS parse error', { error: err.message });
       return res.status(422).json({ error: `Parse failed: ${err.message}` });
     }
 
@@ -381,7 +375,7 @@ router.post(
       });
     } catch (e) {
       const err = e as Error;
-      console.error('Import error:', err);
+      logger.error('ets', 'Import error', { error: (err as Error).message });
       res.status(500).json({ error: `Import failed: ${err.message}` });
     }
   },
@@ -400,8 +394,7 @@ router.post(
     const project = db.get<Project>('SELECT * FROM projects WHERE id=?', [pid]);
     if (!project) return res.status(404).json({ error: 'Project not found' });
 
-    const body = validateBody(req, res, importBodySchema);
-    if (!body) return;
+    const body = validateBody(req, importBodySchema);
 
     let parsed: ParsedProject;
     try {
@@ -417,7 +410,7 @@ router.post(
         return res
           .status(422)
           .json({ error: 'Incorrect password', code: 'PASSWORD_INCORRECT' });
-      console.error('ETS reimport parse error:', err.message);
+      logger.error('ets', 'ETS reimport parse error', { error: err.message });
       return res.status(422).json({ error: `Parse failed: ${err.message}` });
     }
 
@@ -483,7 +476,7 @@ router.post(
       });
     } catch (e) {
       const err = e as Error;
-      console.error('Reimport error:', err);
+      logger.error('ets', 'Reimport error', { error: (err as Error).message });
       res.status(500).json({ error: `Reimport failed: ${err.message}` });
     }
   },

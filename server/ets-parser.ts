@@ -24,6 +24,7 @@
 import { createRequire } from 'module';
 import { XMLParser } from 'fast-xml-parser';
 import crypto from 'crypto';
+import { logger } from './log.ts';
 
 interface MinizipEntry {
   filepath: string;
@@ -664,7 +665,7 @@ function buildAppIndex(buf: Buffer): AppIndex | null {
   try {
     xml = xmlParser.parse(rawXml);
   } catch (e: unknown) {
-    console.error('[ETS] app parse:', (e as Error).message);
+    logger.error('ets', 'app parse error', { error: (e as Error).message });
     return null;
   }
 
@@ -2106,7 +2107,9 @@ export function parseKnxproj(
         }
       }
     } catch (e: unknown) {
-      console.error('[ETS] Hardware.xml:', (e as Error).message);
+      logger.error('ets', 'Hardware.xml parse error', {
+        error: (e as Error).message,
+      });
     }
   }
 
@@ -2191,7 +2194,9 @@ export function parseKnxproj(
         walkSections(toArr(catalog?.CatalogSection), null);
       }
     } catch (e: unknown) {
-      console.error('[ETS] Catalog.xml:', (e as Error).message);
+      logger.error('ets', 'Catalog.xml parse error', {
+        error: (e as Error).message,
+      });
     }
   }
 
@@ -2206,7 +2211,9 @@ export function parseKnxproj(
       const idx = buildAppIndex(e.getData());
       if (idx?.appId) appByAppId[idx.appId] = idx;
     } catch (e: unknown) {
-      console.error('[ETS] app XML:', (e as Error).message);
+      logger.error('ets', 'app XML parse error', {
+        error: (e as Error).message,
+      });
     }
   }
 
@@ -2291,7 +2298,7 @@ export function parseKnxproj(
       try {
         entryBuf = decryptEntry(entryBuf, password!);
       } catch (_) {
-        console.error('[ETS] decrypt failed:', entry.entryName);
+        logger.error('ets', 'decrypt failed', { entry: entry.entryName });
         continue;
       }
     }
@@ -2301,7 +2308,10 @@ export function parseKnxproj(
     try {
       xml = xmlParser.parse(entryBuf.toString('utf8'));
     } catch (e: unknown) {
-      console.error('[ETS] 0.xml:', entry.entryName, (e as Error).message);
+      logger.error('ets', '0.xml parse error', {
+        entry: entry.entryName,
+        error: (e as Error).message,
+      });
       continue;
     }
 
@@ -2739,11 +2749,10 @@ export function parseKnxproj(
                   ga_address: '',
                 });
               } catch (e: unknown) {
-                console.error(
-                  '[ETS] CO merge error:',
-                  objNum,
-                  (e as Error).message,
-                );
+                logger.error('ets', 'CO merge error', {
+                  objNum: String(objNum),
+                  error: (e as Error).message,
+                });
               }
             }
           }
@@ -2781,10 +2790,9 @@ export function parseKnxproj(
         paramModels[aid] = m;
       }
     } catch (e) {
-      console.error(
-        `[ETS] buildParamModel failed for ${aid}:`,
-        (e as Error).message,
-      );
+      logger.error('ets', `buildParamModel failed for ${aid}`, {
+        error: (e as Error).message,
+      });
     }
   }
 

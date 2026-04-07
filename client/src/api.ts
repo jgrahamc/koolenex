@@ -9,6 +9,11 @@ import type {
   Topology,
   BusTelegram,
   Setting,
+  DptInfoEntry,
+  ComObjectWithDevice,
+  CatalogSection,
+  CatalogItem,
+  AuditLogEntry,
 } from '../../shared/types.ts';
 
 interface BusStatusResponse {
@@ -103,23 +108,43 @@ export const api = {
     req<{ ok: boolean }>('DELETE', `/projects/${pid}/floor-plan/${spaceId}`),
 
   getParamModel: (pid: number, did: number) =>
-    req('GET', `/projects/${pid}/devices/${did}/param-model`),
+    req<Record<string, unknown>>(
+      'GET',
+      `/projects/${pid}/devices/${did}/param-model`,
+    ),
   saveParamValues: (
     pid: number,
     did: number,
     values: Record<string, unknown>,
-  ) => req('PATCH', `/projects/${pid}/devices/${did}/param-values`, values),
+  ) =>
+    req<{ ok: boolean }>(
+      'PATCH',
+      `/projects/${pid}/devices/${did}/param-values`,
+      values,
+    ),
 
   // DPT info (per-project, from project's knx_master.xml)
-  getDptInfo: (pid?: number) => req('GET', `/dpt-info?projectId=${pid || ''}`),
+  getDptInfo: (pid?: number) =>
+    req<Record<string, DptInfoEntry>>(
+      'GET',
+      `/dpt-info?projectId=${pid || ''}`,
+    ),
   getSpaceUsages: (pid?: number) =>
-    req('GET', `/space-usages?projectId=${pid || ''}`),
+    req<Array<{ id: string; number: number; text: string }>>(
+      'GET',
+      `/space-usages?projectId=${pid || ''}`,
+    ),
   getMediumTypes: (pid?: number) =>
-    req('GET', `/medium-types?projectId=${pid || ''}`),
+    req<Record<string, string>>('GET', `/medium-types?projectId=${pid || ''}`),
   getMaskVersions: (pid?: number) =>
-    req('GET', `/mask-versions?projectId=${pid || ''}`),
+    req<
+      Record<string, { name: string; managementModel: string; medium: string }>
+    >('GET', `/mask-versions?projectId=${pid || ''}`),
   getTranslations: (pid?: number) =>
-    req('GET', `/translations?projectId=${pid || ''}`),
+    req<{
+      languages: Array<{ id: string; name: string }>;
+      translations: Record<string, Record<string, string>>;
+    }>('GET', `/translations?projectId=${pid || ''}`),
 
   // Group Addresses
   listGAs: (pid: number) => req<EnrichedGA[]>('GET', `/projects/${pid}/gas`),
@@ -133,17 +158,31 @@ export const api = {
     req<{ ok: boolean }>('DELETE', `/projects/${pid}/gas/${gid}`),
 
   // Com Objects
-  listComObjects: (pid: number) => req('GET', `/projects/${pid}/comobjects`),
+  listComObjects: (pid: number) =>
+    req<ComObjectWithDevice[]>('GET', `/projects/${pid}/comobjects`),
   updateComObjectGAs: (
     pid: number,
     coid: number,
     body: Record<string, unknown>,
-  ) => req('PATCH', `/projects/${pid}/comobjects/${coid}/gas`, body),
+  ) =>
+    req<ComObjectWithDevice>(
+      'PATCH',
+      `/projects/${pid}/comobjects/${coid}/gas`,
+      body,
+    ),
 
   // Catalog
-  getCatalog: (pid: number) => req('GET', `/projects/${pid}/catalog`),
+  getCatalog: (pid: number) =>
+    req<{
+      sections: CatalogSection[];
+      items: (CatalogItem & { in_use: boolean })[];
+    }>('GET', `/projects/${pid}/catalog`),
   importKnxprod: (pid: number, formData: FormData) =>
-    req('POST', `/projects/${pid}/catalog/import`, formData, true),
+    req<{
+      ok: boolean;
+      sections: CatalogSection[];
+      items: (CatalogItem & { in_use: boolean })[];
+    }>('POST', `/projects/${pid}/catalog/import`, formData, true),
 
   // Topology
   getTopology: (pid: number) =>
@@ -165,7 +204,10 @@ export const api = {
 
   // Audit Log
   getAuditLog: (pid: number, limit?: number) =>
-    req('GET', `/projects/${pid}/audit-log?limit=${limit || 500}`),
+    req<AuditLogEntry[]>(
+      'GET',
+      `/projects/${pid}/audit-log?limit=${limit || 500}`,
+    ),
   auditLogCsvUrl: (pid: number) => `${BASE}/projects/${pid}/audit-log/csv`,
 
   // Telegrams
@@ -190,8 +232,10 @@ export const api = {
       devicePath,
       projectId,
     }),
-  busUsbDevices: () => req('GET', '/bus/usb-devices'),
-  busUsbDevicesAll: () => req('GET', '/bus/usb-devices/all'),
+  busUsbDevices: () =>
+    req<{ devices: Record<string, unknown>[] }>('GET', '/bus/usb-devices'),
+  busUsbDevicesAll: () =>
+    req<{ devices: Record<string, unknown>[] }>('GET', '/bus/usb-devices/all'),
   busSetProject: (projectId: number) =>
     req<{ ok: boolean; [key: string]: unknown }>('POST', '/bus/project', {
       projectId,
@@ -213,22 +257,27 @@ export const api = {
   busRead: (ga: string) =>
     req<{ ok: boolean; [key: string]: unknown }>('POST', '/bus/read', { ga }),
   busPing: (gaAddresses: string[], deviceAddress: string) =>
-    req('POST', '/bus/ping', { gaAddresses, deviceAddress }),
+    req<{ reachable: boolean; ga: string | null }>('POST', '/bus/ping', {
+      gaAddresses,
+      deviceAddress,
+    }),
   busIdentify: (deviceAddress: string) =>
-    req('POST', '/bus/identify', { deviceAddress }),
+    req<{ ok: boolean }>('POST', '/bus/identify', { deviceAddress }),
   busScan: (area: number, line: number, timeout?: number) =>
-    req('POST', '/bus/scan', { area, line, timeout }),
-  busScanAbort: () => req('POST', '/bus/scan/abort'),
+    req<{ ok: boolean }>('POST', '/bus/scan', { area, line, timeout }),
+  busScanAbort: () => req<{ ok: boolean }>('POST', '/bus/scan/abort'),
   busDeviceInfo: (deviceAddress: string) =>
-    req('POST', '/bus/device-info', { deviceAddress }),
+    req<Record<string, unknown>>('POST', '/bus/device-info', { deviceAddress }),
   busProgramIA: (newAddr: string) =>
-    req('POST', '/bus/program-ia', { newAddr }),
+    req<{ ok: boolean; newAddr: string }>('POST', '/bus/program-ia', {
+      newAddr,
+    }),
   busProgramDevice: (
     deviceAddress: string,
     projectId: number,
     deviceId: number,
   ) =>
-    req('POST', '/bus/program-device', {
+    req<{ ok: boolean; deviceAddress: string }>('POST', '/bus/program-device', {
       deviceAddress,
       projectId,
       deviceId,

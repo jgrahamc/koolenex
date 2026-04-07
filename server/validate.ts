@@ -1,42 +1,51 @@
-import type { Request, Response } from 'express';
+import type { Request } from 'express';
 import { z } from 'zod';
 
 /**
+ * Custom error for validation failures. The Express error middleware
+ * checks for this and returns a 400 with the structured error list.
+ */
+export class ValidationError extends Error {
+  status = 400;
+  errors: string[];
+  constructor(errors: string[]) {
+    super(errors.join('; '));
+    this.errors = errors;
+  }
+}
+
+/**
  * Validate request body against a Zod schema.
- * Returns the parsed data or sends a 400 response and returns null.
+ * Throws ValidationError on failure (caught by Express error middleware).
  */
 export function validateBody<T extends z.ZodTypeAny>(
   req: Request,
-  res: Response,
   schema: T,
-): z.infer<T> | null {
+): z.infer<T> {
   const result = schema.safeParse(req.body);
   if (!result.success) {
     const errors = result.error.issues.map(
       (i) => `${i.path.join('.')}: ${i.message}`,
     );
-    res.status(400).json({ error: errors.join('; ') });
-    return null;
+    throw new ValidationError(errors);
   }
   return result.data;
 }
 
 /**
  * Validate request query parameters against a Zod schema.
- * Returns the parsed data or sends a 400 response and returns null.
+ * Throws ValidationError on failure (caught by Express error middleware).
  */
 export function validateQuery<T extends z.ZodTypeAny>(
   req: Request,
-  res: Response,
   schema: T,
-): z.infer<T> | null {
+): z.infer<T> {
   const result = schema.safeParse(req.query);
   if (!result.success) {
     const errors = result.error.issues.map(
       (i) => `${i.path.join('.')}: ${i.message}`,
     );
-    res.status(400).json({ error: errors.join('; ') });
-    return null;
+    throw new ValidationError(errors);
   }
   return result.data;
 }
@@ -49,5 +58,7 @@ export const zIntStringNonNeg = z.coerce.number().int().min(0);
 
 /** Extract a numeric route parameter by name. */
 export function paramId(req: Request, name: string): number {
-  return Number(req.params[name]);
+  const val = Number(req.params[name]);
+  if (!Number.isFinite(val)) throw new Error(`Invalid param: ${name}`);
+  return val;
 }

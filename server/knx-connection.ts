@@ -5,6 +5,7 @@
  */
 
 import EventEmitter from 'events';
+import { logger } from './log.ts';
 
 // Extended 10-bit APCI codes (used for property/memory management services)
 const APCI_EXT = {
@@ -1015,9 +1016,12 @@ export class KnxConnection extends EventEmitter {
               const data = await propRead(0, propId);
               if (data) handler(data);
             } catch (e) {
-              console.error(
-                `[KNX] ${deviceAddr} prop ${label} (${propId}) read failed:`,
-                (e as Error).message,
+              logger.warn(
+                'knx',
+                `${deviceAddr} prop ${label} (${propId}) read failed`,
+                {
+                  error: (e as Error).message,
+                },
               );
             }
           };

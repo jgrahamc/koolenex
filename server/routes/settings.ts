@@ -67,12 +67,10 @@ router.get('/health', (_req: Request, res: Response): void => {
 router.get('/dpt-info', (req: Request, res: Response): void => {
   const query = validateQuery(
     req,
-    res,
     z.object({
       projectId: z.string().optional().default(''),
     }),
   );
-  if (!query) return;
   res.json(getDptInfo(query.projectId));
 });
 
@@ -105,12 +103,10 @@ function getSpaceUsages(projectId: string | number): SpaceUsageEntry[] {
 router.get('/space-usages', (req: Request, res: Response): void => {
   const query = validateQuery(
     req,
-    res,
     z.object({
       projectId: z.string().optional().default(''),
     }),
   );
-  if (!query) return;
   res.json(getSpaceUsages(query.projectId));
 });
 
@@ -235,12 +231,10 @@ function getTranslations(projectId: string | number): TranslationResult {
 router.get('/translations', (req: Request, res: Response): void => {
   const query = validateQuery(
     req,
-    res,
     z.object({
       projectId: z.string().optional().default(''),
     }),
   );
-  if (!query) return;
   res.json(getTranslations(query.projectId));
 });
 
@@ -268,12 +262,10 @@ function getMediumTypes(projectId: string | number): Record<string, string> {
 router.get('/medium-types', (req: Request, res: Response): void => {
   const query = validateQuery(
     req,
-    res,
     z.object({
       projectId: z.string().optional().default(''),
     }),
   );
-  if (!query) return;
   res.json(getMediumTypes(query.projectId));
 });
 
@@ -319,12 +311,10 @@ function getMaskVersions(
 router.get('/mask-versions', (req: Request, res: Response): void => {
   const query = validateQuery(
     req,
-    res,
     z.object({
       projectId: z.string().optional().default(''),
     }),
   );
-  if (!query) return;
   res.json(getMaskVersions(query.projectId));
 });
 
@@ -343,8 +333,7 @@ function setRebuildDemoMap(fn: () => void): void {
 }
 
 router.patch('/settings', (req: Request, res: Response): void => {
-  const body = validateBody(req, res, z.record(z.string(), z.unknown()));
-  if (!body) return;
+  const body = validateBody(req, z.record(z.string(), z.unknown()));
   const allowed = new Set([
     'knxip_host',
     'knxip_port',
@@ -376,7 +365,6 @@ router.post('/projects/:pid/topology', (req: Request, res: Response): void => {
   const pid = paramId(req, 'pid');
   const body = validateBody(
     req,
-    res,
     z.object({
       area: z.number(),
       line: z.number().nullable().optional(),
@@ -384,7 +372,6 @@ router.post('/projects/:pid/topology', (req: Request, res: Response): void => {
       medium: z.string().optional(),
     }),
   );
-  if (!body) return;
   const { area, line, name, medium } = body;
   const { lastInsertRowid } = db.run(
     'INSERT OR REPLACE INTO topology (project_id, area, line, name, medium) VALUES (?,?,?,?,?)',
@@ -409,13 +396,11 @@ router.put(
     const tid = paramId(req, 'tid');
     const b = validateBody(
       req,
-      res,
       z.object({
         name: z.string().optional(),
         medium: z.string().optional(),
       }),
     );
-    if (!b) return;
     const old = db.get('SELECT * FROM topology WHERE id=? AND project_id=?', [
       tid,
       pid,
@@ -474,7 +459,6 @@ router.post('/projects/:pid/spaces', (req: Request, res: Response): void => {
   const pid = paramId(req, 'pid');
   const b = validateBody(
     req,
-    res,
     z.object({
       name: z.string().min(1),
       type: z.string().optional(),
@@ -483,7 +467,6 @@ router.post('/projects/:pid/spaces', (req: Request, res: Response): void => {
       usage_id: z.string().optional(),
     }),
   );
-  if (!b) return;
   const { lastInsertRowid } = db.run(
     'INSERT INTO spaces (project_id, name, type, parent_id, sort_order, usage_id) VALUES (?,?,?,?,?,?)',
     [
@@ -551,12 +534,10 @@ router.put(
     const sid = paramId(req, 'sid');
     const b = validateBody(
       req,
-      res,
       z.object({
         name: z.string().optional(),
       }),
     );
-    if (!b) return;
     const old = db.get('SELECT * FROM spaces WHERE id=? AND project_id=?', [
       sid,
       pid,
@@ -589,12 +570,10 @@ router.put(
 router.get('/projects/:id/audit-log', (req: Request, res: Response): void => {
   const query = validateQuery(
     req,
-    res,
     z.object({
       limit: z.coerce.number().optional().default(500),
     }),
   );
-  if (!query) return;
   const limit = query.limit;
   res.json(
     db.all(
@@ -634,12 +613,10 @@ router.get(
 router.get('/projects/:id/telegrams', (req: Request, res: Response): void => {
   const query = validateQuery(
     req,
-    res,
     z.object({
       limit: z.coerce.number().optional().default(200),
     }),
   );
-  if (!query) return;
   const limit = query.limit;
   res.json(
     db.all(

@@ -27,7 +27,6 @@ router.get('/projects/:id/devices', (req: Request, res: Response): void => {
 router.post('/projects/:id/devices', (req: Request, res: Response): void => {
   const b = validateBody(
     req,
-    res,
     z.object({
       individual_address: z.string().min(1),
       name: z.string().optional(),
@@ -47,7 +46,6 @@ router.post('/projects/:id/devices', (req: Request, res: Response): void => {
       line_name: z.string().optional(),
     }),
   );
-  if (!b) return;
   const pid = paramId(req, 'id');
   const { lastInsertRowid } = db.run(
     `
@@ -97,7 +95,6 @@ router.put(
     const did = req.params.did as string;
     const b = validateBody(
       req,
-      res,
       z.object({
         name: z.string().min(1).optional(),
         device_type: z.string().optional(),
@@ -108,7 +105,6 @@ router.put(
         floor_y: z.number().optional(),
       }),
     );
-    if (!b) return;
     const old = db.get<Record<string, unknown>>(
       'SELECT * FROM devices WHERE id=? AND project_id=?',
       [+did, +pid],
@@ -216,12 +212,10 @@ router.patch(
     const did = req.params.did as string;
     const b = validateBody(
       req,
-      res,
       z.object({
         status: z.string(),
       }),
     );
-    if (!b) return;
     const devS = db.get<Record<string, unknown>>(
       'SELECT individual_address, name, status FROM devices WHERE id=?',
       [+did],
@@ -333,8 +327,7 @@ router.patch(
     } catch (_) {
       /* ignore */
     }
-    const newVals = validateBody(req, res, z.record(z.string(), z.unknown()));
-    if (!newVals) return;
+    const newVals = validateBody(req, z.record(z.string(), z.unknown()));
     const diffs: string[] = [];
     for (const k of Object.keys(newVals)) {
       const ov = oldVals[k];

@@ -6,6 +6,8 @@ import path from 'path';
 import fs from 'fs';
 import * as db from './db.ts';
 import KnxBusManager from './knx-bus.ts';
+import { logger } from './log.ts';
+import { ValidationError } from './validate.ts';
 
 const bus = new KnxBusManager();
 const PORT = process.env.PORT || 4000;
@@ -19,7 +21,18 @@ async function start(): Promise<void> {
   routes.setBus(bus);
 
   const app = express();
-  app.use(cors({ origin: '*' }));
+  app.use(
+    cors({
+      origin: (origin, callback) => {
+        // Allow requests with no origin (same-origin, curl, etc.)
+        if (!origin) return callback(null, true);
+        // Allow localhost on any port (dev server, prod server)
+        if (/^https?:\/\/localhost(:\d+)?$/.test(origin))
+          return callback(null, true);
+        callback(new Error('CORS not allowed'));
+      },
+    }),
+  );
   app.use(express.json());
   app.use('/api', routes);
 
@@ -31,7 +44,11 @@ async function start(): Promise<void> {
       res: express.Response,
       _next: express.NextFunction,
     ) => {
-      console.error('[API] Unhandled error:', err.message);
+      if (err instanceof ValidationError) {
+        res.status(400).json({ error: err.errors.join('; ') });
+        return;
+      }
+      logger.error('api', 'Unhandled error', { error: err.message });
       res.status(500).json({ error: err.message || 'Internal server error' });
     },
   );
@@ -54,16 +71,13 @@ async function start(): Promise<void> {
   });
 
   server.listen(PORT, () => {
-    console.log(`\n  ⬡  koolenex`);
-    console.log(
-      `  App:  http://localhost:${String(PORT)}  (after: cd client && npm run build)`,
-    );
-    console.log(`  API:  http://localhost:${String(PORT)}/api`);
-    console.log(`  Dev:  run 'cd client && npx vite' in a second terminal\n`);
+    logger.info('api', `koolenex started on port ${String(PORT)}`);
   });
 }
 
 start().catch((err: unknown) => {
-  console.error('Failed to start:', err);
+  logger.error('api', 'Failed to start', {
+    error: (err as Error).message || String(err),
+  });
   process.exit(1);
 });

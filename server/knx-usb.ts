@@ -10,6 +10,7 @@ import fs from 'fs';
 import path from 'path';
 import { createRequire } from 'module';
 import { KnxConnection, parseCEMI, delay } from './knx-connection.ts';
+import { logger } from './log.ts';
 
 // @ts-expect-error TS1470: import.meta is valid at runtime
 const require_ = createRequire(import.meta.url);
@@ -101,8 +102,9 @@ function loadKnownInterfaces(): void {
   }
 
   if (_knownInterfaces.size > 0) {
-    console.log(
-      `[KNX-USB] Loaded ${_knownInterfaces.size} known interfaces from known_knx_usb.csv`,
+    logger.info(
+      'knx',
+      `Loaded ${_knownInterfaces.size} known interfaces from known_knx_usb.csv`,
     );
   }
 }
@@ -396,7 +398,7 @@ class KnxUsbConnection extends (KnxConnection as typeof import('./knx-connection
     // Set up data reception
     this._device.on('data', (buf: Buffer) => this._onHidData(buf));
     this._device.on('error', (err: Error) => {
-      console.error('[KNX-USB] HID error:', err.message);
+      logger.error('knx', 'HID error', { error: err.message });
       this.connected = false;
       this.emit('error', err);
     });
@@ -411,8 +413,9 @@ class KnxUsbConnection extends (KnxConnection as typeof import('./knx-connection
     // USB devices use a fixed address (typically 0.0.0 or read from device)
     this.localAddr = '0.0.0';
 
-    console.log(
-      `[KNX-USB] Connected to ${devicePath}, EMI=${this._activeEmi}, bus=${this._busActive ? 'active' : 'inactive'}`,
+    logger.info(
+      'knx',
+      `Connected to ${devicePath}, EMI=${this._activeEmi}, bus=${this._busActive ? 'active' : 'inactive'}`,
     );
     this.emit('connected');
 
@@ -427,8 +430,9 @@ class KnxUsbConnection extends (KnxConnection as typeof import('./knx-connection
     }
 
     const emiBits = (supported[0]! << 8) | supported[1]!;
-    console.log(
-      `[KNX-USB] Supported EMI bitmask: 0x${emiBits.toString(16).padStart(4, '0')}`,
+    logger.debug(
+      'knx',
+      `Supported EMI bitmask: 0x${emiBits.toString(16).padStart(4, '0')}`,
     );
 
     // Prefer cEMI (bit 2), then EMI2 (bit 1), then EMI1 (bit 0)
@@ -445,8 +449,9 @@ class KnxUsbConnection extends (KnxConnection as typeof import('./knx-connection
 
     // Step 3: Set active EMI if different
     if (currentActive !== targetEmi) {
-      console.log(
-        `[KNX-USB] Setting active EMI from ${currentActive} to ${targetEmi}`,
+      logger.debug(
+        'knx',
+        `Setting active EMI from ${currentActive} to ${targetEmi}`,
       );
       await this._featureSet(FEATURE.ACTIVE_EMI, Buffer.from([targetEmi]));
       await delay(100);
@@ -460,7 +465,9 @@ class KnxUsbConnection extends (KnxConnection as typeof import('./knx-connection
       const status = await this._featureGet(FEATURE.BUS_STATUS, timeoutMs);
       this._busActive = status && status.length >= 1 && status[0] === 0x01;
     } catch (e) {
-      console.error('[KNX-USB] Bus status check failed:', (e as Error).message);
+      logger.error('knx', 'Bus status check failed', {
+        error: (e as Error).message,
+      });
       this._busActive = false;
     }
   }
@@ -600,8 +607,9 @@ class KnxUsbConnection extends (KnxConnection as typeof import('./knx-connection
       if (featureId === FEATURE.BUS_STATUS) {
         const wasActive = this._busActive;
         this._busActive = featureData.length >= 1 && featureData[0] === 0x01;
-        console.log(
-          `[KNX-USB] Bus status changed: ${this._busActive ? 'active' : 'inactive'}`,
+        logger.info(
+          'knx',
+          `Bus status changed: ${this._busActive ? 'active' : 'inactive'}`,
         );
         if (wasActive && !this._busActive) {
           this.emit('error', new Error('KNX bus disconnected'));
