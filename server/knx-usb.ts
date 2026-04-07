@@ -459,7 +459,8 @@ class KnxUsbConnection extends (KnxConnection as typeof import('./knx-connection
     try {
       const status = await this._featureGet(FEATURE.BUS_STATUS, timeoutMs);
       this._busActive = status && status.length >= 1 && status[0] === 0x01;
-    } catch (_) {
+    } catch (e) {
+      console.error('[KNX-USB] Bus status check failed:', (e as Error).message);
       this._busActive = false;
     }
   }

@@ -1007,21 +1007,31 @@ export class KnxConnection extends EventEmitter {
             return res?.apduData || null;
           };
 
-          try {
-            const data = await propRead(0, 11);
-            if (data && data.length >= 10)
+          const tryProp = async (
+            propId: number,
+            label: string,
+            handler: (data: Buffer) => void,
+          ): Promise<void> => {
+            try {
+              const data = await propRead(0, propId);
+              if (data) handler(data);
+            } catch (e) {
+              console.error(
+                `[KNX] ${deviceAddr} prop ${label} (${propId}) read failed:`,
+                (e as Error).message,
+              );
+            }
+          };
+
+          await tryProp(11, 'serialNumber', (data) => {
+            if (data.length >= 10)
               info.serialNumber = data.slice(4).toString('hex');
-          } catch (_) {}
-
-          try {
-            const data = await propRead(0, 12);
-            if (data && data.length >= 6)
-              info.manufacturerId = data.readUInt16BE(4);
-          } catch (_) {}
-
-          try {
-            const data = await propRead(0, 13);
-            if (data && data.length >= 9) {
+          });
+          await tryProp(12, 'manufacturerId', (data) => {
+            if (data.length >= 6) info.manufacturerId = data.readUInt16BE(4);
+          });
+          await tryProp(13, 'programVersion', (data) => {
+            if (data.length >= 9) {
               const pv = data.slice(4);
               info.programVersion = {
                 manufacturerId: pv.readUInt16BE(0),
@@ -1029,11 +1039,9 @@ export class KnxConnection extends EventEmitter {
                 appVersion: pv[4]!,
               };
             }
-          } catch (_) {}
-
-          try {
-            const data = await propRead(0, 15);
-            if (data && data.length > 4) {
+          });
+          await tryProp(15, 'orderInfo', (data) => {
+            if (data.length > 4) {
               const raw = data.slice(4);
               const nullIdx = raw.indexOf(0);
               const text = (nullIdx >= 0 ? raw.slice(0, nullIdx) : raw)
@@ -1041,18 +1049,14 @@ export class KnxConnection extends EventEmitter {
                 .trim();
               info.orderInfo = text || raw.toString('hex');
             }
-          } catch (_) {}
-
-          try {
-            const data = await propRead(0, 78);
-            if (data && data.length >= 10)
+          });
+          await tryProp(78, 'hardwareType', (data) => {
+            if (data.length >= 10)
               info.hardwareType = data.slice(4).toString('hex');
-          } catch (_) {}
-
-          try {
-            const data = await propRead(0, 9);
-            if (data && data.length >= 5) info.firmwareRevision = data[4];
-          } catch (_) {}
+          });
+          await tryProp(9, 'firmwareRevision', (data) => {
+            if (data.length >= 5) info.firmwareRevision = data[4];
+          });
         },
       );
     } catch (e) {

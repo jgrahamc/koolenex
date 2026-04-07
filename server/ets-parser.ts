@@ -1950,7 +1950,11 @@ export function parseKnxproj(
     let mz: MinizipInstance;
     try {
       mz = new Minizip(innerZipEntry.getData());
-    } catch (_) {
+    } catch (e) {
+      console.error(
+        `[ETS] Failed to open inner ZIP ${innerZipEntry.entryName}:`,
+        (e as Error).message,
+      );
       continue;
     }
 
@@ -2782,7 +2786,12 @@ export function parseKnxproj(
         m.loadProcedures = idx.loadProcedures || [];
         paramModels[aid] = m;
       }
-    } catch (_) {}
+    } catch (e) {
+      console.error(
+        `[ETS] buildParamModel failed for ${aid}:`,
+        (e as Error).message,
+      );
+    }
   }
 
   // ── Project thumbnail ──────────────────────────────────────────────────────

@@ -352,7 +352,9 @@ function wireBusEvents(): void {
   setTimeout(() => {
     try {
       rebuildDemoMap();
-    } catch (_) {}
+    } catch (e) {
+      console.error('[DEMO] rebuildDemoMap failed:', (e as Error).message);
+    }
   }, 0);
   bus.on('telegram', (...args: unknown[]) => {
     const telegram = args[0] as Telegram;
@@ -371,7 +373,9 @@ function wireBusEvents(): void {
         ],
       );
       db.scheduleSave(500);
-    } catch (_) {}
+    } catch (e) {
+      console.error('[KNX] telegram log failed:', (e as Error).message);
+    }
   });
 }
 
