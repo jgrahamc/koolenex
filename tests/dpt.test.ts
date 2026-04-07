@@ -1,12 +1,11 @@
-'use strict';
 /**
  * Tests for DPT encoding/decoding, KNX float16, bit packing,
  * address encoding/decoding, and CEMI frame building/parsing.
  */
-const { describe, it } = require('node:test');
-const assert = require('node:assert/strict');
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
 
-const {
+import {
   encodeDpt,
   decodeDptBuffer,
   encodePhysical,
@@ -16,15 +15,15 @@ const {
   buildCEMI,
   parseCEMI,
   MC,
-} = require('../server/knx-connection.ts');
+} from '../server/knx-connection.ts';
 
-const {
+import {
   writeKnxFloat16,
   writeBits,
   normalizeDptKey,
   decodeRawValue,
   etsTestMatch,
-} = require('../server/routes/index.ts');
+} from '../server/routes/index.ts';
 
 // ── DPT encoding ────────────────────────────────────────────────────────────
 

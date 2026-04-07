@@ -1,18 +1,17 @@
-'use strict';
 /**
  * Smoke tests against the ABB starter kit ETS6 project.
  * This project is NOT expected to change — values are hard-coded.
  * Parser tests run against both the plaintext and password-protected variants.
  */
-const { describe, it, before, after } = require('node:test');
-const assert = require('node:assert/strict');
-const express = require('express');
-const path = require('path');
-const fs = require('fs');
+import { describe, it, before, after } from 'node:test';
+import assert from 'node:assert/strict';
+import express from 'express';
+import path from 'path';
+import fs from 'fs';
 
-const SMOKE_PROJECT = path.join(__dirname, 'smoke-test.knxproj');
+const SMOKE_PROJECT = path.join(import.meta.dirname, 'smoke-test.knxproj');
 const SMOKE_PROJECT_PW = path.join(
-  __dirname,
+  import.meta.dirname,
   'password-protected-smoke-test.knxproj',
 );
 
@@ -20,18 +19,24 @@ if (!fs.existsSync(SMOKE_PROJECT)) {
   describe('Smoke tests', () => {
     it('skipped — tests/smoke-test.knxproj not found', () => {});
   });
-  return;
+  process.exit(0);
 }
 
-const { parseKnxproj } = require('../server/ets-parser.ts');
+const { parseKnxproj } = await import('../server/ets-parser.ts');
 
-let server, baseUrl, db, parsed;
+let server: any, baseUrl: string, db: any, parsed: any;
 
-async function req(method, urlPath, body, isFormData = false) {
+async function req(
+  method: string,
+  urlPath: string,
+  body?: any,
+  isFormData = false,
+) {
   const url = baseUrl + urlPath;
-  const opts = { method, headers: {} };
+  const headers: Record<string, string> = {};
+  const opts: RequestInit = { method, headers };
   if (body && !isFormData) {
-    opts.headers['Content-Type'] = 'application/json';
+    headers['Content-Type'] = 'application/json';
     opts.body = JSON.stringify(body);
   } else if (isFormData) {
     opts.body = body;
@@ -48,9 +53,9 @@ async function req(method, urlPath, body, isFormData = false) {
 }
 
 before(async () => {
-  db = require('../server/db.ts');
+  db = await import('../server/db.ts');
   await db.init();
-  const { router: routes } = require('../server/routes/index.ts');
+  const { router: routes } = await import('../server/routes/index.ts');
   const app = express();
   app.use(express.json());
   app.use('/api', routes);
@@ -71,7 +76,11 @@ after(() => {
 
 // ── Shared parser assertions (reused for plaintext and encrypted) ───────────
 
-function assertParserOutput(getParsed, label, expectedName = 'Smoke Test') {
+function assertParserOutput(
+  getParsed: () => any,
+  label: string,
+  expectedName = 'Smoke Test',
+) {
   // getParsed is a thunk so the value is resolved at test time, not registration time
   describe(`${label}: project metadata`, () => {
     it(`project name is "${expectedName}"`, () => {

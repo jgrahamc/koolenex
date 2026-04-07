@@ -1,19 +1,18 @@
-'use strict';
 /**
  * Tests for KNX table builder functions: buildUnconditionalChannelSet,
  * evalConditionallyActiveParamRefs, collectActiveAssigns, resolveParamSegment,
  * and buildParamMem.
  */
-const { describe, it } = require('node:test');
-const assert = require('node:assert/strict');
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
 
-const {
+import {
   buildUnconditionalChannelSet,
   evalConditionallyActiveParamRefs,
   collectActiveAssigns,
   resolveParamSegment,
   buildParamMem,
-} = require('../server/routes/knx-tables.ts');
+} from '../server/routes/knx-tables.ts';
 
 // ── buildUnconditionalChannelSet ────────────────────────────────────────────
 
@@ -29,7 +28,7 @@ describe('buildUnconditionalChannelSet', () => {
   });
 
   it('collects paramRefs from channels', () => {
-    const dynTree = {
+    const dynTree: any = {
       main: {
         channels: [
           { node: { paramRefs: ['pr1', 'pr2'] } },
@@ -42,7 +41,7 @@ describe('buildUnconditionalChannelSet', () => {
   });
 
   it('collects paramRefs from nested blocks', () => {
-    const dynTree = {
+    const dynTree: any = {
       main: {
         channels: [
           {
@@ -61,7 +60,7 @@ describe('buildUnconditionalChannelSet', () => {
   });
 
   it('does NOT walk into choices — paramRefs inside choices excluded', () => {
-    const dynTree = {
+    const dynTree: any = {
       main: {
         channels: [
           {
@@ -84,7 +83,7 @@ describe('buildUnconditionalChannelSet', () => {
   });
 
   it('collects paramRefs from cib section', () => {
-    const dynTree = {
+    const dynTree: any = {
       main: {
         cib: [{ paramRefs: ['cib1', 'cib2'] }],
       },
@@ -94,7 +93,7 @@ describe('buildUnconditionalChannelSet', () => {
   });
 
   it('collects paramRefs from pb section', () => {
-    const dynTree = {
+    const dynTree: any = {
       main: {
         pb: [{ paramRefs: ['pb1'] }],
       },
@@ -104,7 +103,7 @@ describe('buildUnconditionalChannelSet', () => {
   });
 
   it('collects from channels, cib, and pb combined', () => {
-    const dynTree = {
+    const dynTree: any = {
       main: {
         channels: [{ node: { paramRefs: ['ch1'] } }],
         cib: [{ paramRefs: ['cib1'] }],
@@ -133,7 +132,7 @@ describe('evalConditionallyActiveParamRefs', () => {
   });
 
   it('marks paramRefs in matched when branch as conditional', () => {
-    const dynTree = {
+    const dynTree: any = {
       main: {
         channels: [
           {
@@ -152,14 +151,14 @@ describe('evalConditionallyActiveParamRefs', () => {
         ],
       },
     };
-    const params = { selector: { defaultValue: '1' } };
+    const params: any = { selector: { defaultValue: '1' } };
     const s = evalConditionallyActiveParamRefs(dynTree, params, {});
     assert.equal(s.has('active_pr'), true);
     assert.equal(s.has('inactive_pr'), false);
   });
 
   it('walks default when if no match found', () => {
-    const dynTree = {
+    const dynTree: any = {
       main: {
         channels: [
           {
@@ -178,14 +177,14 @@ describe('evalConditionallyActiveParamRefs', () => {
         ],
       },
     };
-    const params = { selector: { defaultValue: '0' } };
+    const params: any = { selector: { defaultValue: '0' } };
     const s = evalConditionallyActiveParamRefs(dynTree, params, {});
     assert.equal(s.has('default_pr'), true);
     assert.equal(s.has('no_match_pr'), false);
   });
 
   it('returns empty when no match and no default', () => {
-    const dynTree = {
+    const dynTree: any = {
       main: {
         channels: [
           {
@@ -201,13 +200,13 @@ describe('evalConditionallyActiveParamRefs', () => {
         ],
       },
     };
-    const params = { selector: { defaultValue: '0' } };
+    const params: any = { selector: { defaultValue: '0' } };
     const s = evalConditionallyActiveParamRefs(dynTree, params, {});
     assert.equal(s.size, 0);
   });
 
   it('currentValues override defaultValue', () => {
-    const dynTree = {
+    const dynTree: any = {
       main: {
         channels: [
           {
@@ -226,7 +225,7 @@ describe('evalConditionallyActiveParamRefs', () => {
         ],
       },
     };
-    const params = { selector: { defaultValue: '1' } };
+    const params: any = { selector: { defaultValue: '1' } };
     // currentValues overrides to 2
     const s = evalConditionallyActiveParamRefs(dynTree, params, {
       selector: '2',
@@ -236,7 +235,7 @@ describe('evalConditionallyActiveParamRefs', () => {
   });
 
   it('evaluates nested choices recursively', () => {
-    const dynTree = {
+    const dynTree: any = {
       main: {
         channels: [
           {
@@ -270,7 +269,7 @@ describe('evalConditionallyActiveParamRefs', () => {
         ],
       },
     };
-    const params = {
+    const params: any = {
       outer: { defaultValue: '1' },
       inner: { defaultValue: '5' },
     };
@@ -280,7 +279,7 @@ describe('evalConditionallyActiveParamRefs', () => {
   });
 
   it('handles choices at section level (not inside channel node)', () => {
-    const dynTree = {
+    const dynTree: any = {
       main: {
         choices: [
           {
@@ -290,7 +289,7 @@ describe('evalConditionallyActiveParamRefs', () => {
         ],
       },
     };
-    const params = { sec_sel: { defaultValue: '1' } };
+    const params: any = { sec_sel: { defaultValue: '1' } };
     const s = evalConditionallyActiveParamRefs(dynTree, params, {});
     assert.equal(s.has('sec_pr'), true);
   });
@@ -300,7 +299,7 @@ describe('evalConditionallyActiveParamRefs', () => {
 
 describe('collectActiveAssigns', () => {
   it('returns empty array when no assigns exist', () => {
-    const dynTree = {
+    const dynTree: any = {
       main: { channels: [{ node: { paramRefs: ['pr1'] } }] },
     };
     const result = collectActiveAssigns(dynTree, {}, {});
@@ -314,7 +313,7 @@ describe('collectActiveAssigns', () => {
 
   it('collects assigns from active when branch', () => {
     const assign = { target: 'tgt', source: 'src', value: null };
-    const dynTree = {
+    const dynTree: any = {
       main: {
         channels: [
           {
@@ -330,7 +329,7 @@ describe('collectActiveAssigns', () => {
         ],
       },
     };
-    const params = { sel: { defaultValue: '1' } };
+    const params: any = { sel: { defaultValue: '1' } };
     const result = collectActiveAssigns(dynTree, params, {});
     assert.equal(result.length, 1);
     assert.equal(result[0].target, 'tgt');
@@ -339,7 +338,7 @@ describe('collectActiveAssigns', () => {
 
   it('does not collect assigns from inactive when branch', () => {
     const assign = { target: 'tgt', source: null, value: '42' };
-    const dynTree = {
+    const dynTree: any = {
       main: {
         channels: [
           {
@@ -355,14 +354,14 @@ describe('collectActiveAssigns', () => {
         ],
       },
     };
-    const params = { sel: { defaultValue: '0' } };
+    const params: any = { sel: { defaultValue: '0' } };
     const result = collectActiveAssigns(dynTree, params, {});
     assert.equal(result.length, 0);
   });
 
   it('collects assigns from default when branch when no match', () => {
     const assign = { target: 'tgt', source: null, value: '10' };
-    const dynTree = {
+    const dynTree: any = {
       main: {
         channels: [
           {
@@ -381,7 +380,7 @@ describe('collectActiveAssigns', () => {
         ],
       },
     };
-    const params = { sel: { defaultValue: '0' } };
+    const params: any = { sel: { defaultValue: '0' } };
     const result = collectActiveAssigns(dynTree, params, {});
     assert.equal(result.length, 1);
     assert.equal(result[0].value, '10');
@@ -389,7 +388,7 @@ describe('collectActiveAssigns', () => {
 
   it('collects assigns from top-level channel nodes (not inside choice)', () => {
     const assign = { target: 'tgt', source: null, value: '7' };
-    const dynTree = {
+    const dynTree: any = {
       main: {
         channels: [{ node: { assigns: [assign] } }],
       },
@@ -413,7 +412,7 @@ describe('resolveParamSegment', () => {
   });
 
   it('uses WriteRelMem step size and relSegData', () => {
-    const model = {
+    const model: any = {
       loadProcedures: [{ type: 'WriteRelMem', size: 64 }],
       relSegData: { 4: 'aabbccdd' },
     };
@@ -424,7 +423,7 @@ describe('resolveParamSegment', () => {
   });
 
   it('uses RelSegment step with size, fill, and lsmIdx', () => {
-    const model = {
+    const model: any = {
       loadProcedures: [{ type: 'RelSegment', size: 32, fill: 0x00, lsmIdx: 2 }],
       relSegData: { 2: '11223344' },
     };
@@ -435,7 +434,7 @@ describe('resolveParamSegment', () => {
   });
 
   it('defaults fill to 0xff and lsmIdx to 4 for RelSegment', () => {
-    const model = {
+    const model: any = {
       loadProcedures: [{ type: 'RelSegment', size: 16 }],
       relSegData: { 4: 'deadbeef' },
     };
@@ -445,7 +444,7 @@ describe('resolveParamSegment', () => {
   });
 
   it('prefers WriteRelMem size over RelSegment size', () => {
-    const model = {
+    const model: any = {
       loadProcedures: [
         { type: 'WriteRelMem', size: 100 },
         { type: 'RelSegment', size: 50, lsmIdx: 4 },
@@ -457,7 +456,7 @@ describe('resolveParamSegment', () => {
   });
 
   it('finds AbsoluteSegment covering max param offset', () => {
-    const model = {
+    const model: any = {
       loadProcedures: [],
       absSegData: {
         seg1: { size: 10, hex: 'aa' },
@@ -475,7 +474,7 @@ describe('resolveParamSegment', () => {
   });
 
   it('falls back to largest AbsoluteSegment when none covers max offset', () => {
-    const model = {
+    const model: any = {
       loadProcedures: [],
       absSegData: {
         seg1: { size: 10, hex: 'aa' },
@@ -493,7 +492,7 @@ describe('resolveParamSegment', () => {
   });
 
   it('returns fallback when absSegData exists but paramMemLayout is empty', () => {
-    const model = {
+    const model: any = {
       loadProcedures: [],
       absSegData: { seg1: { size: 100, hex: 'ff' } },
       paramMemLayout: {},
@@ -511,7 +510,7 @@ describe('resolveParamSegment', () => {
 
 describe('buildParamMem', () => {
   it('writes basic integer param at correct offset', () => {
-    const layout = {
+    const layout: any = {
       pr1: { offset: 2, bitOffset: 0, bitSize: 8, defaultValue: '42' },
     };
     const buf = buildParamMem(8, layout, {});
@@ -527,7 +526,7 @@ describe('buildParamMem', () => {
   });
 
   it('uses relSegHex as base buffer', () => {
-    const layout = {};
+    const layout: any = {};
     const buf = buildParamMem(4, layout, {}, 0xff, '01020304');
     assert.equal(buf[0], 0x01);
     assert.equal(buf[1], 0x02);
@@ -544,7 +543,7 @@ describe('buildParamMem', () => {
   });
 
   it('currentValues override defaultValue', () => {
-    const layout = {
+    const layout: any = {
       pr1: { offset: 0, bitOffset: 0, bitSize: 8, defaultValue: '10' },
     };
     const buf = buildParamMem(4, layout, { pr1: '99' });
@@ -552,7 +551,7 @@ describe('buildParamMem', () => {
   });
 
   it('skips params with empty/null/undefined values', () => {
-    const layout = {
+    const layout: any = {
       pr1: { offset: 0, bitOffset: 0, bitSize: 8, defaultValue: '' },
       pr2: { offset: 1, bitOffset: 0, bitSize: 8, defaultValue: null },
       pr3: { offset: 2, bitOffset: 0, bitSize: 8, defaultValue: undefined },
@@ -564,7 +563,7 @@ describe('buildParamMem', () => {
   });
 
   it('skips params with null offset', () => {
-    const layout = {
+    const layout: any = {
       pr1: { offset: null, bitOffset: 0, bitSize: 8, defaultValue: '42' },
     };
     const buf = buildParamMem(4, layout, {}, 0xff);
@@ -572,7 +571,7 @@ describe('buildParamMem', () => {
   });
 
   it('writes text param as latin1', () => {
-    const layout = {
+    const layout: any = {
       pr1: {
         offset: 0,
         bitOffset: 0,
@@ -586,7 +585,7 @@ describe('buildParamMem', () => {
   });
 
   it('writes float16 param via writeKnxFloat16', () => {
-    const layout = {
+    const layout: any = {
       pr1: {
         offset: 0,
         bitOffset: 0,
@@ -606,7 +605,7 @@ describe('buildParamMem', () => {
   });
 
   it('writes float32 param via writeFloatBE', () => {
-    const layout = {
+    const layout: any = {
       pr1: {
         offset: 0,
         bitOffset: 0,
@@ -621,7 +620,7 @@ describe('buildParamMem', () => {
   });
 
   it('applies coefficient scaling (divides by coefficient)', () => {
-    const layout = {
+    const layout: any = {
       pr1: {
         offset: 0,
         bitOffset: 0,
@@ -636,7 +635,7 @@ describe('buildParamMem', () => {
   });
 
   it('applies coefficient scaling to float params', () => {
-    const layout = {
+    const layout: any = {
       pr1: {
         offset: 0,
         bitOffset: 0,
@@ -653,7 +652,7 @@ describe('buildParamMem', () => {
   });
 
   it('writes 16-bit integer big-endian', () => {
-    const layout = {
+    const layout: any = {
       pr1: { offset: 0, bitOffset: 0, bitSize: 16, defaultValue: '258' },
     };
     const buf = buildParamMem(4, layout, {});
@@ -662,11 +661,11 @@ describe('buildParamMem', () => {
   });
 
   it('processes Assign operations from active dynTree branches', () => {
-    const layout = {
+    const layout: any = {
       sel: { offset: 0, bitOffset: 0, bitSize: 8, defaultValue: '1' },
       tgt: { offset: 1, bitOffset: 0, bitSize: 8, defaultValue: '0' },
     };
-    const dynTree = {
+    const dynTree: any = {
       main: {
         channels: [
           {
@@ -689,18 +688,21 @@ describe('buildParamMem', () => {
         ],
       },
     };
-    const params = { sel: { defaultValue: '1' }, tgt: { defaultValue: '0' } };
+    const params: any = {
+      sel: { defaultValue: '1' },
+      tgt: { defaultValue: '0' },
+    };
     const buf = buildParamMem(4, layout, {}, 0xff, null, dynTree, params);
     assert.equal(buf[1], 77);
   });
 
   it('assign with source reads from source param', () => {
-    const layout = {
+    const layout: any = {
       sel: { offset: 0, bitOffset: 0, bitSize: 8, defaultValue: '1' },
       src: { offset: 1, bitOffset: 0, bitSize: 8, defaultValue: '55' },
       tgt: { offset: 2, bitOffset: 0, bitSize: 8, defaultValue: '0' },
     };
-    const dynTree = {
+    const dynTree: any = {
       main: {
         channels: [
           {
@@ -711,7 +713,7 @@ describe('buildParamMem', () => {
         ],
       },
     };
-    const params = {
+    const params: any = {
       sel: { defaultValue: '1' },
       src: { defaultValue: '55' },
       tgt: { defaultValue: '0' },
@@ -722,7 +724,7 @@ describe('buildParamMem', () => {
   });
 
   it('conditional visibility: param in unconditional set is written', () => {
-    const layout = {
+    const layout: any = {
       pr1: {
         offset: 0,
         bitOffset: 0,
@@ -732,18 +734,18 @@ describe('buildParamMem', () => {
         isVisible: true,
       },
     };
-    const dynTree = {
+    const dynTree: any = {
       main: {
         channels: [{ node: { paramRefs: ['pr1'] } }],
       },
     };
-    const params = { pr1: { defaultValue: '42' } };
+    const params: any = { pr1: { defaultValue: '42' } };
     const buf = buildParamMem(4, layout, {}, 0x00, null, dynTree, params);
     assert.equal(buf[0], 42);
   });
 
   it('conditional visibility: param in conditional active set is written', () => {
-    const layout = {
+    const layout: any = {
       sel: { offset: 0, bitOffset: 0, bitSize: 8, defaultValue: '1' },
       cond_pr: {
         offset: 1,
@@ -754,7 +756,7 @@ describe('buildParamMem', () => {
         isVisible: true,
       },
     };
-    const dynTree = {
+    const dynTree: any = {
       main: {
         channels: [
           {
@@ -770,7 +772,7 @@ describe('buildParamMem', () => {
         ],
       },
     };
-    const params = {
+    const params: any = {
       sel: { defaultValue: '1' },
       cond_pr: { defaultValue: '88' },
     };
@@ -779,7 +781,7 @@ describe('buildParamMem', () => {
   });
 
   it('conditional visibility: param not in either set is skipped (keeps fill/relSeg default)', () => {
-    const layout = {
+    const layout: any = {
       sel: { offset: 0, bitOffset: 0, bitSize: 8, defaultValue: '2' },
       cond_pr: {
         offset: 1,
@@ -790,7 +792,7 @@ describe('buildParamMem', () => {
         isVisible: true,
       },
     };
-    const dynTree = {
+    const dynTree: any = {
       main: {
         channels: [
           {
@@ -809,7 +811,7 @@ describe('buildParamMem', () => {
         ],
       },
     };
-    const params = {
+    const params: any = {
       sel: { defaultValue: '2' },
       cond_pr: { defaultValue: '88' },
     };
@@ -819,7 +821,7 @@ describe('buildParamMem', () => {
   });
 
   it('hidden param with user override is written even if not in unconditional set', () => {
-    const layout = {
+    const layout: any = {
       hidden_pr: {
         offset: 0,
         bitOffset: 0,
@@ -829,10 +831,10 @@ describe('buildParamMem', () => {
         isVisible: false,
       },
     };
-    const dynTree = {
+    const dynTree: any = {
       main: { channels: [] },
     };
-    const params = { hidden_pr: { defaultValue: '0' } };
+    const params: any = { hidden_pr: { defaultValue: '0' } };
     const buf = buildParamMem(
       4,
       layout,

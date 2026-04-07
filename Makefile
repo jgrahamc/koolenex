@@ -23,7 +23,7 @@ start: server client
 stop: stop-server stop-client
 
 test:
-	node --test tests/*.test.js tests/*.test.mjs
+	node --test tests/*.test.ts
 
 lint:
 	npx eslint server/

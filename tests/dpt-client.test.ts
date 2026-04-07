@@ -148,7 +148,9 @@ describe('dptName', () => {
   });
 
   it('uses i18n translation when available', () => {
-    setI18nT((refId) => (refId === 'DPST-9-1' ? 'temperature (°C)' : null));
+    setI18nT((refId: string) =>
+      refId === 'DPST-9-1' ? 'temperature (°C)' : null,
+    );
     assert.equal(dptName('9.001'), 'temperature (°C)');
     assert.equal(dptName('1.001'), 'DPT_Switch'); // no translation → fallback
     setI18nT(() => null); // reset
@@ -172,7 +174,9 @@ describe('dptTitle', () => {
   });
 
   it('uses i18n translation when available', () => {
-    setI18nT((refId) => (refId === 'DPST-9-1' ? 'temperature (°C)' : null));
+    setI18nT((refId: string) =>
+      refId === 'DPST-9-1' ? 'temperature (°C)' : null,
+    );
     const title = dptTitle('9.001');
     assert(
       title.includes('temperature'),
@@ -246,7 +250,7 @@ describe('localizedModel', () => {
 // ── DPT_INFO coverage: spot-check a selection of DPT entries ────────────────
 
 describe('DPT_INFO hardcoded database', () => {
-  const checks = [
+  const checks: [string, string, string][] = [
     ['1.001', 'DPT_Switch', ''],
     ['1.008', 'DPT_UpDown', ''],
     ['2.001', 'DPT_Switch_Control', ''],

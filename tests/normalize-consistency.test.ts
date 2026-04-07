@@ -5,13 +5,11 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { normalizeDpt } from '../client/src/dpt.ts';
-import { createRequire } from 'module';
-const require = createRequire(import.meta.url);
-const { normalizeDptKey } = require('../server/routes/index.ts');
+import { normalizeDptKey } from '../server/routes/index.ts';
 
 describe('normalizeDpt (client) vs normalizeDptKey (server) consistency', () => {
   // Inputs where both should produce the same non-null result
-  const agreeCases = [
+  const agreeCases: [string, string][] = [
     ['DPST-9-1', '9.001'],
     ['DPT-9-1', '9.001'],
     ['DPST-14-68', '14.068'],

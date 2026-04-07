@@ -1,23 +1,22 @@
-'use strict';
 /**
  * Tests for KNX protocol helpers: KNXnet/IP packet builders, USB HID framing,
  * APDU builders, GA/association table encoding, and ETS helpers.
  */
-const { describe, it } = require('node:test');
-const assert = require('node:assert/strict');
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
 
 // ── KNXnet/IP packet builders ───────────────────────────────────────────────
 
-const {
-  _hdr: hdr,
-  _hpai: hpai,
-  _pktConnect: pktConnect,
-  _pktConnState: pktConnState,
-  _pktDisconnect: pktDisconnect,
-  _pktDisconnectRes: pktDisconnectRes,
-  _pktTunnelingReq: pktTunnelingReq,
-  _SVC: SVC,
-} = require('../server/knx-protocol.ts');
+import {
+  _hdr as hdr,
+  _hpai as hpai,
+  _pktConnect as pktConnect,
+  _pktConnState as pktConnState,
+  _pktDisconnect as pktDisconnect,
+  _pktDisconnectRes as pktDisconnectRes,
+  _pktTunnelingReq as pktTunnelingReq,
+  _SVC as SVC,
+} from '../server/knx-protocol.ts';
 
 describe('KNXnet/IP: hdr', () => {
   it('builds a 6-byte header with protocol version 0x06 0x10', () => {
@@ -118,19 +117,19 @@ describe('KNXnet/IP: pktTunnelingReq', () => {
 
 // ── USB HID framing ─────────────────────────────────────────────────────────
 
-const {
-  _buildHidReports: buildHidReports,
-  _parseHidReport: parseHidReport,
-  _parseTransferHeader: parseTransferHeader,
-  _buildFeatureGet: buildFeatureGet,
-  _buildFeatureSet: buildFeatureSet,
-  _PROTO_KNX_TUNNEL: PROTO_KNX_TUNNEL,
-  _PROTO_BUS_FEATURE: PROTO_BUS_FEATURE,
-  _EMI_ID: EMI_ID,
-  _FEATURE: FEATURE,
-  _FEATURE_SVC: FEATURE_SVC,
-  _PKT: PKT,
-} = require('../server/knx-usb.ts');
+import {
+  _buildHidReports as buildHidReports,
+  _parseHidReport as parseHidReport,
+  _parseTransferHeader as parseTransferHeader,
+  _buildFeatureGet as buildFeatureGet,
+  _buildFeatureSet as buildFeatureSet,
+  _PROTO_KNX_TUNNEL as PROTO_KNX_TUNNEL,
+  _PROTO_BUS_FEATURE as PROTO_BUS_FEATURE,
+  _EMI_ID as EMI_ID,
+  _FEATURE as FEATURE,
+  _FEATURE_SVC as FEATURE_SVC,
+  _PKT as PKT,
+} from '../server/knx-usb.ts';
 
 describe('USB HID: buildHidReports', () => {
   it('builds a single 64-byte report for small frames', () => {
@@ -245,19 +244,19 @@ describe('USB HID: buildFeatureGet / buildFeatureSet', () => {
 
 // ── APDU builders ───────────────────────────────────────────────────────────
 
-const {
+import {
   parseCEMI,
-  _apduGroupRead: apduGroupRead,
-  _apduGroupWrite: apduGroupWrite,
-  _apduGroupResponse: apduGroupResponse,
-  _apduControl: apduControl,
-  _apduPropertyValueRead: apduPropertyValueRead,
-  _apduPropertyValueWrite: apduPropertyValueWrite,
-  _TPCI: TPCI,
-  _APCI: APCI,
+  _apduGroupRead as apduGroupRead,
+  _apduGroupWrite as apduGroupWrite,
+  _apduGroupResponse as apduGroupResponse,
+  _apduControl as apduControl,
+  _apduPropertyValueRead as apduPropertyValueRead,
+  _apduPropertyValueWrite as apduPropertyValueWrite,
+  _TPCI as TPCI,
+  _APCI as APCI,
   buildCEMI,
   encodeDpt,
-} = require('../server/knx-connection.ts');
+} from '../server/knx-connection.ts';
 
 describe('APDU: apduGroupRead', () => {
   it('builds a 2-byte GroupValue_Read APDU', () => {
@@ -386,11 +385,11 @@ describe('APDU: apduPropertyValueWrite', () => {
 
 // ── GA and association table builders ───────────────────────────────────────
 
-const { buildGATable, buildAssocTable } = require('../server/routes/index.ts');
+import { buildGATable, buildAssocTable } from '../server/routes/index.ts';
 
 describe('buildGATable', () => {
   it('encodes group addresses into binary table', () => {
-    const gaLinks = [
+    const gaLinks: any[] = [
       { main_g: 1, middle_g: 0, sub_g: 0 },
       { main_g: 1, middle_g: 0, sub_g: 1 },
       { main_g: 11, middle_g: 0, sub_g: 0 },
@@ -418,11 +417,11 @@ describe('buildGATable', () => {
 
 describe('buildAssocTable', () => {
   it('builds sorted association entries', () => {
-    const gaLinks = [
+    const gaLinks: any[] = [
       { address: '1/0/0', main_g: 1, middle_g: 0, sub_g: 0 },
       { address: '1/0/1', main_g: 1, middle_g: 0, sub_g: 1 },
     ];
-    const coRows = [
+    const coRows: any[] = [
       { object_number: 7, ga_address: '1/0/0 1/0/1' },
       { object_number: 8, ga_address: '1/0/0' },
     ];
@@ -447,8 +446,10 @@ describe('buildAssocTable', () => {
   });
 
   it('skips GAs not in the link table', () => {
-    const gaLinks = [{ address: '1/0/0', main_g: 1, middle_g: 0, sub_g: 0 }];
-    const coRows = [{ object_number: 1, ga_address: '1/0/0 9/9/9' }];
+    const gaLinks: any[] = [
+      { address: '1/0/0', main_g: 1, middle_g: 0, sub_g: 0 },
+    ];
+    const coRows: any[] = [{ object_number: 1, ga_address: '1/0/0 9/9/9' }];
     const buf = buildAssocTable(coRows, gaLinks);
     assert.equal(buf[0], 1); // only 1/0/0 matched
   });
@@ -456,11 +457,7 @@ describe('buildAssocTable', () => {
 
 // ── ETS parser helpers ──────────────────────────────────────────────────────
 
-const {
-  looksEncrypted,
-  inferType,
-  buildFlags,
-} = require('../server/ets-parser.ts');
+import { looksEncrypted, inferType, buildFlags } from '../server/ets-parser.ts';
 
 describe('looksEncrypted', () => {
   it('returns false for UTF-8 BOM + XML', () => {

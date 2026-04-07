@@ -6,8 +6,8 @@
   "scripts": {
     "server": "node server/index.js",
     "client": "cd client && npx vite",
-    "start": "node server/index.js",
-    "test": "node --test tests/*.test.js tests/*.test.mjs",
+    "start": "node server/index.ts",
+    "test": "node --test tests/*.test.ts",
     "lint": "eslint server/",
     "format": "prettier --write server/ tests/"
   },
@@ -16,7 +16,7 @@
   },
   "dependencies": {
     "@iarna/rtf-to-html": "1.1.0",
-    "adm-zip": "0.5.10",
+    "adm-zip": "0.5.16",
     "cors": "2.8.5",
     "express": "4.18.2",
     "fast-xml-parser": "4.3.4",

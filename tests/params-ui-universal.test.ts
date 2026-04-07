@@ -1,28 +1,27 @@
-'use strict';
 /**
  * Tests that the parameter UI structure for device 1.1.4 (US/U2.2 Universal Interface)
  * matches the expected section layout. This device uses ParamRefId on ParameterBlocks
  * to derive section labels from TypeNone dummy parameters with translations — testing
  * that the translation pipeline produces English labels, not German internal names.
  */
-const { describe, it, before } = require('node:test');
-const assert = require('node:assert/strict');
-const path = require('path');
-const fs = require('fs');
+import { describe, it, before } from 'node:test';
+import assert from 'node:assert/strict';
+import path from 'path';
+import fs from 'fs';
 
-const SMOKE_PROJECT = path.join(__dirname, 'smoke-test.knxproj');
+const SMOKE_PROJECT = path.join(import.meta.dirname, 'smoke-test.knxproj');
 if (!fs.existsSync(SMOKE_PROJECT)) {
   describe('Params UI: 1.1.4', () => {
     it('skipped — smoke-test.knxproj not found', () => {});
   });
-  return;
+  process.exit(0);
 }
 
-const { parseKnxproj } = require('../server/ets-parser.ts');
+const { parseKnxproj } = await import('../server/ets-parser.ts');
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-function etsTestMatch(val, tests) {
+function etsTestMatch(val: string, tests: any[]) {
   const n = parseFloat(val);
   for (const t of tests || []) {
     const rm =
@@ -42,7 +41,7 @@ function etsTestMatch(val, tests) {
   return false;
 }
 
-function buildParamUI(model) {
+function buildParamUI(model: any) {
   const { params, dynTree } = model;
   const values = {};
   for (const [k, v] of Object.entries(model.currentValues || {})) values[k] = v;
@@ -56,7 +55,7 @@ function buildParamUI(model) {
       params[c.paramRefId] &&
       !active.has(c.paramRefId)
     )
-      return;
+      process.exit(0);
     const raw = getVal(c.paramRefId);
     const val = String(
       raw !== '' && raw != null ? raw : (c.defaultValue ?? ''),
@@ -143,7 +142,7 @@ function buildParamUI(model) {
       params[item.paramRefId] &&
       !active.has(item.paramRefId)
     )
-      return;
+      process.exit(0);
     const raw = getVal(item.paramRefId);
     const val = String(
       raw !== '' && raw != null ? raw : (item.defaultValue ?? ''),
@@ -218,7 +217,7 @@ function buildParamUI(model) {
 
 // ── Tests ────────────────────────────────────────────────────────────────────
 
-let parsed, model, ui;
+let parsed: any, model: any, ui: any;
 
 before(() => {
   const buf = fs.readFileSync(SMOKE_PROJECT);

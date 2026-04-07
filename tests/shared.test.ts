@@ -1,10 +1,9 @@
-'use strict';
-const { describe, it, after } = require('node:test');
-const assert = require('node:assert/strict');
-const fs = require('fs');
-const path = require('path');
+import { describe, it, after } from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'fs';
+import path from 'path';
 
-const {
+import {
   toArr,
   makeUpdateBuilder,
   getDptInfo,
@@ -14,13 +13,13 @@ const {
   saveModelsAndMasterXml,
   DATA_DIR,
   APPS_DIR,
-} = require('../server/routes/shared.ts');
+} from '../server/routes/shared.ts';
 
 const uid = `test_shared_${Date.now()}`;
 
 // Track temp files/dirs for cleanup
-const tempFiles = [];
-const tempDirs = [];
+const tempFiles: string[] = [];
+const tempDirs: string[] = [];
 
 after(() => {
   for (const f of tempFiles) {

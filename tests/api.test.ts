@@ -1,15 +1,16 @@
-'use strict';
-const { describe, it, before, after } = require('node:test');
-const assert = require('node:assert/strict');
-const express = require('express');
-const path = require('path');
-const fs = require('fs');
+import { describe, it, before, after } from 'node:test';
+import assert from 'node:assert/strict';
+import express from 'express';
+import path from 'path';
+import fs from 'fs';
 
-let server, baseUrl, db;
+let server: any;
+let baseUrl: string;
+let db: any;
 
-async function req(method, urlPath, body) {
+async function req(method: string, urlPath: string, body?: any) {
   const url = baseUrl + urlPath;
-  const opts = { method, headers: {} };
+  const opts: any = { method, headers: {} };
   if (body) {
     opts.headers['Content-Type'] = 'application/json';
     opts.body = JSON.stringify(body);
@@ -26,15 +27,15 @@ async function req(method, urlPath, body) {
 }
 
 before(async () => {
-  db = require('../server/db.ts');
+  db = await import('../server/db.ts');
   await db.init();
-  const { router: routes } = require('../server/routes/index.ts');
+  const { router: routes } = await import('../server/routes/index.ts');
   const app = express();
   app.use(express.json());
   app.use('/api', routes);
-  await new Promise((resolve) => {
+  await new Promise<void>((resolve) => {
     server = app.listen(0, () => {
-      baseUrl = `http://localhost:${server.address().port}/api`;
+      baseUrl = `http://localhost:${(server.address() as any).port}/api`;
       resolve();
     });
   });

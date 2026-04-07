@@ -1,8 +1,7 @@
-'use strict';
-const { describe, it, before } = require('node:test');
-const assert = require('node:assert/strict');
+import { describe, it, before } from 'node:test';
+import assert from 'node:assert/strict';
 
-const db = require('../server/db.ts');
+import * as db from '../server/db.ts';
 
 before(async () => {
   await db.init();
@@ -14,7 +13,7 @@ describe('init', () => {
   it('creates all expected tables', () => {
     const tables = db
       .all("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
-      .map((r) => r.name);
+      .map((r: any) => r.name);
     for (const t of [
       'projects',
       'devices',
@@ -153,7 +152,7 @@ describe('run()', () => {
 
 describe('transaction()', () => {
   it('commits on success — data persists', () => {
-    db.transaction(({ run }) => {
+    db.transaction(({ run }: any) => {
       run("INSERT INTO projects (name) VALUES ('dbtest_tx_ok')");
     });
     const row = db.get("SELECT name FROM projects WHERE name='dbtest_tx_ok'");
@@ -163,7 +162,7 @@ describe('transaction()', () => {
 
   it('rolls back on error — data not persisted', () => {
     assert.throws(() => {
-      db.transaction(({ run }) => {
+      db.transaction(({ run }: any) => {
         run("INSERT INTO projects (name) VALUES ('dbtest_tx_fail')");
         throw new Error('forced rollback');
       });
@@ -178,7 +177,7 @@ describe('transaction()', () => {
   });
 
   it('fn receives { all, get, run } helpers', () => {
-    db.transaction((helpers) => {
+    db.transaction((helpers: any) => {
       assert.equal(typeof helpers.all, 'function');
       assert.equal(typeof helpers.get, 'function');
       assert.equal(typeof helpers.run, 'function');
@@ -221,7 +220,7 @@ describe('audit()', () => {
 // ── getProjectFull() ────────────────────────────────────────────────────────
 
 describe('getProjectFull()', () => {
-  let projectId;
+  let projectId: any;
 
   before(() => {
     // 1. Create a project
@@ -304,14 +303,14 @@ describe('getProjectFull()', () => {
 
   it('includes devices', () => {
     const full = db.getProjectFull(projectId);
-    const dev = full.devices.find((d) => d.individual_address === '1.2.3');
+    const dev = full.devices.find((d: any) => d.individual_address === '1.2.3');
     assert.ok(dev, 'device 1.2.3 not found');
     assert.equal(dev.name, 'dbtest_dev_A');
   });
 
   it('includes group addresses with normalised fields', () => {
     const full = db.getProjectFull(projectId);
-    const ga = full.gas.find((g) => g.address === '1/2/3');
+    const ga = full.gas.find((g: any) => g.address === '1/2/3');
     assert.ok(ga, 'GA 1/2/3 not found');
     assert.equal(ga.main_g, 1);
     assert.equal(ga.middle_g, 2);
@@ -335,21 +334,21 @@ describe('getProjectFull()', () => {
 
   it('merges group names from ga_group_names table', () => {
     const full = db.getProjectFull(projectId);
-    const ga = full.gas.find((g) => g.address === '1/2/3');
+    const ga = full.gas.find((g: any) => g.address === '1/2/3');
     assert.equal(ga.main_group_name, 'Lighting');
     assert.equal(ga.middle_group_name, 'Living Room');
   });
 
   it('attaches GA device list', () => {
     const full = db.getProjectFull(projectId);
-    const ga = full.gas.find((g) => g.address === '1/2/3');
+    const ga = full.gas.find((g: any) => g.address === '1/2/3');
     assert.ok(Array.isArray(ga.devices));
     assert.ok(ga.devices.includes('1.2.3'));
   });
 
   it('attaches topology area/line names to devices', () => {
     const full = db.getProjectFull(projectId);
-    const dev = full.devices.find((d) => d.individual_address === '1.2.3');
+    const dev = full.devices.find((d: any) => d.individual_address === '1.2.3');
     assert.equal(dev.area_name, 'Building A');
     assert.equal(dev.line_name, 'Line 1.2');
   });
@@ -358,7 +357,7 @@ describe('getProjectFull()', () => {
     const full = db.getProjectFull(projectId);
     assert.ok(full.topology.length >= 2);
     const area = full.topology.find(
-      (t) => t.project_id === projectId && t.line === null,
+      (t: any) => t.project_id === projectId && t.line === null,
     );
     assert.ok(area, 'area topology row not found');
     assert.equal(area.name, 'Building A');
