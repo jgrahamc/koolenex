@@ -13,7 +13,7 @@ import type {
   ComObjectWithDevice,
   GAMaps,
   GaGroupName,
-  NormalisedGA,
+  EnrichedGA,
   ProjectFull,
   RunResult,
 } from '../shared/types.ts';
@@ -497,7 +497,7 @@ export function getProjectFull(projectId: number): ProjectFull | null {
   }
 
   // Attach group names and device lists to GAs
-  const normGas: NormalisedGA[] = gas.map((g: Record<string, unknown>) => {
+  const normGas: EnrichedGA[] = gas.map((g: Record<string, unknown>) => {
     const main = g.main_g as number;
     const middle = g.middle_g as number;
     return {
@@ -505,7 +505,7 @@ export function getProjectFull(projectId: number): ProjectFull | null {
       main_group_name: mainNameMap[main] ?? '',
       middle_group_name: midNameMap[`${main}/${middle}`] ?? '',
       devices: gaDeviceMap[g.address as string] ?? [],
-    } as NormalisedGA;
+    } as EnrichedGA;
   });
 
   const spaces = all('SELECT * FROM spaces WHERE project_id=? ORDER BY id', [

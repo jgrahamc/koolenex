@@ -195,8 +195,8 @@ export interface GAMaps {
   gaDeviceMap: Record<string, string[]>;
 }
 
-// Normalised GA with group names and device list (returned by getProjectFull)
-export interface NormalisedGA extends GroupAddress {
+// GA with group names and device list attached (returned by getProjectFull)
+export interface EnrichedGA extends GroupAddress {
   main_group_name: string;
   middle_group_name: string;
   devices: string[];
@@ -206,7 +206,7 @@ export interface NormalisedGA extends GroupAddress {
 export interface ProjectFull {
   project: Project;
   devices: Device[];
-  gas: NormalisedGA[];
+  gas: EnrichedGA[];
   comObjects: ComObjectWithDevice[];
   deviceGAMap: Record<string, string[]>;
   gaDeviceMap: Record<string, string[]>;
