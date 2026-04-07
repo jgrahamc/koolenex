@@ -22,7 +22,7 @@
     "fast-xml-parser": "4.3.4",
     "minizip-asm.js": "1.0.10",
     "multer": "1.4.5-lts.1",
-    "sql.js": "1.10.3",
+    "sql.js": "1.14.1",
     "ws": "8.16.0",
     "zod": "4.3.6"
   },
