@@ -17,7 +17,12 @@ export function setI18nLang(lang: string): void {
 }
 
 // Resolve a device's model name using stored translations and current language
-export function localizedModel(device: any): string {
+export function localizedModel(
+  device: {
+    model?: string;
+    model_translations?: string | Record<string, string>;
+  } | null,
+): string {
   if (!device) return '';
   if (_i18nLang && device.model_translations) {
     try {

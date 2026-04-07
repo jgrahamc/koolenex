@@ -2,62 +2,51 @@ import express from 'express';
 import type { Request, Response } from 'express';
 import { z } from 'zod';
 import * as db from '../db.ts';
+import { buildGAMaps } from '../../shared/ga-maps.ts';
 import { validateBody } from '../validate.ts';
 import { makeUpdateBuilder } from './shared.ts';
+import type {
+  GroupAddress,
+  GaGroupName,
+  EnrichedGA,
+  ComObjectWithDevice,
+} from '../../shared/types.ts';
 
 const router = express.Router();
 
 // ── Group Addresses ───────────────────────────────────────────────────────────
 router.get('/projects/:id/gas', (req: Request, res: Response): void => {
   const pid = +req.params.id!;
-  const gas = db.all<Record<string, unknown>>(
+  const gas = db.all<GroupAddress>(
     'SELECT * FROM group_addresses WHERE project_id=? ORDER BY main_g,middle_g,sub_g',
     [pid],
   );
   // Derive device<->GA map from com_objects
-  const cos = db.all<Record<string, unknown>>(
-    `SELECT co.ga_address, d.individual_address FROM com_objects co JOIN devices d ON co.device_id=d.id WHERE co.project_id=?`,
+  const cos = db.all<ComObjectWithDevice>(
+    `SELECT co.ga_address, d.individual_address as device_address, d.name as device_name FROM com_objects co JOIN devices d ON co.device_id=d.id WHERE co.project_id=?`,
     [pid],
   );
-  const gaDeviceMap: Record<string, string[]> = {};
-  for (const co of cos) {
-    for (const ga of ((co.ga_address as string) || '')
-      .split(/\s+/)
-      .filter(Boolean)) {
-      if (!gaDeviceMap[ga]) gaDeviceMap[ga] = [];
-      if (!gaDeviceMap[ga]!.includes(co.individual_address as string))
-        gaDeviceMap[ga]!.push(co.individual_address as string);
-    }
-  }
+  const { gaDeviceMap } = buildGAMaps(cos);
 
   // Attach group names from dedicated table
-  const groupNames = db.all<Record<string, unknown>>(
+  const groupNames = db.all<GaGroupName>(
     'SELECT main_g, middle_g, name FROM ga_group_names WHERE project_id=?',
     [pid],
   );
   const mainNameMap: Record<number, string> = {};
   const midNameMap: Record<string, string> = {};
   for (const gn of groupNames) {
-    if ((gn.middle_g as number) === -1)
-      mainNameMap[gn.main_g as number] = gn.name as string;
-    else midNameMap[`${gn.main_g}/${gn.middle_g}`] = gn.name as string;
+    if (gn.middle_g === -1) mainNameMap[gn.main_g] = gn.name;
+    else midNameMap[`${gn.main_g}/${gn.middle_g}`] = gn.name;
   }
 
-  res.json(
-    gas.map((g) => {
-      const main = (g.main_g as number) || 0;
-      const middle = (g.middle_g as number) || 0;
-      return {
-        ...g,
-        main,
-        middle,
-        sub: (g.sub_g as number | null) ?? null,
-        main_group_name: mainNameMap[main] || '',
-        middle_group_name: midNameMap[`${main}/${middle}`] || '',
-        devices: gaDeviceMap[g.address as string] || [],
-      };
-    }),
-  );
+  const enriched: EnrichedGA[] = gas.map((g) => ({
+    ...g,
+    main_group_name: mainNameMap[g.main_g] || '',
+    middle_group_name: midNameMap[`${g.main_g}/${g.middle_g}`] || '',
+    devices: gaDeviceMap[g.address] || [],
+  }));
+  res.json(enriched);
 });
 
 router.post('/projects/:id/gas', (req: Request, res: Response): void => {
@@ -117,7 +106,7 @@ router.put('/projects/:pid/gas/:gid', (req: Request, res: Response): void => {
     }),
   );
   if (!b) return;
-  const oldGA = db.get<Record<string, unknown>>(
+  const oldGA = db.get<GroupAddress>(
     'SELECT * FROM group_addresses WHERE id=? AND project_id=?',
     [+gid, +pid],
   );
@@ -125,7 +114,9 @@ router.put('/projects/:pid/gas/:gid', (req: Request, res: Response): void => {
     res.status(404).json({ error: 'Not found' });
     return;
   }
-  const { track, sets, vals, diffs } = makeUpdateBuilder(oldGA);
+  const { track, sets, vals, diffs } = makeUpdateBuilder(
+    oldGA as unknown as Record<string, unknown>,
+  );
   if (b.name !== undefined) track('name', b.name.trim());
   if (b.dpt !== undefined) track('dpt', b.dpt);
   if (b.description !== undefined) track('description', b.description);
@@ -165,7 +156,7 @@ router.patch(
     const { main, middle, name } = b;
 
     const midKey = middle !== undefined && middle !== null ? middle : -1;
-    const old = db.get<Record<string, unknown>>(
+    const old = db.get<GaGroupName>(
       'SELECT name FROM ga_group_names WHERE project_id=? AND main_g=? AND middle_g=?',
       [pid, main, midKey],
     );
@@ -192,7 +183,7 @@ router.delete(
   (req: Request, res: Response): void => {
     const pid = req.params.pid as string;
     const gid = +req.params.gid!;
-    const gaD = db.get<Record<string, unknown>>(
+    const gaD = db.get<GroupAddress>(
       'SELECT address, name FROM group_addresses WHERE id=?',
       [gid],
     );
@@ -229,7 +220,7 @@ router.patch(
   (req: Request, res: Response): void => {
     const pid = req.params.pid as string;
     const coid = req.params.coid as string;
-    const co = db.get<Record<string, unknown>>(
+    const co = db.get<ComObjectWithDevice>(
       'SELECT * FROM com_objects WHERE id=? AND project_id=?',
       [+coid, +pid],
     );

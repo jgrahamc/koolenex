@@ -10,7 +10,12 @@ import type { SqlJsDatabase, SqlJsStatic, SqlValue } from 'sql.js';
 import path from 'path';
 import fs from 'fs';
 import type {
+  Project,
+  Device,
+  GroupAddress,
   ComObjectWithDevice,
+  Space,
+  Topology,
   GaGroupName,
   EnrichedGA,
   ProjectFull,
@@ -447,14 +452,16 @@ export function transaction<T>(fn: (helpers: TransactionHelpers) => T): T {
 // ── Higher-level helpers ──────────────────────────────────────────────────────
 
 export function getProjectFull(projectId: number): ProjectFull | null {
-  const project = get('SELECT * FROM projects WHERE id=?', [projectId]);
+  const project = get<Project>('SELECT * FROM projects WHERE id=?', [
+    projectId,
+  ]);
   if (!project) return null;
 
-  const devices = all(
+  const devices = all<Device>(
     `SELECT id,project_id,individual_address,name,description,comment,installation_hints,manufacturer,model,order_number,serial_number,product_ref,area,line,area_name,line_name,medium,device_type,status,last_modified,last_download,app_number,app_version,parameters,app_ref,param_values,space_id,model_translations,bus_current,width_mm,is_power_supply,is_coupler,is_rail_mounted,floor_x,floor_y FROM devices WHERE project_id=? ORDER BY area, line, CAST(REPLACE(individual_address, area||'.'||line||'.', '') AS INTEGER)`,
     [projectId],
   );
-  const gas = all(
+  const gas = all<GroupAddress>(
     'SELECT * FROM group_addresses WHERE project_id=? ORDER BY main_g, middle_g, sub_g',
     [projectId],
   );
@@ -481,22 +488,19 @@ export function getProjectFull(projectId: number): ProjectFull | null {
   }
 
   // Attach group names and device lists to GAs
-  const normGas: EnrichedGA[] = gas.map((g: Record<string, unknown>) => {
-    const main = g.main_g as number;
-    const middle = g.middle_g as number;
-    return {
-      ...g,
-      main_group_name: mainNameMap[main] ?? '',
-      middle_group_name: midNameMap[`${main}/${middle}`] ?? '',
-      devices: gaDeviceMap[g.address as string] ?? [],
-    } as EnrichedGA;
-  });
+  const normGas: EnrichedGA[] = gas.map((g) => ({
+    ...g,
+    main_group_name: mainNameMap[g.main_g] ?? '',
+    middle_group_name: midNameMap[`${g.main_g}/${g.middle_g}`] ?? '',
+    devices: gaDeviceMap[g.address] ?? [],
+  }));
 
-  const spaces = all('SELECT * FROM spaces WHERE project_id=? ORDER BY id', [
-    projectId,
-  ]);
+  const spaces = all<Space>(
+    'SELECT * FROM spaces WHERE project_id=? ORDER BY id',
+    [projectId],
+  );
 
-  const topoRows = all(
+  const topoRows = all<Topology>(
     'SELECT * FROM topology WHERE project_id=? ORDER BY area, line',
     [projectId],
   );
@@ -504,20 +508,18 @@ export function getProjectFull(projectId: number): ProjectFull | null {
   const areaNameMap: Record<number, string> = {};
   const lineNameMap: Record<string, { name: string; medium: string }> = {};
   for (const t of topoRows) {
-    const row = t as Record<string, unknown>;
-    if (row.line === null) areaNameMap[row.area as number] = row.name as string;
+    if (t.line === null) areaNameMap[t.area] = t.name;
     else
-      lineNameMap[`${row.area}.${row.line}`] = {
-        name: row.name as string,
-        medium: row.medium as string,
+      lineNameMap[`${t.area}.${t.line}`] = {
+        name: t.name,
+        medium: t.medium,
       };
   }
   // Attach topology names to devices
-  const devicesWithTopo = devices.map((d: Record<string, unknown>) => ({
+  const devicesWithTopo: Device[] = devices.map((d) => ({
     ...d,
-    area_name: areaNameMap[d.area as number] ?? (d.area_name as string) ?? '',
-    line_name:
-      lineNameMap[`${d.area}.${d.line}`]?.name ?? (d.line_name as string) ?? '',
+    area_name: areaNameMap[d.area] ?? d.area_name ?? '',
+    line_name: lineNameMap[`${d.area}.${d.line}`]?.name ?? d.line_name ?? '',
   }));
 
   return {
@@ -529,7 +531,7 @@ export function getProjectFull(projectId: number): ProjectFull | null {
     gaDeviceMap,
     spaces,
     topology: topoRows,
-  } as unknown as ProjectFull;
+  };
 }
 
 export function audit(
