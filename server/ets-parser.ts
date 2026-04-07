@@ -391,18 +391,23 @@ interface ParamModel {
 
 // @ts-expect-error TS1470: import.meta is valid at runtime
 const require_ = createRequire(import.meta.url);
-const AdmZip = require_('adm-zip') as new (buffer: Buffer) => AdmZipInstance;
 const Minizip = require_('minizip-asm.js') as new (
   data: Buffer,
 ) => MinizipInstance;
 
-interface AdmZipInstance {
-  getEntries(): ZipEntry[];
-}
-
 interface ZipEntry {
   entryName: string;
   getData(): Buffer;
+}
+
+/** Open a ZIP buffer and return entries compatible with the ZipEntry interface. */
+function openZip(buffer: Buffer, password?: string): ZipEntry[] {
+  const mz = new Minizip(buffer);
+  const opts = password ? { password } : undefined;
+  return mz.list().map((f) => {
+    const data = Buffer.from(mz.extract(f.filepath, opts));
+    return { entryName: f.filepath, getData: () => data };
+  });
 }
 
 // ─── Encryption helpers ───────────────────────────────────────────────────────
@@ -1909,10 +1914,9 @@ export function parseKnxproj(
   buffer: Buffer,
   password: string | null = null,
 ): ParsedProject {
-  let zip: AdmZipInstance, entries: ZipEntry[];
+  let entries: ZipEntry[];
   try {
-    zip = new AdmZip(buffer);
-    entries = zip.getEntries();
+    entries = openZip(buffer);
   } catch (e: unknown) {
     throw new Error(
       'Invalid or corrupt .knxproj file: ' + (e as Error).message,
@@ -1947,32 +1951,22 @@ export function parseKnxproj(
       });
 
     const zipPw = deriveZipPassword(password);
-    let mz: MinizipInstance;
+    let innerEntries: ZipEntry[];
     try {
-      mz = new Minizip(innerZipEntry.getData());
-    } catch (e) {
-      console.error(
-        `[ETS] Failed to open inner ZIP ${innerZipEntry.entryName}:`,
-        (e as Error).message,
-      );
-      continue;
+      innerEntries = openZip(innerZipEntry.getData(), zipPw);
+    } catch (_) {
+      throw Object.assign(new Error('Incorrect password'), {
+        code: 'PASSWORD_INCORRECT',
+      });
     }
 
-    for (const f of mz.list()) {
-      try {
-        const data = Buffer.from(mz.extract(f.filepath, { password: zipPw }));
-        const entryName = prefix + f.filepath;
-        const virtualEntry: ZipEntry = {
-          entryName,
-          getData: () => data,
-        };
-        entries.push(virtualEntry);
-        byName[entryName] = virtualEntry;
-      } catch (_) {
-        throw Object.assign(new Error('Incorrect password'), {
-          code: 'PASSWORD_INCORRECT',
-        });
-      }
+    for (const f of innerEntries) {
+      const virtualEntry: ZipEntry = {
+        entryName: prefix + f.entryName,
+        getData: () => f.getData(),
+      };
+      entries.push(virtualEntry);
+      byName[virtualEntry.entryName] = virtualEntry;
     }
   }
 

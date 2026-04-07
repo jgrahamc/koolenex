@@ -16,7 +16,6 @@
   },
   "dependencies": {
     "@iarna/rtf-to-html": "1.1.0",
-    "adm-zip": "0.5.16",
     "cors": "2.8.5",
     "express": "4.18.2",
     "fast-xml-parser": "4.3.4",
