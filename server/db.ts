@@ -6,7 +6,7 @@
  */
 
 import initSqlJs from 'sql.js';
-import type { SqlJsDatabase, SqlJsStatic } from 'sql.js';
+import type { SqlJsDatabase, SqlJsStatic, SqlValue } from 'sql.js';
 import path from 'path';
 import fs from 'fs';
 import type {
@@ -395,7 +395,7 @@ export function all<T = Record<string, unknown>>(
 ): T[] {
   assertDb(db);
   const stmt = db.prepare(sql);
-  stmt.bind(params);
+  stmt.bind(params as SqlValue[]);
   const rows: T[] = [];
   while (stmt.step()) {
     rows.push(stmt.getAsObject() as T);
@@ -414,7 +414,7 @@ export function get<T = Record<string, unknown>>(
 
 export function run(sql: string, params: unknown[] = []): RunResult {
   assertDb(db);
-  db.run(sql, params);
+  db.run(sql, params as SqlValue[]);
   const lastInsertRowid =
     (db.exec('SELECT last_insert_rowid() as id')[0]?.values[0]?.[0] as
       | number
