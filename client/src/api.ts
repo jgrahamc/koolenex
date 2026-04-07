@@ -38,12 +38,12 @@ class ApiError extends Error {
   code?: string;
 }
 
-async function req(
+async function req<T = unknown>(
   method: string,
   path: string,
   body?: unknown,
   isFormData = false,
-): Promise<unknown> {
+): Promise<T> {
   const opts: RequestInit = { method, headers: {} };
   if (body && !isFormData) {
     (opts.headers as Record<string, string>)['Content-Type'] =
@@ -59,221 +59,170 @@ async function req(
     if (data.code) e.code = data.code;
     throw e;
   }
-  return data;
+  return data as T;
 }
 
 export const api = {
   // Projects
-  listProjects: () => req('GET', '/projects') as Promise<Project[]>,
-  getProject: (id: number) =>
-    req('GET', `/projects/${id}`) as Promise<ProjectFull>,
-  createProject: (name: string) =>
-    req('POST', '/projects', { name }) as Promise<Project>,
+  listProjects: () => req<Project[]>('GET', '/projects'),
+  getProject: (id: number) => req<ProjectFull>('GET', `/projects/${id}`),
+  createProject: (name: string) => req<Project>('POST', '/projects', { name }),
   updateProject: (id: number, name: string) =>
-    req('PUT', `/projects/${id}`, { name }) as Promise<Project>,
+    req<Project>('PUT', `/projects/${id}`, { name }),
   deleteProject: (id: number) =>
-    req('DELETE', `/projects/${id}`) as Promise<{ ok: boolean }>,
+    req<{ ok: boolean }>('DELETE', `/projects/${id}`),
   importETS: (formData: FormData) =>
-    req('POST', '/projects/import', formData, true) as Promise<ImportResult>,
+    req<ImportResult>('POST', '/projects/import', formData, true),
   reimportETS: (id: number, formData: FormData) =>
-    req(
-      'POST',
-      `/projects/${id}/reimport`,
-      formData,
-      true,
-    ) as Promise<ImportResult>,
+    req<ImportResult>('POST', `/projects/${id}/reimport`, formData, true),
 
   // Devices
   listDevices: (pid: number) =>
-    req('GET', `/projects/${pid}/devices`) as Promise<Device[]>,
+    req<Device[]>('GET', `/projects/${pid}/devices`),
   createDevice: (pid: number, body: Record<string, unknown>) =>
-    req('POST', `/projects/${pid}/devices`, body) as Promise<Device>,
+    req<Device>('POST', `/projects/${pid}/devices`, body),
   updateDevice: (pid: number, did: number, body: Record<string, unknown>) =>
-    req('PUT', `/projects/${pid}/devices/${did}`, body) as Promise<Device>,
+    req<Device>('PUT', `/projects/${pid}/devices/${did}`, body),
   setDeviceStatus: (pid: number, did: number, status: string) =>
-    req('PATCH', `/projects/${pid}/devices/${did}/status`, {
+    req<{ ok: boolean }>('PATCH', `/projects/${pid}/devices/${did}/status`, {
       status,
-    }) as Promise<{ ok: boolean }>,
+    }),
   deleteDevice: (pid: number, did: number) =>
-    req('DELETE', `/projects/${pid}/devices/${did}`) as Promise<{
-      ok: boolean;
-    }>,
+    req<{ ok: boolean }>('DELETE', `/projects/${pid}/devices/${did}`),
 
   uploadFloorPlan: (pid: number, spaceId: number, formData: FormData) =>
-    req(
+    req<{ ok: boolean; [key: string]: unknown }>(
       'POST',
       `/projects/${pid}/floor-plan/${spaceId}`,
       formData,
       true,
-    ) as Promise<{ ok: boolean; [key: string]: unknown }>,
+    ),
   getFloorPlanUrl: (pid: number, spaceId: number) =>
     `${BASE}/projects/${pid}/floor-plan/${spaceId}`,
   deleteFloorPlan: (pid: number, spaceId: number) =>
-    req('DELETE', `/projects/${pid}/floor-plan/${spaceId}`) as Promise<{
-      ok: boolean;
-    }>,
+    req<{ ok: boolean }>('DELETE', `/projects/${pid}/floor-plan/${spaceId}`),
 
   getParamModel: (pid: number, did: number) =>
-    req(
-      'GET',
-      `/projects/${pid}/devices/${did}/param-model`,
-    ) as Promise<unknown>,
+    req('GET', `/projects/${pid}/devices/${did}/param-model`),
   saveParamValues: (
     pid: number,
     did: number,
     values: Record<string, unknown>,
-  ) =>
-    req(
-      'PATCH',
-      `/projects/${pid}/devices/${did}/param-values`,
-      values,
-    ) as Promise<unknown>,
+  ) => req('PATCH', `/projects/${pid}/devices/${did}/param-values`, values),
 
   // DPT info (per-project, from project's knx_master.xml)
-  getDptInfo: (pid?: number) =>
-    req('GET', `/dpt-info?projectId=${pid || ''}`) as Promise<unknown>,
+  getDptInfo: (pid?: number) => req('GET', `/dpt-info?projectId=${pid || ''}`),
   getSpaceUsages: (pid?: number) =>
-    req('GET', `/space-usages?projectId=${pid || ''}`) as Promise<unknown>,
+    req('GET', `/space-usages?projectId=${pid || ''}`),
   getMediumTypes: (pid?: number) =>
-    req('GET', `/medium-types?projectId=${pid || ''}`) as Promise<unknown>,
+    req('GET', `/medium-types?projectId=${pid || ''}`),
   getMaskVersions: (pid?: number) =>
-    req('GET', `/mask-versions?projectId=${pid || ''}`) as Promise<unknown>,
+    req('GET', `/mask-versions?projectId=${pid || ''}`),
   getTranslations: (pid?: number) =>
-    req('GET', `/translations?projectId=${pid || ''}`) as Promise<unknown>,
+    req('GET', `/translations?projectId=${pid || ''}`),
 
   // Group Addresses
-  listGAs: (pid: number) =>
-    req('GET', `/projects/${pid}/gas`) as Promise<EnrichedGA[]>,
+  listGAs: (pid: number) => req<EnrichedGA[]>('GET', `/projects/${pid}/gas`),
   createGA: (pid: number, body: Record<string, unknown>) =>
-    req('POST', `/projects/${pid}/gas`, body) as Promise<EnrichedGA>,
+    req<EnrichedGA>('POST', `/projects/${pid}/gas`, body),
   updateGA: (pid: number, gid: number, body: Record<string, unknown>) =>
-    req('PUT', `/projects/${pid}/gas/${gid}`, body) as Promise<EnrichedGA>,
+    req<EnrichedGA>('PUT', `/projects/${pid}/gas/${gid}`, body),
   renameGAGroup: (pid: number, body: Record<string, unknown>) =>
-    req('PATCH', `/projects/${pid}/gas/group-name`, body) as Promise<{
-      ok: boolean;
-    }>,
+    req<{ ok: boolean }>('PATCH', `/projects/${pid}/gas/group-name`, body),
   deleteGA: (pid: number, gid: number) =>
-    req('DELETE', `/projects/${pid}/gas/${gid}`) as Promise<{ ok: boolean }>,
+    req<{ ok: boolean }>('DELETE', `/projects/${pid}/gas/${gid}`),
 
   // Com Objects
-  listComObjects: (pid: number) =>
-    req('GET', `/projects/${pid}/comobjects`) as Promise<unknown>,
+  listComObjects: (pid: number) => req('GET', `/projects/${pid}/comobjects`),
   updateComObjectGAs: (
     pid: number,
     coid: number,
     body: Record<string, unknown>,
-  ) =>
-    req(
-      'PATCH',
-      `/projects/${pid}/comobjects/${coid}/gas`,
-      body,
-    ) as Promise<unknown>,
+  ) => req('PATCH', `/projects/${pid}/comobjects/${coid}/gas`, body),
 
   // Catalog
-  getCatalog: (pid: number) =>
-    req('GET', `/projects/${pid}/catalog`) as Promise<unknown>,
+  getCatalog: (pid: number) => req('GET', `/projects/${pid}/catalog`),
   importKnxprod: (pid: number, formData: FormData) =>
-    req(
-      'POST',
-      `/projects/${pid}/catalog/import`,
-      formData,
-      true,
-    ) as Promise<unknown>,
+    req('POST', `/projects/${pid}/catalog/import`, formData, true),
 
   // Topology
   getTopology: (pid: number) =>
-    req('GET', `/projects/${pid}/topology`) as Promise<Topology[]>,
+    req<Topology[]>('GET', `/projects/${pid}/topology`),
   createTopology: (pid: number, body: Record<string, unknown>) =>
-    req('POST', `/projects/${pid}/topology`, body) as Promise<Topology>,
+    req<Topology>('POST', `/projects/${pid}/topology`, body),
   updateTopology: (pid: number, tid: number, body: Record<string, unknown>) =>
-    req('PUT', `/projects/${pid}/topology/${tid}`, body) as Promise<Topology>,
+    req<Topology>('PUT', `/projects/${pid}/topology/${tid}`, body),
   deleteTopology: (pid: number, tid: number) =>
-    req('DELETE', `/projects/${pid}/topology/${tid}`) as Promise<{
-      ok: boolean;
-    }>,
+    req<{ ok: boolean }>('DELETE', `/projects/${pid}/topology/${tid}`),
 
   // Spaces
   createSpace: (pid: number, body: Record<string, unknown>) =>
-    req('POST', `/projects/${pid}/spaces`, body) as Promise<Space>,
+    req<Space>('POST', `/projects/${pid}/spaces`, body),
   updateSpace: (pid: number, sid: number, body: Record<string, unknown>) =>
-    req('PUT', `/projects/${pid}/spaces/${sid}`, body) as Promise<Space>,
+    req<Space>('PUT', `/projects/${pid}/spaces/${sid}`, body),
   deleteSpace: (pid: number, sid: number) =>
-    req('DELETE', `/projects/${pid}/spaces/${sid}`) as Promise<{
-      ok: boolean;
-    }>,
+    req<{ ok: boolean }>('DELETE', `/projects/${pid}/spaces/${sid}`),
 
   // Audit Log
   getAuditLog: (pid: number, limit?: number) =>
-    req(
-      'GET',
-      `/projects/${pid}/audit-log?limit=${limit || 500}`,
-    ) as Promise<unknown>,
+    req('GET', `/projects/${pid}/audit-log?limit=${limit || 500}`),
   auditLogCsvUrl: (pid: number) => `${BASE}/projects/${pid}/audit-log/csv`,
 
   // Telegrams
   listTelegrams: (pid: number, limit?: number) =>
-    req('GET', `/projects/${pid}/telegrams?limit=${limit || 200}`) as Promise<
-      BusTelegram[]
-    >,
+    req<BusTelegram[]>(
+      'GET',
+      `/projects/${pid}/telegrams?limit=${limit || 200}`,
+    ),
   clearTelegrams: (pid: number) =>
-    req('DELETE', `/projects/${pid}/telegrams`) as Promise<{ ok: boolean }>,
+    req<{ ok: boolean }>('DELETE', `/projects/${pid}/telegrams`),
 
   // Bus
-  busStatus: () => req('GET', '/bus/status') as Promise<BusStatusResponse>,
+  busStatus: () => req<BusStatusResponse>('GET', '/bus/status'),
   busConnect: (host: string, port: number, projectId: number) =>
-    req('POST', '/bus/connect', {
+    req<{ ok: boolean; [key: string]: unknown }>('POST', '/bus/connect', {
       host,
       port,
       projectId,
-    }) as Promise<{ ok: boolean; [key: string]: unknown }>,
+    }),
   busConnectUsb: (devicePath: string, projectId: number) =>
-    req('POST', '/bus/connect-usb', {
+    req<{ ok: boolean; [key: string]: unknown }>('POST', '/bus/connect-usb', {
       devicePath,
       projectId,
-    }) as Promise<{ ok: boolean; [key: string]: unknown }>,
-  busUsbDevices: () => req('GET', '/bus/usb-devices') as Promise<unknown>,
-  busUsbDevicesAll: () =>
-    req('GET', '/bus/usb-devices/all') as Promise<unknown>,
+    }),
+  busUsbDevices: () => req('GET', '/bus/usb-devices'),
+  busUsbDevicesAll: () => req('GET', '/bus/usb-devices/all'),
   busSetProject: (projectId: number) =>
-    req('POST', '/bus/project', {
+    req<{ ok: boolean; [key: string]: unknown }>('POST', '/bus/project', {
       projectId,
-    }) as Promise<{ ok: boolean; [key: string]: unknown }>,
+    }),
   busDisconnect: () =>
-    req('POST', '/bus/disconnect') as Promise<{
-      ok: boolean;
-      [key: string]: unknown;
-    }>,
+    req<{ ok: boolean; [key: string]: unknown }>('POST', '/bus/disconnect'),
   busWrite: (
     ga: string,
     value: unknown,
     dpt: string | number,
     projectId: number,
   ) =>
-    req('POST', '/bus/write', {
+    req<{ ok: boolean; [key: string]: unknown }>('POST', '/bus/write', {
       ga,
       value,
       dpt,
       projectId,
-    }) as Promise<{ ok: boolean; [key: string]: unknown }>,
+    }),
   busRead: (ga: string) =>
-    req('POST', '/bus/read', { ga }) as Promise<{
-      ok: boolean;
-      [key: string]: unknown;
-    }>,
+    req<{ ok: boolean; [key: string]: unknown }>('POST', '/bus/read', { ga }),
   busPing: (gaAddresses: string[], deviceAddress: string) =>
-    req('POST', '/bus/ping', {
-      gaAddresses,
-      deviceAddress,
-    }) as Promise<unknown>,
+    req('POST', '/bus/ping', { gaAddresses, deviceAddress }),
   busIdentify: (deviceAddress: string) =>
-    req('POST', '/bus/identify', { deviceAddress }) as Promise<unknown>,
+    req('POST', '/bus/identify', { deviceAddress }),
   busScan: (area: number, line: number, timeout?: number) =>
-    req('POST', '/bus/scan', { area, line, timeout }) as Promise<unknown>,
-  busScanAbort: () => req('POST', '/bus/scan/abort') as Promise<unknown>,
+    req('POST', '/bus/scan', { area, line, timeout }),
+  busScanAbort: () => req('POST', '/bus/scan/abort'),
   busDeviceInfo: (deviceAddress: string) =>
-    req('POST', '/bus/device-info', { deviceAddress }) as Promise<unknown>,
+    req('POST', '/bus/device-info', { deviceAddress }),
   busProgramIA: (newAddr: string) =>
-    req('POST', '/bus/program-ia', { newAddr }) as Promise<unknown>,
+    req('POST', '/bus/program-ia', { newAddr }),
   busProgramDevice: (
     deviceAddress: string,
     projectId: number,
@@ -283,12 +232,12 @@ export const api = {
       deviceAddress,
       projectId,
       deviceId,
-    }) as Promise<unknown>,
+    }),
 
   // Settings
-  getSettings: () => req('GET', '/settings') as Promise<Setting[]>,
+  getSettings: () => req<Setting[]>('GET', '/settings'),
   saveSettings: (body: Record<string, string>) =>
-    req('PATCH', '/settings', body) as Promise<{ ok: boolean }>,
+    req<{ ok: boolean }>('PATCH', '/settings', body),
 
   // RTF to HTML
   rtfToHtml: async (rtf: string): Promise<string> => {

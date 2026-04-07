@@ -46,3 +46,8 @@ export const zIntString = z.coerce.number().int().positive();
 
 /** Coerce a string to a non-negative integer or fail. */
 export const zIntStringNonNeg = z.coerce.number().int().min(0);
+
+/** Extract a numeric route parameter by name. */
+export function paramId(req: Request, name: string): number {
+  return Number(req.params[name]);
+}

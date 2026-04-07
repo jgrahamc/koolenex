@@ -4,7 +4,7 @@ import { Readable } from 'stream';
 import { createRequire } from 'module';
 import { z } from 'zod';
 import * as db from '../db.ts';
-import { validateBody, validateQuery } from '../validate.ts';
+import { validateBody, validateQuery, paramId } from '../validate.ts';
 import {
   getDptInfo,
   readMasterXml,
@@ -367,13 +367,13 @@ router.patch('/settings', (req: Request, res: Response): void => {
 router.get('/projects/:pid/topology', (req: Request, res: Response): void => {
   res.json(
     db.all('SELECT * FROM topology WHERE project_id=? ORDER BY area, line', [
-      +req.params.pid!,
+      paramId(req, 'pid'),
     ]),
   );
 });
 
 router.post('/projects/:pid/topology', (req: Request, res: Response): void => {
-  const pid = +req.params.pid!;
+  const pid = paramId(req, 'pid');
   const body = validateBody(
     req,
     res,
@@ -405,7 +405,8 @@ router.post('/projects/:pid/topology', (req: Request, res: Response): void => {
 router.put(
   '/projects/:pid/topology/:tid',
   (req: Request, res: Response): void => {
-    const { pid, tid } = req.params;
+    const pid = paramId(req, 'pid');
+    const tid = paramId(req, 'tid');
     const b = validateBody(
       req,
       res,
@@ -416,8 +417,8 @@ router.put(
     );
     if (!b) return;
     const old = db.get('SELECT * FROM topology WHERE id=? AND project_id=?', [
-      +tid!,
-      +pid!,
+      tid,
+      pid,
     ]);
     if (!old) {
       res.status(404).json({ error: 'Not found' });
@@ -430,11 +431,11 @@ router.put(
       res.status(400).json({ error: 'No fields to update' });
       return;
     }
-    vals.push(+tid!);
+    vals.push(tid);
     db.run(`UPDATE topology SET ${sets.join(', ')} WHERE id=?`, vals);
     const label =
       old.line != null ? `${old.area}.${old.line}` : `Area ${old.area}`;
-    db.audit(+pid!, 'update', 'topology', String(label), diffs.join('; '));
+    db.audit(pid, 'update', 'topology', String(label), diffs.join('; '));
     db.scheduleSave();
     res.json({ ok: true });
   },
@@ -443,20 +444,21 @@ router.put(
 router.delete(
   '/projects/:pid/topology/:tid',
   (req: Request, res: Response): void => {
-    const { pid, tid } = req.params;
+    const pid = paramId(req, 'pid');
+    const tid = paramId(req, 'tid');
     const old = db.get('SELECT * FROM topology WHERE id=? AND project_id=?', [
-      +tid!,
-      +pid!,
+      tid,
+      pid,
     ]);
     if (!old) {
       res.status(404).json({ error: 'Not found' });
       return;
     }
-    db.run('DELETE FROM topology WHERE id=?', [+tid!]);
+    db.run('DELETE FROM topology WHERE id=?', [tid]);
     const label =
       old.line != null ? `${old.area}.${old.line}` : `Area ${old.area}`;
     db.audit(
-      +pid!,
+      pid,
       'delete',
       'topology',
       String(label),
@@ -469,7 +471,7 @@ router.delete(
 
 // ── Spaces ───────────────────────────────────────────────────────────────────
 router.post('/projects/:pid/spaces', (req: Request, res: Response): void => {
-  const pid = +req.params.pid!;
+  const pid = paramId(req, 'pid');
   const b = validateBody(
     req,
     res,
@@ -508,11 +510,11 @@ router.post('/projects/:pid/spaces', (req: Request, res: Response): void => {
 router.delete(
   '/projects/:pid/spaces/:sid',
   (req: Request, res: Response): void => {
-    const pid = req.params.pid as string;
-    const sid = req.params.sid as string;
+    const pid = paramId(req, 'pid');
+    const sid = paramId(req, 'sid');
     const old = db.get('SELECT * FROM spaces WHERE id=? AND project_id=?', [
-      +sid!,
-      +pid!,
+      sid,
+      pid,
     ]);
     if (!old) {
       res.status(404).json({ error: 'Not found' });
@@ -521,20 +523,20 @@ router.delete(
     // Unassign devices from this space
     db.run(
       'UPDATE devices SET space_id=NULL WHERE space_id=? AND project_id=?',
-      [+sid!, +pid!],
+      [sid, pid],
     );
     // Reparent child spaces to this space's parent
     db.run('UPDATE spaces SET parent_id=? WHERE parent_id=? AND project_id=?', [
       old.parent_id || null,
-      +sid!,
-      +pid!,
+      sid,
+      pid,
     ]);
-    db.run('DELETE FROM spaces WHERE id=?', [+sid!]);
+    db.run('DELETE FROM spaces WHERE id=?', [sid]);
     db.audit(
-      +pid!,
+      pid,
       'delete',
       'space',
-      (old.name as string) || sid!,
+      (old.name as string) || String(sid),
       `Deleted ${old.type} "${old.name}"`,
     );
     db.scheduleSave();
@@ -545,8 +547,8 @@ router.delete(
 router.put(
   '/projects/:pid/spaces/:sid',
   (req: Request, res: Response): void => {
-    const pid = req.params.pid as string;
-    const sid = req.params.sid as string;
+    const pid = paramId(req, 'pid');
+    const sid = paramId(req, 'sid');
     const b = validateBody(
       req,
       res,
@@ -556,8 +558,8 @@ router.put(
     );
     if (!b) return;
     const old = db.get('SELECT * FROM spaces WHERE id=? AND project_id=?', [
-      +sid!,
-      +pid!,
+      sid,
+      pid,
     ]);
     if (!old) {
       res.status(404).json({ error: 'Not found' });
@@ -569,13 +571,13 @@ router.put(
       res.status(400).json({ error: 'No fields to update' });
       return;
     }
-    vals.push(+sid!);
+    vals.push(sid);
     db.run(`UPDATE spaces SET ${sets.join(', ')} WHERE id=?`, vals);
     db.audit(
-      +pid!,
+      pid,
       'update',
       'space',
-      (old.name as string) || sid!,
+      (old.name as string) || String(sid),
       diffs.join('; '),
     );
     db.scheduleSave();
@@ -597,7 +599,7 @@ router.get('/projects/:id/audit-log', (req: Request, res: Response): void => {
   res.json(
     db.all(
       'SELECT * FROM audit_log WHERE project_id=? ORDER BY id DESC LIMIT ?',
-      [+req.params.id!, limit],
+      [paramId(req, 'id'), limit],
     ),
   );
 });
@@ -605,9 +607,10 @@ router.get('/projects/:id/audit-log', (req: Request, res: Response): void => {
 router.get(
   '/projects/:id/audit-log/csv',
   (req: Request, res: Response): void => {
+    const id = paramId(req, 'id');
     const rows = db.all(
       'SELECT * FROM audit_log WHERE project_id=? ORDER BY id DESC',
-      [+req.params.id!],
+      [id],
     );
     const escape = (v: unknown): string =>
       `"${String(v || '').replace(/"/g, '""')}"`;
@@ -621,7 +624,7 @@ router.get(
     res.setHeader('Content-Type', 'text/csv');
     res.setHeader(
       'Content-Disposition',
-      `attachment; filename="audit-log-${req.params.id!}.csv"`,
+      `attachment; filename="audit-log-${id}.csv"`,
     );
     res.send(csv);
   },
@@ -641,7 +644,7 @@ router.get('/projects/:id/telegrams', (req: Request, res: Response): void => {
   res.json(
     db.all(
       'SELECT * FROM bus_telegrams WHERE project_id=? ORDER BY id DESC LIMIT ?',
-      [+req.params.id!, limit],
+      [paramId(req, 'id'), limit],
     ),
   );
 });
@@ -649,7 +652,9 @@ router.get('/projects/:id/telegrams', (req: Request, res: Response): void => {
 router.delete(
   '/projects/:id/telegrams',
   (req: Request, res: Response): void => {
-    db.run('DELETE FROM bus_telegrams WHERE project_id=?', [+req.params.id!]);
+    db.run('DELETE FROM bus_telegrams WHERE project_id=?', [
+      paramId(req, 'id'),
+    ]);
     db.scheduleSave();
     res.json({ ok: true });
   },

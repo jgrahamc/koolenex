@@ -5,7 +5,7 @@ import fs from 'fs';
 import multer from 'multer';
 import { z } from 'zod';
 import * as db from '../db.ts';
-import { validateBody } from '../validate.ts';
+import { validateBody, paramId } from '../validate.ts';
 import { DATA_DIR, APPS_DIR, makeUpdateBuilder } from './shared.ts';
 
 const router = express.Router();
@@ -19,7 +19,7 @@ router.get('/projects/:id/devices', (req: Request, res: Response): void => {
   res.json(
     db.all(
       `SELECT * FROM devices WHERE project_id=? ORDER BY area, line, CAST(REPLACE(individual_address, area||'.'||line||'.', '') AS INTEGER)`,
-      [+req.params.id!],
+      [paramId(req, 'id')],
     ),
   );
 });
@@ -48,7 +48,7 @@ router.post('/projects/:id/devices', (req: Request, res: Response): void => {
     }),
   );
   if (!b) return;
-  const pid = +req.params.id!;
+  const pid = paramId(req, 'id');
   const { lastInsertRowid } = db.run(
     `
     INSERT OR REPLACE INTO devices
@@ -243,7 +243,7 @@ router.delete(
   '/projects/:pid/devices/:did',
   (req: Request, res: Response): void => {
     const pid = req.params.pid as string;
-    const did = +req.params.did!;
+    const did = paramId(req, 'did');
     const devD = db.get<Record<string, unknown>>(
       'SELECT individual_address, name FROM devices WHERE id=?',
       [did],

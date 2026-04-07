@@ -20,72 +20,14 @@ import type {
   Telegram,
   DptInfoEntry,
 } from '../../shared/types.ts';
+import type KnxBusManager from '../knx-bus.ts';
+import type { DownloadStep, DownloadProgress } from '../knx-connection.ts';
 
-// ── Bus interface (injected via setBus) ─────────────────────────────────────
-
-interface BusInstance {
-  projectId: number | string | null;
-  connected: boolean;
-  status(): Record<string, unknown>;
-  connect(
-    host: string,
-    port: number,
-    projectId?: unknown,
-  ): Promise<Record<string, unknown>>;
-  connectUsb(
-    devicePath: string,
-    projectId?: unknown,
-  ): Promise<Record<string, unknown>>;
-  disconnect(): void;
-  write(ga: string, value: unknown, dpt?: string): Record<string, unknown>;
-  read(ga: string): Promise<Record<string, unknown>>;
-  ping(
-    gaAddresses: string[],
-    deviceAddress: string | null,
-  ): Promise<Record<string, unknown>>;
-  identify(deviceAddress: string): Promise<void>;
-  scan(
-    area: number,
-    line: number,
-    timeout: number,
-    onProgress: (prog: Record<string, unknown>) => void,
-  ): Promise<Record<string, unknown>[]>;
-  abortScan(): void;
-  readDeviceInfo(deviceAddress: string): Promise<Record<string, unknown>>;
-  programIA(newAddr: string): Promise<Record<string, unknown>>;
-  downloadDevice(
-    deviceAddress: string,
-    steps: LoadStep[],
-    gaTable: Buffer,
-    assocTable: Buffer,
-    paramMem: Buffer | null,
-    onProgress: (p: ProgressEvent) => void,
-  ): Promise<void>;
-  listUsbDevices(): Record<string, unknown>[];
-  listAllHidDevices(): Record<string, unknown>[];
-  broadcast(event: string, data: unknown): void;
-  setRemapper(fn: (telegram: Telegram) => Telegram): void;
-  on(event: string, fn: (...args: unknown[]) => void): void;
-}
-
-interface LoadStep {
-  type: string;
-  data: Buffer | null;
-  [key: string]: unknown;
-}
-
-interface ProgressEvent {
-  msg: string;
-  pct: number;
-  error?: boolean;
-  [key: string]: unknown;
-}
-
-let bus: BusInstance | null = null;
+let bus: KnxBusManager | null = null;
 export const router = express.Router();
 
 /** Return the bus instance or send a 503 and return null. */
-function requireBus(res: Response): BusInstance | null {
+function requireBus(res: Response): KnxBusManager | null {
   if (!bus) {
     res.status(503).json({ error: 'Bus not initialised' });
     return null;
@@ -612,7 +554,7 @@ router.post('/bus/scan', (req: Request, res: Response) => {
   res.json({ ok: true });
   _activeScan = b
     .scan(area, line, timeout, (prog) => {
-      b.broadcast('scan:progress', prog);
+      b.broadcast('scan:progress', prog as unknown as Record<string, unknown>);
     })
     .then((results) => {
       b.broadcast('scan:done', { results, area, line });
@@ -783,13 +725,13 @@ router.post('/bus/program-device', async (req: Request, res: Response) => {
   }
 
   // Convert step data from hex strings back to Buffers
-  const steps: LoadStep[] = model.loadProcedures.map((s) => ({
+  const steps: DownloadStep[] = model.loadProcedures.map((s) => ({
     ...s,
-    data: s.data ? Buffer.from(s.data, 'hex') : null,
-  }));
+    data: s.data ? Buffer.from(s.data, 'hex') : undefined,
+  })) as DownloadStep[];
 
   // Stream progress via WebSocket
-  const onProgress = (p: ProgressEvent): void =>
+  const onProgress = (p: DownloadProgress): void =>
     b.broadcast('program:progress', { deviceAddress, ...p });
   onProgress({ msg: `Starting download to ${deviceAddress}`, pct: 0 });
 
@@ -807,12 +749,17 @@ router.post('/bus/program-device', async (req: Request, res: Response) => {
     res.json({ ok: true, deviceAddress });
   } catch (e) {
     const err = e as Error;
-    onProgress({ msg: `Error: ${err.message}`, pct: -1, error: true });
+    b.broadcast('program:progress', {
+      deviceAddress,
+      msg: `Error: ${err.message}`,
+      pct: -1,
+      error: true,
+    });
     res.status(502).json({ error: err.message });
   }
 });
 
-export function setBus(b: BusInstance): void {
+export function setBus(b: KnxBusManager): void {
   bus = b;
   wireBusEvents();
 }

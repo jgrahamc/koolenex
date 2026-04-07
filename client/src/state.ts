@@ -454,8 +454,8 @@ export function reducer(state: AppState, action: Action): AppState {
         ? [
             ...state.scan.results,
             {
-              address: prog.address!,
-              descriptor: prog.descriptor!,
+              address: prog.address ?? '',
+              descriptor: prog.descriptor ?? '',
             },
           ]
         : state.scan.results;

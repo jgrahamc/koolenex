@@ -6,7 +6,7 @@ import * as db from '../db.ts';
 import { parseKnxproj } from '../ets-parser.ts';
 import type { ParsedProject } from '../ets-parser.ts';
 import { saveModelsAndMasterXml } from './shared.ts';
-import { validateBody } from '../validate.ts';
+import { validateBody, paramId } from '../validate.ts';
 import type { Project, RunResult } from '../../shared/types.ts';
 
 interface ParseError extends Error {
@@ -247,7 +247,7 @@ router.post('/projects', (req: Request, res: Response) => {
 });
 
 router.get('/projects/:id', (req: Request, res: Response) => {
-  const data = db.getProjectFull(+req.params.id!);
+  const data = db.getProjectFull(paramId(req, 'id'));
   if (!data) return res.status(404).json({ error: 'not found' });
   res.json(data);
 });
@@ -256,29 +256,28 @@ router.put('/projects/:id', (req: Request, res: Response) => {
   const body = validateBody(req, res, z.object({ name: z.string().min(1) }));
   if (!body) return;
   const { name } = body;
+  const id = paramId(req, 'id');
   const oldProj = db.get<{ name: string }>(
     'SELECT name FROM projects WHERE id=?',
-    [+req.params.id!],
+    [id],
   );
   db.run("UPDATE projects SET name=?, updated_at=datetime('now') WHERE id=?", [
     name,
-    +req.params.id!,
+    id,
   ]);
   db.audit(
-    +req.params.id!,
+    id,
     'update',
     'project',
     name,
     `name: "${oldProj?.name ?? ''}" → "${name}"`,
   );
   db.scheduleSave();
-  res.json(
-    db.get<Project>('SELECT * FROM projects WHERE id=?', [+req.params.id!]),
-  );
+  res.json(db.get<Project>('SELECT * FROM projects WHERE id=?', [id]));
 });
 
 router.delete('/projects/:id', (req: Request, res: Response) => {
-  const pid = +req.params.id!;
+  const pid = paramId(req, 'id');
   db.transaction(({ run }: db.TransactionHelpers) => {
     run(
       'DELETE FROM com_objects WHERE device_id IN (SELECT id FROM devices WHERE project_id=?)',
@@ -393,7 +392,7 @@ router.post(
   '/projects/:id/reimport',
   upload.single('file'),
   (req: Request, res: Response) => {
-    const pid = +req.params.id!;
+    const pid = paramId(req, 'id');
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
     if (!req.file.originalname.toLowerCase().endsWith('.knxproj'))
       return res.status(400).json({ error: 'File must be a .knxproj file' });

@@ -21,8 +21,10 @@ import {
   etsTestMatch,
 } from './knx-tables.ts';
 
+import type KnxBusManager from '../knx-bus.ts';
+
 interface AppRouter extends express.Router {
-  setBus: (bus: unknown) => void;
+  setBus: (bus: KnxBusManager) => void;
 }
 
 const router = express.Router() as AppRouter;
@@ -58,6 +60,56 @@ router.param(
     next();
   },
 );
+router.param(
+  'gid',
+  (_req: Request, res: Response, next: NextFunction, val: string): void => {
+    if (!/^\d+$/.test(val)) {
+      res.status(400).json({ error: 'Invalid ID' });
+      return;
+    }
+    next();
+  },
+);
+router.param(
+  'sid',
+  (_req: Request, res: Response, next: NextFunction, val: string): void => {
+    if (!/^\d+$/.test(val)) {
+      res.status(400).json({ error: 'Invalid ID' });
+      return;
+    }
+    next();
+  },
+);
+router.param(
+  'tid',
+  (_req: Request, res: Response, next: NextFunction, val: string): void => {
+    if (!/^\d+$/.test(val)) {
+      res.status(400).json({ error: 'Invalid ID' });
+      return;
+    }
+    next();
+  },
+);
+router.param(
+  'coid',
+  (_req: Request, res: Response, next: NextFunction, val: string): void => {
+    if (!/^\d+$/.test(val)) {
+      res.status(400).json({ error: 'Invalid ID' });
+      return;
+    }
+    next();
+  },
+);
+router.param(
+  'spaceId',
+  (_req: Request, res: Response, next: NextFunction, val: string): void => {
+    if (!/^\d+$/.test(val)) {
+      res.status(400).json({ error: 'Invalid ID' });
+      return;
+    }
+    next();
+  },
+);
 
 // Mount sub-routers
 router.use('/', settingsRouter);
@@ -71,8 +123,8 @@ router.use('/', busRouter);
 setRebuildDemoMap(rebuildDemoMap);
 
 // Inject bus instance (called from server/index.js after creating the instance)
-router.setBus = (bus: unknown): void => {
-  setBusImpl(bus as Parameters<typeof setBusImpl>[0]);
+router.setBus = (bus: KnxBusManager): void => {
+  setBusImpl(bus);
 };
 
 export {

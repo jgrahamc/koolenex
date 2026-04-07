@@ -6,6 +6,7 @@ import fs from 'fs';
 import * as db from '../db.ts';
 import { parseKnxproj } from '../ets-parser.ts';
 import { APPS_DIR } from './shared.ts';
+import { paramId } from '../validate.ts';
 
 const router = express.Router();
 const upload = multer({
@@ -15,7 +16,7 @@ const upload = multer({
 
 // ── Catalog ──────────────────────────────────────────────────────────────────
 router.get('/projects/:id/catalog', (req: Request, res: Response): void => {
-  const pid = +req.params.id!;
+  const pid = paramId(req, 'id');
   const sections = db.all(
     'SELECT * FROM catalog_sections WHERE project_id=? ORDER BY manufacturer, number, name',
     [pid],
@@ -48,7 +49,7 @@ router.post(
   '/projects/:id/catalog/import',
   upload.single('file'),
   (req: Request, res: Response): void => {
-    const pid = +req.params.id!;
+    const pid = paramId(req, 'id');
     if (!req.file) {
       res.status(400).json({ error: 'No file uploaded' });
       return;

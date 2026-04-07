@@ -3,7 +3,7 @@ import type { Request, Response } from 'express';
 import { z } from 'zod';
 import * as db from '../db.ts';
 import { buildGAMaps } from '../../shared/ga-maps.ts';
-import { validateBody } from '../validate.ts';
+import { validateBody, paramId } from '../validate.ts';
 import { makeUpdateBuilder } from './shared.ts';
 import type {
   GroupAddress,
@@ -16,7 +16,7 @@ const router = express.Router();
 
 // ── Group Addresses ───────────────────────────────────────────────────────────
 router.get('/projects/:id/gas', (req: Request, res: Response): void => {
-  const pid = +req.params.id!;
+  const pid = paramId(req, 'id');
   const gas = db.all<GroupAddress>(
     'SELECT * FROM group_addresses WHERE project_id=? ORDER BY main_g,middle_g,sub_g',
     [pid],
@@ -60,7 +60,7 @@ router.post('/projects/:id/gas', (req: Request, res: Response): void => {
     }),
   );
   if (!b) return;
-  const pid = +req.params.id!;
+  const pid = paramId(req, 'id');
   const parts = b.address.split('/');
   const is2level = parts.length === 2;
   const [m, mi, s]: [number, number, number | null] = is2level
@@ -142,7 +142,7 @@ router.put('/projects/:pid/gas/:gid', (req: Request, res: Response): void => {
 router.patch(
   '/projects/:pid/gas/group-name',
   (req: Request, res: Response): void => {
-    const pid = +req.params.pid!;
+    const pid = paramId(req, 'pid');
     const b = validateBody(
       req,
       res,
@@ -182,7 +182,7 @@ router.delete(
   '/projects/:pid/gas/:gid',
   (req: Request, res: Response): void => {
     const pid = req.params.pid as string;
-    const gid = +req.params.gid!;
+    const gid = paramId(req, 'gid');
     const gaD = db.get<GroupAddress>(
       'SELECT address, name FROM group_addresses WHERE id=?',
       [gid],
@@ -209,7 +209,7 @@ router.get('/projects/:id/comobjects', (req: Request, res: Response): void => {
     FROM com_objects co JOIN devices d ON co.device_id=d.id
     WHERE co.project_id=? ORDER BY d.area, d.line, CAST(REPLACE(d.individual_address, d.area||'.'||d.line||'.', '') AS INTEGER), co.object_number
   `,
-      [+req.params.id!],
+      [paramId(req, 'id')],
     ),
   );
 });

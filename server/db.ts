@@ -167,12 +167,14 @@ export async function init(): Promise<void> {
 
   // ── Migrations: add columns introduced after initial schema ──────────────
   // SQLite has no ADD COLUMN IF NOT EXISTS, so we check pragma first.
+  assertDb(db);
+  const dbRef = db;
   const migrate = (table: string, col: string, def: string): void => {
     try {
-      const cols = db!.exec(`PRAGMA table_info(${table})`)[0];
+      const cols = dbRef.exec(`PRAGMA table_info(${table})`)[0];
       if (!cols) return;
       const exists = cols.values.some((row: unknown[]) => row[1] === col);
-      if (!exists) db!.run(`ALTER TABLE ${table} ADD COLUMN ${col} ${def}`);
+      if (!exists) dbRef.run(`ALTER TABLE ${table} ADD COLUMN ${col} ${def}`);
     } catch (_) {}
   };
   migrate('devices', 'comment', "TEXT DEFAULT ''");
@@ -377,9 +379,7 @@ export async function init(): Promise<void> {
 export function save(): void {
   assertDb(db);
   const data = db.export(); // Uint8Array
-  fs.writeFile(DB_PATH, Buffer.from(data), (err) => {
-    if (err) console.error('[DB] save error:', err.message);
-  });
+  fs.writeFileSync(DB_PATH, Buffer.from(data));
 }
 
 // Debounced save — avoids hammering disk during bulk imports
