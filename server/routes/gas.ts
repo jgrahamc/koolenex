@@ -1,6 +1,8 @@
 import express from 'express';
 import type { Request, Response } from 'express';
+import { z } from 'zod';
 import * as db from '../db.ts';
+import { validateBody } from '../validate.ts';
 import { makeUpdateBuilder } from './shared.ts';
 
 const router = express.Router();
@@ -59,9 +61,18 @@ router.get('/projects/:id/gas', (req: Request, res: Response): void => {
 });
 
 router.post('/projects/:id/gas', (req: Request, res: Response): void => {
-  const b = req.body as Record<string, unknown>;
+  const b = validateBody(
+    req,
+    res,
+    z.object({
+      address: z.string().min(1),
+      name: z.string().optional(),
+      dpt: z.string().optional(),
+    }),
+  );
+  if (!b) return;
   const pid = +req.params.id!;
-  const parts = ((b.address as string) || '').split('/');
+  const parts = b.address.split('/');
   const is2level = parts.length === 2;
   const [m, mi, s]: [number, number, number | null] = is2level
     ? [+parts[0]!, +parts[1]!, null]
@@ -70,29 +81,21 @@ router.post('/projects/:id/gas', (req: Request, res: Response): void => {
       : [0, 0, 0];
   const { lastInsertRowid } = db.run(
     'INSERT OR REPLACE INTO group_addresses (project_id,address,name,dpt,main_g,middle_g,sub_g) VALUES (?,?,?,?,?,?,?)',
-    [
-      pid,
-      b.address,
-      (b.name as string) || (b.address as string),
-      (b.dpt as string) || '',
-      m,
-      mi,
-      s,
-    ],
+    [pid, b.address, b.name || b.address, b.dpt || '', m, mi, s],
   );
   // For 2-level addresses, store middle group name
   if (is2level) {
     db.run(
       'INSERT OR REPLACE INTO ga_group_names (project_id, main_g, middle_g, name) VALUES (?,?,?,?)',
-      [pid, m, mi, (b.name as string) || (b.address as string)],
+      [pid, m, mi, b.name || b.address],
     );
   }
   db.audit(
     pid,
     'create',
     'group_address',
-    b.address as string,
-    `Created group address "${(b.name as string) || (b.address as string)}"`,
+    b.address,
+    `Created group address "${b.name || b.address}"`,
   );
   db.scheduleSave();
   res.json(
@@ -103,11 +106,17 @@ router.post('/projects/:id/gas', (req: Request, res: Response): void => {
 router.put('/projects/:pid/gas/:gid', (req: Request, res: Response): void => {
   const pid = req.params.pid as string;
   const gid = req.params.gid as string;
-  const b = req.body as Record<string, unknown>;
-  if (b.name !== undefined && !(b.name as string)?.trim()) {
-    res.status(400).json({ error: 'name required' });
-    return;
-  }
+  const b = validateBody(
+    req,
+    res,
+    z.object({
+      name: z.string().min(1).optional(),
+      dpt: z.string().optional(),
+      description: z.string().optional(),
+      comment: z.string().optional(),
+    }),
+  );
+  if (!b) return;
   const oldGA = db.get<Record<string, unknown>>(
     'SELECT * FROM group_addresses WHERE id=? AND project_id=?',
     [+gid, +pid],
@@ -117,7 +126,7 @@ router.put('/projects/:pid/gas/:gid', (req: Request, res: Response): void => {
     return;
   }
   const { track, sets, vals, diffs } = makeUpdateBuilder(oldGA);
-  if (b.name !== undefined) track('name', (b.name as string).trim());
+  if (b.name !== undefined) track('name', b.name.trim());
   if (b.dpt !== undefined) track('dpt', b.dpt);
   if (b.description !== undefined) track('description', b.description);
   if (b.comment !== undefined) track('comment', b.comment);
@@ -143,20 +152,17 @@ router.patch(
   '/projects/:pid/gas/group-name',
   (req: Request, res: Response): void => {
     const pid = +req.params.pid!;
-    const b = req.body as Record<string, unknown>;
-    const { main, middle, name } = b as {
-      main: number | undefined;
-      middle: number | undefined | null;
-      name: string | undefined;
-    };
-    if (name === undefined) {
-      res.status(400).json({ error: 'name required' });
-      return;
-    }
-    if (main === undefined) {
-      res.status(400).json({ error: 'main required' });
-      return;
-    }
+    const b = validateBody(
+      req,
+      res,
+      z.object({
+        main: z.number(),
+        middle: z.number().nullable().optional(),
+        name: z.string(),
+      }),
+    );
+    if (!b) return;
+    const { main, middle, name } = b;
 
     const midKey = middle !== undefined && middle !== null ? middle : -1;
     const old = db.get<Record<string, unknown>>(
@@ -231,13 +237,18 @@ router.patch(
       res.status(404).json({ error: 'Not found' });
       return;
     }
-    const b = req.body as Record<string, unknown>;
-    const { add, remove, reorder, position } = b as {
-      add?: string;
-      remove?: string;
-      reorder?: string;
-      position?: number;
-    };
+    const b = validateBody(
+      req,
+      res,
+      z.object({
+        add: z.string().optional(),
+        remove: z.string().optional(),
+        reorder: z.string().optional(),
+        position: z.number().optional(),
+      }),
+    );
+    if (!b) return;
+    const { add, remove, reorder, position } = b;
     let gaAddr = ((co.ga_address as string) || '').split(/\s+/).filter(Boolean);
 
     if (remove) {

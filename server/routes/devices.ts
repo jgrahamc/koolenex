@@ -3,7 +3,9 @@ import type { Request, Response } from 'express';
 import path from 'path';
 import fs from 'fs';
 import multer from 'multer';
+import { z } from 'zod';
 import * as db from '../db.ts';
+import { validateBody } from '../validate.ts';
 import { DATA_DIR, APPS_DIR, makeUpdateBuilder } from './shared.ts';
 
 const router = express.Router();
@@ -23,7 +25,29 @@ router.get('/projects/:id/devices', (req: Request, res: Response): void => {
 });
 
 router.post('/projects/:id/devices', (req: Request, res: Response): void => {
-  const b = req.body as Record<string, unknown>;
+  const b = validateBody(
+    req,
+    res,
+    z.object({
+      individual_address: z.string().min(1),
+      name: z.string().optional(),
+      description: z.string().optional(),
+      comment: z.string().optional(),
+      manufacturer: z.string().optional(),
+      model: z.string().optional(),
+      order_number: z.string().optional(),
+      serial_number: z.string().optional(),
+      product_ref: z.string().optional(),
+      area: z.number().optional(),
+      line: z.number().optional(),
+      device_type: z.string().optional(),
+      space_id: z.number().nullable().optional(),
+      medium: z.string().optional(),
+      area_name: z.string().optional(),
+      line_name: z.string().optional(),
+    }),
+  );
+  if (!b) return;
   const pid = +req.params.id!;
   const { lastInsertRowid } = db.run(
     `
@@ -33,34 +57,34 @@ router.post('/projects/:id/devices', (req: Request, res: Response): void => {
     [
       pid,
       b.individual_address,
-      (b.name as string) || (b.individual_address as string),
-      (b.description as string) || '',
-      (b.comment as string) || '',
-      (b.manufacturer as string) || '',
-      (b.model as string) || '',
-      (b.order_number as string) || '',
-      (b.serial_number as string) || '',
-      (b.product_ref as string) || '',
-      (b.area as number) || 1,
-      (b.line as number) || 1,
-      (b.device_type as string) || 'generic',
+      b.name || b.individual_address,
+      b.description || '',
+      b.comment || '',
+      b.manufacturer || '',
+      b.model || '',
+      b.order_number || '',
+      b.serial_number || '',
+      b.product_ref || '',
+      b.area || 1,
+      b.line || 1,
+      b.device_type || 'generic',
       'unassigned',
       '',
       '',
       '',
       '',
-      (b.space_id as number | null) || null,
-      (b.medium as string) || 'TP',
-      (b.area_name as string) || '',
-      (b.line_name as string) || '',
+      b.space_id || null,
+      b.medium || 'TP',
+      b.area_name || '',
+      b.line_name || '',
     ],
   );
   db.audit(
     pid,
     'create',
     'device',
-    b.individual_address as string,
-    `Created device "${(b.name as string) || (b.individual_address as string)}"`,
+    b.individual_address,
+    `Created device "${b.name || b.individual_address}"`,
   );
   db.scheduleSave();
   res.json(db.get('SELECT * FROM devices WHERE id=?', [lastInsertRowid]));
@@ -71,11 +95,20 @@ router.put(
   (req: Request, res: Response): void => {
     const pid = req.params.pid as string;
     const did = req.params.did as string;
-    const b = req.body as Record<string, unknown>;
-    if (b.name !== undefined && !(b.name as string)?.trim()) {
-      res.status(400).json({ error: 'name required' });
-      return;
-    }
+    const b = validateBody(
+      req,
+      res,
+      z.object({
+        name: z.string().min(1).optional(),
+        device_type: z.string().optional(),
+        description: z.string().optional(),
+        comment: z.string().optional(),
+        installation_hints: z.string().optional(),
+        floor_x: z.number().optional(),
+        floor_y: z.number().optional(),
+      }),
+    );
+    if (!b) return;
     const old = db.get<Record<string, unknown>>(
       'SELECT * FROM devices WHERE id=? AND project_id=?',
       [+did, +pid],
@@ -85,9 +118,9 @@ router.put(
       return;
     }
     const { track, sets, vals, diffs } = makeUpdateBuilder(old);
-    if (b.name !== undefined) track('name', (b.name as string).trim());
+    if (b.name !== undefined) track('name', b.name.trim());
     if (b.device_type !== undefined)
-      track('device_type', (b.device_type as string) || 'generic');
+      track('device_type', b.device_type || 'generic');
     if (b.description !== undefined) track('description', b.description);
     if (b.comment !== undefined) track('comment', b.comment);
     if (b.installation_hints !== undefined)
@@ -181,7 +214,14 @@ router.patch(
   (req: Request, res: Response): void => {
     const pid = req.params.pid as string;
     const did = req.params.did as string;
-    const b = req.body as Record<string, unknown>;
+    const b = validateBody(
+      req,
+      res,
+      z.object({
+        status: z.string(),
+      }),
+    );
+    if (!b) return;
     const devS = db.get<Record<string, unknown>>(
       'SELECT individual_address, name, status FROM devices WHERE id=?',
       [+did],
@@ -192,7 +232,7 @@ router.patch(
       'update',
       'device',
       (devS?.individual_address as string) || did,
-      `status: "${(devS?.status as string) ?? ''}" → "${b.status as string}" on "${(devS?.name as string) || did}"`,
+      `status: "${(devS?.status as string) ?? ''}" → "${b.status}" on "${(devS?.name as string) || did}"`,
     );
     db.scheduleSave();
     res.json({ ok: true });
@@ -293,7 +333,8 @@ router.patch(
     } catch (_) {
       /* ignore */
     }
-    const newVals = req.body as Record<string, unknown>;
+    const newVals = validateBody(req, res, z.record(z.string(), z.unknown()));
+    if (!newVals) return;
     const diffs: string[] = [];
     for (const k of Object.keys(newVals)) {
       const ov = oldVals[k];

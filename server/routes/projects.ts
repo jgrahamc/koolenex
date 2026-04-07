@@ -1,10 +1,12 @@
 import express from 'express';
 import type { Request, Response } from 'express';
 import multer from 'multer';
+import { z } from 'zod';
 import * as db from '../db.ts';
 import { parseKnxproj } from '../ets-parser.ts';
 import type { ParsedProject } from '../ets-parser.ts';
 import { saveModelsAndMasterXml } from './shared.ts';
+import { validateBody } from '../validate.ts';
 import type { Project, RunResult } from '../../shared/types.ts';
 
 interface ParseError extends Error {
@@ -205,12 +207,14 @@ function insertParsedData(
   return { deviceIdMap, gaIdMap };
 }
 
-function parseUploadedKnxproj(req: Request): ParsedProject {
+const importBodySchema = z.object({ password: z.string().optional() });
+
+function parseUploadedKnxproj(
+  req: Request,
+  password: string | undefined,
+): ParsedProject {
   const file = req.file as Express.Multer.File;
-  return parseKnxproj(
-    file.buffer,
-    (req.body as Record<string, string>).password || null,
-  );
+  return parseKnxproj(file.buffer, password || null);
 }
 
 // ── Projects ──────────────────────────────────────────────────────────────────
@@ -219,16 +223,21 @@ router.get('/projects', (_req: Request, res: Response) => {
 });
 
 router.post('/projects', (req: Request, res: Response) => {
-  const { name } = req.body as { name?: string };
-  if (!name?.trim()) return res.status(400).json({ error: 'name required' });
+  const body = validateBody(
+    req,
+    res,
+    z.object({ name: z.string().trim().min(1) }),
+  );
+  if (!body) return;
+  const { name } = body;
   const { lastInsertRowid } = db.run('INSERT INTO projects (name) VALUES (?)', [
-    name.trim(),
+    name,
   ]);
   db.audit(
     lastInsertRowid as number,
     'create',
     'project',
-    name.trim(),
+    name,
     'Created project',
   );
   db.scheduleSave();
@@ -244,7 +253,9 @@ router.get('/projects/:id', (req: Request, res: Response) => {
 });
 
 router.put('/projects/:id', (req: Request, res: Response) => {
-  const { name } = req.body as { name: string };
+  const body = validateBody(req, res, z.object({ name: z.string().min(1) }));
+  if (!body) return;
+  const { name } = body;
   const oldProj = db.get<{ name: string }>(
     'SELECT name FROM projects WHERE id=?',
     [+req.params.id!],
@@ -296,9 +307,12 @@ router.post(
     if (!req.file.originalname.toLowerCase().endsWith('.knxproj'))
       return res.status(400).json({ error: 'File must be a .knxproj file' });
 
+    const body = validateBody(req, res, importBodySchema);
+    if (!body) return;
+
     let parsed: ParsedProject;
     try {
-      parsed = parseUploadedKnxproj(req);
+      parsed = parseUploadedKnxproj(req, body.password);
     } catch (e) {
       const err = e as ParseError;
       if (err.code === 'PASSWORD_REQUIRED')
@@ -387,9 +401,12 @@ router.post(
     const project = db.get<Project>('SELECT * FROM projects WHERE id=?', [pid]);
     if (!project) return res.status(404).json({ error: 'Project not found' });
 
+    const body = validateBody(req, res, importBodySchema);
+    if (!body) return;
+
     let parsed: ParsedProject;
     try {
-      parsed = parseUploadedKnxproj(req);
+      parsed = parseUploadedKnxproj(req, body.password);
     } catch (e) {
       const err = e as ParseError;
       if (err.code === 'PASSWORD_REQUIRED')

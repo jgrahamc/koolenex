@@ -2,8 +2,10 @@ import express from 'express';
 import type { Request, Response } from 'express';
 import path from 'path';
 import fs from 'fs';
+import { z } from 'zod';
 import * as db from '../db.ts';
 import { APPS_DIR, getDptInfo } from './shared.ts';
+import { validateBody } from '../validate.ts';
 import {
   buildGATable,
   buildAssocTable,
@@ -383,18 +385,19 @@ router.get('/bus/status', (_req: Request, res: Response) => {
 router.post('/bus/connect', async (req: Request, res: Response) => {
   const b = requireBus(res);
   if (!b) return;
-  const { host, port, projectId } = req.body as {
-    host?: string;
-    port?: string | number;
-    projectId?: number;
-  };
-  if (!host) return res.status(400).json({ error: 'host required' });
+  const body = validateBody(
+    req,
+    res,
+    z.object({
+      host: z.string().min(1),
+      port: z.coerce.number().int().positive().optional(),
+      projectId: z.number().int().optional(),
+    }),
+  );
+  if (!body) return;
+  const { host, port, projectId } = body;
   try {
-    const result = await b.connect(
-      host,
-      parseInt(String(port)) || 3671,
-      projectId,
-    );
+    const result = await b.connect(host, port || 3671, projectId);
     db.run("INSERT OR REPLACE INTO settings VALUES ('knxip_host',?)", [host]);
     db.run("INSERT OR REPLACE INTO settings VALUES ('knxip_port',?)", [
       String(port || 3671),
@@ -434,12 +437,16 @@ router.get('/bus/usb-devices/all', (_req: Request, res: Response) => {
 router.post('/bus/connect-usb', async (req: Request, res: Response) => {
   const b = requireBus(res);
   if (!b) return;
-  const { devicePath, projectId } = req.body as {
-    devicePath?: string;
-    projectId?: number;
-  };
-  if (!devicePath)
-    return res.status(400).json({ error: 'devicePath required' });
+  const body = validateBody(
+    req,
+    res,
+    z.object({
+      devicePath: z.string().min(1),
+      projectId: z.number().int().optional(),
+    }),
+  );
+  if (!body) return;
+  const { devicePath, projectId } = body;
   try {
     const result = await b.connectUsb(devicePath, projectId);
     res.json({ ok: true, type: 'usb', ...result });
@@ -452,8 +459,13 @@ router.post('/bus/connect-usb', async (req: Request, res: Response) => {
 router.post('/bus/project', (req: Request, res: Response) => {
   const b = requireBus(res);
   if (!b) return;
-  const { projectId } = req.body as { projectId?: number | null };
-  b.projectId = projectId || null;
+  const body = validateBody(
+    req,
+    res,
+    z.object({ projectId: z.number().int().positive().nullable() }),
+  );
+  if (!body) return;
+  b.projectId = body.projectId;
   res.json({ ok: true });
 });
 
@@ -467,13 +479,18 @@ router.post('/bus/disconnect', (_req: Request, res: Response) => {
 router.post('/bus/write', (req: Request, res: Response) => {
   const b = requireBus(res);
   if (!b) return;
-  const { ga, value, dpt, projectId } = req.body as {
-    ga?: string;
-    value?: unknown;
-    dpt?: string;
-    projectId?: number;
-  };
-  if (!ga) return res.status(400).json({ error: 'ga required' });
+  const body = validateBody(
+    req,
+    res,
+    z.object({
+      ga: z.string().min(1),
+      value: z.unknown(),
+      dpt: z.string().optional(),
+      projectId: z.number().int().optional(),
+    }),
+  );
+  if (!body) return;
+  const { ga, value, dpt, projectId } = body;
   try {
     const busGa = demoToReal(ga);
     const result = b.write(busGa, value, dpt);
@@ -513,8 +530,10 @@ router.post('/bus/write', (req: Request, res: Response) => {
 router.post('/bus/read', async (req: Request, res: Response) => {
   const b = requireBus(res);
   if (!b) return;
+  const body = validateBody(req, res, z.object({ ga: z.string().min(1) }));
+  if (!body) return;
   try {
-    res.json(await b.read((req.body as { ga: string }).ga));
+    res.json(await b.read(body.ga));
   } catch (e) {
     const err = e as Error;
     res.status(502).json({ error: err.message });
@@ -525,10 +544,16 @@ router.post('/bus/read', async (req: Request, res: Response) => {
 router.post('/bus/ping', async (req: Request, res: Response) => {
   const b = requireBus(res);
   if (!b) return;
-  const { gaAddresses = [], deviceAddress } = req.body as {
-    gaAddresses?: string[];
-    deviceAddress?: string;
-  };
+  const body = validateBody(
+    req,
+    res,
+    z.object({
+      gaAddresses: z.array(z.string()).optional().default([]),
+      deviceAddress: z.string().optional(),
+    }),
+  );
+  if (!body) return;
+  const { gaAddresses, deviceAddress } = body;
   try {
     const result = await b.ping(gaAddresses, deviceAddress || null);
     res.json(result);
@@ -544,9 +569,13 @@ router.post('/bus/ping', async (req: Request, res: Response) => {
 router.post('/bus/identify', async (req: Request, res: Response) => {
   const b = requireBus(res);
   if (!b) return;
-  const { deviceAddress } = req.body as { deviceAddress?: string };
-  if (!deviceAddress)
-    return res.status(400).json({ error: 'deviceAddress required' });
+  const body = validateBody(
+    req,
+    res,
+    z.object({ deviceAddress: z.string().min(1) }),
+  );
+  if (!body) return;
+  const { deviceAddress } = body;
   try {
     await b.identify(deviceAddress);
     res.json({ ok: true });
@@ -563,33 +592,26 @@ let _activeScan: Promise<void> | null = null;
 router.post('/bus/scan', (req: Request, res: Response) => {
   const b = requireBus(res);
   if (!b) return;
-  const {
-    area = 1,
-    line = 1,
-    timeout = 200,
-  } = req.body as {
-    area?: number | string;
-    line?: number | string;
-    timeout?: number | string;
-  };
+  const body = validateBody(
+    req,
+    res,
+    z.object({
+      area: z.coerce.number().int().min(0).optional().default(1),
+      line: z.coerce.number().int().min(0).optional().default(1),
+      timeout: z.coerce.number().int().positive().optional().default(200),
+    }),
+  );
+  if (!body) return;
+  const { area, line, timeout } = body;
   if (!b.connected) return res.status(409).json({ error: 'Not connected' });
   if (_activeScan) b.abortScan();
   res.json({ ok: true });
   _activeScan = b
-    .scan(
-      parseInt(String(area)),
-      parseInt(String(line)),
-      parseInt(String(timeout)),
-      (prog) => {
-        b.broadcast('scan:progress', prog);
-      },
-    )
+    .scan(area, line, timeout, (prog) => {
+      b.broadcast('scan:progress', prog);
+    })
     .then((results) => {
-      b.broadcast('scan:done', {
-        results,
-        area: parseInt(String(area)),
-        line: parseInt(String(line)),
-      });
+      b.broadcast('scan:done', { results, area, line });
       _activeScan = null;
     })
     .catch((err: Error) => {
@@ -610,9 +632,13 @@ router.post('/bus/scan/abort', (_req: Request, res: Response) => {
 router.post('/bus/device-info', async (req: Request, res: Response) => {
   const b = requireBus(res);
   if (!b) return;
-  const { deviceAddress } = req.body as { deviceAddress?: string };
-  if (!deviceAddress)
-    return res.status(400).json({ error: 'deviceAddress required' });
+  const body = validateBody(
+    req,
+    res,
+    z.object({ deviceAddress: z.string().min(1) }),
+  );
+  if (!body) return;
+  const { deviceAddress } = body;
   if (!b.connected) return res.status(409).json({ error: 'Not connected' });
   try {
     const info = await b.readDeviceInfo(deviceAddress);
@@ -629,8 +655,9 @@ router.post('/bus/device-info', async (req: Request, res: Response) => {
 router.post('/bus/program-ia', async (req: Request, res: Response) => {
   const b = requireBus(res);
   if (!b) return;
-  const { newAddr } = req.body as { newAddr?: string };
-  if (!newAddr) return res.status(400).json({ error: 'newAddr required' });
+  const body = validateBody(req, res, z.object({ newAddr: z.string().min(1) }));
+  if (!body) return;
+  const { newAddr } = body;
   if (!b.connected) return res.status(409).json({ error: 'Bus not connected' });
   try {
     const result = await b.programIA(newAddr);
@@ -645,13 +672,17 @@ router.post('/bus/program-ia', async (req: Request, res: Response) => {
 router.post('/bus/program-device', async (req: Request, res: Response) => {
   const b = requireBus(res);
   if (!b) return;
-  const { deviceAddress, projectId, deviceId } = req.body as {
-    deviceAddress?: string;
-    projectId?: number;
-    deviceId?: number;
-  };
-  if (!deviceAddress)
-    return res.status(400).json({ error: 'deviceAddress required' });
+  const body = validateBody(
+    req,
+    res,
+    z.object({
+      deviceAddress: z.string().min(1),
+      projectId: z.number().int().optional(),
+      deviceId: z.number().int().optional(),
+    }),
+  );
+  if (!body) return;
+  const { deviceAddress, projectId, deviceId } = body;
   if (!b.connected) return res.status(409).json({ error: 'Bus not connected' });
 
   // Load device data

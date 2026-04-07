@@ -2,7 +2,9 @@ import express from 'express';
 import type { Request, Response } from 'express';
 import { Readable } from 'stream';
 import { createRequire } from 'module';
+import { z } from 'zod';
 import * as db from '../db.ts';
+import { validateBody, validateQuery } from '../validate.ts';
 import {
   getDptInfo,
   readMasterXml,
@@ -63,7 +65,15 @@ router.get('/health', (_req: Request, res: Response): void => {
 
 // ── DPT info ──────────────────────────────────────────────────────────────────
 router.get('/dpt-info', (req: Request, res: Response): void => {
-  res.json(getDptInfo(req.query.projectId as string));
+  const query = validateQuery(
+    req,
+    res,
+    z.object({
+      projectId: z.string().optional().default(''),
+    }),
+  );
+  if (!query) return;
+  res.json(getDptInfo(query.projectId));
 });
 
 // ── SpaceUsage info ───────────────────────────────────────────────────────────
@@ -93,7 +103,15 @@ function getSpaceUsages(projectId: string | number): SpaceUsageEntry[] {
 }
 
 router.get('/space-usages', (req: Request, res: Response): void => {
-  res.json(getSpaceUsages(req.query.projectId as string));
+  const query = validateQuery(
+    req,
+    res,
+    z.object({
+      projectId: z.string().optional().default(''),
+    }),
+  );
+  if (!query) return;
+  res.json(getSpaceUsages(query.projectId));
 });
 
 // ── Translations ─────────────────────────────────────────────────────────────
@@ -215,7 +233,15 @@ function getTranslations(projectId: string | number): TranslationResult {
 }
 
 router.get('/translations', (req: Request, res: Response): void => {
-  res.json(getTranslations(req.query.projectId as string));
+  const query = validateQuery(
+    req,
+    res,
+    z.object({
+      projectId: z.string().optional().default(''),
+    }),
+  );
+  if (!query) return;
+  res.json(getTranslations(query.projectId));
 });
 
 // ── MediumType info ──────────────────────────────────────────────────────────
@@ -240,7 +266,15 @@ function getMediumTypes(projectId: string | number): Record<string, string> {
 }
 
 router.get('/medium-types', (req: Request, res: Response): void => {
-  res.json(getMediumTypes(req.query.projectId as string));
+  const query = validateQuery(
+    req,
+    res,
+    z.object({
+      projectId: z.string().optional().default(''),
+    }),
+  );
+  if (!query) return;
+  res.json(getMediumTypes(query.projectId));
 });
 
 // ── Mask version info ────────────────────────────────────────────────────────
@@ -283,7 +317,15 @@ function getMaskVersions(
 }
 
 router.get('/mask-versions', (req: Request, res: Response): void => {
-  res.json(getMaskVersions(req.query.projectId as string));
+  const query = validateQuery(
+    req,
+    res,
+    z.object({
+      projectId: z.string().optional().default(''),
+    }),
+  );
+  if (!query) return;
+  res.json(getMaskVersions(query.projectId));
 });
 
 // ── Settings ──────────────────────────────────────────────────────────────────
@@ -301,7 +343,8 @@ function setRebuildDemoMap(fn: () => void): void {
 }
 
 router.patch('/settings', (req: Request, res: Response): void => {
-  const body = req.body as Record<string, unknown>;
+  const body = validateBody(req, res, z.record(z.string(), z.unknown()));
+  if (!body) return;
   const allowed = new Set([
     'knxip_host',
     'knxip_port',
@@ -331,11 +374,18 @@ router.get('/projects/:pid/topology', (req: Request, res: Response): void => {
 
 router.post('/projects/:pid/topology', (req: Request, res: Response): void => {
   const pid = +req.params.pid!;
-  const { area, line, name, medium } = req.body as Record<string, unknown>;
-  if (area === undefined) {
-    res.status(400).json({ error: 'area required' });
-    return;
-  }
+  const body = validateBody(
+    req,
+    res,
+    z.object({
+      area: z.number(),
+      line: z.number().nullable().optional(),
+      name: z.string().optional(),
+      medium: z.string().optional(),
+    }),
+  );
+  if (!body) return;
+  const { area, line, name, medium } = body;
   const { lastInsertRowid } = db.run(
     'INSERT OR REPLACE INTO topology (project_id, area, line, name, medium) VALUES (?,?,?,?,?)',
     [pid, area, line ?? null, name || '', medium || 'TP'],
@@ -356,7 +406,15 @@ router.put(
   '/projects/:pid/topology/:tid',
   (req: Request, res: Response): void => {
     const { pid, tid } = req.params;
-    const b = req.body as Record<string, unknown>;
+    const b = validateBody(
+      req,
+      res,
+      z.object({
+        name: z.string().optional(),
+        medium: z.string().optional(),
+      }),
+    );
+    if (!b) return;
     const old = db.get('SELECT * FROM topology WHERE id=? AND project_id=?', [
       +tid!,
       +pid!,
@@ -412,21 +470,27 @@ router.delete(
 // ── Spaces ───────────────────────────────────────────────────────────────────
 router.post('/projects/:pid/spaces', (req: Request, res: Response): void => {
   const pid = +req.params.pid!;
-  const b = req.body as Record<string, unknown>;
-  const bName = b.name as string | undefined;
-  if (!bName?.trim()) {
-    res.status(400).json({ error: 'name required' });
-    return;
-  }
+  const b = validateBody(
+    req,
+    res,
+    z.object({
+      name: z.string().min(1),
+      type: z.string().optional(),
+      parent_id: z.number().nullable().optional(),
+      sort_order: z.number().optional(),
+      usage_id: z.string().optional(),
+    }),
+  );
+  if (!b) return;
   const { lastInsertRowid } = db.run(
     'INSERT INTO spaces (project_id, name, type, parent_id, sort_order, usage_id) VALUES (?,?,?,?,?,?)',
     [
       pid,
-      bName.trim(),
-      (b.type as string) || 'Room',
+      b.name.trim(),
+      b.type || 'Room',
       b.parent_id || null,
       b.sort_order ?? 0,
-      (b.usage_id as string) || '',
+      b.usage_id || '',
     ],
   );
   const space = db.get('SELECT * FROM spaces WHERE id=?', [lastInsertRowid]);
@@ -434,8 +498,8 @@ router.post('/projects/:pid/spaces', (req: Request, res: Response): void => {
     pid,
     'create',
     'space',
-    bName.trim(),
-    `Created ${(b.type as string) || 'Room'} "${bName.trim()}"`,
+    b.name.trim(),
+    `Created ${b.type || 'Room'} "${b.name.trim()}"`,
   );
   db.scheduleSave();
   res.json(space);
@@ -483,7 +547,14 @@ router.put(
   (req: Request, res: Response): void => {
     const pid = req.params.pid as string;
     const sid = req.params.sid as string;
-    const b = req.body as Record<string, unknown>;
+    const b = validateBody(
+      req,
+      res,
+      z.object({
+        name: z.string().optional(),
+      }),
+    );
+    if (!b) return;
     const old = db.get('SELECT * FROM spaces WHERE id=? AND project_id=?', [
       +sid!,
       +pid!,
@@ -493,7 +564,7 @@ router.put(
       return;
     }
     const { track, sets, vals, diffs } = makeUpdateBuilder(old);
-    if (b.name !== undefined) track('name', (b.name as string).trim());
+    if (b.name !== undefined) track('name', b.name.trim());
     if (!sets.length) {
       res.status(400).json({ error: 'No fields to update' });
       return;
@@ -514,7 +585,15 @@ router.put(
 
 // ── Audit Log ────────────────────────────────────────────────────────────────
 router.get('/projects/:id/audit-log', (req: Request, res: Response): void => {
-  const limit = parseInt(req.query.limit as string) || 500;
+  const query = validateQuery(
+    req,
+    res,
+    z.object({
+      limit: z.coerce.number().optional().default(500),
+    }),
+  );
+  if (!query) return;
+  const limit = query.limit;
   res.json(
     db.all(
       'SELECT * FROM audit_log WHERE project_id=? ORDER BY id DESC LIMIT ?',
@@ -550,7 +629,15 @@ router.get(
 
 // ── Telegrams ─────────────────────────────────────────────────────────────────
 router.get('/projects/:id/telegrams', (req: Request, res: Response): void => {
-  const limit = parseInt(req.query.limit as string) || 200;
+  const query = validateQuery(
+    req,
+    res,
+    z.object({
+      limit: z.coerce.number().optional().default(200),
+    }),
+  );
+  if (!query) return;
+  const limit = query.limit;
   res.json(
     db.all(
       'SELECT * FROM bus_telegrams WHERE project_id=? ORDER BY id DESC LIMIT ?',
