@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useC } from '../theme.js';
+import { useC } from '../theme.ts';
 import { Btn, Spinner } from '../primitives.jsx';
-import { api } from '../api.js';
+import { api } from '../api.ts';
 
 export function ProjectInfoView({
   project,

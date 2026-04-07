@@ -1,6 +1,6 @@
 import { useState, useContext, useMemo } from 'react';
-import { useC, STATUS_COLOR, I18nCtx } from '../theme.js';
-import { PinContext } from '../contexts.js';
+import { useC, STATUS_COLOR, I18nCtx } from '../theme.ts';
+import { PinContext } from '../contexts.ts';
 import {
   Badge,
   Btn,
@@ -14,7 +14,7 @@ import {
 } from '../primitives.jsx';
 import { SpaceTypeIcon, DeviceTypeIcon } from '../icons.jsx';
 import { useColumns, ColumnPicker, dlCSV } from '../columns.jsx';
-import { spaceUsageMap, localizedModel } from '../dpt.js';
+import { spaceUsageMap, localizedModel } from '../dpt.ts';
 
 import { AddDeviceModal } from '../AddDeviceModal.jsx';
 

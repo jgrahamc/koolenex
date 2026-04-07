@@ -93,6 +93,7 @@ export default [
       'react/jsx-uses-react': 'error',
       'no-empty': ['error', { allowEmptyCatch: true }],
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_', caughtErrorsIgnorePattern: '^_' }],
+      '@typescript-eslint/no-explicit-any': 'off',
     },
   },
   { ignores: ['node_modules/', 'dist/'] },

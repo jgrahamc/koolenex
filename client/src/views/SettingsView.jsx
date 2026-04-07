@@ -1,4 +1,4 @@
-import { useC } from '../theme.js';
+import { useC } from '../theme.ts';
 
 export function SettingsView({
   theme,

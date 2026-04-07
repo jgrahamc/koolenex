@@ -15,7 +15,7 @@ import {
   setI18nT,
   setI18nLang,
   localizedModel,
-} from '../client/src/dpt.js';
+} from '../client/src/dpt.ts';
 
 // ── normalizeDpt ────────────────────────────────────────────────────────────
 

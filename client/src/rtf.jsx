@@ -7,7 +7,7 @@
  * When editing RTF content, the user edits plain text (RTF markup is replaced).
  */
 import { useState, useEffect, useRef } from 'react';
-import { api } from './api.js';
+import { api } from './api.ts';
 
 // In-memory cache so we don't re-convert the same RTF string repeatedly
 const cache = new Map();

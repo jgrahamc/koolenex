@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { useC, STATUS_COLOR } from '../theme.js';
+import { useC, STATUS_COLOR } from '../theme.ts';
 import {
   Badge,
   Btn,

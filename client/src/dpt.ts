@@ -1,17 +1,23 @@
 // ── DPT (Data Point Type) module ──────────────────────────────────────────────
 
+export interface DptInfoEntry {
+  name: string;
+  text?: string;
+  unit: string;
+}
+
 // Module-level i18n translation function — updated by I18nCtx provider
-export let _i18nT = (_refId) => null;
+export let _i18nT: (refId: string) => string | null = (_refId) => null;
 export let _i18nLang = 'en-US';
-export function setI18nT(fn) {
+export function setI18nT(fn: (refId: string) => string | null): void {
   _i18nT = fn;
 }
-export function setI18nLang(lang) {
+export function setI18nLang(lang: string): void {
   _i18nLang = lang;
 }
 
 // Resolve a device's model name using stored translations and current language
-export function localizedModel(device) {
+export function localizedModel(device: any): string {
   if (!device) return '';
   if (_i18nLang && device.model_translations) {
     try {
@@ -26,7 +32,7 @@ export function localizedModel(device) {
 }
 
 // Populated at runtime from /api/dpt-info (knx_master.xml)
-export let DPT_INFO = {
+export let DPT_INFO: Record<string, DptInfoEntry> = {
   // DPT 1 — 1-bit boolean (fallback until server data loads)
   1.001: { name: 'DPT_Switch', unit: '' },
   1.002: { name: 'DPT_Bool', unit: '' },
@@ -168,32 +174,37 @@ export let DPT_INFO = {
   '232.600': { name: 'DPT_Colour_RGB', unit: '' },
 };
 
-export let SPACE_USAGES = []; // populated from /api/space-usages
-export function setSpaceUsages(data) {
+export interface SpaceUsage {
+  id: string;
+  text: string;
+}
+
+export let SPACE_USAGES: SpaceUsage[] = []; // populated from /api/space-usages
+export function setSpaceUsages(data: SpaceUsage[]): void {
   SPACE_USAGES = data;
 }
-export const spaceUsageMap = () =>
+export const spaceUsageMap = (): Record<string, string> =>
   Object.fromEntries(SPACE_USAGES.map((su) => [su.id, su.text]));
 
-export function setDptInfo(data) {
+export function setDptInfo(data: Record<string, DptInfoEntry>): void {
   DPT_INFO = data;
 }
 
-export function normalizeDpt(dpt) {
+export function normalizeDpt(dpt: string | number): string {
   if (!dpt) return '';
   const s = dpt.toString().trim();
   // ETS format: 'DPT-9-1' or 'DPST-9-1' → '9.001'
   const m = s.match(/^DPS?T-(\d+)-(\d+)$/i);
-  if (m) return `${m[1]}.${m[2].padStart(3, '0')}`;
+  if (m) return `${m[1]}.${m[2]!.padStart(3, '0')}`;
   // Already dotted: '9.1' → '9.001', '9.001' stays
   if (s.includes('.')) {
-    const [main, sub] = s.split('.');
+    const [main, sub] = s.split('.') as [string, string];
     return `${main}.${sub.padStart(3, '0')}`;
   }
   return s;
 }
 
-export function dptInfo(dpt) {
+export function dptInfo(dpt: string | number): DptInfoEntry {
   if (!dpt) return { name: '', text: '', unit: '' };
   const d = normalizeDpt(dpt);
   return (
@@ -202,18 +213,18 @@ export function dptInfo(dpt) {
   );
 }
 
-export function dptUnit(dpt) {
+export function dptUnit(dpt: string | number): string {
   return dptInfo(dpt).unit;
 }
 
-export function dptToRefId(dpt) {
+export function dptToRefId(dpt: string | number): string | null {
   const d = normalizeDpt(dpt);
   if (!d) return null;
-  const [major, sub] = d.split('.');
+  const [major, sub] = d.split('.') as [string, string];
   return 'DPST-' + parseInt(major) + '-' + parseInt(sub);
 }
 
-export function dptName(dpt) {
+export function dptName(dpt: string | number): string {
   const { name, text } = dptInfo(dpt);
   // Try i18n translation first
   const refId = dptToRefId(dpt);
@@ -223,7 +234,7 @@ export function dptName(dpt) {
   return text || name;
 }
 
-export function dptTitle(dpt) {
+export function dptTitle(dpt: string | number): string | undefined {
   if (!dpt) return undefined;
   const { name, text, unit } = dptInfo(dpt);
   const refId = dptToRefId(dpt);

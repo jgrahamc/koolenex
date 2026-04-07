@@ -6,11 +6,11 @@ import {
   useMemo,
   useCallback,
 } from 'react';
-import { useC } from '../theme.js';
-import { PinContext } from '../contexts.js';
+import { useC } from '../theme.ts';
+import { PinContext } from '../contexts.ts';
 import { DeviceTypeIcon } from '../icons.jsx';
 import { Btn, Empty } from '../primitives.jsx';
-import { api } from '../api.js';
+import { api } from '../api.ts';
 
 const COLMAP = {
   actuator: '#4fc3f7',

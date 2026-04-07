@@ -1,5 +1,5 @@
 import { useContext, useMemo } from 'react';
-import { PinContext, useDpt } from '../contexts.js';
+import { PinContext, useDpt } from '../contexts.ts';
 import { Empty, PinAddr, coGAs } from '../primitives.jsx';
 
 function GaAddrCell({ addr, otherAddr, C }) {

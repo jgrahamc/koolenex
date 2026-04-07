@@ -6,7 +6,7 @@ import {
   useReducer,
   useMemo,
 } from 'react';
-import { api, createWS } from './api.js';
+import { api, createWS } from './api.ts';
 import {
   DARK_C,
   LIGHT_C,
@@ -14,15 +14,15 @@ import {
   MediumCtx,
   MaskCtx,
   I18nCtx,
-} from './theme.js';
-import { DptCtx, PinContext } from './contexts.js';
+} from './theme.ts';
+import { DptCtx, PinContext } from './contexts.ts';
 import {
   setI18nT,
   setI18nLang as setI18nLangGlobal,
   setDptInfo,
   setSpaceUsages,
-} from './dpt.js';
-import { initialState, reducer } from './state.js';
+} from './dpt.ts';
+import { initialState, reducer } from './state.ts';
 import {
   IconLocations,
   IconTopology,
@@ -56,7 +56,7 @@ import { BusScanView } from './views/BusScanView.jsx';
 import { CatalogView } from './views/CatalogView.jsx';
 import { PrintLabelsView } from './views/PrintLabelsView.jsx';
 import { PinDetailView } from './detail/PinDetailView.jsx';
-import { GROUP_WTYPES } from './state.js';
+import { GROUP_WTYPES } from './state.ts';
 
 // ── Global styles ─────────────────────────────────────────────────────────────
 const makeGS = (C) => `

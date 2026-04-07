@@ -1,8 +1,8 @@
 import { useContext } from 'react';
-import { useC } from '../theme.js';
-import { PinContext, useDpt } from '../contexts.js';
+import { useC } from '../theme.ts';
+import { PinContext, useDpt } from '../contexts.ts';
 import { TH, TD, PinAddr, SpacePath } from '../primitives.jsx';
-import { dptInfo } from '../dpt.js';
+import { dptInfo } from '../dpt.ts';
 
 export function PinTelegramFeed({
   telegrams,

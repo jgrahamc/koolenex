@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { api } from '../api.js';
+import { api } from '../api.ts';
 
 // Test whether a numeric/string value matches an ETS when-test entry.
 // Tests can be exact ('0','1') or relational ('<2','>0','<=3','>=1').

@@ -1,7 +1,7 @@
 import { useState, useEffect, useContext } from 'react';
-import { useC, MaskCtx } from '../theme.js';
+import { useC, MaskCtx } from '../theme.ts';
 import { Btn, TH, TD, SectionHeader, PinAddr } from '../primitives.jsx';
-import { api } from '../api.js';
+import { api } from '../api.ts';
 
 function decodeMask(descriptor, maskVersions) {
   if (!descriptor) return null;

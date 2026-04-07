@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
-import { useC, STATUS_COLOR } from '../theme.js';
-import { localizedModel } from '../dpt.js';
+import { useC, STATUS_COLOR } from '../theme.ts';
+import { localizedModel } from '../dpt.ts';
 import {
   Badge,
   Chip,

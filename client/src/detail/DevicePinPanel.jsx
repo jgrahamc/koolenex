@@ -1,6 +1,6 @@
 import { useState, useEffect, useContext } from 'react';
-import { PinContext, useDpt } from '../contexts.js';
-import { localizedModel } from '../dpt.js';
+import { PinContext, useDpt } from '../contexts.ts';
+import { localizedModel } from '../dpt.ts';
 import {
   Badge,
   Btn,
@@ -12,12 +12,12 @@ import {
   SpacePath,
   coGAs,
 } from '../primitives.jsx';
-import { STATUS_COLOR, MaskCtx } from '../theme.js';
+import { STATUS_COLOR, MaskCtx } from '../theme.ts';
 import { DeviceTypeIcon } from '../icons.jsx';
 import { DeviceNetworkDiagram } from '../diagram.jsx';
 import { DeviceParameters } from './DeviceParameters.jsx';
 import { PinTelegramFeed } from './PinTelegramFeed.jsx';
-import { api } from '../api.js';
+import { api } from '../api.ts';
 import { EditableRtfField } from '../rtf.jsx';
 
 export function DevicePinPanel({

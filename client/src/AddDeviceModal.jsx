@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { useC } from './theme.js';
+import { useC } from './theme.ts';
 
 // Compute next available device number on a line
 function nextDeviceNum(devices, area, line) {

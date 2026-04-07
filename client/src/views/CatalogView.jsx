@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { useC } from '../theme.js';
+import { useC } from '../theme.ts';
 import {
   Btn,
   Spinner,
@@ -7,7 +7,7 @@ import {
   SectionHeader,
   Empty,
 } from '../primitives.jsx';
-import { api } from '../api.js';
+import { api } from '../api.ts';
 import { AddDeviceModal } from '../AddDeviceModal.jsx';
 
 export function CatalogView({

@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef, useContext, useMemo } from 'react';
-import { useC } from './theme.js';
-import { PinContext } from './contexts.js';
+import { useC } from './theme.ts';
+import { PinContext } from './contexts.ts';
 import { coGAs } from './primitives.jsx';
-import { dptUnit, dptName } from './dpt.js';
+import { dptUnit, dptName } from './dpt.ts';
 
 // Speech bubble that appears above a GA node when a telegram dot arrives
 export function GASpeechBubble({ x, y, dptStr, rawDecoded, arriveMs }) {

@@ -1,6 +1,6 @@
 import { useState, useEffect, useContext, useMemo } from 'react';
-import { useC, MediumCtx, STATUS_COLOR } from '../theme.js';
-import { localizedModel } from '../dpt.js';
+import { useC, MediumCtx, STATUS_COLOR } from '../theme.ts';
+import { localizedModel } from '../dpt.ts';
 import {
   Badge,
   Btn,
@@ -12,7 +12,7 @@ import {
   SpacePath,
 } from '../primitives.jsx';
 import { useColumns, ColumnPicker, dlCSV } from '../columns.jsx';
-import { api } from '../api.js';
+import { api } from '../api.ts';
 
 import { AddDeviceModal } from '../AddDeviceModal.jsx';
 

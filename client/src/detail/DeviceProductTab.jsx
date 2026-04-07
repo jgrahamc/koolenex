@@ -1,4 +1,4 @@
-import { localizedModel } from '../dpt.js';
+import { localizedModel } from '../dpt.ts';
 
 export function DeviceProductTab({ dev, C }) {
   const searchQuery =

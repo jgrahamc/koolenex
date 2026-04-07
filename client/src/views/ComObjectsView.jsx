@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
-import { useC } from '../theme.js';
-import { useDpt } from '../contexts.js';
-import { localizedModel } from '../dpt.js';
+import { useC } from '../theme.ts';
+import { useDpt } from '../contexts.ts';
+import { localizedModel } from '../dpt.ts';
 import {
   Btn,
   TH,

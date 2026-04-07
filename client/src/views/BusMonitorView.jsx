@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useContext, useMemo } from 'react';
-import { useC } from '../theme.js';
-import { useDpt, PinContext } from '../contexts.js';
+import { useC } from '../theme.ts';
+import { useDpt, PinContext } from '../contexts.ts';
 import {
   Badge,
   Btn,
@@ -16,7 +16,7 @@ import {
   coGAs,
 } from '../primitives.jsx';
 import { useColumns, ColumnPicker, dlCSV } from '../columns.jsx';
-import { dptInfo } from '../dpt.js';
+import { dptInfo } from '../dpt.ts';
 
 function TelegramFlowPanel({ telegrams, gaMap, devMap, comObjects, C }) {
   const pin = useContext(PinContext);

@@ -1,6 +1,6 @@
 import { useEffect, useContext, Fragment } from 'react';
-import { useC } from './theme.js';
-import { PinContext } from './contexts.js';
+import { useC } from './theme.ts';
+import { PinContext } from './contexts.ts';
 
 export const Badge = ({ label, color, title }) => (
   <span

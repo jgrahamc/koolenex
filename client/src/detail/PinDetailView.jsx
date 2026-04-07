@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect, useContext } from 'react';
-import { useC } from '../theme.js';
-import { localizedModel } from '../dpt.js';
-import { PinContext, useDpt } from '../contexts.js';
+import { useC } from '../theme.ts';
+import { localizedModel } from '../dpt.ts';
+import { PinContext, useDpt } from '../contexts.ts';
 import {
   Empty,
   Btn,
@@ -12,7 +12,7 @@ import {
   coGAs,
 } from '../primitives.jsx';
 import { SpaceTypeIcon } from '../icons.jsx';
-import { GROUP_WTYPES } from '../state.js';
+import { GROUP_WTYPES } from '../state.ts';
 import { AddDeviceModal } from '../AddDeviceModal.jsx';
 import { ComparePanel } from './ComparePanel.jsx';
 import { DevicePinPanel } from './DevicePinPanel.jsx';

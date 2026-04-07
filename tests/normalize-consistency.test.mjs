@@ -4,7 +4,7 @@
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizeDpt } from '../client/src/dpt.js';
+import { normalizeDpt } from '../client/src/dpt.ts';
 import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
 const { normalizeDptKey } = require('../server/routes/index.ts');

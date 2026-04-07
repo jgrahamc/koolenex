@@ -1,8 +1,18 @@
 // ── App state reducer ─────────────────────────────────────────────────────────
 
-function buildGAMaps(comObjects) {
-  const deviceGAMap = {},
-    gaDeviceMap = {};
+interface ComObject {
+  id: number;
+  device_address: string;
+  ga_address?: string;
+  [key: string]: any;
+}
+
+function buildGAMaps(comObjects: ComObject[]): {
+  deviceGAMap: Record<string, string[]>;
+  gaDeviceMap: Record<string, string[]>;
+} {
+  const deviceGAMap: Record<string, string[]> = {};
+  const gaDeviceMap: Record<string, string[]> = {};
   for (const co of comObjects) {
     const da = co.device_address;
     for (const ga of (co.ga_address || '').split(/\s+/).filter(Boolean)) {
@@ -15,7 +25,13 @@ function buildGAMaps(comObjects) {
   return { deviceGAMap, gaDeviceMap };
 }
 
-export const loadWindows = (pid) => {
+interface WindowEntry {
+  key: string;
+  wtype: string;
+  address: string;
+}
+
+export const loadWindows = (pid: number | null): WindowEntry[] => {
   try {
     return JSON.parse(
       localStorage.getItem(pid ? `knx-windows-${pid}` : 'knx-windows') || '[]',
@@ -24,7 +40,7 @@ export const loadWindows = (pid) => {
     return [];
   }
 };
-export const saveWindows = (pid, w) => {
+export const saveWindows = (pid: number | null, w: WindowEntry[]): void => {
   try {
     localStorage.setItem(
       pid ? `knx-windows-${pid}` : 'knx-windows',
@@ -33,7 +49,50 @@ export const saveWindows = (pid, w) => {
   } catch {}
 };
 
-export const initialState = {
+interface NavEntry {
+  view: string;
+  activePinKey: string | null;
+}
+
+interface ScanProgress {
+  address?: string;
+  descriptor?: string;
+  reachable?: boolean;
+  [key: string]: any;
+}
+
+interface ScanResult {
+  address: string;
+  descriptor: string;
+}
+
+interface ScanState {
+  results: ScanResult[];
+  running: boolean;
+  progress: ScanProgress | null;
+}
+
+export interface AppState {
+  projects: any[];
+  activeProjectId: number | null;
+  projectData: any;
+  busStatus: { connected: boolean; host: string | null; hasLib: boolean };
+  telegrams: any[];
+  view: string;
+  loading: boolean;
+  error: string | null;
+  windows: WindowEntry[];
+  activePinKey: string | null;
+  scan: ScanState;
+  navHistory: NavEntry[];
+  navIndex: number;
+  deviceJumpTo?: { address: string; ts: number };
+  gaJumpTo?: { main: number; middle: number | null; ts: number };
+  catalogJumpTo?: { manufacturer: string; ts: number };
+  floorplanJumpTo?: { spaceId: number; ts: number };
+}
+
+export const initialState: AppState = {
   projects: [],
   activeProjectId: null,
   projectData: null,
@@ -53,10 +112,58 @@ export const GROUP_WTYPES = {
   manufacturer: { field: 'manufacturer', label: 'MANUFACTURER' },
   model: { field: 'model', label: 'MODEL' },
   order_number: { field: 'order_number', label: 'ORDER #' },
-};
+} as const;
+
+// ── Action discriminated union ───────────────────────────────────────────────
+
+export type Action =
+  | { type: 'SET_PROJECTS'; projects: any[] }
+  | { type: 'DPT_LOADED' }
+  | { type: 'SET_ACTIVE'; id: number; data: any; view?: string }
+  | { type: 'SET_VIEW'; view: string }
+  | { type: 'GRAPH_JUMP' }
+  | { type: 'DEVICE_JUMP'; address: string }
+  | { type: 'GA_GROUP_JUMP'; main: number; middle?: number | null }
+  | { type: 'CATALOG_JUMP'; manufacturer: string }
+  | { type: 'FLOORPLAN_JUMP'; spaceId: number }
+  | { type: 'SET_BUS'; status: AppState['busStatus'] }
+  | { type: 'ADD_TELEGRAM'; telegram: any }
+  | { type: 'SET_TELEGRAMS'; telegrams: any[] }
+  | { type: 'PIN_VIEW'; key: string }
+  | { type: 'OPEN_WINDOW'; wtype: string; address: string }
+  | { type: 'NAV_BACK' }
+  | { type: 'NAV_FORWARD' }
+  | { type: 'CLOSE_WINDOW'; key: string }
+  | { type: 'SET_LOADING'; loading: boolean }
+  | { type: 'SET_ERROR'; error: string | null }
+  | { type: 'PATCH_PROJECT'; patch: any }
+  | { type: 'SET_DEVICE_STATUS'; deviceId: number; status: string }
+  | { type: 'PATCH_DEVICE'; id: number; patch: any }
+  | { type: 'PATCH_GA'; id: number; patch: any }
+  | {
+      type: 'RENAME_GA_GROUP';
+      field: string;
+      main: number;
+      middle?: number;
+      name: string;
+    }
+  | { type: 'PATCH_SPACE'; id: number; patch: any }
+  | { type: 'ADD_SPACE'; space: any }
+  | { type: 'DELETE_SPACE'; id: number; newParentId: number | null }
+  | { type: 'ADD_TOPOLOGY'; entry: any }
+  | { type: 'PATCH_TOPOLOGY'; id: number; patch: any }
+  | { type: 'DELETE_TOPOLOGY'; id: number }
+  | { type: 'DELETE_GA'; id: number }
+  | { type: 'ADD_GA'; ga: any }
+  | { type: 'ADD_DEVICE'; device: any }
+  | { type: 'DELETE_DEVICE'; id: number }
+  | { type: 'PATCH_COMOBJECT'; id: number; patch: any }
+  | { type: 'SCAN_PROGRESS'; progress: ScanProgress }
+  | { type: 'SCAN_DONE'; results: ScanResult[] }
+  | { type: 'SCAN_RESET' };
 
 // Push a navigation entry, truncating any forward history
-export function pushNav(state, entry) {
+export function pushNav(state: AppState, entry: NavEntry): Partial<AppState> {
   const cur = state.navHistory[state.navIndex];
   if (
     cur?.view === entry.view &&
@@ -67,7 +174,7 @@ export function pushNav(state, entry) {
   return { navHistory: hist, navIndex: hist.length - 1 };
 }
 
-export function reducer(state, action) {
+export function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
     case 'SET_PROJECTS':
       return { ...state, projects: action.projects };
@@ -164,7 +271,7 @@ export function reducer(state, action) {
     case 'NAV_BACK': {
       if (state.navIndex <= 0) return state;
       const idx = state.navIndex - 1;
-      const e = state.navHistory[idx];
+      const e = state.navHistory[idx]!;
       return {
         ...state,
         navIndex: idx,
@@ -175,7 +282,7 @@ export function reducer(state, action) {
     case 'NAV_FORWARD': {
       if (state.navIndex >= state.navHistory.length - 1) return state;
       const idx = state.navIndex + 1;
-      const e = state.navHistory[idx];
+      const e = state.navHistory[idx]!;
       return {
         ...state,
         navIndex: idx,
@@ -199,28 +306,28 @@ export function reducer(state, action) {
       };
     case 'SET_DEVICE_STATUS': {
       if (!state.projectData) return state;
-      const devices = state.projectData.devices.map((d) =>
+      const devices = state.projectData.devices.map((d: any) =>
         d.id === action.deviceId ? { ...d, status: action.status } : d,
       );
       return { ...state, projectData: { ...state.projectData, devices } };
     }
     case 'PATCH_DEVICE': {
       if (!state.projectData) return state;
-      const devices = state.projectData.devices.map((d) =>
+      const devices = state.projectData.devices.map((d: any) =>
         d.id === action.id ? { ...d, ...action.patch } : d,
       );
       return { ...state, projectData: { ...state.projectData, devices } };
     }
     case 'PATCH_GA': {
       if (!state.projectData) return state;
-      const gas = state.projectData.gas.map((g) =>
+      const gas = state.projectData.gas.map((g: any) =>
         g.id === action.id ? { ...g, ...action.patch } : g,
       );
       return { ...state, projectData: { ...state.projectData, gas } };
     }
     case 'RENAME_GA_GROUP': {
       if (!state.projectData) return state;
-      const gas = state.projectData.gas.map((g) => {
+      const gas = state.projectData.gas.map((g: any) => {
         if (action.field === 'main_group_name' && g.main === action.main)
           return { ...g, main_group_name: action.name };
         if (
@@ -235,7 +342,7 @@ export function reducer(state, action) {
     }
     case 'PATCH_SPACE': {
       if (!state.projectData) return state;
-      const spaces = state.projectData.spaces.map((s) =>
+      const spaces = state.projectData.spaces.map((s: any) =>
         s.id === action.id ? { ...s, ...action.patch } : s,
       );
       return { ...state, projectData: { ...state.projectData, spaces } };
@@ -248,13 +355,13 @@ export function reducer(state, action) {
     case 'DELETE_SPACE': {
       if (!state.projectData) return state;
       const spaces = state.projectData.spaces
-        .filter((s) => s.id !== action.id)
-        .map((s) =>
+        .filter((s: any) => s.id !== action.id)
+        .map((s: any) =>
           s.parent_id === action.id
             ? { ...s, parent_id: action.newParentId }
             : s,
         );
-      const devices = state.projectData.devices.map((d) =>
+      const devices = state.projectData.devices.map((d: any) =>
         d.space_id === action.id ? { ...d, space_id: null } : d,
       );
       return {
@@ -269,7 +376,7 @@ export function reducer(state, action) {
     }
     case 'PATCH_TOPOLOGY': {
       if (!state.projectData) return state;
-      const topology = (state.projectData.topology || []).map((t) =>
+      const topology = (state.projectData.topology || []).map((t: any) =>
         t.id === action.id ? { ...t, ...action.patch } : t,
       );
       return { ...state, projectData: { ...state.projectData, topology } };
@@ -277,13 +384,13 @@ export function reducer(state, action) {
     case 'DELETE_TOPOLOGY': {
       if (!state.projectData) return state;
       const topology = (state.projectData.topology || []).filter(
-        (t) => t.id !== action.id,
+        (t: any) => t.id !== action.id,
       );
       return { ...state, projectData: { ...state.projectData, topology } };
     }
     case 'DELETE_GA': {
       if (!state.projectData) return state;
-      const gas = state.projectData.gas.filter((g) => g.id !== action.id);
+      const gas = state.projectData.gas.filter((g: any) => g.id !== action.id);
       return { ...state, projectData: { ...state.projectData, gas } };
     }
     case 'ADD_GA': {
@@ -296,7 +403,7 @@ export function reducer(state, action) {
         devices: [],
       };
       const gas = [...state.projectData.gas, ga].sort(
-        (a, b) =>
+        (a: any, b: any) =>
           a.main - b.main ||
           a.middle - b.middle ||
           (a.sub ?? -1) - (b.sub ?? -1),
@@ -311,18 +418,18 @@ export function reducer(state, action) {
     case 'DELETE_DEVICE': {
       if (!state.projectData) return state;
       const devices = state.projectData.devices.filter(
-        (d) => d.id !== action.id,
+        (d: any) => d.id !== action.id,
       );
       return { ...state, projectData: { ...state.projectData, devices } };
     }
     case 'PATCH_COMOBJECT': {
       if (!state.projectData) return state;
-      const comObjects = state.projectData.comObjects.map((co) =>
+      const comObjects = state.projectData.comObjects.map((co: any) =>
         co.id === action.id ? { ...co, ...action.patch } : co,
       );
       const { deviceGAMap, gaDeviceMap } = buildGAMaps(comObjects);
       // Update GA device counts
-      const gas = (state.projectData.gas || []).map((g) => ({
+      const gas = (state.projectData.gas || []).map((g: any) => ({
         ...g,
         devices: gaDeviceMap[g.address] || [],
       }));
@@ -342,7 +449,10 @@ export function reducer(state, action) {
       const results = prog.reachable
         ? [
             ...state.scan.results,
-            { address: prog.address, descriptor: prog.descriptor },
+            {
+              address: prog.address!,
+              descriptor: prog.descriptor!,
+            },
           ]
         : state.scan.results;
       return {

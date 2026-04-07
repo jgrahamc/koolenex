@@ -1,5 +1,5 @@
 import { useState, useMemo, useRef } from 'react';
-import { useC } from '../theme.js';
+import { useC } from '../theme.ts';
 import { Btn, Chip, SectionHeader } from '../primitives.jsx';
 
 // Label sheet definitions (all dimensions in mm)

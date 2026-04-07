@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useC, STATUS_COLOR } from '../theme.js';
+import { useC, STATUS_COLOR } from '../theme.ts';
 import {
   Btn,
   Spinner,
@@ -10,7 +10,7 @@ import {
   Badge,
 } from '../primitives.jsx';
 import { DeviceTypeIcon } from '../icons.jsx';
-import { api } from '../api.js';
+import { api } from '../api.ts';
 
 export function ProgrammingView({ data, onDeviceStatus }) {
   const C = useC();

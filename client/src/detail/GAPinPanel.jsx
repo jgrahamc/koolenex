@@ -1,5 +1,5 @@
 import { useState, useEffect, useContext } from 'react';
-import { PinContext, useDpt } from '../contexts.js';
+import { PinContext, useDpt } from '../contexts.ts';
 import { Badge, Btn, Spinner, TabBar } from '../primitives.jsx';
 import { IconGroupAddr } from '../icons.jsx';
 import { EditableRtfField } from '../rtf.jsx';
