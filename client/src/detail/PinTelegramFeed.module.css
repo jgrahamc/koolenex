@@ -1,0 +1,68 @@
+.wrapper {
+  margin-top: 24px;
+}
+
+.empty {
+  font-size: 11px;
+  color: var(--dim);
+  padding: 12px 0;
+}
+
+.tableWrap {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: auto;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.mono {
+  font-family: monospace;
+  font-size: 10px;
+}
+
+.dimMono {
+  color: var(--dim);
+  font-family: monospace;
+  font-size: 10px;
+}
+
+.srcAddr {
+  color: var(--accent);
+  font-family: monospace;
+  font-size: 10px;
+}
+
+.dstAddr {
+  color: var(--purple);
+  font-family: monospace;
+  font-size: 10px;
+}
+
+.gaName {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.typeCell {
+  font-size: 10px;
+}
+
+.rawCell {
+  color: var(--dim);
+  font-family: monospace;
+  font-size: 10px;
+}
+
+.dptCell {
+  color: var(--dim);
+  font-size: 9px;
+}
+
+.locationCell {
+  color: var(--dim);
+  font-size: 10px;
+}

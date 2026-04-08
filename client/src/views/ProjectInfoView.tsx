@@ -35,7 +35,7 @@ export function ProjectInfoView({
     }
   })();
   const fmt = (iso: string | undefined) => {
-    if (!iso) return '\u2014';
+    if (!iso) return '—';
     try {
       return new Date(iso).toLocaleString();
     } catch {
@@ -177,8 +177,8 @@ export function ProjectInfoView({
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
               <span style={{ fontSize: 11, color: C.green }}>
                 {busStatus.type === 'usb'
-                  ? '\u25CF Connected via USB'
-                  : `\u25CF Connected to ${busStatus.host}:${busStatus.port || 3671}`}
+                  ? '● Connected via USB'
+                  : `● Connected to ${busStatus.host}:${busStatus.port || 3671}`}
               </span>
               <Btn onClick={onDisconnect} color={C.red} bg="#1a0a0a">
                 Disconnect
@@ -237,7 +237,7 @@ export function ProjectInfoView({
                     <Spinner /> Connecting...
                   </>
                 ) : (
-                  '\u27F2 Connect'
+                  '⟲ Connect'
                 )}
               </Btn>
             </>
@@ -250,7 +250,7 @@ export function ProjectInfoView({
                       <Spinner /> Scanning...
                     </>
                   ) : (
-                    '\u27F2 Scan for USB devices'
+                    '⟲ Scan for USB devices'
                   )}
                 </Btn>
               </div>
@@ -356,7 +356,7 @@ export function ProjectInfoView({
                       <Spinner /> Connecting...
                     </>
                   ) : (
-                    '\u27F2 Connect USB'
+                    '⟲ Connect USB'
                   )}
                 </Btn>
               )}
@@ -420,7 +420,7 @@ export function ProjectInfoView({
             ['GA Style', info.groupAddressStyle],
             ['GUID', info.guid],
           ]
-            .filter(([, v]) => v && v !== '\u2014')
+            .filter(([, v]) => v && v !== '—')
             .map(([label, value]) => (
               <div
                 key={label}
@@ -481,7 +481,7 @@ export function ProjectInfoView({
               }}
             >
               <span style={{ color: C.dim }}>{label}</span>
-              <span style={{ color: C.muted }}>{value ?? '\u2014'}</span>
+              <span style={{ color: C.muted }}>{value ?? '—'}</span>
             </div>
           ))}
         </div>
@@ -602,7 +602,7 @@ function AuditLogSection({ projectId, C }: AuditLogSectionProps) {
           AUDIT LOG
         </div>
         <span style={{ fontSize: 10, color: C.dim }}>
-          {expanded ? '\u25B2' : '\u25BC'}
+          {expanded ? '▲' : '▼'}
         </span>
       </div>
 
@@ -610,7 +610,7 @@ function AuditLogSection({ projectId, C }: AuditLogSectionProps) {
         <div style={{ marginTop: 12 }}>
           <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
             <Btn onClick={load} disabled={loading}>
-              {loading ? 'Loading...' : '\u21BB Refresh'}
+              {loading ? 'Loading...' : '↻ Refresh'}
             </Btn>
             {projectId && (
               <a
@@ -630,7 +630,7 @@ function AuditLogSection({ projectId, C }: AuditLogSectionProps) {
                   border: `1px solid ${C.accent}33`,
                 }}
               >
-                \u2193 Download CSV
+                ↓ Download CSV
               </a>
             )}
           </div>

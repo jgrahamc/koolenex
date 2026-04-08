@@ -169,7 +169,7 @@ export function CatalogView({
   }, [catalog, sq]);
 
   if (!activeProjectId)
-    return <Empty icon="\u25C8" msg="No project selected" />;
+    return <Empty icon="◈" msg="No project selected" />;
 
   const renderSection = (node: any, depth: number): React.ReactNode => {
     const isOpen = sq || expandedSections[node.id];
@@ -191,7 +191,7 @@ export function CatalogView({
         >
           {hasContent ? (
             <span style={{ fontSize: 9, color: C.dim, width: 10 }}>
-              {isOpen ? '\u25BE' : '\u25B8'}
+              {isOpen ? '▾' : '▸'}
             </span>
           ) : (
             <span style={{ width: 10 }} />
@@ -242,7 +242,7 @@ export function CatalogView({
                         title="View devices of this type"
                         className="bg"
                       >
-                        \u25CF
+                        ●
                       </span>
                     ) : (
                       <span
@@ -253,7 +253,7 @@ export function CatalogView({
                           padding: '0 2px',
                         }}
                       >
-                        \u25CB
+                        ○
                       </span>
                     )}
                     <span
@@ -336,7 +336,7 @@ export function CatalogView({
             key="s"
             value={search}
             onChange={setSearch}
-            placeholder="Search products\u2026"
+            placeholder="Search products…"
           />,
           <Btn
             key="imp"
@@ -347,7 +347,7 @@ export function CatalogView({
           >
             {importing ? (
               <>
-                <Spinner /> Importing\u2026
+                <Spinner /> Importing…
               </>
             ) : (
               '+ Import .knxprod'
@@ -366,16 +366,16 @@ export function CatalogView({
       <div style={{ flex: 1, overflow: 'auto' }}>
         {loading && (
           <div style={{ padding: 20, textAlign: 'center' }}>
-            <Spinner /> Loading catalog\u2026
+            <Spinner /> Loading catalog…
           </div>
         )}
         {!loading && catalog && filteredItemCount === 0 && (
           <Empty
-            icon="\u25C8"
+            icon="◈"
             msg={
               sq
                 ? 'No products match search'
-                : 'No catalog data \u2014 reimport your .knxproj or import a .knxprod file'
+                : 'No catalog data — reimport your .knxproj or import a .knxprod file'
             }
           />
         )}
@@ -406,7 +406,7 @@ export function CatalogView({
                   {mfr}
                 </span>
                 <span style={{ color: C.dim, fontSize: 10 }}>
-                  \u00B7{' '}
+                  ·{' '}
                   {sections.reduce((s: number, n: any) => s + n.totalItems, 0)}{' '}
                   products
                 </span>

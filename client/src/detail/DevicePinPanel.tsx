@@ -295,7 +295,7 @@ export function DevicePinPanel({
                   <Badge
                     label={
                       reachability === 'checking'
-                        ? 'PINGING\u2026'
+                        ? 'PINGING…'
                         : reachability === 'reachable'
                           ? 'REACHABLE'
                           : 'NO RESPONSE'
@@ -387,7 +387,7 @@ export function DevicePinPanel({
                   }}
                   className="bg"
                 >
-                  {readingInfo ? 'SCANNING\u2026' : 'SCAN'}
+                  {readingInfo ? 'SCANNING…' : 'SCAN'}
                 </span>
               </>
             )}
@@ -791,12 +791,12 @@ export function DevicePinPanel({
                       </TD>
                       <TD>
                         <span style={{ color: C.text }}>
-                          {co.name || '\u2014'}
+                          {co.name || '—'}
                         </span>
                       </TD>
                       <TD>
                         <span style={{ color: C.muted }}>
-                          {co.function_text || '\u2014'}
+                          {co.function_text || '—'}
                         </span>
                       </TD>
                       <TD>

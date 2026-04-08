@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { Btn } from './primitives.tsx';
+import styles from './columns.module.css';
 
 export interface Column {
   id: string;
@@ -65,7 +66,7 @@ export function ColumnPicker({ cols, onChange, C }: ColumnPickerProps) {
     return () => document.removeEventListener('mousedown', h);
   }, [open]);
   return (
-    <div ref={ref} style={{ position: 'relative' }}>
+    <div ref={ref} className={styles.pickerWrap}>
       <Btn
         onClick={() => setOpen((o) => !o)}
         color={open ? C.accent : C.muted}
@@ -75,22 +76,7 @@ export function ColumnPicker({ cols, onChange, C }: ColumnPickerProps) {
         ⋮ Cols
       </Btn>
       {open && (
-        <div
-          style={{
-            position: 'absolute',
-            right: 0,
-            top: 'calc(100% + 4px)',
-            zIndex: 200,
-            background: C.sidebar,
-            border: `1px solid ${C.border}`,
-            borderRadius: 6,
-            padding: '6px 4px',
-            minWidth: 150,
-            boxShadow: '0 4px 16px rgba(0,0,0,0.35)',
-            maxHeight: 320,
-            overflowY: 'auto',
-          }}
-        >
+        <div className={styles.dropdown}>
           {cols.map((col, i) => (
             <div
               key={col.id}
@@ -108,22 +94,13 @@ export function ColumnPicker({ cols, onChange, C }: ColumnPickerProps) {
                 onChange(next);
                 dragIdx.current = null;
               }}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6,
-                padding: '3px 8px',
-                cursor: 'grab',
-                userSelect: 'none',
-                fontSize: 11,
-                color: C.text,
-              }}
+              className={styles.colRow}
             >
-              <span style={{ color: C.dim, fontSize: 13 }}>⠿</span>
+              <span className={styles.dragHandle}>⠿</span>
               <input
                 type="checkbox"
                 checked={col.visible !== false}
-                style={{ cursor: 'pointer' }}
+                className={styles.colCheckbox}
                 onChange={(e) =>
                   onChange(
                     cols.map((c, j) =>
@@ -135,17 +112,10 @@ export function ColumnPicker({ cols, onChange, C }: ColumnPickerProps) {
               <span>{col.label}</span>
             </div>
           ))}
-          <div
-            style={{ borderTop: `1px solid ${C.border}`, margin: '4px 0' }}
-          />
+          <div className={styles.divider} />
           <div
             onClick={() => onChange(cols.map((c) => ({ ...c, visible: true })))}
-            style={{
-              padding: '3px 8px',
-              fontSize: 10,
-              color: C.accent,
-              cursor: 'pointer',
-            }}
+            className={styles.showAll}
           >
             Show all
           </div>

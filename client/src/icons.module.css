@@ -1,0 +1,7 @@
+/* icons.module.css — CSS Modules for icons.tsx */
+
+.svgIcon {
+  display: inline-block;
+  vertical-align: middle;
+  flex-shrink: 0;
+}

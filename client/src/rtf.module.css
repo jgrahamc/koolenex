@@ -1,0 +1,74 @@
+/* rtf.module.css — CSS Modules for rtf.tsx */
+
+.loading {
+  opacity: 0.5;
+}
+
+.fieldWrap {
+  margin-bottom: 12px;
+}
+
+.fieldLabel {
+  font-size: 10px;
+  color: var(--dim);
+  letter-spacing: 0.08em;
+  margin-bottom: 4px;
+}
+
+.editWrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.textarea {
+  background: var(--input-bg);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  padding: 8px 12px;
+  color: var(--text);
+  font-size: 11px;
+  font-family: inherit;
+  resize: vertical;
+  min-height: 40px;
+}
+
+.editActions {
+  display: flex;
+  gap: 6px;
+}
+
+.saveBtn {
+  font-size: 9px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--green) 9%, transparent);
+  color: var(--green);
+  border: 1px solid color-mix(in srgb, var(--green) 19%, transparent);
+  letter-spacing: 0.06em;
+}
+
+.cancelBtn {
+  font-size: 9px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--dim) 8%, transparent);
+  color: var(--dim);
+  border: 1px solid color-mix(in srgb, var(--dim) 19%, transparent);
+  cursor: pointer;
+  letter-spacing: 0.06em;
+}
+
+.displayBox {
+  font-size: 11px;
+  padding: 8px 12px;
+  background: var(--surface);
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  min-height: 20px;
+}
+
+.emptyText {
+  font-style: italic;
+  opacity: 0.5;
+}

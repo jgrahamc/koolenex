@@ -3,6 +3,7 @@ import { useC, ThemeColors } from './theme.ts';
 import { PinContext } from './contexts.ts';
 import { coGAs } from './primitives.tsx';
 import { dptUnit, dptName } from './dpt.ts';
+import dStyles from './diagram.module.css';
 
 interface GASpeechBubbleProps {
   x: number;
@@ -248,7 +249,7 @@ export function DeviceNetworkDiagram({
   ); // null | { type:'ga'|'peer', addr }
 
   const trunc = (s: string | undefined, n = 13) =>
-    s && s.length > n ? s.slice(0, n) + '\u2026' : s || '';
+    s && s.length > n ? s.slice(0, n) + '…' : s || '';
 
   // Compute point + tangent angle on a cubic bezier at parameter t
   const bAt = (
@@ -658,34 +659,11 @@ export function DeviceNetworkDiagram({
   const TRANS = 'opacity 0.15s ease';
 
   return (
-    <div
-      style={{
-        marginBottom: 20,
-        background: C.surface,
-        border: `1px solid ${C.border}`,
-        borderRadius: 6,
-        padding: '10px 10px 6px 10px',
-      }}
-    >
-      <div
-        style={{
-          fontSize: 10,
-          color: C.dim,
-          letterSpacing: '0.08em',
-          marginBottom: 6,
-        }}
-      >
+    <div className={dStyles.diagramWrap}>
+      <div className={dStyles.diagramTitle}>
         CONNECTION DIAGRAM
         {sel && (
-          <span
-            onClick={() => setSel(null)}
-            style={{
-              marginLeft: 10,
-              color: C.accent,
-              cursor: 'pointer',
-              fontWeight: 400,
-            }}
-          >
+          <span onClick={() => setSel(null)} className={dStyles.clearSel}>
             × clear
           </span>
         )}
@@ -694,7 +672,7 @@ export function DeviceNetworkDiagram({
         width="100%"
         height={finalH}
         viewBox={`0 0 ${W} ${finalH}`}
-        style={{ display: 'block', overflow: 'visible' }}
+        className={dStyles.svgBlock}
       >
         {/* Device node — always fully visible */}
         {(() => {
@@ -1093,26 +1071,18 @@ export function DeviceNetworkDiagram({
           </filter>
         </defs>
       </svg>
-      <div
-        style={{
-          display: 'flex',
-          gap: 14,
-          marginTop: 4,
-          fontSize: 9,
-          color: C.dim,
-        }}
-      >
+      <div className={dStyles.legend}>
         <span>
-          <span style={{ color: C.accent }}>──▶</span> transmit
+          <span className={dStyles.legendTransmit}>──▶</span> transmit
         </span>
         <span>
-          <span style={{ color: C.amber }}>──▶</span> receive
+          <span className={dStyles.legendReceive}>──▶</span> receive
         </span>
         <span>
-          <span style={{ color: C.green }}>───</span> both
+          <span className={dStyles.legendBoth}>───</span> both
         </span>
         <span>
-          <span style={{ color: C.dim, opacity: 0.6 }}>- - -</span> direction
+          <span className={dStyles.legendUnknown}>- - -</span> direction
           unknown
         </span>
       </div>
@@ -1150,7 +1120,7 @@ export function GANetworkDiagram({
   const [sel, setSel] = useState<string | null>(null);
 
   const trunc = (s: string | undefined, n = 13) =>
-    s && s.length > n ? s.slice(0, n) + '\u2026' : s || '';
+    s && s.length > n ? s.slice(0, n) + '…' : s || '';
 
   const bAt = (
     x0: number,
@@ -1319,29 +1289,11 @@ export function GANetworkDiagram({
   const TRANS = 'opacity 0.15s ease';
 
   return (
-    <div
-      style={{
-        marginBottom: 20,
-        background: C.surface,
-        border: `1px solid ${C.border}`,
-        borderRadius: 6,
-        padding: '10px 10px 6px 10px',
-      }}
-    >
-      <div
-        style={{
-          fontSize: 10,
-          color: C.dim,
-          letterSpacing: '0.08em',
-          marginBottom: 6,
-        }}
-      >
+    <div className={dStyles.diagramWrap}>
+      <div className={dStyles.diagramTitle}>
         CONNECTION DIAGRAM
         {sel && (
-          <span
-            onClick={() => setSel(null)}
-            style={{ marginLeft: 10, color: C.accent, cursor: 'pointer' }}
-          >
+          <span onClick={() => setSel(null)} className={dStyles.clearSel}>
             × clear
           </span>
         )}
@@ -1350,7 +1302,7 @@ export function GANetworkDiagram({
         width="100%"
         height={svgH}
         viewBox={`0 0 ${W} ${svgH}`}
-        style={{ display: 'block', overflow: 'visible' }}
+        className={dStyles.svgBlock}
       >
         {/* GA node (centered) */}
         {(() => {

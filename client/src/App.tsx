@@ -6,6 +6,7 @@ import {
   useReducer,
   useMemo,
 } from 'react';
+import './global.css';
 import { api, createWS } from './api.ts';
 import {
   DARK_C,
@@ -68,33 +69,7 @@ import { PrintLabelsView } from './views/PrintLabelsView.tsx';
 import { PinDetailView } from './detail/PinDetailView.tsx';
 import { GROUP_WTYPES } from './state.ts';
 
-// ── Global styles ─────────────────────────────────────────────────────────────
-const makeGS = (C: ThemeColors): string => `
-  *{box-sizing:border-box;margin:0;padding:0}
-  ::-webkit-scrollbar{width:4px;height:4px}
-  ::-webkit-scrollbar-track{background:${C.bg}}
-  ::-webkit-scrollbar-thumb{background:${C.border};border-radius:2px}
-  input,select,textarea{outline:none;font-family:inherit}
-  input:focus,select:focus{border-color:#3d8ef0!important}
-  .rh:hover{background:${C.hover}!important;cursor:pointer}
-  .rs{background:${C.selected}!important;border-left:2px solid #3d8ef0!important}
-  .ni{transition:all .12s;cursor:pointer}
-  .ni:hover{background:${C.hover}!important}
-  .ni.active{background:${C.selected}!important;border-left:2px solid #3d8ef0!important;color:#3d8ef0!important}
-  .bg:hover{opacity:.75;cursor:pointer}
-  .pa[data-pin]:hover{text-decoration:underline;text-underline-offset:2px;opacity:.85}
-  @keyframes fi{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
-  .fi{animation:fi .18s ease-out}
-  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
-  .pulse{animation:pulse 2s ease-in-out infinite}
-  @keyframes tgnew{from{opacity:0;background:${C.selected}}to{opacity:1;background:transparent}}
-  .tgnew{animation:tgnew .6s ease-out}
-  @keyframes spin{to{transform:rotate(360deg)}}
-  .spin{animation:spin .8s linear infinite;display:inline-block}
-  @keyframes flowin{from{opacity:0;transform:translateX(-10px)}to{opacity:1;transform:translateX(0)}}
-  .flowin{animation:flowin .35s ease-out}
-  @keyframes dk-dot-travel{from{offset-distance:0%;opacity:1}70%{opacity:1}to{offset-distance:100%;opacity:0}}
-`;
+// Global styles are now in global.css (imported above)
 
 // ── Views manifest ─────────────────────────────────────────────────────────────
 interface ViewEntry {
@@ -142,6 +117,10 @@ export default function App() {
     setTheme(t);
     localStorage.setItem('knx-theme', t);
   };
+  // Sync theme to document root so CSS custom properties apply globally
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+  }, [theme]);
 
   const [dptMode, setDptMode] = useState<DptMode>(
     () => (localStorage.getItem('knx-dpt-mode') as DptMode) || 'numeric',
@@ -874,7 +853,6 @@ export default function App() {
                   zoom: 1.45,
                 }}
               >
-                <style>{makeGS(C)}</style>
 
                 {/* Title bar */}
                 <div

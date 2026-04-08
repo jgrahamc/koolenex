@@ -1,0 +1,53 @@
+/* diagram.module.css — CSS Modules for diagram.tsx */
+
+.diagramWrap {
+  margin-bottom: 20px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 10px 6px 10px;
+}
+
+.diagramTitle {
+  font-size: 10px;
+  color: var(--dim);
+  letter-spacing: 0.08em;
+  margin-bottom: 6px;
+}
+
+.clearSel {
+  margin-left: 10px;
+  color: var(--accent);
+  cursor: pointer;
+  font-weight: 400;
+}
+
+.svgBlock {
+  display: block;
+  overflow: visible;
+}
+
+.legend {
+  display: flex;
+  gap: 14px;
+  margin-top: 4px;
+  font-size: 9px;
+  color: var(--dim);
+}
+
+.legendTransmit {
+  color: var(--accent);
+}
+
+.legendReceive {
+  color: var(--amber);
+}
+
+.legendBoth {
+  color: var(--green);
+}
+
+.legendUnknown {
+  color: var(--dim);
+  opacity: 0.6;
+}

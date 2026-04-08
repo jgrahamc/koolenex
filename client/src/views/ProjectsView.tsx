@@ -98,7 +98,7 @@ export function ProjectsView({ state, dispatch }: ProjectsViewProps) {
         setImportResult({
           ok: false,
           passwordRequired: true,
-          error: 'Incorrect password \u2014 try again',
+          error: 'Incorrect password — try again',
         });
       } else {
         setImportResult({ ok: false, error: err.message });
@@ -162,10 +162,10 @@ export function ProjectsView({ state, dispatch }: ProjectsViewProps) {
           <Btn onClick={() => fileRef.current?.click()} disabled={importing}>
             {importing ? (
               <>
-                <Spinner /> Parsing\u2026
+                <Spinner /> Parsing…
               </>
             ) : (
-              '\u22A0 Import .knxproj'
+              '⊠ Import .knxproj'
             )}
           </Btn>
           {importResult && (
@@ -189,19 +189,19 @@ export function ProjectsView({ state, dispatch }: ProjectsViewProps) {
                   <div
                     style={{ fontWeight: 600, color: C.green, marginBottom: 5 }}
                   >
-                    \u2713 Imported: {importResult.name}
+                    ✓ Imported: {importResult.name}
                   </div>
                   <div style={{ color: C.muted }}>
-                    {importResult.summary.devices} devices \u00B7{' '}
-                    {importResult.summary.groupAddresses} GAs \u00B7{' '}
-                    {importResult.summary.comObjects} group objects \u00B7{' '}
+                    {importResult.summary.devices} devices ·{' '}
+                    {importResult.summary.groupAddresses} GAs ·{' '}
+                    {importResult.summary.comObjects} group objects ·{' '}
                     {importResult.summary.links} links
                   </div>
                   <Btn
                     onClick={() => loadProject(importResult.projectId)}
                     style={{ marginTop: 8 }}
                   >
-                    Open Project \u2192
+                    Open Project →
                   </Btn>
                 </>
               ) : importResult.passwordRequired ? (
@@ -209,7 +209,7 @@ export function ProjectsView({ state, dispatch }: ProjectsViewProps) {
                   <div
                     style={{ fontWeight: 600, color: C.amber, marginBottom: 6 }}
                   >
-                    \u26BF Password protected
+                    ⚿ Password protected
                   </div>
                   {importResult.error && (
                     <div
@@ -228,7 +228,7 @@ export function ProjectsView({ state, dispatch }: ProjectsViewProps) {
                       onKeyDown={(e) =>
                         e.key === 'Enter' && handleImportWithPassword()
                       }
-                      placeholder="Project password\u2026"
+                      placeholder="Project password…"
                       autoFocus
                       style={{
                         flex: 1,
@@ -252,7 +252,7 @@ export function ProjectsView({ state, dispatch }: ProjectsViewProps) {
               ) : (
                 <>
                   <div style={{ fontWeight: 600, color: C.red }}>
-                    \u2717 Import failed
+                    ✗ Import failed
                   </div>
                   <div style={{ color: C.muted, marginTop: 3 }}>
                     {importResult.error}
@@ -269,7 +269,7 @@ export function ProjectsView({ state, dispatch }: ProjectsViewProps) {
             value={newName}
             onChange={(e) => setNewName(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && createProject()}
-            placeholder="New project name\u2026"
+            placeholder="New project name…"
             style={{
               flex: 1,
               background: C.inputBg,
@@ -281,7 +281,7 @@ export function ProjectsView({ state, dispatch }: ProjectsViewProps) {
               fontFamily: 'inherit',
             }}
           />
-          <Btn onClick={createProject}>\u2295 Create</Btn>
+          <Btn onClick={createProject}>⊕ Create</Btn>
         </div>
 
         {/* Projects list */}
@@ -334,7 +334,7 @@ export function ProjectsView({ state, dispatch }: ProjectsViewProps) {
                   <div style={{ fontSize: 10, color: C.dim, marginTop: 2 }}>
                     {p.file_name && (
                       <span style={{ color: C.muted }}>
-                        {p.file_name} \u00B7{' '}
+                        {p.file_name} ·{' '}
                       </span>
                     )}
                     {new Date(p.updated_at).toLocaleDateString()}
@@ -352,7 +352,7 @@ export function ProjectsView({ state, dispatch }: ProjectsViewProps) {
                     padding: '4px 8px',
                   }}
                 >
-                  \u2715
+                  ✕
                 </button>
               </div>
             ))}

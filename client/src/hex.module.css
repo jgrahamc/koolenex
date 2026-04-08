@@ -1,0 +1,112 @@
+/* hex.module.css — CSS Modules for hex.tsx */
+
+.noData {
+  font-size: 10px;
+  color: var(--dim);
+  padding: 12px 0;
+}
+
+.title {
+  font-size: 9px;
+  color: var(--dim);
+  letter-spacing: 0.08em;
+  margin-bottom: 6px;
+}
+
+.hexGrid {
+  font-family: 'DM Mono', monospace;
+  font-size: 10px;
+  line-height: 19px;
+  overflow-x: auto;
+}
+
+.hexRow {
+  display: flex;
+  gap: 0;
+  white-space: nowrap;
+}
+
+.offset {
+  color: var(--dim);
+  margin-right: 12px;
+  user-select: none;
+  flex-shrink: 0;
+}
+
+.hexBytes {
+  margin-right: 12px;
+  flex-shrink: 0;
+}
+
+.padByte {
+  color: transparent;
+  user-select: none;
+}
+
+.asciiCol {
+  flex-shrink: 0;
+}
+
+.byteCount {
+  font-size: 9px;
+  color: var(--dim);
+  margin-top: 6px;
+}
+
+.diffInfo {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-size: 10px;
+}
+
+.diffCount {
+  color: var(--dim);
+}
+
+.diffOffset {
+  color: var(--muted);
+  font-family: monospace;
+}
+
+.compareGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.panelLabel {
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  margin-bottom: 4px;
+}
+
+.panelHex {
+  font-family: 'DM Mono', monospace;
+  font-size: 9.5px;
+  line-height: 18px;
+  overflow-x: auto;
+}
+
+.panelOffset {
+  color: var(--dim);
+  margin-right: 10px;
+  user-select: none;
+  flex-shrink: 0;
+  font-size: 9px;
+}
+
+.panelBytes {
+  margin-right: 10px;
+  flex-shrink: 0;
+}
+
+.panelAscii {
+  flex-shrink: 0;
+}
+
+.panelByteCount {
+  font-size: 9px;
+  color: var(--dim);
+  margin-top: 4px;
+}

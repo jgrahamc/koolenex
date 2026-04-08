@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import styles from './hex.module.css';
 
 interface Annotation {
   start: number;
@@ -17,11 +18,7 @@ interface HexDumpProps {
 export function HexDump({ hex, annotations = [], title, C }: HexDumpProps) {
   const [hovered, setHovered] = useState<number | null>(null);
   if (!hex || hex.length < 2)
-    return (
-      <div style={{ fontSize: 10, color: C.dim, padding: '12px 0' }}>
-        No data
-      </div>
-    );
+    return <div className={styles.noData}>No data</div>;
 
   const bytes: number[] = [];
   for (let i = 0; i < hex.length; i += 2)
@@ -45,45 +42,17 @@ export function HexDump({ hex, annotations = [], title, C }: HexDumpProps) {
 
   return (
     <div>
-      {title && (
-        <div
-          style={{
-            fontSize: 9,
-            color: C.dim,
-            letterSpacing: '0.08em',
-            marginBottom: 6,
-          }}
-        >
-          {title}
-        </div>
-      )}
-      <div
-        style={{
-          fontFamily: "'DM Mono',monospace",
-          fontSize: 10,
-          lineHeight: '19px',
-          overflowX: 'auto',
-        }}
-      >
+      {title && <div className={styles.title}>{title}</div>}
+      <div className={styles.hexGrid}>
         {Array.from({ length: rows }, (_, r) => {
           const start = r * COLS;
           const rowBytes = bytes.slice(start, start + COLS);
           return (
-            <div
-              key={r}
-              style={{ display: 'flex', gap: 0, whiteSpace: 'nowrap' }}
-            >
-              <span
-                style={{
-                  color: C.dim,
-                  marginRight: 12,
-                  userSelect: 'none',
-                  flexShrink: 0,
-                }}
-              >
+            <div key={r} className={styles.hexRow}>
+              <span className={styles.offset}>
                 {start.toString(16).padStart(4, '0')}
               </span>
-              <span style={{ marginRight: 12, flexShrink: 0 }}>
+              <span className={styles.hexBytes}>
                 {rowBytes.map((b, ci) => {
                   const idx = start + ci;
                   const anno = annoMap[idx];
@@ -118,16 +87,13 @@ export function HexDump({ hex, annotations = [], title, C }: HexDumpProps) {
                   Array.from({ length: COLS - rowBytes.length }, (_, i) => {
                     const ci = rowBytes.length + i;
                     return (
-                      <span
-                        key={`pad${ci}`}
-                        style={{ color: 'transparent', userSelect: 'none' }}
-                      >
+                      <span key={`pad${ci}`} className={styles.padByte}>
                         {'xx' + (ci === 7 ? '  ' : ' ')}
                       </span>
                     );
                   })}
               </span>
-              <span style={{ color: C.dim, flexShrink: 0 }}>
+              <span className={styles.asciiCol} style={{ color: C.dim }}>
                 {rowBytes.map((b, ci) => {
                   const idx = start + ci;
                   const anno = annoMap[idx];
@@ -165,9 +131,7 @@ export function HexDump({ hex, annotations = [], title, C }: HexDumpProps) {
           );
         })}
       </div>
-      <div style={{ fontSize: 9, color: C.dim, marginTop: 6 }}>
-        {bytes.length} bytes
-      </div>
+      <div className={styles.byteCount}>{bytes.length} bytes</div>
     </div>
   );
 }
@@ -208,9 +172,7 @@ export function HexDumpCompare({
   const len = Math.max(bytesA.length, bytesB.length);
   if (!len)
     return (
-      <div style={{ fontSize: 10, color: C.dim, padding: '12px 0' }}>
-        No image data for either device
-      </div>
+      <div className={styles.noData}>No image data for either device</div>
     );
 
   // Build annotation map: byteIdx -> { label, color }
@@ -306,14 +268,14 @@ export function HexDumpCompare({
 
   return (
     <div>
-      <div style={{ display: 'flex', gap: 8, marginBottom: 6, fontSize: 10 }}>
-        <span style={{ color: C.dim }}>
+      <div className={styles.diffInfo}>
+        <span className={styles.diffCount}>
           {diffCount === 0
             ? 'Identical'
             : `${diffCount} byte${diffCount > 1 ? 's' : ''} differ`}
         </span>
         {hovered !== null && (
-          <span style={{ color: C.muted, fontFamily: 'monospace' }}>
+          <span className={styles.diffOffset}>
             offset 0x{hovered.toString(16).padStart(4, '0')}
             {hovAnno ? (
               <span style={{ color: hovAnno.color }}> — {hovAnno.label}</span>
@@ -321,50 +283,25 @@ export function HexDumpCompare({
           </span>
         )}
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+      <div className={styles.compareGrid}>
         {[
           { hex: hexA, bytes: bytesA, label: labelA, color: colA, isA: true },
           { hex: hexB, bytes: bytesB, label: labelB, color: colB, isA: false },
         ].map(({ bytes, label, color, isA }) => (
           <div key={label}>
-            <div
-              style={{
-                fontSize: 9,
-                color,
-                letterSpacing: '0.08em',
-                marginBottom: 4,
-              }}
-            >
+            <div className={styles.panelLabel} style={{ color }}>
               {label}
             </div>
-            <div
-              style={{
-                fontFamily: "'DM Mono',monospace",
-                fontSize: 9.5,
-                lineHeight: '18px',
-                overflowX: 'auto',
-              }}
-            >
+            <div className={styles.panelHex}>
               {Array.from({ length: rows }, (_, r) => {
                 const start = r * COLS;
                 const count = Math.min(COLS, len - start);
                 return (
-                  <div
-                    key={r}
-                    style={{ display: 'flex', gap: 0, whiteSpace: 'nowrap' }}
-                  >
-                    <span
-                      style={{
-                        color: C.dim,
-                        marginRight: 10,
-                        userSelect: 'none',
-                        flexShrink: 0,
-                        fontSize: 9,
-                      }}
-                    >
+                  <div key={r} className={styles.hexRow}>
+                    <span className={styles.panelOffset}>
                       {start.toString(16).padStart(4, '0')}
                     </span>
-                    <span style={{ marginRight: 10, flexShrink: 0 }}>
+                    <span className={styles.panelBytes}>
                       {Array.from({ length: count }, (_, ci) => {
                         const idx = start + ci;
                         return (
@@ -375,16 +312,14 @@ export function HexDumpCompare({
                         );
                       })}
                     </span>
-                    <span style={{ flexShrink: 0 }}>
+                    <span className={styles.panelAscii}>
                       {renderAscii(bytes, start, count, isA)}
                     </span>
                   </div>
                 );
               })}
             </div>
-            <div style={{ fontSize: 9, color: C.dim, marginTop: 4 }}>
-              {bytes.length} bytes
-            </div>
+            <div className={styles.panelByteCount}>{bytes.length} bytes</div>
           </div>
         ))}
       </div>

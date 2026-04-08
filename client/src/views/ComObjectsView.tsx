@@ -140,7 +140,7 @@ export function ComObjectsView({ data }: ComObjectsViewProps) {
             key="s"
             value={search}
             onChange={setSearch}
-            placeholder="Search objects\u2026"
+            placeholder="Search objects…"
           />,
           <select
             key="dev"
@@ -159,13 +159,13 @@ export function ComObjectsView({ data }: ComObjectsViewProps) {
             <option value="all">All Devices</option>
             {devices.map((d: any) => (
               <option key={d.id} value={d.individual_address}>
-                {d.individual_address} \u2014 {d.name}
+                {d.individual_address} — {d.name}
               </option>
             ))}
           </select>,
           <ColumnPicker key="cp" cols={coCols} onChange={saveCoCols} C={C} />,
           <Btn key="csv" onClick={exportCOCSV} color={C.muted} bg={C.surface}>
-            \u2193 CSV
+            ↓ CSV
           </Btn>,
         ]}
       />
@@ -198,7 +198,7 @@ export function ComObjectsView({ data }: ComObjectsViewProps) {
                     userSelect: 'none',
                   }}
                 >
-                  {isCollapsed ? '\u25B8' : '\u25BE'}
+                  {isCollapsed ? '▸' : '▾'}
                 </span>
                 <PinAddr
                   address={addr}
@@ -244,7 +244,7 @@ export function ComObjectsView({ data }: ComObjectsViewProps) {
                   </>
                 )}
                 <span style={{ color: C.dim, fontSize: 10 }}>
-                  \u00B7 {cos.length}
+                  · {cos.length}
                 </span>
               </div>
               {!isCollapsed && (
@@ -298,13 +298,13 @@ export function ComObjectsView({ data }: ComObjectsViewProps) {
                                 fontFamily: 'monospace',
                               }}
                             >
-                              {co.channel || '\u2014'}
+                              {co.channel || '—'}
                             </span>
                           </TD>
                         )}
                         {ccv('name') && (
                           <TD>
-                            <span>{co.name || '\u2014'}</span>
+                            <span>{co.name || '—'}</span>
                           </TD>
                         )}
                         {ccv('dpt') && (
@@ -340,7 +340,7 @@ export function ComObjectsView({ data }: ComObjectsViewProps) {
                                 whiteSpace: 'nowrap',
                               }}
                             >
-                              {co.object_size || '\u2014'}
+                              {co.object_size || '—'}
                             </span>
                           </TD>
                         )}
@@ -367,7 +367,7 @@ export function ComObjectsView({ data }: ComObjectsViewProps) {
                                 ))}
                               </span>
                             ) : (
-                              <span style={{ color: C.dim }}>\u2014</span>
+                              <span style={{ color: C.dim }}>—</span>
                             )}
                           </TD>
                         )}
@@ -402,24 +402,24 @@ export function ComObjectsView({ data }: ComObjectsViewProps) {
                               }}
                             >
                               {co.direction === 'output'
-                                ? '\u2191 Out'
+                                ? '↑ Out'
                                 : co.direction === 'input'
-                                  ? '\u2193 In'
-                                  : '\u21C5 Both'}
+                                  ? '↓ In'
+                                  : '⇅ Both'}
                             </span>
                           </TD>
                         )}
                         {ccv('device_name') && (
                           <TD>
                             <span style={{ color: C.dim, fontSize: 10 }}>
-                              {co.device_name || '\u2014'}
+                              {co.device_name || '—'}
                             </span>
                           </TD>
                         )}
                         {ccv('function_text') && (
                           <TD>
                             <span style={{ color: C.dim, fontSize: 10 }}>
-                              {co.function_text || '\u2014'}
+                              {co.function_text || '—'}
                             </span>
                           </TD>
                         )}
@@ -432,7 +432,7 @@ export function ComObjectsView({ data }: ComObjectsViewProps) {
           );
         })}
         {filtered.length === 0 && (
-          <Empty icon="\u21C5" msg="No group objects" />
+          <Empty icon="⇅" msg="No group objects" />
         )}
       </div>
       <div
@@ -445,7 +445,7 @@ export function ComObjectsView({ data }: ComObjectsViewProps) {
       >
         Flags:{' '}
         <span style={{ color: C.muted }}>
-          C=Communication \u00B7 R=Read \u00B7 W=Write \u00B7 T=Transmit \u00B7
+          C=Communication · R=Read · W=Write · T=Transmit ·
           U=Update
         </span>
       </div>

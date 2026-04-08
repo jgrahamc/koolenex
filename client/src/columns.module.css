@@ -1,0 +1,52 @@
+/* columns.module.css — CSS Modules for columns.tsx */
+
+.pickerWrap {
+  position: relative;
+}
+
+.dropdown {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 200;
+  background: var(--sidebar);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 4px;
+  min-width: 150px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.colRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  cursor: grab;
+  user-select: none;
+  font-size: 11px;
+  color: var(--text);
+}
+
+.dragHandle {
+  color: var(--dim);
+  font-size: 13px;
+}
+
+.colCheckbox {
+  cursor: pointer;
+}
+
+.divider {
+  border-top: 1px solid var(--border);
+  margin: 4px 0;
+}
+
+.showAll {
+  padding: 3px 8px;
+  font-size: 10px;
+  color: var(--accent);
+  cursor: pointer;
+}

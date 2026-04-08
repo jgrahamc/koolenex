@@ -8,6 +8,7 @@
  */
 import { useState, useEffect, useRef } from 'react';
 import { api } from './api.ts';
+import styles from './rtf.module.css';
 
 // In-memory cache so we don't re-convert the same RTF string repeatedly
 const cache = new Map<string, string>();
@@ -62,7 +63,10 @@ export function RtfText({ value, style, className }: RtfTextProps) {
 
   if (html === null) {
     return (
-      <span style={{ ...style, opacity: 0.5 }} className={className}>
+      <span
+        style={style}
+        className={`${styles.loading}${className ? ` ${className}` : ''}`}
+      >
         Loading…
       </span>
     );
@@ -145,67 +149,29 @@ export function EditableRtfField({
   }, [editing]);
 
   return (
-    <div style={{ marginBottom: 12 }}>
-      <div
-        style={{
-          fontSize: 10,
-          color: C.dim,
-          letterSpacing: '0.08em',
-          marginBottom: 4,
-        }}
-      >
-        {label}
-      </div>
+    <div className={styles.fieldWrap}>
+      <div className={styles.fieldLabel}>{label}</div>
       {editing ? (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <div className={styles.editWrap}>
           <textarea
             ref={ref}
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={handleKeyDown}
             rows={3}
-            style={{
-              background: C.inputBg,
-              border: `1px solid ${C.accent}`,
-              borderRadius: 4,
-              padding: '8px 12px',
-              color: C.text,
-              fontSize: 11,
-              fontFamily: 'inherit',
-              resize: 'vertical',
-              minHeight: 40,
-            }}
+            className={styles.textarea}
           />
-          <div style={{ display: 'flex', gap: 6 }}>
+          <div className={styles.editActions}>
             <span
               onClick={!saving ? handleSave : undefined}
-              style={{
-                fontSize: 9,
-                padding: '2px 8px',
-                borderRadius: 10,
-                background: `${C.green}18`,
-                color: C.green,
-                border: `1px solid ${C.green}30`,
-                cursor: saving ? 'default' : 'pointer',
-                letterSpacing: '0.06em',
-              }}
-              className="bg"
+              className={`${styles.saveBtn} bg`}
+              style={{ cursor: saving ? 'default' : 'pointer' }}
             >
               {saving ? 'Saving…' : 'Save'}
             </span>
             <span
               onClick={() => setEditing(false)}
-              style={{
-                fontSize: 9,
-                padding: '2px 8px',
-                borderRadius: 10,
-                background: `${C.dim}15`,
-                color: C.dim,
-                border: `1px solid ${C.dim}30`,
-                cursor: 'pointer',
-                letterSpacing: '0.06em',
-              }}
-              className="bg"
+              className={`${styles.cancelBtn} bg`}
             >
               Cancel
             </span>
@@ -214,14 +180,9 @@ export function EditableRtfField({
       ) : (
         <div
           onClick={onSave ? startEdit : undefined}
+          className={styles.displayBox}
           style={{
-            fontSize: 11,
             color: value ? C.muted : C.dim,
-            padding: '8px 12px',
-            background: C.surface,
-            borderRadius: 4,
-            border: `1px solid ${C.border}`,
-            minHeight: 20,
             cursor: onSave ? 'pointer' : 'default',
           }}
           title={onSave ? 'Click to edit' : undefined}
@@ -229,7 +190,7 @@ export function EditableRtfField({
           {value ? (
             <RtfText value={value} />
           ) : (
-            <span style={{ fontStyle: 'italic', opacity: 0.5 }}>Empty</span>
+            <span className={styles.emptyText}>Empty</span>
           )}
         </div>
       )}

@@ -1,0 +1,192 @@
+/* primitives.module.css — CSS Modules for primitives.tsx */
+
+.badge {
+  font-size: 9px;
+  padding: 2px 6px;
+  border-radius: 10px;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+}
+
+.chip {
+  padding: 3px 10px;
+  border-radius: 20px;
+  font-size: 10px;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.th {
+  padding: 7px 12px;
+  text-align: left;
+  font-size: 9px;
+  color: var(--dim);
+  letter-spacing: 0.1em;
+  font-weight: 400;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  white-space: nowrap;
+}
+
+.td {
+  padding: 7px 12px;
+  font-size: 11px;
+  color: var(--text);
+  border-bottom: 1px solid var(--border);
+}
+
+.searchBox {
+  background: var(--input-bg);
+  border: 1px solid var(--border2);
+  border-radius: 4px;
+  padding: 5px 10px;
+  color: var(--text);
+  font-size: 11px;
+  font-family: inherit;
+  width: 200px;
+}
+
+.sectionHeader {
+  display: flex;
+  align-items: center;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  gap: 8px;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+.sectionTitle {
+  font-family: 'Syne', sans-serif;
+  font-weight: 700;
+  font-size: 12px;
+  color: var(--text);
+  letter-spacing: 0.05em;
+}
+
+.sectionCount {
+  font-size: 10px;
+  color: var(--dim);
+  background: var(--border);
+  border-radius: 10px;
+  padding: 1px 7px;
+}
+
+.sectionActions {
+  margin-left: auto;
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.btn {
+  padding: 4px 12px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-family: inherit;
+}
+
+.spinner {
+  font-size: 12px;
+  color: var(--accent);
+}
+
+.tabBar {
+  display: flex;
+  gap: 0;
+  margin-bottom: 16px;
+}
+
+.tabBtn {
+  background: none;
+  border: none;
+  padding: 6px 14px;
+  font-size: 10px;
+  letter-spacing: 0.07em;
+  cursor: pointer;
+  font-family: inherit;
+  margin-bottom: -1px;
+}
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: 10px;
+  color: var(--dim);
+}
+
+.emptyIcon {
+  font-size: 36px;
+}
+
+.emptyMsg {
+  font-size: 12px;
+}
+
+.modalOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+}
+
+.modalBox {
+  background: var(--surface);
+  border: 1px solid var(--border2);
+  border-radius: 8px;
+  padding: 24px;
+  max-width: 420px;
+  width: 90%;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+.modalTitle {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 12px;
+}
+
+.modalBody {
+  font-size: 11px;
+  color: var(--muted);
+  margin-bottom: 20px;
+  line-height: 1.7;
+}
+
+.modalActions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--surface);
+  border: 1px solid var(--border2);
+  border-radius: 6px;
+  padding: 8px 16px;
+  font-size: 11px;
+  color: var(--text);
+  z-index: 3000;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  white-space: nowrap;
+}
+
+.spacePathSep {
+  opacity: 0.5;
+}

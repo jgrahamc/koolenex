@@ -116,12 +116,12 @@ export function ManufacturersView({
         count={tree.length}
         actions={[
           <Btn key="csv" onClick={exportCSV} color={C.muted} bg={C.surface}>
-            \u2193 CSV
+            ↓ CSV
           </Btn>,
         ]}
       />
       <div style={{ overflow: 'auto', flex: 1 }}>
-        {tree.length === 0 && <Empty icon="\u229E" msg="No devices" />}
+        {tree.length === 0 && <Empty icon="⊞" msg="No devices" />}
         {tree.map((mfr) => {
           const mfrKey = `m:${mfr.name}`;
           const mfrTotal = mfr.models.reduce((s, m) => s + m.devices.length, 0);
@@ -150,7 +150,7 @@ export function ManufacturersView({
                     flexShrink: 0,
                   }}
                 >
-                  {isOpen(mfrKey) ? '\u25BE' : '\u25B8'}
+                  {isOpen(mfrKey) ? '▾' : '▸'}
                 </span>
                 <PinAddr
                   address={mfr.name}
@@ -160,7 +160,7 @@ export function ManufacturersView({
                   {mfr.name}
                 </PinAddr>
                 <span style={{ color: C.dim, fontSize: 10 }}>
-                  \u00B7 {mfrTotal} devices \u00B7 {mfr.models.length} models
+                  · {mfrTotal} devices · {mfr.models.length} models
                 </span>
                 {dispatch && (
                   <span
@@ -213,7 +213,7 @@ export function ManufacturersView({
                             flexShrink: 0,
                           }}
                         >
-                          {isOpen(mdlKey) ? '\u25BE' : '\u25B8'}
+                          {isOpen(mdlKey) ? '▾' : '▸'}
                         </span>
                         <PinAddr
                           address={mdl.name}
@@ -227,7 +227,7 @@ export function ManufacturersView({
                           {mdl.name}
                         </PinAddr>
                         <span style={{ color: C.dim, fontSize: 10 }}>
-                          \u00B7 {mdl.devices.length}
+                          · {mdl.devices.length}
                         </span>
                         {onAddDevice && (
                           <span
@@ -333,13 +333,13 @@ export function ManufacturersView({
                                       {d.order_number}
                                     </PinAddr>
                                   ) : (
-                                    <span style={{ color: C.dim }}>\u2014</span>
+                                    <span style={{ color: C.dim }}>—</span>
                                   )}
                                 </TD>
                                 <TD>
                                   <span style={{ color: C.dim }}>
                                     {(deviceGAMap[d.individual_address] || [])
-                                      .length || '\u2014'}
+                                      .length || '—'}
                                   </span>
                                 </TD>
                               </tr>

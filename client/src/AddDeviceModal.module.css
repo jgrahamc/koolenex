@@ -1,0 +1,193 @@
+/* AddDeviceModal.module.css — CSS Modules for AddDeviceModal.tsx */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+}
+
+.modal {
+  background: var(--surface);
+  border: 1px solid var(--border2);
+  border-radius: 8px;
+  padding: 20px;
+  width: 480px;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+.modalTitle {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 14px;
+}
+
+.fieldLabel {
+  font-size: 9px;
+  color: var(--dim);
+  letter-spacing: 0.08em;
+  margin-bottom: 4px;
+}
+
+.typeFixedWrap {
+  margin-bottom: 14px;
+}
+
+.typeFixedBox {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.typeFixedName {
+  font-size: 10px;
+  color: var(--text);
+}
+
+.typeFixedOrder {
+  font-size: 9px;
+  color: var(--dim);
+  margin-left: auto;
+}
+
+.inputField {
+  background: var(--input-bg);
+  border: 1px solid var(--border2);
+  border-radius: 4px;
+  padding: 5px 8px;
+  color: var(--text);
+  font-size: 11px;
+  font-family: inherit;
+}
+
+.searchInput {
+  composes: inputField;
+  width: 100%;
+  margin-bottom: 6px;
+}
+
+.typeList {
+  max-height: 150px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  margin-bottom: 14px;
+}
+
+.typeListEmpty {
+  padding: 12px;
+  font-size: 10px;
+  color: var(--dim);
+  text-align: center;
+}
+
+.mfrHeader {
+  font-size: 9px;
+  color: var(--dim);
+  padding: 4px 8px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+
+.modelRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--border);
+}
+
+.modelRow:hover {
+  background: var(--hover);
+}
+
+.modelName {
+  font-size: 10px;
+}
+
+.modelOrder {
+  font-size: 9px;
+  color: var(--dim);
+  margin-left: auto;
+}
+
+.genericOption {
+  padding: 4px 8px;
+  cursor: pointer;
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.genericOption:hover {
+  background: var(--hover);
+}
+
+.nameInput {
+  composes: inputField;
+  width: 100%;
+  margin-bottom: 14px;
+}
+
+.addressWrap {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-bottom: 14px;
+}
+
+.addrInput {
+  composes: inputField;
+  width: 50px;
+  text-align: center;
+}
+
+.addrInputWide {
+  composes: inputField;
+  width: 60px;
+  text-align: center;
+}
+
+.addrDot {
+  color: var(--dim);
+}
+
+.addrNext {
+  font-size: 9px;
+  color: var(--dim);
+  margin-left: 4px;
+}
+
+.addrConflict {
+  color: var(--red);
+  margin-left: 8px;
+}
+
+.selectField {
+  composes: inputField;
+  width: 100%;
+  margin-bottom: 14px;
+}
+
+.error {
+  font-size: 10px;
+  color: var(--red);
+  margin-bottom: 8px;
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}

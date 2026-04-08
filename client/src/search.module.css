@@ -1,0 +1,100 @@
+/* search.module.css — CSS Modules for search.tsx */
+
+.container {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 100px;
+  max-width: 260px;
+}
+
+.inputWrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--input-bg);
+  border-radius: 4px;
+  padding: 0 8px;
+  height: 26px;
+  transition: border-color 0.15s;
+}
+
+.searchIcon {
+  color: var(--dim);
+  font-size: 12px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.input {
+  background: none;
+  border: none;
+  outline: none;
+  color: var(--text);
+  font-size: 10px;
+  font-family: inherit;
+  width: 100%;
+  padding: 0;
+}
+
+.clearBtn {
+  color: var(--dim);
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.dropdown {
+  position: absolute;
+  top: 30px;
+  left: 0;
+  right: 0;
+  background: var(--sidebar);
+  border: 1px solid var(--border2);
+  border-radius: 4px;
+  z-index: 2000;
+  overflow: hidden;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  min-width: 280px;
+}
+
+.resultRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  cursor: pointer;
+}
+
+.resultBadge {
+  font-size: 9px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  letter-spacing: 0.06em;
+  flex-shrink: 0;
+}
+
+.resultAddr {
+  font-family: monospace;
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+.resultName {
+  font-size: 10px;
+  color: var(--muted);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.resultTertiary {
+  font-size: 9px;
+  color: var(--dim);
+  flex-shrink: 0;
+  max-width: 80px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

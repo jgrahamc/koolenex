@@ -2,6 +2,7 @@
 // All icons inherit color via currentColor. size = height in px.
 
 import React from 'react';
+import styles from './icons.module.css';
 
 interface SvgIconProps {
   vb?: string;
@@ -22,12 +23,8 @@ export function _SvgIcon({
       viewBox={vb}
       width={size}
       height={size}
-      style={{
-        display: 'inline-block',
-        verticalAlign: 'middle',
-        flexShrink: 0,
-        ...style,
-      }}
+      className={styles.svgIcon}
+      style={style}
     >
       {children}
     </svg>
@@ -47,11 +44,7 @@ export function IconDinBase({ size = 13, detail }: IconDinBaseProps) {
       viewBox="0 0 10 14"
       width={w}
       height={size}
-      style={{
-        display: 'inline-block',
-        verticalAlign: 'middle',
-        flexShrink: 0,
-      }}
+      className={styles.svgIcon}
     >
       {/* Body */}
       <rect

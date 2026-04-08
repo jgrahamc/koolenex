@@ -108,7 +108,7 @@ export function FloorPlanView({
           overflow: 'hidden',
         }}
       >
-        <Empty icon="\u25FB" msg="No location data in this project" />
+        <Empty icon="◻" msg="No location data in this project" />
       </div>
     );
 
@@ -122,7 +122,7 @@ export function FloorPlanView({
           overflow: 'hidden',
         }}
       >
-        <Empty icon="\u25FB" msg="No floors found in the location hierarchy" />
+        <Empty icon="◻" msg="No floors found in the location hierarchy" />
       </div>
     );
 
@@ -431,7 +431,7 @@ function FloorPlanCanvas({
               <div
                 key={d.id}
                 onMouseDown={(e) => startDrag(e, d.id)}
-                title={`${d.individual_address} \u2014 ${d.name}\n${roomMap[d.space_id] || ''}`}
+                title={`${d.individual_address} — ${d.name}\n${roomMap[d.space_id] || ''}`}
                 style={{
                   position: 'absolute',
                   left: `${x * 100}%`,
@@ -481,7 +481,7 @@ function FloorPlanCanvas({
                     lineHeight: 1,
                   }}
                 >
-                  \u2715
+                  ✕
                 </span>
               </div>
             );

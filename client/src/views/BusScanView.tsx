@@ -131,11 +131,11 @@ export function BusScanView({
                 disabled={!busConnected}
                 color={C.accent}
               >
-                \u2299 Scan
+                ⊙ Scan
               </Btn>
             ) : (
               <Btn onClick={handleAbort} color={C.red}>
-                \u25A0 Abort
+                ■ Abort
               </Btn>
             )}
           </div>
@@ -180,13 +180,13 @@ export function BusScanView({
                     </span>
                     {currentAddr && (
                       <span style={{ marginLeft: 8, color: C.dim }}>
-                        \u00B7 {currentAddr}
+                        · {currentAddr}
                       </span>
                     )}
                   </>
                 ) : (
                   <span>
-                    Scan complete \u2014{' '}
+                    Scan complete —{' '}
                     <span style={{ fontFamily: 'monospace', color: C.accent }}>
                       {area}.{line}.*
                     </span>
@@ -313,12 +313,12 @@ export function BusScanView({
                                   fontSize: 11,
                                 }}
                               >
-                                {r.found ? '\u2713' : '\u2717'}{' '}
+                                {r.found ? '✓' : '✗'}{' '}
                                 {projDev?.name || r.address}
                               </span>
                             ) : (
                               <span style={{ color: C.dim, fontSize: 11 }}>
-                                \u2014
+                                —
                               </span>
                             )}
                           </TD>
@@ -339,7 +339,7 @@ export function BusScanView({
                                     fontSize: 10,
                                   }}
                                 >
-                                  {mask ? mask.name : r.descriptor || '\u2014'}
+                                  {mask ? mask.name : r.descriptor || '—'}
                                 </span>
                               );
                             })()}
@@ -363,7 +363,7 @@ export function BusScanView({
                                 fontSize: 10,
                               }}
                             >
-                              {di?.serialNumber || '\u2014'}
+                              {di?.serialNumber || '—'}
                             </span>
                           </TD>
                           <TD>
@@ -376,7 +376,7 @@ export function BusScanView({
                             >
                               {di?.manufacturerId != null
                                 ? `0x${di.manufacturerId.toString(16).padStart(4, '0')}`
-                                : '\u2014'}
+                                : '—'}
                             </span>
                           </TD>
                           <TD>
@@ -387,7 +387,7 @@ export function BusScanView({
                                 fontSize: 10,
                               }}
                             >
-                              {di?.orderInfo || '\u2014'}
+                              {di?.orderInfo || '—'}
                             </span>
                           </TD>
                           <TD style={{ whiteSpace: 'nowrap' }}>
@@ -416,7 +416,7 @@ export function BusScanView({
                                 className="bg"
                               >
                                 {readingAddr === r.address
-                                  ? 'SCANNING\u2026'
+                                  ? 'SCANNING…'
                                   : 'SCAN'}
                               </span>
                             )}

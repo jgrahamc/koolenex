@@ -1,0 +1,185 @@
+.panel {
+  padding: 24px;
+}
+
+.inner {
+  width: 100%;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.headerIcon {
+  color: var(--purple);
+}
+
+.headerFlex {
+  flex: 1;
+}
+
+.address {
+  font-family: 'DM Mono', monospace;
+  font-weight: 700;
+  font-size: 20px;
+  color: var(--text);
+}
+
+.addressClickable {
+  composes: address;
+  cursor: pointer;
+}
+
+.editRow {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+
+.editInput {
+  background: var(--input-bg);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  padding: 4px 8px;
+  color: var(--text);
+  font-size: 12px;
+  font-family: monospace;
+  flex: 1;
+  min-width: 120px;
+}
+
+.editDptInput {
+  background: var(--input-bg);
+  border: 1px solid var(--border2);
+  border-radius: 4px;
+  padding: 4px 8px;
+  color: var(--text);
+  font-size: 11px;
+  font-family: monospace;
+  width: 120px;
+}
+
+.gaName {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+.gaNameClickable {
+  composes: gaName;
+  cursor: pointer;
+}
+
+.grid3 {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.groupCard {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 8px 12px;
+  cursor: pointer;
+}
+
+.groupLabel {
+  font-size: 9px;
+  color: var(--dim);
+  margin-bottom: 3px;
+}
+
+.groupValue {
+  font-size: 10px;
+  color: var(--purple);
+  display: inline;
+}
+
+.sendCard {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px 16px;
+  margin-bottom: 20px;
+}
+
+.sendLabel {
+  font-size: 10px;
+  color: var(--dim);
+  letter-spacing: 0.08em;
+  margin-bottom: 10px;
+}
+
+.sendRow {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.sendSelect {
+  background: var(--input-bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 6px 10px;
+  color: var(--text);
+  font-size: 11px;
+  font-family: inherit;
+}
+
+.boolBtns {
+  display: flex;
+  gap: 6px;
+}
+
+.sendInput {
+  background: var(--input-bg);
+  border: 1px solid var(--border2);
+  border-radius: 4px;
+  padding: 6px 10px;
+  color: var(--text);
+  font-size: 11px;
+  font-family: monospace;
+  width: 120px;
+}
+
+/* SubNameCard */
+.subEditRow {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.subText {
+  font-size: 10px;
+  color: var(--text);
+}
+
+.subEditInput {
+  background: var(--input-bg);
+  border: 1px solid var(--accent);
+  border-radius: 3px;
+  padding: 2px 6px;
+  color: var(--text);
+  font-size: 10px;
+  font-family: inherit;
+  flex: 1;
+  min-width: 60px;
+}
+
+.subDisplay {
+  font-size: 10px;
+  color: var(--text);
+}
+
+.subDisplayClickable {
+  composes: subDisplay;
+  cursor: text;
+}

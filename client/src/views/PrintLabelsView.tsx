@@ -6,7 +6,7 @@ import { Btn, Chip, SectionHeader } from '../primitives.tsx';
 const SHEETS: any[] = [
   {
     id: 'avery-l4730',
-    name: 'Avery L4730 \u2014 17.8 x 10 mm, removable (270/sheet)',
+    name: 'Avery L4730 — 17.8 x 10 mm, removable (270/sheet)',
     cols: 10,
     rows: 27,
     labelW: 17.8,
@@ -20,7 +20,7 @@ const SHEETS: any[] = [
   },
   {
     id: 'avery-l4731',
-    name: 'Avery L4731 \u2014 25.4 x 10 mm, removable (189/sheet)',
+    name: 'Avery L4731 — 25.4 x 10 mm, removable (189/sheet)',
     cols: 7,
     rows: 27,
     labelW: 25.4,
@@ -34,7 +34,7 @@ const SHEETS: any[] = [
   },
   {
     id: 'avery-l4732',
-    name: 'Avery L4732 \u2014 35.6 x 16.9 mm, removable (80/sheet)',
+    name: 'Avery L4732 — 35.6 x 16.9 mm, removable (80/sheet)',
     cols: 5,
     rows: 16,
     labelW: 35.6,
@@ -48,7 +48,7 @@ const SHEETS: any[] = [
   },
   {
     id: 'avery-l6008',
-    name: 'Avery L6008 \u2014 25.4 x 10 mm, silver polyester (189/sheet)',
+    name: 'Avery L6008 — 25.4 x 10 mm, silver polyester (189/sheet)',
     cols: 7,
     rows: 27,
     labelW: 25.4,
@@ -62,7 +62,7 @@ const SHEETS: any[] = [
   },
   {
     id: 'avery-l7636',
-    name: 'Avery L7636 \u2014 45.7 x 21.2 mm (48/sheet)',
+    name: 'Avery L7636 — 45.7 x 21.2 mm (48/sheet)',
     cols: 4,
     rows: 12,
     labelW: 45.7,
@@ -76,7 +76,7 @@ const SHEETS: any[] = [
   },
   {
     id: 'avery-l7651',
-    name: 'Avery L7651 \u2014 38.1 x 21.2 mm (65/sheet)',
+    name: 'Avery L7651 — 38.1 x 21.2 mm (65/sheet)',
     cols: 5,
     rows: 13,
     labelW: 38.1,
@@ -90,7 +90,7 @@ const SHEETS: any[] = [
   },
   {
     id: 'avery-l7656',
-    name: 'Avery L7656 \u2014 46 x 11.1 mm (84/sheet)',
+    name: 'Avery L7656 — 46 x 11.1 mm (84/sheet)',
     cols: 4,
     rows: 21,
     labelW: 46,

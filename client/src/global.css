@@ -1,0 +1,199 @@
+/* ── Theme custom properties ─────────────────────────────────────────────── */
+
+:root,
+[data-theme='dark'] {
+  --bg: #060a10;
+  --surface: #0b1220;
+  --border: #1a2a44;
+  --border2: #1e3355;
+  --text: #e0eeff;
+  --muted: #8ab8e0;
+  --dim: #5a80a8;
+  --accent: #00b4ff;
+  --green: #00ff9f;
+  --amber: #ffcc00;
+  --red: #ff4466;
+  --purple: #c084fc;
+  --actuator: #00b4ff;
+  --sensor: #00ff9f;
+  --router: #ffcc00;
+  --input-bg: #080b0f;
+  --sidebar: #060810;
+  --hover: #0f1620;
+  --selected: #0c1830;
+}
+
+[data-theme='light'] {
+  --bg: #f0f4f8;
+  --surface: #ffffff;
+  --border: #d0d8e4;
+  --border2: #b0c4d8;
+  --text: #1a2a3a;
+  --muted: #3a5a78;
+  --dim: #7090a8;
+  --accent: #0066cc;
+  --green: #008c48;
+  --amber: #b06000;
+  --red: #cc2244;
+  --purple: #7c3aed;
+  --actuator: #0066cc;
+  --sensor: #008c48;
+  --router: #b06000;
+  --input-bg: #e8eef4;
+  --sidebar: #e8eef4;
+  --hover: #e8eef4;
+  --selected: #d4e8f8;
+}
+
+/* ── Reset & base ────────────────────────────────────────────────────────── */
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+::-webkit-scrollbar-track {
+  background: var(--bg);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 2px;
+}
+
+input,
+select,
+textarea {
+  outline: none;
+  font-family: inherit;
+}
+input:focus,
+select:focus {
+  border-color: #3d8ef0 !important;
+}
+
+/* ── Utility classes (used across components) ────────────────────────────── */
+
+/* Row hover */
+.rh:hover {
+  background: var(--hover) !important;
+  cursor: pointer;
+}
+
+/* Row selected */
+.rs {
+  background: var(--selected) !important;
+  border-left: 2px solid #3d8ef0 !important;
+}
+
+/* Nav item */
+.ni {
+  transition: all 0.12s;
+  cursor: pointer;
+}
+.ni:hover {
+  background: var(--hover) !important;
+}
+.ni.active {
+  background: var(--selected) !important;
+  border-left: 2px solid #3d8ef0 !important;
+  color: #3d8ef0 !important;
+}
+
+/* Button-like hover */
+.bg:hover {
+  opacity: 0.75;
+  cursor: pointer;
+}
+
+/* Pin address hover */
+.pa[data-pin]:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  opacity: 0.85;
+}
+
+/* ── Animations ──────────────────────────────────────────────────────────── */
+
+@keyframes fi {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.fi {
+  animation: fi 0.18s ease-out;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+.pulse {
+  animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes tgnew {
+  from {
+    opacity: 0;
+    background: var(--selected);
+  }
+  to {
+    opacity: 1;
+    background: transparent;
+  }
+}
+.tgnew {
+  animation: tgnew 0.6s ease-out;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.spin {
+  animation: spin 0.8s linear infinite;
+  display: inline-block;
+}
+
+@keyframes flowin {
+  from {
+    opacity: 0;
+    transform: translateX(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+.flowin {
+  animation: flowin 0.35s ease-out;
+}
+
+@keyframes dk-dot-travel {
+  from {
+    offset-distance: 0%;
+    opacity: 1;
+  }
+  70% {
+    opacity: 1;
+  }
+  to {
+    offset-distance: 100%;
+    opacity: 0;
+  }
+}

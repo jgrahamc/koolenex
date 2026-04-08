@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
+import styles from './search.module.css';
 
 interface SearchResult {
   type: 'device' | 'ga' | 'space';
@@ -161,33 +162,12 @@ export function GlobalSearch({ projectData, onPin, C }: GlobalSearchProps) {
   };
 
   return (
-    <div
-      ref={containerRef}
-      style={{
-        position: 'relative',
-        flex: '1 1 0',
-        minWidth: 100,
-        maxWidth: 260,
-      }}
-    >
+    <div ref={containerRef} className={styles.container}>
       <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 6,
-          background: C.inputBg,
-          border: `1px solid ${focused ? C.accent : C.border}`,
-          borderRadius: 4,
-          padding: '0 8px',
-          height: 26,
-          transition: 'border-color 0.15s',
-        }}
+        className={styles.inputWrap}
+        style={{ border: `1px solid ${focused ? C.accent : C.border}` }}
       >
-        <span
-          style={{ color: C.dim, fontSize: 12, lineHeight: 1, flexShrink: 0 }}
-        >
-          ○
-        </span>
+        <span className={styles.searchIcon}>○</span>
         <input
           ref={inputRef}
           value={query}
@@ -202,16 +182,7 @@ export function GlobalSearch({ projectData, onPin, C }: GlobalSearchProps) {
           onBlur={() => setFocused(false)}
           onKeyDown={handleInputKey}
           placeholder="Search  ⌘K"
-          style={{
-            background: 'none',
-            border: 'none',
-            outline: 'none',
-            color: C.text,
-            fontSize: 10,
-            fontFamily: 'inherit',
-            width: '100%',
-            padding: 0,
-          }}
+          className={styles.input}
         />
         {query && (
           <span
@@ -220,34 +191,14 @@ export function GlobalSearch({ projectData, onPin, C }: GlobalSearchProps) {
               setQuery('');
               setOpen(false);
             }}
-            style={{
-              color: C.dim,
-              cursor: 'pointer',
-              fontSize: 13,
-              lineHeight: 1,
-              flexShrink: 0,
-            }}
+            className={styles.clearBtn}
           >
             ×
           </span>
         )}
       </div>
       {open && results.length > 0 && (
-        <div
-          style={{
-            position: 'absolute',
-            top: 30,
-            left: 0,
-            right: 0,
-            background: C.sidebar,
-            border: `1px solid ${C.border2}`,
-            borderRadius: 4,
-            zIndex: 2000,
-            overflow: 'hidden',
-            boxShadow: '0 8px 24px rgba(0,0,0,0.45)',
-            minWidth: 280,
-          }}
-        >
+        <div className={styles.dropdown}>
           {results.map((r, i) => (
             <div
               key={i}
@@ -256,24 +207,16 @@ export function GlobalSearch({ projectData, onPin, C }: GlobalSearchProps) {
                 handleSelect(r);
               }}
               onMouseEnter={() => setHilite(i)}
+              className={styles.resultRow}
               style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-                padding: '7px 10px',
-                cursor: 'pointer',
                 borderBottom:
                   i < results.length - 1 ? `1px solid ${C.border}` : 'none',
                 background: i === hilite ? `${C.accent}18` : 'transparent',
               }}
             >
               <span
+                className={styles.resultBadge}
                 style={{
-                  fontSize: 9,
-                  padding: '1px 5px',
-                  borderRadius: 3,
-                  letterSpacing: '0.06em',
-                  flexShrink: 0,
                   background: `${TYPE_COLOR[r.type]}20`,
                   color: TYPE_COLOR[r.type],
                 }}
@@ -281,41 +224,14 @@ export function GlobalSearch({ projectData, onPin, C }: GlobalSearchProps) {
                 {TYPE_LABEL[r.type]}
               </span>
               <span
-                style={{
-                  fontFamily: 'monospace',
-                  fontSize: 11,
-                  color: TYPE_COLOR[r.type],
-                  flexShrink: 0,
-                }}
+                className={styles.resultAddr}
+                style={{ color: TYPE_COLOR[r.type] }}
               >
                 {r.primary}
               </span>
-              <span
-                style={{
-                  fontSize: 10,
-                  color: C.muted,
-                  flex: 1,
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                {r.secondary}
-              </span>
+              <span className={styles.resultName}>{r.secondary}</span>
               {r.tertiary && (
-                <span
-                  style={{
-                    fontSize: 9,
-                    color: C.dim,
-                    flexShrink: 0,
-                    maxWidth: 80,
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  {r.tertiary}
-                </span>
+                <span className={styles.resultTertiary}>{r.tertiary}</span>
               )}
             </div>
           ))}

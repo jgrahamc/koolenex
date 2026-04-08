@@ -40,7 +40,7 @@ function SpacePanel({
   const [showAdd, setShowAdd] = useState(false);
   const spaceMap = Object.fromEntries(spaces.map((s: any) => [s.id, s]));
   const space = spaceMap[parseInt(spaceId)];
-  if (!space) return <Empty icon="\u25C8" msg="Space not found" />;
+  if (!space) return <Empty icon="◈" msg="Space not found" />;
   const getDescendants = (id: number): number[] => {
     const children = spaces.filter((s: any) => s.parent_id === id);
     return [id, ...children.flatMap((c: any) => getDescendants(c.id))];
@@ -164,7 +164,7 @@ function SpacePanel({
         />
       )}
       {matches.length === 0 ? (
-        <Empty icon="\u25C8" msg="No devices in this space" />
+        <Empty icon="◈" msg="No devices in this space" />
       ) : (
         <table
           style={{ width: '100%', borderCollapse: 'collapse', fontSize: 10 }}
@@ -197,7 +197,7 @@ function SpacePanel({
                     wtype="manufacturer"
                     style={{ color: C.amber }}
                   >
-                    {d.manufacturer || '\u2014'}
+                    {d.manufacturer || '—'}
                   </PinAddr>
                 </TD>
                 <TD>
@@ -206,7 +206,7 @@ function SpacePanel({
                     wtype="model"
                     style={{ color: C.amber, fontFamily: 'monospace' }}
                   >
-                    {localizedModel(d) || '\u2014'}
+                    {localizedModel(d) || '—'}
                   </PinAddr>
                 </TD>
                 <TD>
@@ -371,7 +371,7 @@ function DeviceGroupPanel({
         />
       )}
       {matches.length === 0 ? (
-        <Empty icon="\u25C8" msg="No matching devices" />
+        <Empty icon="◈" msg="No matching devices" />
       ) : (
         <table
           style={{ width: '100%', borderCollapse: 'collapse', fontSize: 10 }}
@@ -427,7 +427,7 @@ function DeviceGroupPanel({
                       wtype="manufacturer"
                       style={{ color: C.amber }}
                     >
-                      {d.manufacturer || '\u2014'}
+                      {d.manufacturer || '—'}
                     </PinAddr>
                   </TD>
                 )}
@@ -442,7 +442,7 @@ function DeviceGroupPanel({
                         fontSize: 10,
                       }}
                     >
-                      {localizedModel(d) || '\u2014'}
+                      {localizedModel(d) || '—'}
                     </PinAddr>
                   </TD>
                 )}
@@ -457,7 +457,7 @@ function DeviceGroupPanel({
                         fontSize: 10,
                       }}
                     >
-                      {d.order_number || '\u2014'}
+                      {d.order_number || '—'}
                     </PinAddr>
                   </TD>
                 )}
@@ -470,12 +470,12 @@ function DeviceGroupPanel({
                 </TD>
                 <TD>
                   <span style={{ color: C.dim, fontFamily: 'monospace' }}>
-                    {d.bus_current || '\u2014'}
+                    {d.bus_current || '—'}
                   </span>
                 </TD>
                 <TD>
                   <span style={{ color: C.dim, fontFamily: 'monospace' }}>
-                    {d.width_mm || '\u2014'}
+                    {d.width_mm || '—'}
                   </span>
                 </TD>
               </tr>
@@ -519,7 +519,7 @@ function MultiComparePanel({ addrs, data, C }: MultiComparePanelProps) {
     .map((a) => devices.find((d: any) => d.individual_address === a))
     .filter(Boolean);
   if (devs.length < 2)
-    return <Empty icon="\u25C8" msg="Need at least 2 devices to compare" />;
+    return <Empty icon="◈" msg="Need at least 2 devices to compare" />;
 
   const colors = devs.map(
     (_: any, i: number) => COMPARE_COLORS[i % COMPARE_COLORS.length]!,
@@ -914,7 +914,7 @@ function MultiComparePanel({ addrs, data, C }: MultiComparePanelProps) {
                       {present.map((p: boolean, i: number) => (
                         <TD2 key={i} diff style={{ textAlign: 'center' }}>
                           <span style={{ color: p ? C.green : C.dim }}>
-                            {p ? '\u2713' : '-'}
+                            {p ? '✓' : '-'}
                           </span>
                         </TD2>
                       ))}
@@ -992,7 +992,7 @@ export function PinDetailView({
   }, [pinKey]);
 
   if (!pinKey || !data)
-    return <Empty icon="\u25C8" msg="Select a pinned item from the sidebar" />;
+    return <Empty icon="◈" msg="Select a pinned item from the sidebar" />;
 
   const [wtype, address] = pinKey.split(':');
   const {
@@ -1011,7 +1011,7 @@ export function PinDetailView({
       if (c.type !== 'Building') p.unshift(c.name);
       c = c.parent_id ? spaceMap[c.parent_id] : null;
     }
-    return p.join(' \u203A ');
+    return p.join(' › ');
   };
   const gaMap: Record<string, any> = Object.fromEntries(
     gas.map((g: any) => [g.address, g]),
@@ -1051,7 +1051,7 @@ export function PinDetailView({
     content = <ComparePanel addrA={addrA!} addrB={addrB!} data={data} C={C} />;
   } else if (wtype === 'device') {
     const dev = devices.find((d: any) => d.individual_address === address);
-    if (!dev) content = <Empty icon="\u25C8" msg="Device not found" />;
+    if (!dev) content = <Empty icon="◈" msg="Device not found" />;
     else {
       const devCOs = comObjects.filter(
         (co: any) => co.device_address === address,
@@ -1087,7 +1087,7 @@ export function PinDetailView({
     }
   } else {
     const ga = gas.find((g: any) => g.address === address);
-    if (!ga) content = <Empty icon="\u25C6" msg="Group address not found" />;
+    if (!ga) content = <Empty icon="◆" msg="Group address not found" />;
     else {
       const linkedDevices = (gaDeviceMap[address!] || [])
         .map((a: string) =>

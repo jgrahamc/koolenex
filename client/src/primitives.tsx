@@ -1,6 +1,7 @@
 import { useEffect, useContext, Fragment } from 'react';
 import { useC } from './theme.ts';
 import { PinContext } from './contexts.ts';
+import styles from './primitives.module.css';
 
 interface BadgeProps {
   label: string;
@@ -11,15 +12,11 @@ interface BadgeProps {
 export const Badge = ({ label, color, title }: BadgeProps) => (
   <span
     title={title}
+    className={styles.badge}
     style={{
-      fontSize: 9,
-      padding: '2px 6px',
-      borderRadius: 10,
       background: `${color}18`,
       color,
       border: `1px solid ${color}30`,
-      letterSpacing: '0.06em',
-      whiteSpace: 'nowrap',
     }}
   >
     {label}
@@ -37,15 +34,11 @@ export const Chip = ({ children, active, onClick }: ChipProps) => {
   return (
     <button
       onClick={onClick}
+      className={styles.chip}
       style={{
         background: active ? C.selected : C.surface,
         border: `1px solid ${active ? C.accent + '66' : C.border}`,
         color: active ? C.accent : C.muted,
-        padding: '3px 10px',
-        borderRadius: 20,
-        fontSize: 10,
-        fontFamily: 'inherit',
-        cursor: 'pointer',
       }}
     >
       {children}
@@ -58,52 +51,22 @@ interface THProps {
   style?: React.CSSProperties;
 }
 
-export const TH = ({ children, style = {} }: THProps) => {
-  const C = useC();
-  return (
-    <th
-      style={{
-        padding: '7px 12px',
-        textAlign: 'left',
-        fontSize: 9,
-        color: C.dim,
-        letterSpacing: '0.1em',
-        fontWeight: 400,
-        borderBottom: `1px solid ${C.border}`,
-        background: C.surface,
-        position: 'sticky',
-        top: 0,
-        zIndex: 1,
-        whiteSpace: 'nowrap',
-        ...style,
-      }}
-    >
-      {children}
-    </th>
-  );
-};
+export const TH = ({ children, style = {} }: THProps) => (
+  <th className={styles.th} style={style}>
+    {children}
+  </th>
+);
 
 interface TDProps {
   children?: React.ReactNode;
   style?: React.CSSProperties;
 }
 
-export const TD = ({ children, style = {} }: TDProps) => {
-  const C = useC();
-  return (
-    <td
-      style={{
-        padding: '7px 12px',
-        fontSize: 11,
-        color: C.text,
-        borderBottom: `1px solid ${C.border}`,
-        ...style,
-      }}
-    >
-      {children}
-    </td>
-  );
-};
+export const TD = ({ children, style = {} }: TDProps) => (
+  <td className={styles.td} style={style}>
+    {children}
+  </td>
+);
 
 interface SearchBoxProps {
   value: string;
@@ -115,26 +78,14 @@ export const SearchBox = ({
   value,
   onChange,
   placeholder = 'Search…',
-}: SearchBoxProps) => {
-  const C = useC();
-  return (
-    <input
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      placeholder={placeholder}
-      style={{
-        background: C.inputBg,
-        border: `1px solid ${C.border2}`,
-        borderRadius: 4,
-        padding: '5px 10px',
-        color: C.text,
-        fontSize: 11,
-        fontFamily: 'inherit',
-        width: 200,
-      }}
-    />
-  );
-};
+}: SearchBoxProps) => (
+  <input
+    value={value}
+    onChange={(e) => onChange(e.target.value)}
+    placeholder={placeholder}
+    className={styles.searchBox}
+  />
+);
 
 interface SectionHeaderProps {
   title: string;
@@ -146,59 +97,13 @@ export const SectionHeader = ({
   title,
   count,
   actions,
-}: SectionHeaderProps) => {
-  const C = useC();
-  return (
-    <div
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        padding: '10px 16px',
-        borderBottom: `1px solid ${C.border}`,
-        background: C.surface,
-        gap: 8,
-        flexShrink: 0,
-        flexWrap: 'wrap',
-      }}
-    >
-      <span
-        style={{
-          fontFamily: "'Syne',sans-serif",
-          fontWeight: 700,
-          fontSize: 12,
-          color: C.text,
-          letterSpacing: '0.05em',
-        }}
-      >
-        {title}
-      </span>
-      {count != null && (
-        <span
-          style={{
-            fontSize: 10,
-            color: C.dim,
-            background: C.border,
-            borderRadius: 10,
-            padding: '1px 7px',
-          }}
-        >
-          {count}
-        </span>
-      )}
-      <div
-        style={{
-          marginLeft: 'auto',
-          display: 'flex',
-          gap: 6,
-          flexWrap: 'wrap',
-          alignItems: 'center',
-        }}
-      >
-        {actions}
-      </div>
-    </div>
-  );
-};
+}: SectionHeaderProps) => (
+  <div className={styles.sectionHeader}>
+    <span className={styles.sectionTitle}>{title}</span>
+    {count != null && <span className={styles.sectionCount}>{count}</span>}
+    <div className={styles.sectionActions}>{actions}</div>
+  </div>
+);
 
 interface BtnProps {
   children?: React.ReactNode;
@@ -226,16 +131,12 @@ export const Btn = ({
     <button
       onClick={onClick}
       disabled={disabled}
-      className="bg"
+      className={`${styles.btn} bg`}
       title={title}
       style={{
         background: disabled ? C.surface : btnBg,
         border: `1px solid ${btnColor}44`,
         color: disabled ? C.dim : btnColor,
-        padding: '4px 12px',
-        borderRadius: 4,
-        fontSize: 10,
-        fontFamily: 'inherit',
         cursor: disabled ? 'not-allowed' : 'pointer',
         ...style,
       }}
@@ -245,14 +146,9 @@ export const Btn = ({
   );
 };
 
-export const Spinner = () => {
-  const C = useC();
-  return (
-    <span className="spin" style={{ fontSize: 12, color: C.accent }}>
-      ◌
-    </span>
-  );
-};
+export const Spinner = () => (
+  <span className={`spin ${styles.spinner}`}>◌</span>
+);
 
 interface TabItem {
   id: string;
@@ -268,29 +164,18 @@ interface TabBarProps {
 
 export const TabBar = ({ tabs, active, onChange, C }: TabBarProps) => (
   <div
-    style={{
-      display: 'flex',
-      gap: 0,
-      borderBottom: `1px solid ${C.border}`,
-      marginBottom: 16,
-    }}
+    className={styles.tabBar}
+    style={{ borderBottom: `1px solid ${C.border}` }}
   >
     {tabs.map((t) => (
       <button
         key={t.id}
         onClick={() => onChange(t.id)}
+        className={styles.tabBtn}
         style={{
-          background: 'none',
-          border: 'none',
           borderBottom:
             active === t.id ? `2px solid ${C.accent}` : '2px solid transparent',
-          padding: '6px 14px',
           color: active === t.id ? C.accent : C.muted,
-          fontSize: 10,
-          letterSpacing: '0.07em',
-          cursor: 'pointer',
-          fontFamily: 'inherit',
-          marginBottom: -1,
         }}
       >
         {t.label}
@@ -304,25 +189,12 @@ interface EmptyProps {
   msg: string;
 }
 
-export const Empty = ({ icon = '◈', msg }: EmptyProps) => {
-  const C = useC();
-  return (
-    <div
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        height: '100%',
-        gap: 10,
-        color: C.dim,
-      }}
-    >
-      <span style={{ fontSize: 36 }}>{icon}</span>
-      <span style={{ fontSize: 12 }}>{msg}</span>
-    </div>
-  );
-};
+export const Empty = ({ icon = '◈', msg }: EmptyProps) => (
+  <div className={styles.empty}>
+    <span className={styles.emptyIcon}>{icon}</span>
+    <span className={styles.emptyMsg}>{msg}</span>
+  </div>
+);
 
 interface ConfirmModalProps {
   title: string;
@@ -343,49 +215,11 @@ export const ConfirmModal = ({
 }: ConfirmModalProps) => {
   const C = useC();
   return (
-    <div
-      style={{
-        position: 'fixed',
-        inset: 0,
-        background: 'rgba(0,0,0,0.55)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: 2000,
-      }}
-    >
-      <div
-        style={{
-          background: C.surface,
-          border: `1px solid ${C.border2}`,
-          borderRadius: 8,
-          padding: 24,
-          maxWidth: 420,
-          width: '90%',
-          boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
-        }}
-      >
-        <div
-          style={{
-            fontSize: 12,
-            fontWeight: 600,
-            color: C.text,
-            marginBottom: 12,
-          }}
-        >
-          {title}
-        </div>
-        <div
-          style={{
-            fontSize: 11,
-            color: C.muted,
-            marginBottom: 20,
-            lineHeight: 1.7,
-          }}
-        >
-          {children}
-        </div>
-        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+    <div className={styles.modalOverlay}>
+      <div className={styles.modalBox}>
+        <div className={styles.modalTitle}>{title}</div>
+        <div className={styles.modalBody}>{children}</div>
+        <div className={styles.modalActions}>
           <Btn onClick={onCancel} color={C.dim}>
             No
           </Btn>
@@ -404,32 +238,11 @@ interface ToastProps {
 }
 
 export const Toast = ({ msg, onDone }: ToastProps) => {
-  const C = useC();
   useEffect(() => {
     const t = setTimeout(onDone, 3000);
     return () => clearTimeout(t);
   }, []);
-  return (
-    <div
-      style={{
-        position: 'fixed',
-        bottom: 24,
-        left: '50%',
-        transform: 'translateX(-50%)',
-        background: C.surface,
-        border: `1px solid ${C.border2}`,
-        borderRadius: 6,
-        padding: '8px 16px',
-        fontSize: 11,
-        color: C.text,
-        zIndex: 3000,
-        boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
-        whiteSpace: 'nowrap',
-      }}
-    >
-      {msg}
-    </div>
-  );
+  return <div className={styles.toast}>{msg}</div>;
 };
 
 interface ComObject {
@@ -520,7 +333,7 @@ export function SpacePath({ spaceId, spaces, style }: SpacePathProps) {
     <span style={style}>
       {parts.map((p, i) => (
         <Fragment key={String(p.id)}>
-          {i > 0 && <span style={{ opacity: 0.5 }}> › </span>}
+          {i > 0 && <span className={styles.spacePathSep}> › </span>}
           <span
             onClick={
               pin

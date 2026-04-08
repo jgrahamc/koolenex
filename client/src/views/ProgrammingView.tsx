@@ -38,7 +38,7 @@ export function ProgrammingView({
   const programDevice = async (deviceId: any, devAddr: string) => {
     setProgress((p) => ({ ...p, [deviceId]: { state: 'running', pct: 5 } }));
     setLog((l) => [
-      `[${new Date().toLocaleTimeString()}] Downloading \u2192 ${devAddr}`,
+      `[${new Date().toLocaleTimeString()}] Downloading → ${devAddr}`,
       ...l,
     ]);
     // Animate progress while waiting for the real download to complete
@@ -53,7 +53,7 @@ export function ProgrammingView({
       clearInterval(iv);
       setProgress((p) => ({ ...p, [deviceId]: { state: 'done', pct: 100 } }));
       setLog((l) => [
-        `[${new Date().toLocaleTimeString()}] \u2713 ${devAddr} \u2014 programmed`,
+        `[${new Date().toLocaleTimeString()}] ✓ ${devAddr} — programmed`,
         ...l,
       ]);
       onDeviceStatus(deviceId, 'programmed');
@@ -61,7 +61,7 @@ export function ProgrammingView({
       clearInterval(iv);
       setProgress((p) => ({ ...p, [deviceId]: { state: 'error', pct: 0 } }));
       setLog((l) => [
-        `[${new Date().toLocaleTimeString()}] \u2717 ${devAddr} \u2014 ${err.message}`,
+        `[${new Date().toLocaleTimeString()}] ✗ ${devAddr} — ${err.message}`,
         ...l,
       ]);
     }
@@ -86,7 +86,7 @@ export function ProgrammingView({
           title="Programming"
           actions={[
             <Btn key="all" onClick={programmAll} color={C.amber}>
-              \u25B7 Program All Modified
+              ▷ Program All Modified
             </Btn>,
           ]}
         />
@@ -245,7 +245,7 @@ export function ProgrammingView({
                         </div>
                       ) : (
                         <span style={{ color: C.dim, fontSize: 10 }}>
-                          \u2014
+                          —
                         </span>
                       )}
                     </TD>
@@ -314,7 +314,7 @@ export function ProgrammingView({
                 key={i}
                 style={{
                   fontSize: 10,
-                  color: l.includes('\u2713') ? C.green : C.muted,
+                  color: l.includes('✓') ? C.green : C.muted,
                   lineHeight: 1.5,
                 }}
               >

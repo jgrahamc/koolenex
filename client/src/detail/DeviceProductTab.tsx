@@ -1,11 +1,12 @@
 import { localizedModel } from '../dpt.ts';
+import styles from './DeviceProductTab.module.css';
 
 interface DeviceProductTabProps {
   dev: any;
   C: any;
 }
 
-export function DeviceProductTab({ dev, C }: DeviceProductTabProps) {
+export function DeviceProductTab({ dev, C: _C }: DeviceProductTabProps) {
   const searchQuery =
     [dev.manufacturer, dev.order_number || dev.model]
       .filter(Boolean)
@@ -13,28 +14,10 @@ export function DeviceProductTab({ dev, C }: DeviceProductTabProps) {
   const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(searchQuery)}`;
 
   return (
-    <div style={{ marginTop: 16 }}>
+    <div className={styles.wrapper}>
       {/* Product info */}
-      <div
-        style={{
-          background: C.surface,
-          border: `1px solid ${C.border}`,
-          borderRadius: 8,
-          padding: 16,
-          marginBottom: 16,
-        }}
-      >
-        <div
-          style={{
-            fontSize: 11,
-            color: C.accent,
-            fontWeight: 600,
-            letterSpacing: '0.08em',
-            marginBottom: 12,
-          }}
-        >
-          PRODUCT INFO
-        </div>
+      <div className={styles.card}>
+        <div className={styles.heading}>PRODUCT INFO</div>
         {(
           [
             ['Manufacturer', dev.manufacturer],
@@ -48,30 +31,17 @@ export function DeviceProductTab({ dev, C }: DeviceProductTabProps) {
         )
           .filter(([, v]) => v)
           .map(([label, value]) => (
-            <div
-              key={label}
-              style={{ display: 'flex', fontSize: 11, marginBottom: 5 }}
-            >
-              <span style={{ color: C.dim, width: 110, flexShrink: 0 }}>
-                {label}
-              </span>
-              <span style={{ color: C.muted }}>{value}</span>
+            <div key={label} className={styles.row}>
+              <span className={styles.rowLabel}>{label}</span>
+              <span className={styles.rowValue}>{value}</span>
             </div>
           ))}
-        <div style={{ marginTop: 12 }}>
+        <div className={styles.linkRow}>
           <a
             href={searchUrl}
             target="_blank"
             rel="noopener noreferrer"
-            style={{
-              fontSize: 11,
-              color: C.accent,
-              textDecoration: 'none',
-              padding: '6px 12px',
-              border: `1px solid ${C.accent}40`,
-              borderRadius: 4,
-              display: 'inline-block',
-            }}
+            className={styles.link}
           >
             Search for product manual &rarr;
           </a>

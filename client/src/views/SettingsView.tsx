@@ -71,7 +71,7 @@ export function SettingsView({
                 }}
               >
                 <span style={{ fontSize: 14 }}>
-                  {t === 'dark' ? '\u25D1' : '\u25CB'}
+                  {t === 'dark' ? '◑' : '○'}
                 </span>
                 <div>
                   <div
@@ -100,7 +100,7 @@ export function SettingsView({
                       fontSize: 14,
                     }}
                   >
-                    \u2713
+                    ✓
                   </span>
                 )}
               </div>
@@ -148,7 +148,7 @@ export function SettingsView({
               {
                 id: 'friendly',
                 label: 'Friendly',
-                sub: 'e.g. temperature (\u00b0C)',
+                sub: 'e.g. temperature (°C)',
                 icon: 'Aa',
               },
             ].map(({ id, label, sub, icon }) => (
@@ -196,7 +196,7 @@ export function SettingsView({
                       fontSize: 14,
                     }}
                   >
-                    \u2713
+                    ✓
                   </span>
                 )}
               </div>

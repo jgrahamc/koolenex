@@ -1,25 +1,27 @@
 import { useContext, useMemo } from 'react';
 import { PinContext, useDpt } from '../contexts.ts';
 import { Empty, PinAddr, coGAs } from '../primitives.tsx';
+import styles from './ComparePanel.module.css';
 
 interface GaAddrCellProps {
   addr: string;
   otherAddr: string;
-  C: any;
 }
 
-function GaAddrCell({ addr, otherAddr, C }: GaAddrCellProps) {
+function GaAddrCell({ addr, otherAddr }: GaAddrCellProps) {
   if (!addr)
     return (
-      <span style={{ color: C.dim, fontFamily: 'monospace' }}>&mdash;</span>
+      <span className={styles.dimDash} style={{ fontFamily: 'monospace' }}>
+        &mdash;
+      </span>
     );
   if (!otherAddr || addr === otherAddr) {
     return (
       <span
+        className={styles.gaAddrMono}
         style={{
-          fontFamily: 'monospace',
-          fontSize: 10,
-          color: addr !== otherAddr ? C.amber : C.muted,
+          color:
+            addr !== otherAddr ? 'var(--amber)' : 'var(--muted)',
         }}
       >
         {addr}
@@ -29,13 +31,13 @@ function GaAddrCell({ addr, otherAddr, C }: GaAddrCellProps) {
   const pa = addr.split('/'),
     po = otherAddr.split('/');
   return (
-    <span style={{ fontFamily: 'monospace', fontSize: 10 }}>
+    <span className={styles.gaAddrMono}>
       {pa.map((p, i) => (
         <span key={i}>
-          {i > 0 && <span style={{ color: C.dim }}>/</span>}
+          {i > 0 && <span className={styles.gaAddrSep}>/</span>}
           <span
             style={{
-              color: p !== po[i] ? C.amber : C.muted,
+              color: p !== po[i] ? 'var(--amber)' : 'var(--muted)',
               fontWeight: p !== po[i] ? 700 : 400,
             }}
           >
@@ -54,7 +56,12 @@ interface ComparePanelProps {
   C: any;
 }
 
-export function ComparePanel({ addrA, addrB, data, C }: ComparePanelProps) {
+export function ComparePanel({
+  addrA,
+  addrB,
+  data,
+  C: _C,
+}: ComparePanelProps) {
   const pin = useContext(PinContext) as any;
   const dpt = useDpt();
   const { devices = [], gas = [], comObjects = [] } = data;
@@ -79,7 +86,7 @@ export function ComparePanel({ addrA, addrB, data, C }: ComparePanelProps) {
     }
   }, [devB?.parameters]);
 
-  if (!devA || !devB) return <Empty icon="\u25C8" msg="Device not found" />;
+  if (!devA || !devB) return <Empty icon="◈" msg="Device not found" />;
 
   const cosA = comObjects.filter((co: any) => co.device_address === addrA);
   const cosB = comObjects.filter((co: any) => co.device_address === addrB);
@@ -112,159 +119,70 @@ export function ComparePanel({ addrA, addrB, data, C }: ComparePanelProps) {
   const gasB = new Set<string>(cosB.flatMap(coGAs));
   const allGAs = [...new Set<string>([...gasA, ...gasB])].sort();
 
-  const diffBg = `${C.amber}18`;
-  const onlyBg = `${C.red}12`;
-  const TH2 = ({
-    children,
-    style,
-  }: {
-    children?: React.ReactNode;
-    style?: React.CSSProperties;
-  }) => (
-    <th
-      style={{
-        padding: '5px 8px',
-        textAlign: 'left',
-        fontSize: 9,
-        color: C.dim,
-        fontWeight: 600,
-        letterSpacing: '0.07em',
-        borderBottom: `1px solid ${C.border}`,
-        background: C.surface,
-        ...style,
-      }}
-    >
-      {children}
-    </th>
-  );
-  const TD2 = ({
-    children,
-    style,
-    diff,
-  }: {
-    children?: React.ReactNode;
-    style?: React.CSSProperties;
-    diff?: boolean;
-  }) => (
-    <td
-      style={{
-        padding: '4px 8px',
-        fontSize: 10,
-        borderBottom: `1px solid ${C.border}`,
-        background: diff ? diffBg : 'transparent',
-        ...style,
-      }}
-    >
-      {children ?? <span style={{ color: C.dim }}>&mdash;</span>}
-    </td>
-  );
+  const diffBg = 'color-mix(in srgb, var(--amber) 9%, transparent)';
+  const onlyBg = 'color-mix(in srgb, var(--red) 7%, transparent)';
 
-  const colA = C.accent;
-  const colB = C.purple;
+  const colA = 'var(--accent)';
+  const colB = 'var(--purple)';
 
   return (
-    <div style={{ padding: 20 }}>
+    <div className={styles.panel}>
       {/* Header */}
-      <div
-        style={{
-          display: 'flex',
-          gap: 12,
-          marginBottom: 20,
-          alignItems: 'flex-start',
-        }}
-      >
+      <div className={styles.headerRow}>
         <div
-          style={{
-            flex: 1,
-            padding: '10px 14px',
-            background: C.surface,
-            border: `2px solid ${colA}40`,
-            borderRadius: 6,
-          }}
+          className={styles.deviceCard}
+          style={{ border: `2px solid color-mix(in srgb, var(--accent) 25%, transparent)` }}
         >
           <div
             onClick={pin ? () => pin('device', addrA) : undefined}
-            style={{
-              fontFamily: 'monospace',
-              fontSize: 14,
-              fontWeight: 700,
-              color: colA,
-              cursor: pin ? 'pointer' : 'default',
-            }}
+            className={pin ? styles.deviceAddrClickable : styles.deviceAddr}
+            style={{ color: colA }}
           >
             {addrA}
           </div>
-          <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>
-            {devA.name}
-          </div>
+          <div className={styles.deviceName}>{devA.name}</div>
           {devA.model && (
-            <div style={{ fontSize: 10, color: C.dim, marginTop: 2 }}>
-              {devA.model}
-            </div>
+            <div className={styles.deviceModel}>{devA.model}</div>
           )}
         </div>
+        <div className={styles.arrowSep}>{'⇄'}</div>
         <div
-          style={{
-            fontSize: 18,
-            color: C.dim,
-            alignSelf: 'center',
-            flexShrink: 0,
-          }}
-        >
-          \u21C4
-        </div>
-        <div
-          style={{
-            flex: 1,
-            padding: '10px 14px',
-            background: C.surface,
-            border: `2px solid ${colB}40`,
-            borderRadius: 6,
-          }}
+          className={styles.deviceCard}
+          style={{ border: `2px solid color-mix(in srgb, var(--purple) 25%, transparent)` }}
         >
           <div
             onClick={pin ? () => pin('device', addrB) : undefined}
-            style={{
-              fontFamily: 'monospace',
-              fontSize: 14,
-              fontWeight: 700,
-              color: colB,
-              cursor: pin ? 'pointer' : 'default',
-            }}
+            className={pin ? styles.deviceAddrClickable : styles.deviceAddr}
+            style={{ color: colB }}
           >
             {addrB}
           </div>
-          <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>
-            {devB.name}
-          </div>
+          <div className={styles.deviceName}>{devB.name}</div>
           {devB.model && (
-            <div style={{ fontSize: 10, color: C.dim, marginTop: 2 }}>
-              {devB.model}
-            </div>
+            <div className={styles.deviceModel}>{devB.model}</div>
           )}
         </div>
       </div>
 
       {/* Parameters */}
       {allParamKeys.length > 0 && (
-        <div style={{ marginBottom: 24 }}>
-          <div
-            style={{
-              fontSize: 10,
-              color: C.dim,
-              letterSpacing: '0.08em',
-              marginBottom: 8,
-            }}
-          >
-            PARAMETERS
-          </div>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <div className={styles.sectionBlock}>
+          <div className={styles.sectionLabel}>PARAMETERS</div>
+          <table className={styles.table}>
             <thead>
               <tr>
-                <TH2 style={{ width: '22%' }}>SECTION</TH2>
-                <TH2 style={{ width: '26%' }}>NAME</TH2>
-                <TH2 style={{ color: colA }}>VALUE &mdash; {addrA}</TH2>
-                <TH2 style={{ color: colB }}>VALUE &mdash; {addrB}</TH2>
+                <th className={styles.th} style={{ width: '22%' }}>
+                  SECTION
+                </th>
+                <th className={styles.th} style={{ width: '26%' }}>
+                  NAME
+                </th>
+                <th className={styles.th} style={{ color: colA }}>
+                  VALUE &mdash; {addrA}
+                </th>
+                <th className={styles.th} style={{ color: colB }}>
+                  VALUE &mdash; {addrB}
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -277,32 +195,50 @@ export function ComparePanel({ addrA, addrB, data, C }: ComparePanelProps) {
                 const [section, name] = k.split('|');
                 return (
                   <tr key={k}>
-                    <TD2 style={{ background: bg, color: C.dim }}>
+                    <td
+                      className={styles.td}
+                      style={{ background: bg, color: 'var(--dim)' }}
+                    >
                       {section || ''}
-                    </TD2>
-                    <TD2 style={{ background: bg, color: C.muted }}>{name}</TD2>
-                    <TD2 style={{ background: bg }} diff={false}>
+                    </td>
+                    <td
+                      className={styles.td}
+                      style={{ background: bg, color: 'var(--muted)' }}
+                    >
+                      {name}
+                    </td>
+                    <td className={styles.td} style={{ background: bg }}>
                       {pA ? (
                         <span
-                          style={{ color: diff || onlyOne ? C.amber : C.text }}
+                          style={{
+                            color:
+                              diff || onlyOne
+                                ? 'var(--amber)'
+                                : 'var(--text)',
+                          }}
                         >
                           {pA.value}
                         </span>
                       ) : (
-                        <span style={{ color: C.dim }}>&mdash;</span>
+                        <span className={styles.dimDash}>&mdash;</span>
                       )}
-                    </TD2>
-                    <TD2 style={{ background: bg }} diff={false}>
+                    </td>
+                    <td className={styles.td} style={{ background: bg }}>
                       {pB ? (
                         <span
-                          style={{ color: diff || onlyOne ? C.amber : C.text }}
+                          style={{
+                            color:
+                              diff || onlyOne
+                                ? 'var(--amber)'
+                                : 'var(--text)',
+                          }}
                         >
                           {pB.value}
                         </span>
                       ) : (
-                        <span style={{ color: C.dim }}>&mdash;</span>
+                        <span className={styles.dimDash}>&mdash;</span>
                       )}
-                    </TD2>
+                    </td>
                   </tr>
                 );
               })}
@@ -313,27 +249,28 @@ export function ComparePanel({ addrA, addrB, data, C }: ComparePanelProps) {
 
       {/* Group Objects */}
       {allCoNums.length > 0 && (
-        <div style={{ marginBottom: 24 }}>
-          <div
-            style={{
-              fontSize: 10,
-              color: C.dim,
-              letterSpacing: '0.08em',
-              marginBottom: 8,
-            }}
-          >
-            GROUP OBJECTS
-          </div>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <div className={styles.sectionBlock}>
+          <div className={styles.sectionLabel}>GROUP OBJECTS</div>
+          <table className={styles.table}>
             <thead>
               <tr>
-                <TH2 style={{ width: 36 }}>#</TH2>
-                <TH2>NAME</TH2>
-                <TH2>OBJECT FUNCTION</TH2>
-                <TH2 style={{ width: 70 }}>DPT</TH2>
-                <TH2 style={{ width: 60 }}>FLAGS</TH2>
-                <TH2 style={{ color: colA }}>GA &mdash; {addrA}</TH2>
-                <TH2 style={{ color: colB }}>GA &mdash; {addrB}</TH2>
+                <th className={styles.th} style={{ width: 36 }}>
+                  #
+                </th>
+                <th className={styles.th}>NAME</th>
+                <th className={styles.th}>OBJECT FUNCTION</th>
+                <th className={styles.th} style={{ width: 70 }}>
+                  DPT
+                </th>
+                <th className={styles.th} style={{ width: 60 }}>
+                  FLAGS
+                </th>
+                <th className={styles.th} style={{ color: colA }}>
+                  GA &mdash; {addrA}
+                </th>
+                <th className={styles.th} style={{ color: colB }}>
+                  GA &mdash; {addrB}
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -357,74 +294,79 @@ export function ComparePanel({ addrA, addrB, data, C }: ComparePanelProps) {
                     : 'transparent';
                 return (
                   <tr key={num}>
-                    <TD2 style={{ background: rowBg, color: C.dim }}>{num}</TD2>
-                    <TD2 style={{ background: rowBg, color: C.muted }}>
-                      {co.name || '\u2014'}
-                    </TD2>
-                    <TD2 style={{ background: rowBg, color: C.dim }}>
-                      {co.function_text || '\u2014'}
-                    </TD2>
-                    <TD2 style={{ background: rowBg }}>
+                    <td
+                      className={styles.td}
+                      style={{ background: rowBg, color: 'var(--dim)' }}
+                    >
+                      {num}
+                    </td>
+                    <td
+                      className={styles.td}
+                      style={{ background: rowBg, color: 'var(--muted)' }}
+                    >
+                      {co.name || '—'}
+                    </td>
+                    <td
+                      className={styles.td}
+                      style={{ background: rowBg, color: 'var(--dim)' }}
+                    >
+                      {co.function_text || '—'}
+                    </td>
+                    <td className={styles.td} style={{ background: rowBg }}>
                       <span
+                        className={styles.monoCell}
                         style={{
-                          fontFamily: 'monospace',
-                          color: coA?.dpt !== coB?.dpt ? C.amber : C.dim,
+                          color:
+                            coA?.dpt !== coB?.dpt
+                              ? 'var(--amber)'
+                              : 'var(--dim)',
                         }}
                         title={dpt.hover(co.dpt)}
                       >
                         {dpt.display(co.dpt)}
                       </span>
-                    </TD2>
-                    <TD2 style={{ background: rowBg }}>
+                    </td>
+                    <td className={styles.td} style={{ background: rowBg }}>
                       <span
+                        className={styles.monoCell}
                         style={{
-                          fontFamily: 'monospace',
-                          color: coA?.flags !== coB?.flags ? C.amber : C.dim,
+                          color:
+                            coA?.flags !== coB?.flags
+                              ? 'var(--amber)'
+                              : 'var(--dim)',
                         }}
                       >
                         {co.flags}
                       </span>
-                    </TD2>
-                    <TD2 style={{ background: rowBg }} diff={false}>
+                    </td>
+                    <td className={styles.td} style={{ background: rowBg }}>
                       {coA ? (
-                        <span
-                          style={{
-                            display: 'flex',
-                            flexDirection: 'column',
-                            gap: 1,
-                          }}
-                        >
-                          <GaAddrCell addr={gaA} otherAddr={gaB} C={C} />
+                        <span className={styles.gaColWrap}>
+                          <GaAddrCell addr={gaA} otherAddr={gaB} />
                           {gaA && gaMap[gaA] && (
-                            <span style={{ fontSize: 9, color: C.dim }}>
+                            <span className={styles.gaSubName}>
                               {gaMap[gaA].name}
                             </span>
                           )}
                         </span>
                       ) : (
-                        <span style={{ color: C.dim }}>&mdash;</span>
+                        <span className={styles.dimDash}>&mdash;</span>
                       )}
-                    </TD2>
-                    <TD2 style={{ background: rowBg }} diff={false}>
+                    </td>
+                    <td className={styles.td} style={{ background: rowBg }}>
                       {coB ? (
-                        <span
-                          style={{
-                            display: 'flex',
-                            flexDirection: 'column',
-                            gap: 1,
-                          }}
-                        >
-                          <GaAddrCell addr={gaB} otherAddr={gaA} C={C} />
+                        <span className={styles.gaColWrap}>
+                          <GaAddrCell addr={gaB} otherAddr={gaA} />
                           {gaB && gaMap[gaB] && (
-                            <span style={{ fontSize: 9, color: C.dim }}>
+                            <span className={styles.gaSubName}>
                               {gaMap[gaB].name}
                             </span>
                           )}
                         </span>
                       ) : (
-                        <span style={{ color: C.dim }}>&mdash;</span>
+                        <span className={styles.dimDash}>&mdash;</span>
                       )}
-                    </TD2>
+                    </td>
                   </tr>
                 );
               })}
@@ -435,29 +377,30 @@ export function ComparePanel({ addrA, addrB, data, C }: ComparePanelProps) {
 
       {/* Group Addresses */}
       {allGAs.length > 0 && (
-        <div style={{ marginBottom: 24 }}>
-          <div
-            style={{
-              fontSize: 10,
-              color: C.dim,
-              letterSpacing: '0.08em',
-              marginBottom: 8,
-            }}
-          >
-            GROUP ADDRESSES
-          </div>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <div className={styles.sectionBlock}>
+          <div className={styles.sectionLabel}>GROUP ADDRESSES</div>
+          <table className={styles.table}>
             <thead>
               <tr>
-                <TH2 style={{ width: 100 }}>ADDRESS</TH2>
-                <TH2>NAME</TH2>
-                <TH2 style={{ width: 70 }}>DPT</TH2>
-                <TH2 style={{ width: 60, color: colA, textAlign: 'center' }}>
+                <th className={styles.th} style={{ width: 100 }}>
+                  ADDRESS
+                </th>
+                <th className={styles.th}>NAME</th>
+                <th className={styles.th} style={{ width: 70 }}>
+                  DPT
+                </th>
+                <th
+                  className={styles.th}
+                  style={{ width: 60, color: colA, textAlign: 'center' }}
+                >
                   {addrA}
-                </TH2>
-                <TH2 style={{ width: 60, color: colB, textAlign: 'center' }}>
+                </th>
+                <th
+                  className={styles.th}
+                  style={{ width: 60, color: colB, textAlign: 'center' }}
+                >
                   {addrB}
-                </TH2>
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -469,36 +412,68 @@ export function ComparePanel({ addrA, addrB, data, C }: ComparePanelProps) {
                 const gaInfo = gaMap[gaAddr];
                 return (
                   <tr key={gaAddr}>
-                    <TD2 style={{ background: rowBg }}>
+                    <td className={styles.td} style={{ background: rowBg }}>
                       <PinAddr
                         address={gaAddr}
                         wtype="ga"
-                        style={{ fontFamily: 'monospace', color: C.purple }}
+                        style={{
+                          fontFamily: 'monospace',
+                          color: 'var(--purple)',
+                        }}
                       >
                         {gaAddr}
                       </PinAddr>
-                    </TD2>
-                    <TD2 style={{ background: rowBg, color: C.muted }}>
+                    </td>
+                    <td
+                      className={styles.td}
+                      style={{
+                        background: rowBg,
+                        color: 'var(--muted)',
+                      }}
+                    >
                       {gaInfo?.name}
-                    </TD2>
-                    <TD2 style={{ background: rowBg }}>
+                    </td>
+                    <td className={styles.td} style={{ background: rowBg }}>
                       <span
-                        style={{ fontFamily: 'monospace', color: C.dim }}
+                        style={{
+                          fontFamily: 'monospace',
+                          color: 'var(--dim)',
+                        }}
                         title={dpt.hover(gaInfo?.dpt)}
                       >
                         {dpt.display(gaInfo?.dpt)}
                       </span>
-                    </TD2>
-                    <TD2 style={{ background: rowBg, textAlign: 'center' }}>
-                      <span style={{ color: inA ? C.green : C.dim }}>
-                        {inA ? '\u2713' : '\u2014'}
+                    </td>
+                    <td
+                      className={styles.td}
+                      style={{
+                        background: rowBg,
+                        textAlign: 'center',
+                      }}
+                    >
+                      <span
+                        style={{
+                          color: inA ? 'var(--green)' : 'var(--dim)',
+                        }}
+                      >
+                        {inA ? '✓' : '—'}
                       </span>
-                    </TD2>
-                    <TD2 style={{ background: rowBg, textAlign: 'center' }}>
-                      <span style={{ color: inB ? C.green : C.dim }}>
-                        {inB ? '\u2713' : '\u2014'}
+                    </td>
+                    <td
+                      className={styles.td}
+                      style={{
+                        background: rowBg,
+                        textAlign: 'center',
+                      }}
+                    >
+                      <span
+                        style={{
+                          color: inB ? 'var(--green)' : 'var(--dim)',
+                        }}
+                      >
+                        {inB ? '✓' : '—'}
                       </span>
-                    </TD2>
+                    </td>
                   </tr>
                 );
               })}

@@ -5,6 +5,7 @@ import { IconGroupAddr } from '../icons.tsx';
 import { EditableRtfField } from '../rtf.tsx';
 import { GANetworkDiagram } from '../diagram.tsx';
 import { PinTelegramFeed } from './PinTelegramFeed.tsx';
+import styles from './GAPinPanel.module.css';
 
 interface GAPinPanelProps {
   C: any;
@@ -68,7 +69,7 @@ export function GAPinPanel({
       if (cur.type !== 'Building') parts.unshift(cur.name);
       cur = cur.parent_id ? spaceMap[cur.parent_id] : null;
     }
-    return parts.join(' \u203A ');
+    return parts.join(' › ');
   };
 
   const handleSend = async (val?: string) => {
@@ -95,43 +96,22 @@ export function GAPinPanel({
   };
 
   return (
-    <div style={{ padding: 24 }}>
-      <div style={{ width: '100%' }}>
+    <div className={styles.panel}>
+      <div className={styles.inner}>
         {/* Header */}
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 12,
-            marginBottom: 20,
-          }}
-        >
-          <span style={{ color: C.purple }}>
+        <div className={styles.header}>
+          <span className={styles.headerIcon}>
             <IconGroupAddr size={26} />
           </span>
-          <div style={{ flex: 1 }}>
+          <div className={styles.headerFlex}>
             <div
               onClick={pin ? () => pin('ga', ga.address) : undefined}
-              style={{
-                fontFamily: "'DM Mono',monospace",
-                fontWeight: 700,
-                fontSize: 20,
-                color: C.text,
-                cursor: pin ? 'pointer' : 'default',
-              }}
+              className={pin ? styles.addressClickable : styles.address}
             >
               {ga.address}
             </div>
             {editing ? (
-              <div
-                style={{
-                  display: 'flex',
-                  gap: 6,
-                  alignItems: 'center',
-                  flexWrap: 'wrap',
-                  marginTop: 4,
-                }}
-              >
+              <div className={styles.editRow}>
                 <input
                   value={editName}
                   onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
@@ -142,17 +122,7 @@ export function GAPinPanel({
                     if (e.key === 'Enter') handleSave();
                     if (e.key === 'Escape') setEditing(false);
                   }}
-                  style={{
-                    background: C.inputBg,
-                    border: `1px solid ${C.accent}`,
-                    borderRadius: 4,
-                    padding: '4px 8px',
-                    color: C.text,
-                    fontSize: 12,
-                    fontFamily: 'monospace',
-                    flex: 1,
-                    minWidth: 120,
-                  }}
+                  className={styles.editInput}
                 />
                 <input
                   value={editDpt}
@@ -164,16 +134,7 @@ export function GAPinPanel({
                     if (e.key === 'Enter') handleSave();
                     if (e.key === 'Escape') setEditing(false);
                   }}
-                  style={{
-                    background: C.inputBg,
-                    border: `1px solid ${C.border2}`,
-                    borderRadius: 4,
-                    padding: '4px 8px',
-                    color: C.text,
-                    fontSize: 11,
-                    fontFamily: 'monospace',
-                    width: 120,
-                  }}
+                  className={styles.editDptInput}
                 />
                 <Btn
                   onClick={handleSave}
@@ -197,12 +158,9 @@ export function GAPinPanel({
                       }
                     : undefined
                 }
-                style={{
-                  fontSize: 12,
-                  color: C.muted,
-                  marginTop: 2,
-                  cursor: onUpdateGA ? 'pointer' : 'default',
-                }}
+                className={
+                  onUpdateGA ? styles.gaNameClickable : styles.gaName
+                }
                 title={onUpdateGA ? 'Click to edit' : undefined}
               >
                 {ga.name}
@@ -229,52 +187,37 @@ export function GAPinPanel({
         {/* Overview tab */}
         {gaTab === 'overview' && (
           <>
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(3,1fr)',
-                gap: 10,
-                marginBottom: 20,
-              }}
-            >
+            <div className={styles.grid3}>
               <div
                 onClick={() => onGroupJump?.(ga.main_g, null)}
-                style={{
-                  background: C.surface,
-                  border: `1px solid ${C.border}`,
-                  borderRadius: 4,
-                  padding: '8px 12px',
-                  cursor: 'pointer',
-                }}
+                className={styles.groupCard}
               >
-                <div style={{ fontSize: 9, color: C.dim, marginBottom: 3 }}>
-                  Main Group
-                </div>
+                <div className={styles.groupLabel}>Main Group</div>
                 <div
                   className="pa"
                   data-pin="1"
-                  style={{ fontSize: 10, color: C.purple, display: 'inline' }}
+                  style={{
+                    fontSize: 10,
+                    color: 'var(--purple)',
+                    display: 'inline',
+                  }}
                 >
                   {ga.main_g} &mdash; {ga.main_group_name || ''}
                 </div>
               </div>
               <div
                 onClick={() => onGroupJump?.(ga.main_g, ga.middle_g)}
-                style={{
-                  background: C.surface,
-                  border: `1px solid ${C.border}`,
-                  borderRadius: 4,
-                  padding: '8px 12px',
-                  cursor: 'pointer',
-                }}
+                className={styles.groupCard}
               >
-                <div style={{ fontSize: 9, color: C.dim, marginBottom: 3 }}>
-                  Middle Group
-                </div>
+                <div className={styles.groupLabel}>Middle Group</div>
                 <div
                   className="pa"
                   data-pin="1"
-                  style={{ fontSize: 10, color: C.purple, display: 'inline' }}
+                  style={{
+                    fontSize: 10,
+                    color: 'var(--purple)',
+                    display: 'inline',
+                  }}
                 >
                   {ga.middle_g} &mdash; {ga.middle_group_name || ''}
                 </div>
@@ -311,55 +254,23 @@ export function GAPinPanel({
               />
             )}
             {busConnected && (
-              <div
-                style={{
-                  background: C.surface,
-                  border: `1px solid ${C.border}`,
-                  borderRadius: 6,
-                  padding: '12px 16px',
-                  marginBottom: 20,
-                }}
-              >
-                <div
-                  style={{
-                    fontSize: 10,
-                    color: C.dim,
-                    letterSpacing: '0.08em',
-                    marginBottom: 10,
-                  }}
-                >
-                  SEND TELEGRAM
-                </div>
-                <div
-                  style={{
-                    display: 'flex',
-                    gap: 8,
-                    alignItems: 'center',
-                    flexWrap: 'wrap',
-                  }}
-                >
+              <div className={styles.sendCard}>
+                <div className={styles.sendLabel}>SEND TELEGRAM</div>
+                <div className={styles.sendRow}>
                   <select
                     value={writeDpt}
                     onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
                       setWriteDpt(e.target.value)
                     }
-                    style={{
-                      background: C.inputBg,
-                      border: `1px solid ${C.border}`,
-                      borderRadius: 4,
-                      padding: '6px 10px',
-                      color: C.text,
-                      fontSize: 11,
-                      fontFamily: 'inherit',
-                    }}
+                    className={styles.sendSelect}
                   >
                     {(
                       [
-                        ['1', 'DPT 1 \u2014 Bool'],
-                        ['2', 'DPT 2 \u2014 Bool+C'],
-                        ['5', 'DPT 5 \u2014 0\u2013255'],
-                        ['9', 'DPT 9 \u2014 Float'],
-                        ['14', 'DPT 14 \u2014 Float32'],
+                        ['1', 'DPT 1 — Bool'],
+                        ['2', 'DPT 2 — Bool+C'],
+                        ['5', 'DPT 5 — 0–255'],
+                        ['9', 'DPT 9 — Float'],
+                        ['14', 'DPT 14 — Float32'],
                       ] as [string, string][]
                     ).map(([v, l]) => (
                       <option key={v} value={v}>
@@ -368,7 +279,7 @@ export function GAPinPanel({
                     ))}
                   </select>
                   {writeDpt === '1' ? (
-                    <div style={{ display: 'flex', gap: 6 }}>
+                    <div className={styles.boolBtns}>
                       <Btn
                         onClick={() => handleSend('1')}
                         color={C.green}
@@ -405,16 +316,7 @@ export function GAPinPanel({
                         max={writeDpt === '5' ? 255 : undefined}
                         step={['9', '14'].includes(writeDpt) ? 0.01 : 1}
                         placeholder="value"
-                        style={{
-                          background: C.inputBg,
-                          border: `1px solid ${C.border2}`,
-                          borderRadius: 4,
-                          padding: '6px 10px',
-                          color: C.text,
-                          fontSize: 11,
-                          fontFamily: 'monospace',
-                          width: 120,
-                        }}
+                        className={styles.sendInput}
                       />
                       <Btn
                         onClick={() => handleSend()}
@@ -426,7 +328,7 @@ export function GAPinPanel({
                             <Spinner /> Sending&hellip;
                           </>
                         ) : (
-                          '\u25B6 Send'
+                          '▶ Send'
                         )}
                       </Btn>
                     </>
@@ -477,20 +379,11 @@ function SubNameCard({ ga, C, onUpdateGA }: SubNameCardProps) {
   };
 
   return (
-    <div
-      style={{
-        background: C.surface,
-        border: `1px solid ${C.border}`,
-        borderRadius: 4,
-        padding: '8px 12px',
-      }}
-    >
-      <div style={{ fontSize: 9, color: C.dim, marginBottom: 3 }}>Sub</div>
+    <div className={styles.groupCard} style={{ cursor: 'default' }}>
+      <div className={styles.groupLabel}>Sub</div>
       {editing ? (
-        <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-          <span style={{ fontSize: 10, color: C.text }}>
-            {ga.sub_g} &mdash;
-          </span>
+        <div className={styles.subEditRow}>
+          <span className={styles.subText}>{ga.sub_g} &mdash;</span>
           <input
             value={name}
             onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
@@ -501,17 +394,7 @@ function SubNameCard({ ga, C, onUpdateGA }: SubNameCardProps) {
               if (e.key === 'Enter') save();
               if (e.key === 'Escape') setEditing(false);
             }}
-            style={{
-              background: C.inputBg,
-              border: `1px solid ${C.accent}`,
-              borderRadius: 3,
-              padding: '2px 6px',
-              color: C.text,
-              fontSize: 10,
-              fontFamily: 'inherit',
-              flex: 1,
-              minWidth: 60,
-            }}
+            className={styles.subEditInput}
           />
           <Btn onClick={save} disabled={saving || !name.trim()} color={C.green}>
             {saving ? <Spinner /> : 'Save'}
@@ -536,11 +419,9 @@ function SubNameCard({ ga, C, onUpdateGA }: SubNameCardProps) {
                 }
               : undefined
           }
-          style={{
-            fontSize: 10,
-            color: C.text,
-            cursor: onUpdateGA ? 'text' : 'default',
-          }}
+          className={
+            onUpdateGA ? styles.subDisplayClickable : styles.subDisplay
+          }
           title={onUpdateGA ? 'Click to rename' : undefined}
         >
           {ga.sub_g} &mdash; {ga.name}

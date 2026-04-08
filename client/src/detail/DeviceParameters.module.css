@@ -1,0 +1,262 @@
+.wrapper {
+  margin-top: 20px;
+  margin-bottom: 20px;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.toolbarLabel {
+  font-size: 10px;
+  color: var(--dim);
+  letter-spacing: 0.08em;
+}
+
+.editBtn {
+  font-size: 9px;
+  background: none;
+  border: 1px solid var(--accent);
+  border-radius: 3px;
+  padding: 1px 6px;
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.viewBtn {
+  font-size: 9px;
+  background: none;
+  border: 1px solid var(--border2);
+  border-radius: 3px;
+  padding: 1px 6px;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.saveBtn {
+  font-size: 9px;
+  background: var(--accent);
+  border: none;
+  border-radius: 3px;
+  padding: 1px 8px;
+  color: #fff;
+  cursor: pointer;
+}
+
+.saveErr {
+  font-size: 9px;
+  color: var(--red);
+}
+
+.emptyMsg {
+  color: var(--dim);
+  font-size: 10px;
+}
+
+.splitLayout {
+  display: flex;
+  gap: 0;
+}
+
+.sidebar {
+  min-width: 120px;
+  border-right: 1px solid var(--border);
+  margin-right: 12px;
+  flex-shrink: 0;
+}
+
+.sideGroup {
+  position: relative;
+  padding: 4px 10px 4px 14px;
+  font-size: 10px;
+  color: var(--muted);
+  user-select: none;
+  white-space: nowrap;
+  border-left: 2px solid transparent;
+  cursor: pointer;
+}
+
+.sideGroupArrow {
+  position: absolute;
+  left: 5px;
+  top: 50%;
+  font-size: 7px;
+  transition: transform 0.15s;
+}
+
+.sideItem {
+  cursor: pointer;
+  font-size: 10px;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.content {
+  flex: 1;
+  overflow-y: auto;
+}
+
+/* SectionContent tables */
+.paramTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 10px;
+}
+
+.paramLabel {
+  padding: 4px 8px;
+  color: var(--muted);
+  width: 50%;
+  vertical-align: middle;
+}
+
+.paramValue {
+  padding: 3px 8px;
+  vertical-align: middle;
+}
+
+/* SepRow */
+.sepHeadline {
+  padding: 10px 8px 4px;
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.sepHr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 4px 0;
+}
+
+.sepInfo {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 8px 10px;
+  background: color-mix(in srgb, var(--accent) 3%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 15%, transparent);
+  border-radius: 4px;
+  font-size: 9px;
+  color: var(--muted);
+}
+
+.sepInfoIcon {
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+/* Inputs */
+.viewValue {
+  color: var(--muted);
+  font-family: monospace;
+  font-size: 10px;
+}
+
+.checkbox {
+  accent-color: var(--accent);
+  cursor: pointer;
+  margin: 0;
+  width: 14px;
+  height: 14px;
+}
+
+.radioGroup {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.radioLabel {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+  font-size: 10px;
+  color: var(--text);
+  user-select: none;
+}
+
+.radio {
+  accent-color: var(--accent);
+  cursor: pointer;
+  margin: 0;
+}
+
+.selectInput {
+  background: var(--surface);
+  border: 1px solid var(--border2);
+  border-radius: 3px;
+  padding: 2px 4px;
+  color: var(--text);
+  font-size: 10px;
+  font-family: inherit;
+  max-width: 180px;
+}
+
+.numberInput {
+  background: var(--surface);
+  border: 1px solid var(--border2);
+  border-radius: 3px;
+  padding: 2px 6px;
+  color: var(--text);
+  font-size: 10px;
+  font-family: monospace;
+  width: 80px;
+}
+
+.durationInput {
+  background: var(--surface);
+  border: 1px solid var(--border2);
+  border-radius: 3px;
+  padding: 2px 6px;
+  color: var(--text);
+  font-size: 10px;
+  font-family: monospace;
+  width: 90px;
+}
+
+.textInput {
+  background: var(--surface);
+  border: 1px solid var(--border2);
+  border-radius: 3px;
+  padding: 2px 6px;
+  color: var(--text);
+  font-size: 10px;
+  font-family: monospace;
+}
+
+/* Table layout cells */
+.tableLayoutTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 10px;
+  margin: 4px 0;
+}
+
+.tableLayoutTh {
+  padding: 4px 8px;
+  text-align: left;
+  color: var(--dim);
+  font-size: 9px;
+  font-weight: 600;
+}
+
+.tableLayoutRowLabel {
+  padding: 4px 8px;
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.tableLayoutCell {
+  padding: 3px 8px;
+  vertical-align: middle;
+}

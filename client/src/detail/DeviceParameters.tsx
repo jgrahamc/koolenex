@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { api } from '../api.ts';
+import styles from './DeviceParameters.module.css';
 
 // Test whether a numeric/string value matches an ETS when-test entry.
 // Tests can be exact ('0','1') or relational ('<2','>0','<=3','>=1').
@@ -499,15 +500,11 @@ export function DeviceParameters({ dev, projectId, C }: DeviceParametersProps) {
       let display: any;
       if (item.typeKind === 'enum') display = item.enums?.[rawVal] ?? rawVal;
       else if (item.typeKind === 'checkbox')
-        display = String(rawVal) === '1' ? '\u2713' : '\u2717';
+        display = String(rawVal) === '1' ? '✓' : '✗';
       else if (isDuration)
         display = fmtDuration(rawVal, item.unit, item.uiHint);
       else display = rawVal;
-      return (
-        <span style={{ color: C.muted, fontFamily: 'monospace', fontSize: 10 }}>
-          {display}
-        </span>
-      );
+      return <span className={styles.viewValue}>{display}</span>;
     }
     if (item.typeKind === 'checkbox') {
       return (
@@ -517,13 +514,7 @@ export function DeviceParameters({ dev, projectId, C }: DeviceParametersProps) {
           onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
             handleChange(item.instanceKey, e.target.checked ? '1' : '0')
           }
-          style={{
-            accentColor: C.accent,
-            cursor: 'pointer',
-            margin: 0,
-            width: 14,
-            height: 14,
-          }}
+          className={styles.checkbox}
         />
       );
     }
@@ -531,38 +522,16 @@ export function DeviceParameters({ dev, projectId, C }: DeviceParametersProps) {
       const entries = Object.entries(item.enums || {});
       if (entries.length === 2) {
         return (
-          <div
-            style={{
-              display: 'flex',
-              gap: 14,
-              alignItems: 'center',
-              flexWrap: 'wrap',
-            }}
-          >
+          <div className={styles.radioGroup}>
             {entries.map(([v, l]) => (
-              <label
-                key={v}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 5,
-                  cursor: 'pointer',
-                  fontSize: 10,
-                  color: C.text,
-                  userSelect: 'none',
-                }}
-              >
+              <label key={v} className={styles.radioLabel}>
                 <input
                   type="radio"
                   name={item.instanceKey}
                   value={v}
                   checked={String(rawVal) === String(v)}
                   onChange={() => handleChange(item.instanceKey, v)}
-                  style={{
-                    accentColor: C.accent,
-                    cursor: 'pointer',
-                    margin: 0,
-                  }}
+                  className={styles.radio}
                 />
                 {l as string}
               </label>
@@ -576,16 +545,7 @@ export function DeviceParameters({ dev, projectId, C }: DeviceParametersProps) {
           onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
             handleChange(item.instanceKey, e.target.value)
           }
-          style={{
-            background: C.surface,
-            border: `1px solid ${C.border2}`,
-            borderRadius: 3,
-            padding: '2px 4px',
-            color: C.text,
-            fontSize: 10,
-            fontFamily: 'inherit',
-            maxWidth: 180,
-          }}
+          className={styles.selectInput}
         >
           {entries.map(([v, l]) => (
             <option key={v} value={v}>
@@ -606,16 +566,7 @@ export function DeviceParameters({ dev, projectId, C }: DeviceParametersProps) {
           onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
             handleChange(item.instanceKey, e.target.value)
           }
-          style={{
-            background: C.surface,
-            border: `1px solid ${C.border2}`,
-            borderRadius: 3,
-            padding: '2px 6px',
-            color: C.text,
-            fontSize: 10,
-            fontFamily: 'monospace',
-            width: 80,
-          }}
+          className={styles.numberInput}
         />
       );
     }
@@ -629,16 +580,7 @@ export function DeviceParameters({ dev, projectId, C }: DeviceParametersProps) {
             if (parsed !== null) handleChange(item.instanceKey, String(parsed));
           }}
           placeholder="hh:mm:ss"
-          style={{
-            background: C.surface,
-            border: `1px solid ${C.border2}`,
-            borderRadius: 3,
-            padding: '2px 6px',
-            color: C.text,
-            fontSize: 10,
-            fontFamily: 'monospace',
-            width: 90,
-          }}
+          className={styles.durationInput}
         />
       );
     }
@@ -650,61 +592,25 @@ export function DeviceParameters({ dev, projectId, C }: DeviceParametersProps) {
         onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
           handleChange(item.instanceKey, e.target.value)
         }
-        style={{
-          background: C.surface,
-          border: `1px solid ${C.border2}`,
-          borderRadius: 3,
-          padding: '2px 6px',
-          color: C.text,
-          fontSize: 10,
-          fontFamily: 'monospace',
-          width: textWidth,
-        }}
+        className={styles.textInput}
+        style={{ width: textWidth }}
       />
     );
   };
 
   return (
-    <div style={{ marginTop: 20, marginBottom: 20 }}>
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 8,
-          marginBottom: 8,
-        }}
-      >
-        <div style={{ fontSize: 10, color: C.dim, letterSpacing: '0.08em' }}>
-          PARAMETERS
-        </div>
+    <div className={styles.wrapper}>
+      <div className={styles.toolbar}>
+        <div className={styles.toolbarLabel}>PARAMETERS</div>
         {mode === 'view' ? (
-          <button
-            onClick={() => setMode('edit')}
-            style={{
-              fontSize: 9,
-              background: 'none',
-              border: `1px solid ${C.accent}`,
-              borderRadius: 3,
-              padding: '1px 6px',
-              color: C.accent,
-              cursor: 'pointer',
-            }}
-          >
+          <button onClick={() => setMode('edit')} className={styles.editBtn}>
             Edit
           </button>
         ) : (
           <>
             <button
               onClick={() => setMode('view')}
-              style={{
-                fontSize: 9,
-                background: 'none',
-                border: `1px solid ${C.border2}`,
-                borderRadius: 3,
-                padding: '1px 6px',
-                color: C.muted,
-                cursor: 'pointer',
-              }}
+              className={styles.viewBtn}
             >
               View
             </button>
@@ -712,38 +618,23 @@ export function DeviceParameters({ dev, projectId, C }: DeviceParametersProps) {
               <button
                 onClick={handleSave}
                 disabled={saving}
-                style={{
-                  fontSize: 9,
-                  background: C.accent,
-                  border: 'none',
-                  borderRadius: 3,
-                  padding: '1px 8px',
-                  color: '#fff',
-                  cursor: 'pointer',
-                }}
+                className={styles.saveBtn}
               >
-                {saving ? 'Saving\u2026' : 'Save'}
+                {saving ? 'Saving…' : 'Save'}
               </button>
             )}
             {saveErr && (
-              <span style={{ fontSize: 9, color: C.red }}>{saveErr}</span>
+              <span className={styles.saveErr}>{saveErr}</span>
             )}
           </>
         )}
       </div>
       {sections.length === 0 ? (
-        <div style={{ color: C.dim, fontSize: 10 }}>No visible parameters</div>
+        <div className={styles.emptyMsg}>No visible parameters</div>
       ) : (
-        <div style={{ display: 'flex', gap: 0 }}>
+        <div className={styles.splitLayout}>
           {sections.length > 1 && (
-            <div
-              style={{
-                minWidth: 120,
-                borderRight: `1px solid ${C.border}`,
-                marginRight: 12,
-                flexShrink: 0,
-              }}
-            >
+            <div className={styles.sidebar}>
               {(() => {
                 const items: React.ReactNode[] = [];
                 let lastGroup: string | null = null;
@@ -836,20 +727,11 @@ interface SepRowProps {
   C: any;
 }
 
-function SepRow({ item, C }: SepRowProps) {
+function SepRow({ item, C: _C }: SepRowProps) {
   if (item.uiHint === 'Headline' && item.text)
     return (
       <tr>
-        <td
-          colSpan={99}
-          style={{
-            padding: '10px 8px 4px',
-            color: C.accent,
-            fontSize: 10,
-            fontWeight: 600,
-            letterSpacing: '0.04em',
-          }}
-        >
+        <td colSpan={99} className={styles.sepHeadline}>
           {item.text}
         </td>
       </tr>
@@ -858,13 +740,7 @@ function SepRow({ item, C }: SepRowProps) {
     return (
       <tr>
         <td colSpan={99} style={{ padding: 0 }}>
-          <hr
-            style={{
-              border: 'none',
-              borderTop: `1px solid ${C.border}`,
-              margin: '4px 0',
-            }}
-          />
+          <hr className={styles.sepHr} />
         </td>
       </tr>
     );
@@ -872,30 +748,8 @@ function SepRow({ item, C }: SepRowProps) {
     return (
       <tr>
         <td colSpan={99} style={{ padding: '6px 8px' }}>
-          <div
-            style={{
-              display: 'flex',
-              gap: 8,
-              alignItems: 'flex-start',
-              padding: '8px 10px',
-              background: `${C.accent}08`,
-              border: `1px solid ${C.accent}25`,
-              borderRadius: 4,
-              fontSize: 9,
-              color: C.muted,
-            }}
-          >
-            <span
-              style={{
-                color: C.accent,
-                fontSize: 11,
-                fontWeight: 700,
-                lineHeight: 1,
-                flexShrink: 0,
-              }}
-            >
-              i
-            </span>
+          <div className={styles.sepInfo}>
+            <span className={styles.sepInfoIcon}>i</span>
             <span>{item.text}</span>
           </div>
         </td>
