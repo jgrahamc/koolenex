@@ -157,26 +157,6 @@ export async function init(): Promise<void> {
   db.run(`INSERT OR IGNORE INTO settings VALUES ('knxip_port', '3671')`);
   db.run(`INSERT OR IGNORE INTO settings VALUES ('active_project_id', '')`);
 
-  // ── Indexes on project_id for query performance ───────────────────────────
-  db.run(
-    'CREATE INDEX IF NOT EXISTS idx_devices_project ON devices(project_id)',
-  );
-  db.run(
-    'CREATE INDEX IF NOT EXISTS idx_gas_project ON group_addresses(project_id)',
-  );
-  db.run(
-    'CREATE INDEX IF NOT EXISTS idx_co_project ON com_objects(project_id)',
-  );
-  db.run('CREATE INDEX IF NOT EXISTS idx_co_device ON com_objects(device_id)');
-  db.run('CREATE INDEX IF NOT EXISTS idx_spaces_project ON spaces(project_id)');
-  db.run('CREATE INDEX IF NOT EXISTS idx_topo_project ON topology(project_id)');
-  db.run(
-    'CREATE INDEX IF NOT EXISTS idx_telegrams_project ON bus_telegrams(project_id)',
-  );
-  db.run(
-    'CREATE INDEX IF NOT EXISTS idx_audit_project ON audit_log(project_id)',
-  );
-
   // ── Migrations: add columns introduced after initial schema ──────────────
   // SQLite has no ADD COLUMN IF NOT EXISTS, so we check pragma first.
   assertDb(db);
@@ -381,6 +361,23 @@ export async function init(): Promise<void> {
   `);
   db.run(
     `CREATE INDEX IF NOT EXISTS idx_audit_project ON audit_log(project_id, timestamp)`,
+  );
+
+  // ── Indexes on project_id for query performance ───────────────────────────
+  db.run(
+    'CREATE INDEX IF NOT EXISTS idx_devices_project ON devices(project_id)',
+  );
+  db.run(
+    'CREATE INDEX IF NOT EXISTS idx_gas_project ON group_addresses(project_id)',
+  );
+  db.run(
+    'CREATE INDEX IF NOT EXISTS idx_co_project ON com_objects(project_id)',
+  );
+  db.run('CREATE INDEX IF NOT EXISTS idx_co_device ON com_objects(device_id)');
+  db.run('CREATE INDEX IF NOT EXISTS idx_spaces_project ON spaces(project_id)');
+  db.run('CREATE INDEX IF NOT EXISTS idx_topo_project ON topology(project_id)');
+  db.run(
+    'CREATE INDEX IF NOT EXISTS idx_telegrams_project ON bus_telegrams(project_id)',
   );
 
   save();
