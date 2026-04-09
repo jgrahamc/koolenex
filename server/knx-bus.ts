@@ -60,7 +60,11 @@ class KnxBusManager extends EventEmitter {
     if (!this._wss) return;
     const msg = JSON.stringify({ type, ...payload });
     this._wss.clients.forEach((client) => {
-      if (client.readyState === 1) client.send(msg);
+      if (client.readyState === 1) {
+        try {
+          client.send(msg);
+        } catch (_) {}
+      }
     });
   }
 

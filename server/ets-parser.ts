@@ -1122,7 +1122,7 @@ function buildAppIndex(buf: Buffer): AppIndex | null {
       // Memory layout — null means not directly memory-mapped (e.g. Union child with no Offset)
       offset:
         rawOff !== ''
-          ? baseOffset + parseInt(rawOff)
+          ? baseOffset + (parseInt(rawOff) || 0)
           : baseOffset > 0
             ? baseOffset
             : null,

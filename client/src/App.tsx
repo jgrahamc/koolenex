@@ -161,21 +161,21 @@ export default function App() {
             dispatch({ type: 'DPT_LOADED' });
           }
         })
-        .catch(() => {});
+        .catch((e) => console.warn('[app] getDptInfo failed', e.message));
       api
         .getSpaceUsages(pid)
         .then((data: any) => {
           if (data?.length) setSpaceUsages(data);
         })
-        .catch(() => {});
+        .catch((e) => console.warn('[app] getSpaceUsages failed', e.message));
       api
         .getMediumTypes(pid)
         .then((d) => setMediumTypes(d as Record<string, any>))
-        .catch(() => {});
+        .catch((e) => console.warn('[app] getMediumTypes failed', e.message));
       api
         .getMaskVersions(pid)
         .then((d) => setMaskVersions(d as Record<string, any>))
-        .catch(() => {});
+        .catch((e) => console.warn('[app] getMaskVersions failed', e.message));
       api
         .getTranslations(pid)
         .then((d) =>
@@ -183,7 +183,7 @@ export default function App() {
             d as { languages: any[]; translations: Record<string, any> },
           ),
         )
-        .catch(() => {});
+        .catch((e) => console.warn('[app] getTranslations failed', e.message));
     }
   }, [state.activeProjectId]);
   useEffect(() => {
@@ -202,21 +202,21 @@ export default function App() {
           dispatch({ type: 'DPT_LOADED' }); // trigger re-render
         }
       })
-      .catch(() => {});
+      .catch((e) => console.warn('[app] getDptInfo failed', e.message));
     api
       .getSpaceUsages()
       .then((data: any) => {
         if (data?.length) setSpaceUsages(data);
       })
-      .catch(() => {});
+      .catch((e) => console.warn('[app] getSpaceUsages failed', e.message));
     api
       .getMediumTypes()
       .then((d) => setMediumTypes(d as Record<string, any>))
-      .catch(() => {});
+      .catch((e) => console.warn('[app] getMediumTypes failed', e.message));
     api
       .getMaskVersions()
       .then((d) => setMaskVersions(d as Record<string, any>))
-      .catch(() => {});
+      .catch((e) => console.warn('[app] getMaskVersions failed', e.message));
     api
       .getTranslations()
       .then((d) =>
@@ -224,7 +224,7 @@ export default function App() {
           d as { languages: any[]; translations: Record<string, any> },
         ),
       )
-      .catch(() => {});
+      .catch((e) => console.warn('[app] getTranslations failed', e.message));
 
     (async () => {
       try {

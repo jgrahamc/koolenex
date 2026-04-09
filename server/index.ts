@@ -67,7 +67,9 @@ async function start(): Promise<void> {
   bus.attachWSS(wss);
 
   wss.on('connection', (ws) => {
-    ws.send(JSON.stringify({ type: 'connected', ts: Date.now() }));
+    try {
+      ws.send(JSON.stringify({ type: 'connected', ts: Date.now() }));
+    } catch (_) {}
   });
 
   server.listen(PORT, () => {

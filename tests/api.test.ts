@@ -30,9 +30,24 @@ before(async () => {
   db = await import('../server/db.ts');
   await db.init({ inMemory: true });
   const { router: routes } = await import('../server/routes/index.ts');
+  const { ValidationError } = await import('../server/validate.ts');
   const app = express();
   app.use(express.json());
   app.use('/api', routes);
+  app.use(
+    (
+      err: Error,
+      _req: express.Request,
+      res: express.Response,
+      _next: express.NextFunction,
+    ) => {
+      if (err instanceof ValidationError) {
+        res.status(400).json({ error: err.errors.join('; ') });
+        return;
+      }
+      res.status(500).json({ error: err.message || 'Internal server error' });
+    },
+  );
   await new Promise<void>((resolve) => {
     server = app.listen(0, () => {
       baseUrl = `http://localhost:${(server.address() as any).port}/api`;

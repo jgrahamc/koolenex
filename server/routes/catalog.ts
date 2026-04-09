@@ -4,7 +4,7 @@ import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import * as db from '../db.ts';
-import { parseKnxproj } from '../ets-parser.ts';
+import { parseKnxproj, type ParsedProject } from '../ets-parser.ts';
 import { APPS_DIR } from './shared.ts';
 import { logger } from '../log.ts';
 import { paramId } from '../validate.ts';
@@ -65,12 +65,9 @@ router.post(
       return;
     }
 
-    let parsed: Record<string, unknown>;
+    let parsed: ParsedProject;
     try {
-      parsed = parseKnxproj(req.file.buffer, null) as unknown as Record<
-        string,
-        unknown
-      >;
+      parsed = parseKnxproj(req.file.buffer, null);
     } catch (err) {
       logger.error('ets', '.knxprod parse error', {
         error: (err as Error).message,
@@ -81,15 +78,7 @@ router.post(
       return;
     }
 
-    const {
-      catalogSections = [],
-      catalogItems = [],
-      paramModels,
-    } = parsed as {
-      catalogSections?: Array<Record<string, unknown>>;
-      catalogItems?: Array<Record<string, unknown>>;
-      paramModels?: Record<string, unknown>;
-    };
+    const { catalogSections, catalogItems, paramModels } = parsed;
 
     try {
       db.transaction(({ run }) => {
@@ -136,14 +125,16 @@ router.post(
       // Save param models from .knxprod
       if (paramModels) {
         for (const [appId, model] of Object.entries(paramModels)) {
+          const safe = appId.replace(/[^a-zA-Z0-9_-]/g, '_');
           try {
-            const safe = appId.replace(/[^a-zA-Z0-9_-]/g, '_');
             fs.writeFileSync(
               path.join(APPS_DIR, safe + '.json'),
               JSON.stringify(model),
             );
-          } catch (_) {
-            // ignore write errors for individual models
+          } catch (e) {
+            logger.warn('ets', `failed to write model ${safe}.json`, {
+              error: (e as Error).message,
+            });
           }
         }
       }

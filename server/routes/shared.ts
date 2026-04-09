@@ -2,6 +2,7 @@ import path from 'path';
 import fs from 'fs';
 import { XMLParser } from 'fast-xml-parser';
 import type { DptInfoEntry } from '../../shared/types.ts';
+import { logger } from '../log.ts';
 
 // ── Per-project knx_master.xml ─────────────────────────────────────────────────
 export const DATA_DIR = path.join(process.cwd(), 'data');
@@ -171,13 +172,17 @@ export function saveModelsAndMasterXml(
 ): void {
   if (paramModels) {
     for (const [appId, model] of Object.entries(paramModels)) {
+      const safe = appId.replace(/[^a-zA-Z0-9_-]/g, '_');
       try {
-        const safe = appId.replace(/[^a-zA-Z0-9_-]/g, '_');
         fs.writeFileSync(
           path.join(APPS_DIR, safe + '.json'),
           JSON.stringify(model),
         );
-      } catch (_) {}
+      } catch (e) {
+        logger.warn('ets', `failed to write model ${safe}.json`, {
+          error: (e as Error).message,
+        });
+      }
     }
   }
   if (knxMasterXml) saveMasterXml(projectId, knxMasterXml);

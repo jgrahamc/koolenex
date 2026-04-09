@@ -530,7 +530,7 @@ router.post('/bus/identify', async (req: Request, res: Response) => {
 
 // Bus scan -- streams progress via WebSocket, returns immediately
 let _activeScan: Promise<void> | null = null;
-router.post('/bus/scan', (req: Request, res: Response) => {
+router.post('/bus/scan', async (req: Request, res: Response) => {
   const b = requireBus(res);
   if (!b) return;
   const body = validateBody(
@@ -543,7 +543,12 @@ router.post('/bus/scan', (req: Request, res: Response) => {
   );
   const { area, line, timeout } = body;
   if (!b.connected) return res.status(409).json({ error: 'Not connected' });
-  if (_activeScan) b.abortScan();
+  if (_activeScan) {
+    b.abortScan();
+    try {
+      await _activeScan;
+    } catch (_) {}
+  }
   res.json({ ok: true });
   _activeScan = b
     .scan(area, line, timeout, (prog) => {

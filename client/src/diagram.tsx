@@ -710,7 +710,7 @@ export function DeviceNetworkDiagram({
                   pin
                     ? (e: React.MouseEvent) => {
                         e.stopPropagation();
-                        (pin as any)('device', dev.individual_address);
+                        pin('device', dev.individual_address);
                       }
                     : undefined
                 }
@@ -864,7 +864,7 @@ export function DeviceNetworkDiagram({
                     pin
                       ? (e: React.MouseEvent) => {
                           e.stopPropagation();
-                          (pin as any)('ga', ga.address);
+                          pin('ga', ga.address);
                         }
                       : undefined
                   }
@@ -1038,7 +1038,7 @@ export function DeviceNetworkDiagram({
                     pin
                       ? (e: React.MouseEvent) => {
                           e.stopPropagation();
-                          (pin as any)('device', addr);
+                          pin('device', addr);
                         }
                       : undefined
                   }
@@ -1465,7 +1465,7 @@ export function GANetworkDiagram({
                     pin
                       ? (e: React.MouseEvent) => {
                           e.stopPropagation();
-                          (pin as any)('device', dev.individual_address);
+                          pin('device', dev.individual_address);
                         }
                       : undefined
                   }
