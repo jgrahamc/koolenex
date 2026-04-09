@@ -4,6 +4,9 @@
   "description": "KNX Tool",
   "type": "module",
   "main": "server/index.ts",
+  "engines": {
+    "node": ">=23.6.0"
+  },
   "scripts": {
     "server": "node server/index.ts",
     "client": "cd client && npx vite",
