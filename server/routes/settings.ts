@@ -293,7 +293,7 @@ function getMaskVersions(
   const arr = Array.isArray(raw) ? raw : [raw];
   const result: Record<string, MaskVersionEntry> = {};
   for (const mv of arr) {
-    const num = parseInt(mv['@_MaskVersion'] as string);
+    const num = parseInt(mv['@_MaskVersion'] as string, 10);
     if (isNaN(num)) continue;
     const hex = num.toString(16).padStart(4, '0');
     if (!result[hex]) {
@@ -365,8 +365,8 @@ router.post('/projects/:pid/topology', (req: Request, res: Response): void => {
   const body = validateBody(
     req,
     z.object({
-      area: z.number(),
-      line: z.number().nullable().optional(),
+      area: z.number().int().min(0).max(15),
+      line: z.number().int().min(0).max(15).nullable().optional(),
       name: z.string().optional(),
       medium: z.string().optional(),
     }),

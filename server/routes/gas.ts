@@ -142,8 +142,8 @@ router.patch(
     const b = validateBody(
       req,
       z.object({
-        main: z.number(),
-        middle: z.number().nullable().optional(),
+        main: z.number().int().min(0).max(31),
+        middle: z.number().int().min(0).max(7).nullable().optional(),
         name: z.string(),
       }),
     );

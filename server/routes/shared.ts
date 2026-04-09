@@ -90,7 +90,7 @@ export function getDptInfo(
   const result: Record<string, DptInfoEntry> = {};
   for (const dpt of dptTypes) {
     const mainNum = dpt['@_Number'] as string;
-    const sizeInBit = parseInt(dpt['@_SizeInBit'] as string) || 0;
+    const sizeInBit = parseInt(dpt['@_SizeInBit'] as string, 10) || 0;
     for (const sub of toArr(
       (dpt as { DatapointSubtypes?: { DatapointSubtype?: XmlElement[] } })
         ?.DatapointSubtypes?.DatapointSubtype,

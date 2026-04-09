@@ -495,7 +495,7 @@ export function buildParamMem(
         assignRawVal === undefined
       )
         continue;
-      const intVal = parseInt(String(assignRawVal));
+      const intVal = parseInt(String(assignRawVal), 10);
       if (isNaN(intVal)) continue;
       writeBits(
         buf,

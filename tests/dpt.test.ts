@@ -122,10 +122,10 @@ describe('encodeDpt', () => {
     assert.deepEqual([...encodeDpt(NaN, '5.001')], [0]);
   });
 
-  it('DPT 14 — NaN input produces NaN float', () => {
+  it('DPT 14 — NaN input returns zero buffer', () => {
     const buf = encodeDpt(NaN, '14.068');
     assert.equal(buf.length, 4);
-    assert(isNaN(buf.readFloatBE(0)));
+    assert.equal(buf.readFloatBE(0), 0);
   });
 });
 

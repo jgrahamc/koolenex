@@ -113,9 +113,11 @@ export default function App() {
     document.documentElement.dataset.theme = theme;
   }, [theme]);
 
-  const [dptMode, setDptMode] = useState<DptMode>(
-    () => (localStorage.getItem('knx-dpt-mode') as DptMode) || 'numeric',
-  );
+  const [dptMode, setDptMode] = useState<DptMode>(() => {
+    const saved = localStorage.getItem('knx-dpt-mode');
+    const valid: DptMode[] = ['numeric', 'formal', 'friendly'];
+    return valid.includes(saved as DptMode) ? (saved as DptMode) : 'numeric';
+  });
   const handleDptModeChange = (m: string) => {
     setDptMode(m as DptMode);
     localStorage.setItem('knx-dpt-mode', m);

@@ -206,7 +206,9 @@ export function normalizeDpt(dpt: string | number): string {
   if (m) return `${m[1]}.${m[2]!.padStart(3, '0')}`;
   // Already dotted: '9.1' → '9.001', '9.001' stays
   if (s.includes('.')) {
-    const [main, sub] = s.split('.') as [string, string];
+    const parts = s.split('.');
+    const main = parts[0]!;
+    const sub = parts[1] ?? '000';
     return `${main}.${sub.padStart(3, '0')}`;
   }
   return s;
@@ -228,8 +230,10 @@ export function dptUnit(dpt: string | number): string {
 export function dptToRefId(dpt: string | number): string | null {
   const d = normalizeDpt(dpt);
   if (!d) return null;
-  const [major, sub] = d.split('.') as [string, string];
-  return 'DPST-' + parseInt(major) + '-' + parseInt(sub);
+  const parts = d.split('.');
+  const major = parts[0]!;
+  const sub = parts[1] ?? '0';
+  return 'DPST-' + parseInt(major, 10) + '-' + parseInt(sub, 10);
 }
 
 export function dptName(dpt: string | number): string {

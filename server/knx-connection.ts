@@ -100,53 +100,54 @@ export function encodeDpt(value: unknown, dpt: string | number): Buffer {
         const v = (value as Record<string, unknown>).value ? 1 : 0;
         return Buffer.from([(c << 1) | v]);
       }
-      return Buffer.from([parseInt(value as string) & 0x03]);
+      return Buffer.from([parseInt(value as string, 10) & 0x03]);
     }
     case '3': {
       // DPT 3: 1 byte, 4 bits — control + 3-bit stepcode
       if (typeof value === 'object' && value !== null) {
         const c = (value as Record<string, unknown>).control ? 1 : 0;
         const s =
-          parseInt((value as Record<string, unknown>).stepcode as string) &
+          parseInt((value as Record<string, unknown>).stepcode as string, 10) &
           0x07;
         return Buffer.from([(c << 3) | s]);
       }
-      return Buffer.from([parseInt(value as string) & 0x0f]);
+      return Buffer.from([parseInt(value as string, 10) & 0x0f]);
     }
     case '4': {
       // DPT 4: 1 byte — ASCII/8859-1 character
       const ch =
         typeof value === 'string'
           ? value.charCodeAt(0) || 0
-          : parseInt(value as string) & 0xff;
+          : parseInt(value as string, 10) & 0xff;
       return Buffer.from([ch & 0xff]);
     }
     case '5':
       return Buffer.from([
-        Math.min(255, Math.max(0, parseInt(value as string))),
+        Math.min(255, Math.max(0, parseInt(value as string, 10))),
       ]);
     case '6': {
       // DPT 6: 1 byte — signed int8 (-128..127)
       const b = Buffer.alloc(1);
-      b.writeInt8(Math.min(127, Math.max(-128, parseInt(value as string))));
+      b.writeInt8(Math.min(127, Math.max(-128, parseInt(value as string, 10))));
       return b;
     }
     case '7': {
       // DPT 7: 2 bytes — 16-bit unsigned
       const b = Buffer.alloc(2);
-      b.writeUInt16BE(Math.min(65535, Math.max(0, parseInt(value as string))));
+      b.writeUInt16BE(Math.min(65535, Math.max(0, parseInt(value as string, 10))));
       return b;
     }
     case '8': {
       // DPT 8: 2 bytes — 16-bit signed
       const b = Buffer.alloc(2);
       b.writeInt16BE(
-        Math.min(32767, Math.max(-32768, parseInt(value as string))),
+        Math.min(32767, Math.max(-32768, parseInt(value as string, 10))),
       );
       return b;
     }
     case '9': {
       const v = parseFloat(value as string);
+      if (!Number.isFinite(v)) return Buffer.from([0, 0]);
       let mant = Math.round(v * 100),
         exp = 0;
       while (mant < -2048 || mant > 2047) {
@@ -177,17 +178,17 @@ export function encodeDpt(value: unknown, dpt: string | number): Buffer {
         sec = 0;
       if (typeof value === 'object' && value !== null) {
         const obj = value as Record<string, unknown>;
-        day = parseInt(obj.day as string) || 0;
-        hour = parseInt(obj.hour as string) || 0;
-        min = parseInt(obj.min as string) || 0;
-        sec = parseInt(obj.sec as string) || 0;
+        day = parseInt(obj.day as string, 10) || 0;
+        hour = parseInt(obj.hour as string, 10) || 0;
+        min = parseInt(obj.min as string, 10) || 0;
+        sec = parseInt(obj.sec as string, 10) || 0;
       } else if (typeof value === 'string') {
         const m = value.match(/^(\w+)\s+(\d+):(\d+):(\d+)$/);
         if (m) {
           day = DAYS[m[1]!.toLowerCase()] || 0;
-          hour = parseInt(m[2]!);
-          min = parseInt(m[3]!);
-          sec = parseInt(m[4]!);
+          hour = parseInt(m[2]!, 10);
+          min = parseInt(m[3]!, 10);
+          sec = parseInt(m[4]!, 10);
         }
       }
       return Buffer.from([
@@ -203,15 +204,15 @@ export function encodeDpt(value: unknown, dpt: string | number): Buffer {
         year: number | undefined;
       if (typeof value === 'object' && value !== null) {
         const obj = value as Record<string, unknown>;
-        day = parseInt(obj.day as string);
-        month = parseInt(obj.month as string);
-        year = parseInt(obj.year as string);
+        day = parseInt(obj.day as string, 10);
+        month = parseInt(obj.month as string, 10);
+        year = parseInt(obj.year as string, 10);
       } else if (typeof value === 'string') {
         const parts = value.split('-');
         if (parts.length === 3) {
-          year = parseInt(parts[0]!);
-          month = parseInt(parts[1]!);
-          day = parseInt(parts[2]!);
+          year = parseInt(parts[0]!, 10);
+          month = parseInt(parts[1]!, 10);
+          day = parseInt(parts[2]!, 10);
         }
       }
       if (day! < 1 || day! > 31)
@@ -226,18 +227,20 @@ export function encodeDpt(value: unknown, dpt: string | number): Buffer {
     case '12': {
       // DPT 12: 4 bytes — 32-bit unsigned
       const b = Buffer.alloc(4);
-      b.writeUInt32BE(Math.max(0, parseInt(value as string)) >>> 0);
+      b.writeUInt32BE(Math.max(0, parseInt(value as string, 10)) >>> 0);
       return b;
     }
     case '13': {
       // DPT 13: 4 bytes — 32-bit signed
       const b = Buffer.alloc(4);
-      b.writeInt32BE(parseInt(value as string) | 0);
+      b.writeInt32BE(parseInt(value as string, 10) | 0);
       return b;
     }
     case '14': {
       const b = Buffer.alloc(4);
-      b.writeFloatBE(parseFloat(value as string));
+      const fv = parseFloat(value as string);
+      if (!Number.isFinite(fv)) return Buffer.alloc(4, 0);
+      b.writeFloatBE(fv);
       return b;
     }
     case '16': {
@@ -251,17 +254,17 @@ export function encodeDpt(value: unknown, dpt: string | number): Buffer {
     }
     case '17': {
       // DPT 17: 1 byte — scene number (0-63)
-      return Buffer.from([parseInt(value as string) & 0x3f]);
+      return Buffer.from([parseInt(value as string, 10) & 0x3f]);
     }
     case '18': {
       // DPT 18: 1 byte — scene control
       if (typeof value === 'object' && value !== null) {
         const obj = value as Record<string, unknown>;
         const c = obj.control ? 1 : 0;
-        const s = parseInt(obj.scene as string) & 0x3f;
+        const s = parseInt(obj.scene as string, 10) & 0x3f;
         return Buffer.from([(c << 7) | s]);
       }
-      return Buffer.from([parseInt(value as string) & 0xff]);
+      return Buffer.from([parseInt(value as string, 10) & 0xff]);
     }
     case '19': {
       // DPT 19: 8 bytes — date/time
@@ -286,16 +289,16 @@ export function encodeDpt(value: unknown, dpt: string | number): Buffer {
     }
     case '20': {
       // DPT 20: 1 byte — 8-bit enum
-      return Buffer.from([parseInt(value as string) & 0xff]);
+      return Buffer.from([parseInt(value as string, 10) & 0xff]);
     }
     case '232': {
       // DPT 232: 3 bytes — RGB colour
       if (typeof value === 'object' && value !== null) {
         const obj = value as Record<string, unknown>;
         return Buffer.from([
-          parseInt(obj.r as string) & 0xff,
-          parseInt(obj.g as string) & 0xff,
-          parseInt(obj.b as string) & 0xff,
+          parseInt(obj.r as string, 10) & 0xff,
+          parseInt(obj.g as string, 10) & 0xff,
+          parseInt(obj.b as string, 10) & 0xff,
         ]);
       }
       if (typeof value === 'string') {
@@ -306,7 +309,7 @@ export function encodeDpt(value: unknown, dpt: string | number): Buffer {
             parseInt(value.slice(5, 7), 16),
           ]);
         }
-        const parts = value.split(',').map((s) => parseInt(s.trim()));
+        const parts = value.split(',').map((s) => parseInt(s.trim(), 10));
         if (parts.length >= 3) {
           return Buffer.from([
             parts[0]! & 0xff,
@@ -330,7 +333,7 @@ export function encodeDpt(value: unknown, dpt: string | number): Buffer {
         );
         const bri = Math.min(
           255,
-          Math.max(0, parseInt(obj.brightness as string) || 0),
+          Math.max(0, parseInt(obj.brightness as string, 10) || 0),
         );
         b.writeUInt16BE(xVal, 0);
         b.writeUInt16BE(yVal, 2);
@@ -347,10 +350,10 @@ export function encodeDpt(value: unknown, dpt: string | number): Buffer {
       const b = Buffer.alloc(6, 0x00);
       if (typeof value === 'object' && value !== null) {
         const obj = value as Record<string, unknown>;
-        b[0] = parseInt(obj.r as string) & 0xff;
-        b[1] = parseInt(obj.g as string) & 0xff;
-        b[2] = parseInt(obj.b as string) & 0xff;
-        b[3] = parseInt(obj.w as string) & 0xff;
+        b[0] = parseInt(obj.r as string, 10) & 0xff;
+        b[1] = parseInt(obj.g as string, 10) & 0xff;
+        b[2] = parseInt(obj.b as string, 10) & 0xff;
+        b[3] = parseInt(obj.w as string, 10) & 0xff;
         // b[4] = reserved
         let flags = 0;
         if (obj.r != null) flags |= 0x08;
@@ -372,7 +375,7 @@ export function encodeDpt(value: unknown, dpt: string | number): Buffer {
       return b;
     }
     default:
-      return Buffer.from([parseInt(value as string) & 0xff]);
+      return Buffer.from([parseInt(value as string, 10) & 0xff]);
   }
 }
 

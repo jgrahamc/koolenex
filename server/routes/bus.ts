@@ -126,7 +126,7 @@ export function decodeRawValue(
   info?: DptInfoEntry | undefined,
 ): string | null {
   if (!rawHex || !dptKey) return null;
-  const major = parseInt(dptKey.split('.')[0]!);
+  const major = parseInt(dptKey.split('.')[0]!, 10);
   const rawBuf = Buffer.from(rawHex, 'hex');
   if (!rawBuf.length) return null;
 

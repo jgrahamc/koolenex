@@ -35,7 +35,7 @@ function hpai(ip: string, port: number): Buffer {
   b[0] = 0x08;
   b[1] = 0x01;
   ip.split('.').forEach((o, i) => {
-    b[2 + i] = parseInt(o);
+    b[2 + i] = parseInt(o, 10);
   });
   b.writeUInt16BE(port, 6);
   return b;

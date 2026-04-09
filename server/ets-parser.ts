@@ -813,7 +813,7 @@ function buildAppIndex(buf: Buffer): AppIndex | null {
       const id = attr(co, 'Id');
       if (!id) continue;
       coDefs[id] = {
-        num: parseInt(attr(co, 'Number')) || 0,
+        num: parseInt(attr(co, 'Number'), 10) || 0,
         text: T(id, 'Text') || attr(co, 'Text') || '',
         ft: T(id, 'FunctionText') || attr(co, 'FunctionText') || '',
         dpt: attr(co, 'DatapointType'),
@@ -864,7 +864,7 @@ function buildAppIndex(buf: Buffer): AppIndex | null {
         const name = argDefs[attr(na, 'RefId')];
         if (name) args[name] = attr(na, 'Value');
       }
-      const count = parseInt(attr(mod, 'Count')) || 1;
+      const count = parseInt(attr(mod, 'Count'), 10) || 1;
       args._count = count;
       modArgs[mid] = args;
     }
@@ -1012,7 +1012,7 @@ function buildAppIndex(buf: Buffer): AppIndex | null {
                 ? Number(attr(tn, 'Maximum'))
                 : null,
           step: attr(tn, 'Step') !== '' ? Number(attr(tn, 'Step')) : null,
-          sizeInBit: parseInt(attr(tn, 'SizeInBit')) || 8,
+          sizeInBit: parseInt(attr(tn, 'SizeInBit'), 10) || 8,
           ...(coeff ? { coefficient: parseFloat(coeff) } : {}),
           uiHint,
         };
@@ -1037,7 +1037,7 @@ function buildAppIndex(buf: Buffer): AppIndex | null {
                 ? Number(attr(tf, 'Maximum'))
                 : null,
           step: null,
-          sizeInBit: parseInt(attr(tf, 'SizeInBit')) || 16,
+          sizeInBit: parseInt(attr(tf, 'SizeInBit'), 10) || 16,
           ...(coeff ? { coefficient: parseFloat(coeff) } : {}),
         };
         continue;
@@ -1057,7 +1057,7 @@ function buildAppIndex(buf: Buffer): AppIndex | null {
               ? Number(attr(tt, 'maxInclusive'))
               : null,
           step: null,
-          sizeInBit: parseInt(attr(tt, 'SizeInBit')) || 16,
+          sizeInBit: parseInt(attr(tt, 'SizeInBit'), 10) || 16,
           unit: attr(tt, 'Unit') || '',
           uiHint,
         };
@@ -1068,7 +1068,7 @@ function buildAppIndex(buf: Buffer): AppIndex | null {
         paramTypes[tid] = {
           kind: 'text',
           enums: {},
-          sizeInBit: parseInt(attr(tt, 'SizeInBit')) || 8,
+          sizeInBit: parseInt(attr(tt, 'SizeInBit'), 10) || 8,
         };
         continue;
       }
@@ -1078,7 +1078,7 @@ function buildAppIndex(buf: Buffer): AppIndex | null {
         const txt = T(attr(e, 'Id'), 'Text') || attr(e, 'Text');
         if (val !== '' && txt) enums[val] = txt;
       }
-      const trSizeInBit = parseInt(attr(pt.TypeRestriction, 'SizeInBit')) || 8;
+      const trSizeInBit = parseInt(attr(pt.TypeRestriction, 'SizeInBit'), 10) || 8;
       paramTypes[tid] = {
         kind: Object.keys(enums).length ? 'enum' : 'other',
         enums,
@@ -1122,11 +1122,11 @@ function buildAppIndex(buf: Buffer): AppIndex | null {
       // Memory layout — null means not directly memory-mapped (e.g. Union child with no Offset)
       offset:
         rawOff !== ''
-          ? baseOffset + (parseInt(rawOff) || 0)
+          ? baseOffset + (parseInt(rawOff, 10) || 0)
           : baseOffset > 0
             ? baseOffset
             : null,
-      bitOffset: parseInt(rawBitOff) || 0,
+      bitOffset: parseInt(rawBitOff, 10) || 0,
       fromMemoryChild: fromMemoryChild,
       // DefaultUnionParameter="0" marks the first (default-active) param in a Union —
       // its default value should be written even when not in currentValues.
@@ -1138,12 +1138,12 @@ function buildAppIndex(buf: Buffer): AppIndex | null {
     for (const u of toArr(st.Parameters?.Union)) {
       // Union children share the union's byte offset; their own @Offset is relative to it.
       // The union's offset may be in a <Memory Offset="X"> child element rather than a direct attribute.
-      let uOffset = parseInt(attr(u, 'Offset'));
+      let uOffset = parseInt(attr(u, 'Offset'), 10);
       let uFromMem = false;
       if (isNaN(uOffset) || uOffset === 0) {
         const uMem = Array.isArray(u.Memory) ? u.Memory[0] : u.Memory;
         if (uMem) {
-          const memOff = parseInt(attr(uMem, 'Offset'));
+          const memOff = parseInt(attr(uMem, 'Offset'), 10);
           if (!isNaN(memOff)) {
             uOffset = memOff;
             uFromMem = true;
@@ -1733,7 +1733,7 @@ function buildAppIndex(buf: Buffer): AppIndex | null {
     const relSegData: Record<number, string> = {};
     for (const st of allStaticSections) {
       for (const rs of toArr(st.Code?.RelativeSegment)) {
-        const lsm = parseInt(attr(rs, 'LoadStateMachine'));
+        const lsm = parseInt(attr(rs, 'LoadStateMachine'), 10);
         if (!lsm) continue;
         const rawData = typeof rs.Data === 'string' ? rs.Data : '';
         if (rawData) {
@@ -1753,8 +1753,8 @@ function buildAppIndex(buf: Buffer): AppIndex | null {
     const absSegData: Record<number, { size: number; hex: string }> = {};
     for (const st of allStaticSections) {
       for (const as_ of toArr(st.Code?.AbsoluteSegment)) {
-        const addr = parseInt(attr(as_, 'Address'));
-        const size = parseInt(attr(as_, 'Size')) || 0;
+        const addr = parseInt(attr(as_, 'Address'), 10);
+        const size = parseInt(attr(as_, 'Size'), 10) || 0;
         if (isNaN(addr)) continue;
         const rawData = typeof as_.Data === 'string' ? as_.Data : '';
         let hex = '';
@@ -1785,15 +1785,15 @@ function buildAppIndex(buf: Buffer): AppIndex | null {
   const loadProcedures: LoadProcedureStep[] = [];
   for (const lp of toArr(ap.Static?.LoadProcedures?.LoadProcedure)) {
     for (const el of toArr(lp.LdCtrlRelSegment)) {
-      const lsmIdx = parseInt(attr(el, 'LsmIdx')) || 4;
-      const size = parseInt(attr(el, 'Size')) || 0;
+      const lsmIdx = parseInt(attr(el, 'LsmIdx'), 10) || 4;
+      const size = parseInt(attr(el, 'Size'), 10) || 0;
       const mode = attr(el, 'AppliesTo') || 'full';
       loadProcedures.push({
         type: 'RelSegment',
         lsmIdx,
         size,
         mode,
-        fill: parseInt(attr(el, 'Fill')) || 0,
+        fill: parseInt(attr(el, 'Fill'), 10) || 0,
       });
     }
     for (const el of toArr(lp.LdCtrlWriteProp)) {
@@ -1802,8 +1802,8 @@ function buildAppIndex(buf: Buffer): AppIndex | null {
       if (data && data.length) {
         loadProcedures.push({
           type: 'WriteProp',
-          objIdx: parseInt(attr(el, 'ObjIdx')) || 0,
-          propId: parseInt(attr(el, 'PropId')) || 0,
+          objIdx: parseInt(attr(el, 'ObjIdx'), 10) || 0,
+          propId: parseInt(attr(el, 'PropId'), 10) || 0,
           data: data.toString('hex'),
         });
       }
@@ -1813,8 +1813,8 @@ function buildAppIndex(buf: Buffer): AppIndex | null {
       const data = raw ? raw.replace(/\s/g, '') : '';
       loadProcedures.push({
         type: 'CompareProp',
-        objIdx: parseInt(attr(el, 'ObjIdx')) || 0,
-        propId: parseInt(attr(el, 'PropId')) || 0,
+        objIdx: parseInt(attr(el, 'ObjIdx'), 10) || 0,
+        propId: parseInt(attr(el, 'PropId'), 10) || 0,
         data,
       });
     }
@@ -1822,25 +1822,25 @@ function buildAppIndex(buf: Buffer): AppIndex | null {
       const mode = attr(el, 'AppliesTo') || 'full';
       loadProcedures.push({
         type: 'WriteRelMem',
-        objIdx: parseInt(attr(el, 'ObjIdx')) || 4,
-        offset: parseInt(attr(el, 'Offset')) || 0,
-        size: parseInt(attr(el, 'Size')) || 0,
+        objIdx: parseInt(attr(el, 'ObjIdx'), 10) || 4,
+        offset: parseInt(attr(el, 'Offset'), 10) || 0,
+        size: parseInt(attr(el, 'Size'), 10) || 0,
         mode,
       });
     }
     for (const el of toArr(lp.LdCtrlLoadImageProp)) {
       loadProcedures.push({
         type: 'LoadImageProp',
-        objIdx: parseInt(attr(el, 'ObjIdx')) || 0,
-        propId: parseInt(attr(el, 'PropId')) || 27,
+        objIdx: parseInt(attr(el, 'ObjIdx'), 10) || 0,
+        propId: parseInt(attr(el, 'PropId'), 10) || 27,
       });
     }
     for (const el of toArr(lp.LdCtrlAbsSegment)) {
       loadProcedures.push({
         type: 'AbsSegment',
-        lsmIdx: parseInt(attr(el, 'LsmIdx')) || 0,
-        address: parseInt(attr(el, 'Address')) || 0,
-        size: parseInt(attr(el, 'Size')) || 0,
+        lsmIdx: parseInt(attr(el, 'LsmIdx'), 10) || 0,
+        address: parseInt(attr(el, 'Address'), 10) || 0,
+        size: parseInt(attr(el, 'Size'), 10) || 0,
       });
     }
   }
@@ -2329,7 +2329,7 @@ export function parseKnxproj(
       for (const midGR of toArr(mainGR.GroupRange)) {
         const midName = attr(midGR, 'Name');
         for (const ga of toArr(midGR.GroupAddress)) {
-          const flat = parseInt(attr(ga, 'Address'));
+          const flat = parseInt(attr(ga, 'Address'), 10);
           const mainNum = (flat >> 11) & 0x1f;
           const midNum = (flat >> 8) & 0x07;
           const subNum = flat & 0xff;
@@ -2363,7 +2363,7 @@ export function parseKnxproj(
     const devInstById: Record<string, string> = {}; // DeviceInstance @Id → individual_address
 
     for (const area of toArr(topology.Area)) {
-      const areaNum = parseInt(attr(area, 'Address')) || 0;
+      const areaNum = parseInt(attr(area, 'Address'), 10) || 0;
       const areaName = attr(area, 'Name');
       topologyEntries.push({
         area: areaNum,
@@ -2372,7 +2372,7 @@ export function parseKnxproj(
         medium: 'TP',
       });
       for (const line of toArr(area.Line)) {
-        const lineNum = parseInt(attr(line, 'Address')) || 0;
+        const lineNum = parseInt(attr(line, 'Address'), 10) || 0;
         const lineName = attr(line, 'Name');
         const mediumAttr =
           attr(line, 'MediumTypeRefId') ||
@@ -2402,7 +2402,7 @@ export function parseKnxproj(
         ];
 
         for (const dev of allDevs) {
-          const devNum = parseInt(attr(dev, 'Address')) || 0;
+          const devNum = parseInt(attr(dev, 'Address'), 10) || 0;
           const ia = `${areaNum}.${lineNum}.${devNum}`;
           const prodRef = attr(dev, 'ProductRefId');
           const h2pRef = attr(dev, 'Hardware2ProgramRefId');
@@ -2577,6 +2577,7 @@ export function parseKnxproj(
             // Fallback: extract base object number from O-{n} pattern in refId
             let objNum = parseInt(
               (refId.match(/(?:^|_)O-(\d+)/) || [])[1] ?? '0',
+              10,
             );
 
             if (appIdx) {
