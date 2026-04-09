@@ -635,7 +635,6 @@ export function DeviceParameters({ dev, projectId }: DeviceParametersProps) {
                 let lastGroup: string | null = null;
                 for (const key of sections) {
                   const grp = secGroupMap[key] || '';
-                  const _indent = secIndentMap[key] || 0;
                   const lbl = secLabelMap[key] || key || 'General';
                   if (grp !== lastGroup) {
                     lastGroup = grp;

@@ -1,5 +1,4 @@
-import { useContext } from 'react';
-import { PinContext, useDpt } from '../contexts.ts';
+import { useDpt } from '../contexts.ts';
 import { TH, TD, PinAddr, SpacePath } from '../primitives.tsx';
 import { dptInfo } from '../dpt.ts';
 import styles from './PinTelegramFeed.module.css';
@@ -17,18 +16,7 @@ export function PinTelegramFeed({
   devMap = {},
   spaces = [],
 }: PinTelegramFeedProps) {
-  const _pin = useContext(PinContext);
   const dpt = useDpt();
-  const spaceMap = Object.fromEntries(spaces.map((s: any) => [s.id, s]));
-  const _spacePath = (spaceId: number) => {
-    const parts: string[] = [];
-    let cur = spaceMap[spaceId];
-    while (cur) {
-      if (cur.type !== 'Building') parts.unshift(cur.name);
-      cur = cur.parent_id ? spaceMap[cur.parent_id] : null;
-    }
-    return parts.join(' › ');
-  };
   const hasSpaces = spaces.length > 0;
   const typeColor = (tp: string | undefined) =>
     tp?.includes('Write')

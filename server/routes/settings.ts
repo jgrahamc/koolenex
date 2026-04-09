@@ -18,7 +18,6 @@ import {
 } from './shared.ts';
 
 // @iarna/rtf-to-html has no type declarations — use createRequire for CJS interop
-// @ts-expect-error TS1470: import.meta is valid at runtime under --experimental-strip-types
 const require_ = createRequire(import.meta.url);
 const rtfToHTML = require_('@iarna/rtf-to-html') as (
   cb: (err: Error | null, html: string) => void,

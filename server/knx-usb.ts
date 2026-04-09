@@ -12,7 +12,6 @@ import { createRequire } from 'module';
 import { KnxConnection, parseCEMI, delay } from './knx-connection.ts';
 import { logger } from './log.ts';
 
-// @ts-expect-error TS1470: import.meta is valid at runtime
 const require_ = createRequire(import.meta.url);
 
 // ── Interfaces ────────────────────────────────────────────────────────────────
@@ -285,7 +284,7 @@ function buildFeatureSet(featureId: number, data: Buffer): Buffer[] {
 
 // ── KnxUsbConnection ───────────────────────────────────────────────────────────
 
-class KnxUsbConnection extends (KnxConnection as typeof import('./knx-connection').KnxConnection) {
+class KnxUsbConnection extends KnxConnection {
   _device: HidDevice | null;
   _devicePath: string | null;
   _activeEmi: number;

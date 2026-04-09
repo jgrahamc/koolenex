@@ -390,7 +390,6 @@ interface ParamModel {
   loadProcedures?: LoadProcedureStep[];
 }
 
-// @ts-expect-error TS1470: import.meta is valid at runtime
 const require_ = createRequire(import.meta.url);
 const Minizip = require_('minizip-asm.js') as new (
   data: Buffer,

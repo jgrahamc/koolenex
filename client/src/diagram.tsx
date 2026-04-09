@@ -1219,7 +1219,6 @@ export function GANetworkDiagram({
     lastTgRef.current = latest;
 
     const gaRight = COL_GA + GA_W / 2;
-    const _gaLeft = COL_GA - GA_W / 2;
     const devLeft = COL_DEV - DEV_W / 2;
     const mx = (gaRight + devLeft) / 2;
     const durMs = 1700;

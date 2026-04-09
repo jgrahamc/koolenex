@@ -57,19 +57,6 @@ export function GAPinPanel({
   useEffect(() => {
     setEditing(false);
   }, [ga.address]);
-  const spaceMap = Object.fromEntries(
-    (spaces || []).map((s: any) => [s.id, s]),
-  );
-  const _spacePath = (spaceId: number) => {
-    const parts: string[] = [];
-    let cur = spaceMap[spaceId];
-    while (cur) {
-      if (cur.type !== 'Building') parts.unshift(cur.name);
-      cur = cur.parent_id ? spaceMap[cur.parent_id] : null;
-    }
-    return parts.join(' › ');
-  };
-
   const handleSend = async (val?: string) => {
     const v = val ?? writeVal;
     if ((!v && v !== '0') || !onWrite) return;

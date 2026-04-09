@@ -333,8 +333,6 @@ export function GroupAddressesView({
     );
   };
 
-  const _gaVisColCount = gaCols.filter((c: any) => c.visible !== false).length;
-
   const handleConfirmDelete = async () => {
     if (!deleteConfirm || !onDeleteGA) return;
     setDeleteInProgress(true);

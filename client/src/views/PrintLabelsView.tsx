@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef } from 'react';
+import { useState, useMemo } from 'react';
 import { Btn, Chip, SectionHeader } from '../primitives.tsx';
 import styles from './PrintLabelsView.module.css';
 
@@ -134,8 +134,6 @@ export function PrintLabelsView({ data, dispatch }: PrintLabelsViewProps) {
     () => new Set(devices.map((d: any) => d.individual_address)),
   );
   const [filterArea, setFilterArea] = useState('all');
-  const _printRef = useRef(null);
-
   const spaceMap = useMemo(
     () => Object.fromEntries(spaces.map((s: any) => [s.id, s])),
     [spaces],

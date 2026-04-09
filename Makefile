@@ -26,8 +26,8 @@ test:
 	node --test tests/*.test.ts
 
 lint:
-	npx eslint server/
-	cd client && npx eslint src/
+	npx eslint --max-warnings 0 server/
+	cd client && npx eslint --max-warnings 0 src/
 
 format:
 	npx prettier --write server/ tests/
