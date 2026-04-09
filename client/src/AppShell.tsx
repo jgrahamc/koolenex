@@ -38,7 +38,7 @@ import { PrintLabelsView } from './views/PrintLabelsView.tsx';
 import { PinDetailView } from './detail/PinDetailView.tsx';
 import { GROUP_WTYPES } from './state.ts';
 import { api } from './api.ts';
-import { pinUrl } from './routes.ts';
+import { pinUrl, viewFromPath, pinKeyFromPath } from './routes.ts';
 import appStyles from './App.module.css';
 
 // ── Views manifest ─────────────────────────────────────────────────────────────
@@ -99,77 +99,11 @@ const VIEWS: ViewEntry[] = [
 
 /** Derive active view from the current URL path */
 function useActiveView(): string {
-  const location = useLocation();
-  const path = location.pathname;
-  if (path === '/settings') return 'settings';
-  if (path === '/' || !path.startsWith('/projects/')) return 'projects';
-
-  // Extract the segment after /projects/:id/
-  const rest = path.replace(/^\/projects\/\d+\/?/, '');
-  const seg = rest.split('/')[0] || 'locations';
-
-  // Map URL segments to view IDs
-  const map: Record<string, string> = {
-    locations: 'locations',
-    floorplan: 'floorplan',
-    topology: 'topology',
-    devices: 'devices',
-    device: 'pin',
-    gas: 'groups',
-    ga: 'pin',
-    comobjects: 'comobjects',
-    manufacturers: 'manufacturers',
-    catalog: 'catalog',
-    monitor: 'monitor',
-    scan: 'scan',
-    programming: 'programming',
-    info: 'project',
-    labels: 'printlabels',
-    compare: 'pin',
-    multicompare: 'pin',
-    manufacturer: 'pin',
-    model: 'pin',
-    order: 'pin',
-    space: 'pin',
-  };
-  return map[seg] || 'locations';
+  return viewFromPath(useLocation().pathname);
 }
 
-/** Derive pinKey from URL for pin detail views */
 function usePinKey(): string | null {
-  const location = useLocation();
-  const path = location.pathname;
-  if (!path.startsWith('/projects/')) return null;
-
-  const rest = path.replace(/^\/projects\/\d+\/?/, '');
-  const parts = rest.split('/');
-  const seg = parts[0];
-
-  if (seg === 'device' && parts.length >= 2) {
-    return `device:${parts.slice(1).join('.')}`;
-  }
-  if (seg === 'ga' && parts.length >= 4) {
-    return `ga:${parts[1]}/${parts[2]}/${parts[3]}`;
-  }
-  if (seg === 'compare' && parts.length >= 3) {
-    return `compare:${parts[1]}|${parts[2]}`;
-  }
-  if (seg === 'multicompare' && parts.length >= 3) {
-    return `multicompare:${parts.slice(1).join('|')}`;
-  }
-  if (seg === 'manufacturer' && parts.length >= 2) {
-    return `manufacturer:${decodeURIComponent(parts[1]!)}`;
-  }
-  if (seg === 'model' && parts.length >= 2) {
-    return `model:${decodeURIComponent(parts[1]!)}`;
-  }
-  if (seg === 'order' && parts.length >= 2) {
-    return `order_number:${decodeURIComponent(parts[1]!)}`;
-  }
-  if (seg === 'space' && parts.length >= 2) {
-    return `space:${parts[1]}`;
-  }
-  return null;
+  return pinKeyFromPath(useLocation().pathname);
 }
 
 export interface AppShellProps {
