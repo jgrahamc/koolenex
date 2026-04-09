@@ -54,7 +54,7 @@ interface ComparePanelProps {
 }
 
 export function ComparePanel({ addrA, addrB, data }: ComparePanelProps) {
-  const pin = useContext(PinContext) as any;
+  const pin = useContext(PinContext);
   const dpt = useDpt();
   const { devices = [], gas = [], comObjects = [] } = data;
   const gaMap: Record<string, any> = Object.fromEntries(

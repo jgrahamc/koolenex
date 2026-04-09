@@ -208,12 +208,12 @@ function DeviceGroupPanel({
   onAddDevice,
   dispatch,
 }: DeviceGroupPanelProps) {
-  const pin = useContext(PinContext) as any;
+  const pin = useContext(PinContext);
   const { devices = [], spaces: _spaces = [] } = data;
-  const { label } = (GROUP_WTYPES as any)[wtype];
+  const { label } = GROUP_WTYPES[wtype as keyof typeof GROUP_WTYPES];
   const [showAdd, setShowAdd] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const field = (GROUP_WTYPES as any)[wtype].field;
+  const field = GROUP_WTYPES[wtype as keyof typeof GROUP_WTYPES].field;
   const matches = devices.filter((d: any) => d[field] === value);
   const toggleSelect = (addr: string) =>
     setSelected((prev) => {
@@ -433,7 +433,7 @@ interface MultiComparePanelProps {
 }
 
 function MultiComparePanel({ addrs, data }: MultiComparePanelProps) {
-  const pin = useContext(PinContext) as any;
+  const pin = useContext(PinContext);
   const dpt = useDpt();
   const { devices = [], gas = [], comObjects = [] } = data;
   const gaMap: Record<string, any> = Object.fromEntries(
@@ -874,7 +874,7 @@ export function PinDetailView({
         onAddDevice={onAddDevice}
       />
     );
-  } else if ((GROUP_WTYPES as any)[wtype!]) {
+  } else if (wtype! in GROUP_WTYPES) {
     content = (
       <DeviceGroupPanel
         wtype={wtype!}

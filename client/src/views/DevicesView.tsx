@@ -158,7 +158,7 @@ export function DevicesView({
   );
   const groupTree = useMemo(() => {
     if (!groupMode) return null;
-    const mfrs: Record<string, any> = {};
+    const mfrs: Record<string, Record<string, typeof filtered>> = {};
     for (const d of filtered) {
       const mfr = d.manufacturer || '(Unknown)';
       const mdl = d.model || '(Unknown)';
@@ -170,9 +170,9 @@ export function DevicesView({
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([mfr, models]) => ({
         name: mfr,
-        models: Object.entries(models as Record<string, any>)
+        models: Object.entries(models)
           .sort(([a], [b]) => a.localeCompare(b))
-          .map(([mdl, devs]) => ({ name: mdl, devices: devs as any[] })),
+          .map(([mdl, devs]) => ({ name: mdl, devices: devs })),
       }));
   }, [groupMode, filtered]);
   const isGrpOpen = (key: string) => groupExpanded[key] !== false;
@@ -387,181 +387,187 @@ export function DevicesView({
                                   </tr>
                                 </thead>
                                 <tbody>
-                                  {mdl.devices.map((d) => (
-                                    <tr
-                                      key={d.id}
-                                      className={`rh ${styles.rowClickable}`}
-                                      onClick={() =>
-                                        onPin?.('device', d.individual_address)
-                                      }
-                                    >
-                                      {cv('individual_address') && (
-                                        <TD className={styles.tdIndented}>
-                                          <PinAddr
-                                            address={d.individual_address}
-                                            wtype="device"
-                                            className={styles.accentMono}
-                                          />
-                                        </TD>
-                                      )}
-                                      {cv('name') && (
-                                        <TD>
-                                          {editDevId === d.id ? (
-                                            <InlineEdit
-                                              initial={d.name}
-                                              fontSize={11}
-                                              onSave={async (v) => {
-                                                await onUpdateDevice!(d.id, {
-                                                  name: v,
-                                                });
-                                                setEditDevId(null);
-                                              }}
-                                              onCancel={() =>
-                                                setEditDevId(null)
+                                  {mdl.devices.map(
+                                    (d: (typeof filtered)[0]) => (
+                                      <tr
+                                        key={d.id}
+                                        className={`rh ${styles.rowClickable}`}
+                                        onClick={() =>
+                                          onPin?.(
+                                            'device',
+                                            d.individual_address,
+                                          )
+                                        }
+                                      >
+                                        {cv('individual_address') && (
+                                          <TD className={styles.tdIndented}>
+                                            <PinAddr
+                                              address={d.individual_address}
+                                              wtype="device"
+                                              className={styles.accentMono}
+                                            />
+                                          </TD>
+                                        )}
+                                        {cv('name') && (
+                                          <TD>
+                                            {editDevId === d.id ? (
+                                              <InlineEdit
+                                                initial={d.name}
+                                                fontSize={11}
+                                                onSave={async (v) => {
+                                                  await onUpdateDevice!(d.id, {
+                                                    name: v,
+                                                  });
+                                                  setEditDevId(null);
+                                                }}
+                                                onCancel={() =>
+                                                  setEditDevId(null)
+                                                }
+                                              />
+                                            ) : (
+                                              <span
+                                                onClick={
+                                                  onUpdateDevice
+                                                    ? (e) => {
+                                                        e.stopPropagation();
+                                                        setEditDevId(d.id);
+                                                      }
+                                                    : undefined
+                                                }
+                                                style={{
+                                                  cursor: onUpdateDevice
+                                                    ? 'text'
+                                                    : 'default',
+                                                }}
+                                                title={
+                                                  onUpdateDevice
+                                                    ? 'Click to rename'
+                                                    : undefined
+                                                }
+                                              >
+                                                {d.name}
+                                              </span>
+                                            )}
+                                          </TD>
+                                        )}
+                                        {cv('device_type') && (
+                                          <TD>
+                                            <span className={styles.textMuted}>
+                                              {d.device_type}
+                                            </span>
+                                          </TD>
+                                        )}
+                                        {cv('location') &&
+                                          spaces.length > 0 && (
+                                            <TD>
+                                              <SpacePath
+                                                spaceId={d.space_id}
+                                                spaces={spaces}
+                                                className={styles.dimLocPath}
+                                              />
+                                            </TD>
+                                          )}
+                                        {cv('manufacturer') && (
+                                          <TD>
+                                            <PinAddr
+                                              address={d.manufacturer}
+                                              wtype="manufacturer"
+                                              className={styles.amberText}
+                                            >
+                                              {d.manufacturer || '—'}
+                                            </PinAddr>
+                                          </TD>
+                                        )}
+                                        {cv('model') && (
+                                          <TD>
+                                            <PinAddr
+                                              address={d.model}
+                                              wtype="model"
+                                              className={styles.amberMono}
+                                            >
+                                              {localizedModel(d) || '—'}
+                                            </PinAddr>
+                                          </TD>
+                                        )}
+                                        {cv('order_number') && (
+                                          <TD>
+                                            <span className={styles.monoSmall}>
+                                              {d.order_number || '—'}
+                                            </span>
+                                          </TD>
+                                        )}
+                                        {cv('serial_number') && (
+                                          <TD>
+                                            <span className={styles.monoSmall}>
+                                              {d.serial_number || '—'}
+                                            </span>
+                                          </TD>
+                                        )}
+                                        {cv('status') && (
+                                          <TD>
+                                            <Badge
+                                              label={d.status.toUpperCase()}
+                                              color={
+                                                STATUS_COLOR[d.status] ||
+                                                'var(--dim)'
                                               }
                                             />
-                                          ) : (
-                                            <span
-                                              onClick={
-                                                onUpdateDevice
-                                                  ? (e) => {
-                                                      e.stopPropagation();
-                                                      setEditDevId(d.id);
-                                                    }
-                                                  : undefined
+                                          </TD>
+                                        )}
+                                        {cv('gas') && (
+                                          <TD>
+                                            <span className={styles.textDim}>
+                                              {
+                                                (
+                                                  deviceGAMap[
+                                                    d.individual_address
+                                                  ] || []
+                                                ).length
                                               }
-                                              style={{
-                                                cursor: onUpdateDevice
-                                                  ? 'text'
-                                                  : 'default',
-                                              }}
-                                              title={
-                                                onUpdateDevice
-                                                  ? 'Click to rename'
-                                                  : undefined
-                                              }
-                                            >
-                                              {d.name}
                                             </span>
-                                          )}
-                                        </TD>
-                                      )}
-                                      {cv('device_type') && (
-                                        <TD>
-                                          <span className={styles.textMuted}>
-                                            {d.device_type}
-                                          </span>
-                                        </TD>
-                                      )}
-                                      {cv('location') && spaces.length > 0 && (
-                                        <TD>
-                                          <SpacePath
-                                            spaceId={d.space_id}
-                                            spaces={spaces}
-                                            className={styles.dimLocPath}
-                                          />
-                                        </TD>
-                                      )}
-                                      {cv('manufacturer') && (
-                                        <TD>
-                                          <PinAddr
-                                            address={d.manufacturer}
-                                            wtype="manufacturer"
-                                            className={styles.amberText}
-                                          >
-                                            {d.manufacturer || '—'}
-                                          </PinAddr>
-                                        </TD>
-                                      )}
-                                      {cv('model') && (
-                                        <TD>
-                                          <PinAddr
-                                            address={d.model}
-                                            wtype="model"
-                                            className={styles.amberMono}
-                                          >
-                                            {localizedModel(d) || '—'}
-                                          </PinAddr>
-                                        </TD>
-                                      )}
-                                      {cv('order_number') && (
-                                        <TD>
-                                          <span className={styles.monoSmall}>
-                                            {d.order_number || '—'}
-                                          </span>
-                                        </TD>
-                                      )}
-                                      {cv('serial_number') && (
-                                        <TD>
-                                          <span className={styles.monoSmall}>
-                                            {d.serial_number || '—'}
-                                          </span>
-                                        </TD>
-                                      )}
-                                      {cv('status') && (
-                                        <TD>
-                                          <Badge
-                                            label={d.status.toUpperCase()}
-                                            color={
-                                              (STATUS_COLOR as any)[d.status] ||
-                                              'var(--dim)'
-                                            }
-                                          />
-                                        </TD>
-                                      )}
-                                      {cv('gas') && (
-                                        <TD>
-                                          <span className={styles.textDim}>
-                                            {
-                                              (
-                                                deviceGAMap[
-                                                  d.individual_address
-                                                ] || []
-                                              ).length
-                                            }
-                                          </span>
-                                        </TD>
-                                      )}
-                                      {cv('description') && (
-                                        <TD>
-                                          <span className={styles.dimSmall}>
-                                            {d.description &&
-                                            d.description !== d.name
-                                              ? d.description
-                                              : ''}
-                                          </span>
-                                        </TD>
-                                      )}
-                                      {cv('comment') && (
-                                        <TD>
-                                          <span className={styles.dimSmall}>
-                                            <RtfText value={d.comment} />
-                                          </span>
-                                        </TD>
-                                      )}
-                                      {cv('area') && (
-                                        <TD>
-                                          <span className={styles.textDim}>
-                                            {d.area}
-                                          </span>
-                                        </TD>
-                                      )}
-                                      {cv('line') && (
-                                        <TD>
-                                          <span className={styles.textDim}>
-                                            {d.line}
-                                          </span>
-                                        </TD>
-                                      )}
-                                      {cv('last_download') && (
-                                        <TD>
-                                          <span className={styles.dimSmall}>
-                                            {d.last_download || '—'}
-                                          </span>
-                                        </TD>
-                                      )}
-                                    </tr>
-                                  ))}
+                                          </TD>
+                                        )}
+                                        {cv('description') && (
+                                          <TD>
+                                            <span className={styles.dimSmall}>
+                                              {d.description &&
+                                              d.description !== d.name
+                                                ? d.description
+                                                : ''}
+                                            </span>
+                                          </TD>
+                                        )}
+                                        {cv('comment') && (
+                                          <TD>
+                                            <span className={styles.dimSmall}>
+                                              <RtfText value={d.comment} />
+                                            </span>
+                                          </TD>
+                                        )}
+                                        {cv('area') && (
+                                          <TD>
+                                            <span className={styles.textDim}>
+                                              {d.area}
+                                            </span>
+                                          </TD>
+                                        )}
+                                        {cv('line') && (
+                                          <TD>
+                                            <span className={styles.textDim}>
+                                              {d.line}
+                                            </span>
+                                          </TD>
+                                        )}
+                                        {cv('last_download') && (
+                                          <TD>
+                                            <span className={styles.dimSmall}>
+                                              {d.last_download || '—'}
+                                            </span>
+                                          </TD>
+                                        )}
+                                      </tr>
+                                    ),
+                                  )}
                                 </tbody>
                               </table>
                             )}
@@ -726,9 +732,7 @@ export function DevicesView({
                       <TD>
                         <Badge
                           label={d.status.toUpperCase()}
-                          color={
-                            (STATUS_COLOR as any)[d.status] || 'var(--dim)'
-                          }
+                          color={STATUS_COLOR[d.status] || 'var(--dim)'}
                         />
                       </TD>
                     )}

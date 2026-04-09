@@ -91,8 +91,8 @@ router.post('/projects/:id/gas', (req: Request, res: Response): void => {
 });
 
 router.put('/projects/:pid/gas/:gid', (req: Request, res: Response): void => {
-  const pid = req.params.pid as string;
-  const gid = req.params.gid as string;
+  const pid = paramId(req, 'pid');
+  const gid = paramId(req, 'gid');
   const b = validateBody(
     req,
     z.object({
@@ -104,15 +104,13 @@ router.put('/projects/:pid/gas/:gid', (req: Request, res: Response): void => {
   );
   const oldGA = db.get<GroupAddress>(
     'SELECT * FROM group_addresses WHERE id=? AND project_id=?',
-    [+gid, +pid],
+    [gid, pid],
   );
   if (!oldGA) {
     res.status(404).json({ error: 'Not found' });
     return;
   }
-  const { track, sets, vals, diffs } = makeUpdateBuilder(
-    oldGA as unknown as Record<string, unknown>,
-  );
+  const { track, sets, vals, diffs } = makeUpdateBuilder(oldGA);
   if (b.name !== undefined) track('name', b.name.trim());
   if (b.dpt !== undefined) track('dpt', b.dpt);
   if (b.description !== undefined) track('description', b.description);
@@ -121,13 +119,13 @@ router.put('/projects/:pid/gas/:gid', (req: Request, res: Response): void => {
     res.status(400).json({ error: 'No fields to update' });
     return;
   }
-  vals.push(+gid);
+  vals.push(gid);
   db.run(`UPDATE group_addresses SET ${sets.join(', ')} WHERE id=?`, vals);
   db.audit(
-    +pid,
+    pid,
     'update',
     'group_address',
-    (oldGA.address as string) || gid,
+    (oldGA.address as string) || String(gid),
     diffs.join('; '),
   );
   db.scheduleSave();
@@ -175,7 +173,7 @@ router.patch(
 router.delete(
   '/projects/:pid/gas/:gid',
   (req: Request, res: Response): void => {
-    const pid = req.params.pid as string;
+    const pid = paramId(req, 'pid');
     const gid = paramId(req, 'gid');
     const gaD = db.get<GroupAddress>(
       'SELECT address, name FROM group_addresses WHERE id=?',
@@ -183,7 +181,7 @@ router.delete(
     );
     db.run('DELETE FROM group_addresses WHERE id=?', [gid]);
     db.audit(
-      +pid,
+      pid,
       'delete',
       'group_address',
       (gaD?.address as string) || String(gid),
@@ -212,11 +210,11 @@ router.get('/projects/:id/comobjects', (req: Request, res: Response): void => {
 router.patch(
   '/projects/:pid/comobjects/:coid/gas',
   (req: Request, res: Response): void => {
-    const pid = req.params.pid as string;
-    const coid = req.params.coid as string;
+    const pid = paramId(req, 'pid');
+    const coid = paramId(req, 'coid');
     const co = db.get<ComObjectWithDevice>(
       'SELECT * FROM com_objects WHERE id=? AND project_id=?',
-      [+coid, +pid],
+      [coid, pid],
     );
     if (!co) {
       res.status(404).json({ error: 'Not found' });
@@ -256,7 +254,7 @@ router.patch(
     const oldGAs = ((co.ga_address as string) || '').trim() || '(none)';
     const newGAs = gaAddr.join(' ') || '(none)';
     db.audit(
-      +pid,
+      pid,
       'update',
       'com_object',
       `CO ${co.object_number}`,

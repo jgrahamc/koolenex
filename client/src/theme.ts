@@ -1,11 +1,11 @@
 import { createContext } from 'react';
 
-export const STATUS_COLOR = {
+export const STATUS_COLOR: Record<string, string> = {
   programmed: '#22c55e',
   modified: '#3b82f6',
   unassigned: '#f59e0b',
   error: '#ef4444',
-} as const;
+};
 
 export const SPACE_COLOR = {
   Building: '#3d8ef0',

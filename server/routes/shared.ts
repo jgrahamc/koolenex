@@ -151,14 +151,15 @@ export interface UpdateBuilder {
   diffs: string[];
 }
 
-export function makeUpdateBuilder(old: Record<string, unknown>): UpdateBuilder {
+export function makeUpdateBuilder<T extends object>(old: T): UpdateBuilder {
+  const rec = old as Record<string, unknown>;
   const sets: string[] = [];
   const vals: unknown[] = [];
   const diffs: string[] = [];
   const track = (col: string, newVal: unknown): void => {
     sets.push(`${col}=?`);
     vals.push(newVal);
-    diffs.push(`${col}: "${old[col] ?? ''}" → "${newVal}"`);
+    diffs.push(`${col}: "${rec[col] ?? ''}" → "${newVal}"`);
   };
   return { track, sets, vals, diffs };
 }

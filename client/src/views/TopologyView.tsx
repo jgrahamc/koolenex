@@ -497,8 +497,7 @@ export function TopologyView({
                                   <Badge
                                     label={d.status.toUpperCase()}
                                     color={
-                                      (STATUS_COLOR as any)[d.status] ||
-                                      'var(--dim)'
+                                      STATUS_COLOR[d.status] || 'var(--dim)'
                                     }
                                   />
                                 </TD>

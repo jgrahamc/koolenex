@@ -12,7 +12,7 @@ import {
 } from '../primitives.tsx';
 import { DeviceTypeIcon } from '../icons.tsx';
 import { dlCSV } from '../columns.tsx';
-
+import type { Device } from '../../../shared/types.ts';
 import { AddDeviceModal } from '../AddDeviceModal.tsx';
 import styles from './ManufacturersView.module.css';
 
@@ -86,7 +86,7 @@ export function ManufacturersView({
       'koolenex-manufacturers.csv',
       csvCols,
       devices,
-      (id: string, d: any) =>
+      (id: string, d: Device) =>
         (
           ({
             manufacturer: d.manufacturer || '',
@@ -98,7 +98,7 @@ export function ManufacturersView({
             order_number: d.order_number || '',
             serial_number: d.serial_number || '',
             gas: (deviceGAMap[d.individual_address] || []).length,
-          }) as any
+          }) as Record<string, unknown>
         )[id] ?? '',
     );
 
@@ -240,8 +240,7 @@ export function ManufacturersView({
                                   <Badge
                                     label={d.status.toUpperCase()}
                                     color={
-                                      (STATUS_COLOR as any)[d.status] ||
-                                      'var(--dim)'
+                                      STATUS_COLOR[d.status] || 'var(--dim)'
                                     }
                                   />
                                 </TD>

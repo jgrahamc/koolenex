@@ -156,9 +156,7 @@ export function ProgrammingView({
                       ) : (
                         <Badge
                           label={d.status.toUpperCase()}
-                          color={
-                            (STATUS_COLOR as any)[d.status] || 'var(--dim)'
-                          }
+                          color={STATUS_COLOR[d.status] || 'var(--dim)'}
                         />
                       )}
                     </TD>

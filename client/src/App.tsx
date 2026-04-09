@@ -497,13 +497,31 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey);
   }, [performUndo]);
 
-  const diffDetail = (
-    prev: Record<string, unknown>,
+  /** Extract prev values for the keys in patch, for undo. */
+  const prevSnapshot = <T extends object>(
+    prev: T,
+    patch: Record<string, unknown>,
+  ): Record<string, unknown> => {
+    const rec = prev as unknown as Record<string, unknown>;
+    const result: Record<string, unknown> = {};
+    for (const k of Object.keys(patch)) result[k] = rec[k] ?? '';
+    return result;
+  };
+
+  const diffDetail = <T extends object>(
+    prev: T,
     patch: Record<string, unknown>,
   ): string =>
     Object.keys(patch)
-      .filter((k) => String(prev[k] ?? '') !== String(patch[k] ?? ''))
-      .map((k) => `${k}: "${prev[k] ?? ''}" → "${patch[k]}"`)
+      .filter(
+        (k) =>
+          String((prev as Record<string, unknown>)[k] ?? '') !==
+          String(patch[k] ?? ''),
+      )
+      .map(
+        (k) =>
+          `${k}: "${(prev as Record<string, unknown>)[k] ?? ''}" → "${patch[k]}"`,
+      )
       .join('; ');
 
   const handleUpdateGA = useCallback(
@@ -511,10 +529,8 @@ export default function App() {
       if (!state.activeProjectId) return;
       const prev = state.projectData?.gas?.find((g) => g.id === gaId);
       if (!prev) return;
-      const prevRec = prev as unknown as Record<string, unknown>;
-      const prevPatch: Record<string, unknown> = {};
-      for (const k of Object.keys(patch)) prevPatch[k] = prevRec[k] ?? '';
-      const detail = diffDetail(prevRec, patch);
+      const prevPatch = prevSnapshot(prev, patch);
+      const detail = diffDetail(prev, patch);
       await api.updateGA(state.activeProjectId, gaId, patch);
       dispatch({
         type: 'PATCH_GA',
@@ -563,10 +579,8 @@ export default function App() {
       if (!state.activeProjectId) return;
       const prev = state.projectData?.devices?.find((d) => d.id === deviceId);
       if (!prev) return;
-      const prevRec = prev as unknown as Record<string, unknown>;
-      const prevPatch: Record<string, unknown> = {};
-      for (const k of Object.keys(patch)) prevPatch[k] = prevRec[k] ?? '';
-      const detail = diffDetail(prevRec, patch);
+      const prevPatch = prevSnapshot(prev, patch);
+      const detail = diffDetail(prev, patch);
       await api.updateDevice(state.activeProjectId, deviceId, patch);
       dispatch({
         type: 'PATCH_DEVICE',
@@ -591,10 +605,8 @@ export default function App() {
       if (!state.activeProjectId) return;
       const prev = state.projectData?.spaces?.find((s) => s.id === spaceId);
       if (!prev) return;
-      const prevRec = prev as unknown as Record<string, unknown>;
-      const prevPatch: Record<string, unknown> = {};
-      for (const k of Object.keys(patch)) prevPatch[k] = prevRec[k] ?? '';
-      const detail = diffDetail(prevRec, patch);
+      const prevPatch = prevSnapshot(prev, patch);
+      const detail = diffDetail(prev, patch);
       await api.updateSpace(state.activeProjectId, spaceId, patch);
       dispatch({
         type: 'PATCH_SPACE',
@@ -638,10 +650,8 @@ export default function App() {
       if (!state.activeProjectId) return;
       const prev = state.projectData?.topology?.find((t) => t.id === topoId);
       if (!prev) return;
-      const prevRec = prev as unknown as Record<string, unknown>;
-      const prevPatch: Record<string, unknown> = {};
-      for (const k of Object.keys(patch)) prevPatch[k] = prevRec[k] ?? '';
-      const detail = diffDetail(prevRec, patch);
+      const prevPatch = prevSnapshot(prev, patch);
+      const detail = diffDetail(prev, patch);
       await api.updateTopology(state.activeProjectId, topoId, patch);
       dispatch({
         type: 'PATCH_TOPOLOGY',

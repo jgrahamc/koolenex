@@ -29,7 +29,7 @@ function TelegramFlowPanel({
   devMap: Record<string, any>;
   comObjects: any[];
 }) {
-  const pin = useContext(PinContext) as any;
+  const pin = useContext(PinContext);
   // Build GA → [linked device addresses] from comObjects
   const gaDevMap = useMemo(() => {
     const m: Record<string, string[]> = {};
@@ -62,8 +62,7 @@ function TelegramFlowPanel({
         const dptI = dptInfo(ga?.dpt);
         const decoded =
           tg.decoded != null && tg.decoded !== ''
-            ? ((dptI as any).enums?.[Number(tg.decoded)] ??
-              `${tg.decoded}${dptI.unit}`)
+            ? (dptI.enums?.[Number(tg.decoded)] ?? `${tg.decoded}${dptI.unit}`)
             : null;
         const isWrite = tg.type?.includes('Write');
         const isRead = tg.type?.includes('Read');
@@ -265,7 +264,7 @@ export function BusMonitorView({
   }, [telegrams.length, paused]);
 
   const togglePause = () => {
-    if (!paused) setSnapshot([...telegrams] as any[]);
+    if (!paused) setSnapshot([...telegrams]);
     else setSnapshot(null);
     setPaused((p) => !p);
   };
@@ -291,8 +290,8 @@ export function BusMonitorView({
     const info = dptInfo(ga?.dpt || '');
     if (tg.decoded == null || tg.decoded === '') return '';
     // If DPT has enum labels, show label instead of raw number
-    if ((info as any).enums) {
-      const label = (info as any).enums[Number(tg.decoded)];
+    if (info.enums) {
+      const label = info.enums[Number(tg.decoded)];
       if (label != null) return label;
     }
     return `${tg.decoded}${info.unit}`;

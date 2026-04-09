@@ -15,7 +15,7 @@ import {
 import { SpaceTypeIcon, DeviceTypeIcon } from '../icons.tsx';
 import { useColumns, ColumnPicker, dlCSV } from '../columns.tsx';
 import { spaceUsageMap, localizedModel } from '../dpt.ts';
-
+import type { Space, Device } from '../../../shared/types.ts';
 import { AddDeviceModal } from '../AddDeviceModal.tsx';
 import styles from './LocationsView.module.css';
 
@@ -38,9 +38,9 @@ export function LocationsView({
   onCreateSpace,
   onDeleteSpace,
 }: LocationsViewProps) {
-  const pin = useContext(PinContext) as any;
+  const pin = useContext(PinContext);
   const { t: i18t } = useContext(I18nCtx);
-  const COLMAP: Record<string, any> = {
+  const COLMAP: Record<string, string> = {
     actuator: 'var(--actuator)',
     sensor: 'var(--sensor)',
     router: 'var(--router)',
@@ -109,45 +109,50 @@ export function LocationsView({
     );
 
   // Build tree
-  const nodeMap: Record<string, any> = {};
-  for (const s of spaces) nodeMap[s.id] = { ...s, children: [], devs: [] };
-  const roots = [];
+  interface SpaceNode extends Space {
+    children: SpaceNode[];
+    devs: Device[];
+  }
+  const nodeMap: Record<string, SpaceNode> = {};
+  for (const s of spaces)
+    nodeMap[s.id] = { ...s, children: [], devs: [] } as SpaceNode;
+  const roots: SpaceNode[] = [];
   for (const s of spaces) {
     if (s.parent_id && nodeMap[s.parent_id])
-      nodeMap[s.parent_id].children.push(nodeMap[s.id]);
-    else roots.push(nodeMap[s.id]);
+      nodeMap[s.parent_id]!.children.push(nodeMap[s.id]!);
+    else roots.push(nodeMap[s.id]!);
   }
-  const sortSpaces = (arr: any[]) =>
-    arr.sort((a: any, b: any) =>
+  const sortSpaces = (arr: SpaceNode[]) =>
+    arr.sort((a, b) =>
       spaceSort === 'name'
         ? a.name.localeCompare(b.name)
         : (a.sort_order ?? 0) - (b.sort_order ?? 0) ||
           a.name.localeCompare(b.name),
     );
   sortSpaces(roots);
-  for (const n of Object.values(nodeMap) as any[]) {
+  for (const n of Object.values(nodeMap)) {
     sortSpaces(n.children);
   }
   for (const d of devices) {
-    if (d.space_id && nodeMap[d.space_id]) nodeMap[d.space_id].devs.push(d);
+    if (d.space_id && nodeMap[d.space_id]) nodeMap[d.space_id]!.devs.push(d);
   }
-  for (const n of Object.values(nodeMap) as any[]) {
-    n.devs.sort((a: any, b: any) => a.name.localeCompare(b.name));
+  for (const n of Object.values(nodeMap)) {
+    n.devs.sort((a, b) => a.name.localeCompare(b.name));
   }
 
   const sq = search.toLowerCase();
-  const matchesSearch = (node: any): boolean => {
+  const matchesSearch = (node: SpaceNode): boolean => {
     if (!sq) return true;
     if (node.name.toLowerCase().includes(sq)) return true;
     if (
       node.devs.some(
-        (d: any) =>
+        (d) =>
           d.name.toLowerCase().includes(sq) ||
           d.individual_address.includes(sq),
       )
     )
       return true;
-    return node.children.some((c: any) => matchesSearch(c));
+    return node.children.some((c) => matchesSearch(c));
   };
 
   const exportLocCSV = () => {
@@ -462,9 +467,7 @@ export function LocationsView({
                         <TD>
                           <Badge
                             label={d.status.toUpperCase()}
-                            color={
-                              (STATUS_COLOR as any)[d.status] || 'var(--dim)'
-                            }
+                            color={STATUS_COLOR[d.status] || 'var(--dim)'}
                           />
                         </TD>
                       )}
@@ -692,9 +695,7 @@ export function LocationsView({
                       <TD>
                         <Badge
                           label={d.status.toUpperCase()}
-                          color={
-                            (STATUS_COLOR as any)[d.status] || 'var(--dim)'
-                          }
+                          color={STATUS_COLOR[d.status] || 'var(--dim)'}
                         />
                       </TD>
                     )}

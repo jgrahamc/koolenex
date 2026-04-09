@@ -349,7 +349,7 @@ function AuditLogSection({ projectId }: AuditLogSectionProps) {
     setLoading(true);
     api
       .getAuditLog(projectId, 200)
-      .then((data) => setLogs(data as any[] | null))
+      .then((data) => setLogs(data))
       .catch(() => setLogs([]))
       .finally(() => setLoading(false));
   }, [projectId]);

@@ -60,9 +60,9 @@ export function DevicePinPanel({
   onUpdateComObjectGAs,
   activeProjectId,
 }: DevicePinPanelProps) {
-  const pin = useContext(PinContext) as any;
+  const pin = useContext(PinContext);
   const dpt = useDpt();
-  const maskVersions = useContext(MaskCtx) as any;
+  const maskVersions = useContext(MaskCtx);
   const [reachability, setReachability] = useState<string | null>(null);
   const [identifying, setIdentifying] = useState(false);
   const [busInfo, setBusInfo] = useState<any>(null);
@@ -237,7 +237,7 @@ export function DevicePinPanel({
           <div className={styles.badgeWrap}>
             <Badge
               label={dev.status?.toUpperCase()}
-              color={(STATUS_COLOR as any)[dev.status] || 'var(--dim)'}
+              color={STATUS_COLOR[dev.status] || 'var(--dim)'}
             />
             {busConnected && (
               <>
@@ -1105,7 +1105,7 @@ function SameDeviceSection({
             )}
             <Badge
               label={d.status?.toUpperCase()}
-              color={(STATUS_COLOR as any)[d.status] || 'var(--dim)'}
+              color={STATUS_COLOR[d.status] || 'var(--dim)'}
             />
             <span
               onClick={() =>

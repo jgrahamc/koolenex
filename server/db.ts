@@ -125,10 +125,18 @@ export async function init(
   // Migrations for existing databases
   try {
     db.run("ALTER TABLE com_objects ADD COLUMN ga_send TEXT DEFAULT ''");
-  } catch {}
+  } catch (e) {
+    logger.warn('db', 'migration: add com_objects.ga_send', {
+      error: (e as Error).message,
+    });
+  }
   try {
     db.run("ALTER TABLE com_objects ADD COLUMN ga_receive TEXT DEFAULT ''");
-  } catch {}
+  } catch (e) {
+    logger.warn('db', 'migration: add com_objects.ga_receive', {
+      error: (e as Error).message,
+    });
+  }
 
   db.run(`
     CREATE TABLE IF NOT EXISTS spaces (
@@ -174,7 +182,11 @@ export async function init(
       if (!cols) return;
       const exists = cols.values.some((row: unknown[]) => row[1] === col);
       if (!exists) dbRef.run(`ALTER TABLE ${table} ADD COLUMN ${col} ${def}`);
-    } catch (_) {}
+    } catch (e) {
+      logger.warn('db', `migration: add ${table}.${col}`, {
+        error: (e as Error).message,
+      });
+    }
   };
   migrate('devices', 'comment', "TEXT DEFAULT ''");
   migrate('devices', 'order_number', "TEXT DEFAULT ''");
@@ -247,7 +259,11 @@ export async function init(
             'INSERT OR IGNORE INTO topology (project_id, area, line, name, medium) VALUES (?,?,NULL,?,?)',
             [r.project_id, r.area, r.area_name, 'TP'],
           );
-        } catch (_) {}
+        } catch (e) {
+          logger.warn('db', 'migration: topology area insert', {
+            error: (e as Error).message,
+          });
+        }
       }
       // Migrate lines
       const lines = all<{
@@ -265,10 +281,18 @@ export async function init(
             'INSERT OR IGNORE INTO topology (project_id, area, line, name, medium) VALUES (?,?,?,?,?)',
             [r.project_id, r.area, r.line, r.line_name || '', r.medium || 'TP'],
           );
-        } catch (_) {}
+        } catch (e) {
+          logger.warn('db', 'migration: topology line insert', {
+            error: (e as Error).message,
+          });
+        }
       }
     }
-  } catch (_) {}
+  } catch (e) {
+    logger.warn('db', 'migration: topology data migration', {
+      error: (e as Error).message,
+    });
+  }
 
   db.run(`
     CREATE TABLE IF NOT EXISTS catalog_sections (
@@ -353,7 +377,11 @@ export async function init(
         );
       }
     }
-  } catch (_) {}
+  } catch (e) {
+    logger.warn('db', 'migration: ga_group_names data migration', {
+      error: (e as Error).message,
+    });
+  }
 
   db.run(`
     CREATE TABLE IF NOT EXISTS audit_log (

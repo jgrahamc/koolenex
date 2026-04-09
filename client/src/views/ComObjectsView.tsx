@@ -13,6 +13,7 @@ import {
 } from '../primitives.tsx';
 import { useColumns, ColumnPicker, dlCSV } from '../columns.tsx';
 import { DeviceTypeIcon } from '../icons.tsx';
+import type { ComObjectWithDevice } from '../../../shared/types.ts';
 import styles from './ComObjectsView.module.css';
 
 interface ComObjectsViewProps {
@@ -99,7 +100,7 @@ export function ComObjectsView({ data }: ComObjectsViewProps) {
       'koolenex-comobjects.csv',
       coCols,
       filtered,
-      (id: string, co: any) =>
+      (id: string, co: ComObjectWithDevice) =>
         (
           ({
             device_address: co.device_address,
@@ -113,7 +114,7 @@ export function ComObjectsView({ data }: ComObjectsViewProps) {
             direction: co.direction,
             device_name: co.device_name,
             function_text: co.function_text,
-          }) as any
+          }) as Record<string, unknown>
         )[id] ?? '',
     );
 

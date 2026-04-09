@@ -91,8 +91,8 @@ router.post('/projects/:id/devices', (req: Request, res: Response): void => {
 router.put(
   '/projects/:pid/devices/:did',
   (req: Request, res: Response): void => {
-    const pid = req.params.pid as string;
-    const did = req.params.did as string;
+    const pid = paramId(req, 'pid');
+    const did = paramId(req, 'did');
     const b = validateBody(
       req,
       z.object({
@@ -107,7 +107,7 @@ router.put(
     );
     const old = db.get<Record<string, unknown>>(
       'SELECT * FROM devices WHERE id=? AND project_id=?',
-      [+did, +pid],
+      [did, pid],
     );
     if (!old) {
       res.status(404).json({ error: 'Not found' });
@@ -133,13 +133,13 @@ router.put(
       res.status(400).json({ error: 'No fields to update' });
       return;
     }
-    vals.push(+did);
+    vals.push(did);
     db.run(`UPDATE devices SET ${sets.join(', ')} WHERE id=?`, vals);
     db.audit(
-      +pid,
+      pid,
       'update',
       'device',
-      (old.individual_address as string) || did,
+      (old.individual_address as string) || String(did),
       diffs.join('; ') || 'Updated position',
     );
     db.scheduleSave();
@@ -155,8 +155,8 @@ router.post(
       res.status(400).json({ error: 'No file' });
       return;
     }
-    const pid = req.params.pid as string;
-    const spaceId = req.params.spaceId as string;
+    const pid = paramId(req, 'pid');
+    const spaceId = paramId(req, 'spaceId');
     const dir = path.join(DATA_DIR, 'floorplans');
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
     const ext = path.extname(req.file.originalname) || '.png';
@@ -169,8 +169,8 @@ router.post(
 router.get(
   '/projects/:pid/floor-plan/:spaceId',
   (req: Request, res: Response): void => {
-    const pid = req.params.pid as string;
-    const spaceId = req.params.spaceId as string;
+    const pid = paramId(req, 'pid');
+    const spaceId = paramId(req, 'spaceId');
     const dir = path.join(DATA_DIR, 'floorplans');
     if (!fs.existsSync(dir)) {
       res.status(404).json({ error: 'No floor plan' });
@@ -191,8 +191,8 @@ router.get(
 router.delete(
   '/projects/:pid/floor-plan/:spaceId',
   (req: Request, res: Response): void => {
-    const pid = req.params.pid as string;
-    const spaceId = req.params.spaceId as string;
+    const pid = paramId(req, 'pid');
+    const spaceId = paramId(req, 'spaceId');
     const dir = path.join(DATA_DIR, 'floorplans');
     if (fs.existsSync(dir)) {
       for (const f of fs
@@ -208,8 +208,8 @@ router.delete(
 router.patch(
   '/projects/:pid/devices/:did/status',
   (req: Request, res: Response): void => {
-    const pid = req.params.pid as string;
-    const did = req.params.did as string;
+    const pid = paramId(req, 'pid');
+    const did = paramId(req, 'did');
     const b = validateBody(
       req,
       z.object({
@@ -218,15 +218,15 @@ router.patch(
     );
     const devS = db.get<Record<string, unknown>>(
       'SELECT individual_address, name, status FROM devices WHERE id=?',
-      [+did],
+      [did],
     );
-    db.run('UPDATE devices SET status=? WHERE id=?', [b.status, +did]);
+    db.run('UPDATE devices SET status=? WHERE id=?', [b.status, did]);
     db.audit(
-      +pid,
+      pid,
       'update',
       'device',
-      (devS?.individual_address as string) || did,
-      `status: "${(devS?.status as string) ?? ''}" → "${b.status}" on "${(devS?.name as string) || did}"`,
+      (devS?.individual_address as string) || String(did),
+      `status: "${(devS?.status as string) ?? ''}" → "${b.status}" on "${(devS?.name as string) || String(did)}"`,
     );
     db.scheduleSave();
     res.json({ ok: true });
@@ -236,16 +236,18 @@ router.patch(
 router.delete(
   '/projects/:pid/devices/:did',
   (req: Request, res: Response): void => {
-    const pid = req.params.pid as string;
+    const pid = paramId(req, 'pid');
     const did = paramId(req, 'did');
     const devD = db.get<Record<string, unknown>>(
       'SELECT individual_address, name FROM devices WHERE id=?',
       [did],
     );
-    db.run('DELETE FROM com_objects WHERE device_id=?', [did]);
-    db.run('DELETE FROM devices WHERE id=?', [did]);
+    db.transaction(({ run }) => {
+      run('DELETE FROM com_objects WHERE device_id=?', [did]);
+      run('DELETE FROM devices WHERE id=?', [did]);
+    });
     db.audit(
-      +pid,
+      pid,
       'delete',
       'device',
       (devD?.individual_address as string) || String(did),
@@ -259,11 +261,11 @@ router.delete(
 router.get(
   '/projects/:pid/devices/:did/param-model',
   (req: Request, res: Response): void => {
-    const pid = req.params.pid as string;
-    const did = req.params.did as string;
+    const pid = paramId(req, 'pid');
+    const did = paramId(req, 'did');
     const dev = db.get<Record<string, unknown>>(
       'SELECT * FROM devices WHERE id=? AND project_id=?',
-      [+did, +pid],
+      [did, pid],
     );
     if (!dev) {
       res.status(404).json({ error: 'Device not found' });
@@ -308,11 +310,11 @@ router.get(
 router.patch(
   '/projects/:pid/devices/:did/param-values',
   (req: Request, res: Response): void => {
-    const pid = req.params.pid as string;
-    const did = req.params.did as string;
+    const pid = paramId(req, 'pid');
+    const did = paramId(req, 'did');
     const devPV = db.get<Record<string, unknown>>(
       'SELECT * FROM devices WHERE id=? AND project_id=?',
-      [+did, +pid],
+      [did, pid],
     );
     if (!devPV) {
       res.status(404).json({ error: 'Not found' });
@@ -338,15 +340,15 @@ router.patch(
     }
     db.run('UPDATE devices SET param_values=? WHERE id=?', [
       JSON.stringify(newVals),
-      +did,
+      did,
     ]);
     db.audit(
-      +pid,
+      pid,
       'update',
       'param_values',
-      (devPV.individual_address as string) || did,
+      (devPV.individual_address as string) || String(did),
       diffs.join('; ') ||
-        `Updated parameters on "${(devPV.name as string) || did}"`,
+        `Updated parameters on "${(devPV.name as string) || String(did)}"`,
     );
     db.scheduleSave();
     res.json({ ok: true });

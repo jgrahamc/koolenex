@@ -4,6 +4,9 @@ export interface DptInfoEntry {
   name: string;
   text?: string;
   unit: string;
+  sizeInBit?: number;
+  coefficient?: number;
+  enums?: Record<number, string>;
 }
 
 // Module-level i18n translation function — updated by I18nCtx provider

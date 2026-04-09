@@ -322,7 +322,9 @@ export function createWS(onMessage: (data: Record<string, unknown>) => void): {
     ws.onmessage = (e) => {
       try {
         onMessage(JSON.parse(e.data));
-      } catch (_) {}
+      } catch (err) {
+        console.warn('[ws] failed to parse message:', err);
+      }
     };
     ws.onclose = () => {
       if (!closed) retryTimer = setTimeout(connect, 3000);

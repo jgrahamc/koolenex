@@ -65,7 +65,7 @@ export function PinTelegramFeed({
                 const t0 = tgTime(tg),
                   t1 = tgTime(telegrams[i + 1]);
                 const delta = t0 != null && t1 != null ? t0 - t1 : null;
-                const dptI = dptInfo(ga?.dpt || '') as any;
+                const dptI = dptInfo(ga?.dpt || '');
                 const decoded =
                   tg.decoded != null && tg.decoded !== ''
                     ? (dptI.enums?.[Number(tg.decoded)] ??

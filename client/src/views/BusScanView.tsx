@@ -77,11 +77,7 @@ export function BusScanView({
     <div className={styles.root}>
       <SectionHeader
         title="Scan"
-        count={
-          scan.results.length > 0
-            ? (`${scan.results.length} found` as any)
-            : undefined
-        }
+        count={scan.results.length > 0 ? scan.results.length : undefined}
         actions={
           <div className={styles.actionRow}>
             <span className={styles.inputLabel}>Area</span>

@@ -38,7 +38,7 @@ export function GAPinPanel({
   onUpdateGA,
   onGroupJump,
 }: GAPinPanelProps) {
-  const pin = useContext(PinContext) as any;
+  const pin = useContext(PinContext);
   const dpt = useDpt();
   const [writeVal, setWriteVal] = useState('');
   const [writeDpt, setWriteDpt] = useState(ga.dpt?.split('.')[0] || '1');
