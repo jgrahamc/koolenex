@@ -114,7 +114,9 @@ function useActiveView(): string {
     floorplan: 'floorplan',
     topology: 'topology',
     devices: 'devices',
+    device: 'pin',
     gas: 'groups',
+    ga: 'pin',
     comobjects: 'comobjects',
     manufacturers: 'manufacturers',
     catalog: 'catalog',
@@ -143,10 +145,10 @@ function usePinKey(): string | null {
   const parts = rest.split('/');
   const seg = parts[0];
 
-  if (seg === 'devices' && parts.length >= 2) {
+  if (seg === 'device' && parts.length >= 2) {
     return `device:${parts.slice(1).join('.')}`;
   }
-  if (seg === 'gas' && parts.length >= 4) {
+  if (seg === 'ga' && parts.length >= 4) {
     return `ga:${parts[1]}/${parts[2]}/${parts[3]}`;
   }
   if (seg === 'compare' && parts.length >= 3) {

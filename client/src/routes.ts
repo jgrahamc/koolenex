@@ -9,10 +9,10 @@ export function pinUrl(
   const pid = projectId;
   switch (wtype) {
     case 'device':
-      return `/projects/${pid}/devices/${address}`;
+      return `/projects/${pid}/device/${address}`;
     case 'ga': {
       const parts = address.split('/');
-      return `/projects/${pid}/gas/${parts[0]}/${parts[1]}/${parts[2]}`;
+      return `/projects/${pid}/ga/${parts[0]}/${parts[1]}/${parts[2]}`;
     }
     case 'compare': {
       const [a, b] = address.split('|');
