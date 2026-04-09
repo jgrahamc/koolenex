@@ -234,6 +234,12 @@
   border-left: 2px solid transparent;
   color: var(--muted);
 }
+.navItem svg,
+.navItem > span:first-child {
+  width: 15px;
+  flex-shrink: 0;
+  text-align: center;
+}
 .pinSection {
   border-top: 1px solid var(--border);
   overflow: auto;
