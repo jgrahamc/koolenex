@@ -899,7 +899,13 @@ export function PinDetailView({
       );
       const linkedGAs = (deviceGAMap[address!] || [])
         .map((a: string) => gas.find((g: any) => g.address === a))
-        .filter(Boolean);
+        .filter(Boolean)
+        .sort(
+          (a: any, b: any) =>
+            a.main_g - b.main_g ||
+            a.middle_g - b.middle_g ||
+            a.sub_g - b.sub_g,
+        );
       const devTelegrams = telegrams.filter(
         (t: any) => t.src === address || t.dst === address,
       );
