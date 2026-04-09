@@ -8,6 +8,7 @@ import assert from 'node:assert/strict';
 import express from 'express';
 import path from 'path';
 import fs from 'fs';
+import { type AddressInfo } from 'net';
 
 const SMOKE_PROJECT = path.join(import.meta.dirname, 'smoke-test.knxproj');
 const SMOKE_PROJECT_PW = path.join(
@@ -76,7 +77,7 @@ before(async () => {
   );
   await new Promise((resolve) => {
     server = app.listen(0, () => {
-      baseUrl = `http://localhost:${server.address().port}/api`;
+      baseUrl = `http://localhost:${(server.address() as AddressInfo).port}/api`;
       resolve();
     });
   });
@@ -604,7 +605,7 @@ describe('Import/Reimport Error Paths', () => {
     );
     const { status, data } = await req('POST', '/projects/import', form, true);
     assert.equal(status, 422);
-    assert(data.error.startsWith('Parse failed:'));
+    assert.equal(data.error, 'Parse failed');
   });
 
   it('POST /import with binary (non-XML, non-encrypted) buffer returns 422', async () => {

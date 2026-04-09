@@ -5,7 +5,7 @@ import fs from 'fs';
 import { z } from 'zod';
 import * as db from '../db.ts';
 import { APPS_DIR, getDptInfo } from './shared.ts';
-import { logger } from '../log.ts';
+import { logger, safeError } from '../log.ts';
 import { validateBody } from '../validate.ts';
 import {
   buildGATable,
@@ -357,8 +357,9 @@ router.post('/bus/connect', async (req: Request, res: Response) => {
     db.scheduleSave();
     res.json({ ok: true, ...result });
   } catch (e) {
-    const err = e as Error;
-    res.status(502).json({ error: err.message });
+    res
+      .status(502)
+      .json({ error: safeError('bus', 'Bus connection failed', e) });
   }
 });
 
@@ -369,8 +370,9 @@ router.get('/bus/usb-devices', (_req: Request, res: Response) => {
     const devices = b.listUsbDevices();
     res.json({ devices });
   } catch (e) {
-    const err = e as Error;
-    res.status(500).json({ error: err.message });
+    res
+      .status(500)
+      .json({ error: safeError('bus', 'Failed to list USB devices', e) });
   }
 });
 
@@ -381,8 +383,9 @@ router.get('/bus/usb-devices/all', (_req: Request, res: Response) => {
     const devices = b.listAllHidDevices();
     res.json({ devices });
   } catch (e) {
-    const err = e as Error;
-    res.status(500).json({ error: err.message });
+    res
+      .status(500)
+      .json({ error: safeError('bus', 'Failed to list HID devices', e) });
   }
 });
 
@@ -401,8 +404,9 @@ router.post('/bus/connect-usb', async (req: Request, res: Response) => {
     const result = await b.connectUsb(devicePath, projectId);
     res.json({ ok: true, type: 'usb', ...result });
   } catch (e) {
-    const err = e as Error;
-    res.status(502).json({ error: err.message });
+    res
+      .status(502)
+      .json({ error: safeError('bus', 'USB connection failed', e) });
   }
 });
 
@@ -468,8 +472,7 @@ router.post('/bus/write', (req: Request, res: Response) => {
     }
     res.json(result);
   } catch (e) {
-    const err = e as Error;
-    res.status(502).json({ error: err.message });
+    res.status(502).json({ error: safeError('bus', 'Bus write failed', e) });
   }
 });
 
@@ -480,8 +483,7 @@ router.post('/bus/read', async (req: Request, res: Response) => {
   try {
     res.json(await b.read(body.ga));
   } catch (e) {
-    const err = e as Error;
-    res.status(502).json({ error: err.message });
+    res.status(502).json({ error: safeError('bus', 'Bus read failed', e) });
   }
 });
 
@@ -501,10 +503,10 @@ router.post('/bus/ping', async (req: Request, res: Response) => {
     const result = await b.ping(gaAddresses, deviceAddress || null);
     res.json(result);
   } catch (e) {
-    const err = e as Error;
+    const msg = e instanceof Error ? e.message : String(e);
     res
-      .status(err.message.includes('Not connected') ? 409 : 502)
-      .json({ error: err.message });
+      .status(msg.includes('Not connected') ? 409 : 502)
+      .json({ error: safeError('bus', 'Ping failed', e) });
   }
 });
 
@@ -521,10 +523,10 @@ router.post('/bus/identify', async (req: Request, res: Response) => {
     await b.identify(deviceAddress);
     res.json({ ok: true });
   } catch (e) {
-    const err = e as Error;
+    const msg = e instanceof Error ? e.message : String(e);
     res
-      .status(err.message.includes('Not connected') ? 409 : 502)
-      .json({ error: err.message });
+      .status(msg.includes('Not connected') ? 409 : 502)
+      .json({ error: safeError('bus', 'Identify failed', e) });
   }
 });
 
@@ -586,8 +588,9 @@ router.post('/bus/device-info', async (req: Request, res: Response) => {
     const info = await b.readDeviceInfo(deviceAddress);
     res.json(info);
   } catch (e) {
-    const err = e as Error;
-    res.status(500).json({ error: err.message });
+    res
+      .status(500)
+      .json({ error: safeError('bus', 'Failed to read device info', e) });
   }
 });
 
@@ -604,8 +607,7 @@ router.post('/bus/program-ia', async (req: Request, res: Response) => {
     const result = await b.programIA(newAddr);
     res.json(result);
   } catch (e) {
-    const err = e as Error;
-    res.status(502).json({ error: err.message });
+    res.status(502).json({ error: safeError('bus', 'Program IA failed', e) });
   }
 });
 
@@ -741,14 +743,16 @@ router.post('/bus/program-device', async (req: Request, res: Response) => {
     db.scheduleSave();
     res.json({ ok: true, deviceAddress });
   } catch (e) {
-    const err = e as Error;
+    const errMsg = e instanceof Error ? e.message : String(e);
     b.broadcast('program:progress', {
       deviceAddress,
-      msg: `Error: ${err.message}`,
+      msg: `Error: ${errMsg}`,
       pct: -1,
       error: true,
     });
-    res.status(502).json({ error: err.message });
+    res
+      .status(502)
+      .json({ error: safeError('bus', 'Device programming failed', e) });
   }
 });
 

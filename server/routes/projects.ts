@@ -6,7 +6,7 @@ import * as db from '../db.ts';
 import { parseKnxproj } from '../ets-parser.ts';
 import type { ParsedProject } from '../ets-parser.ts';
 import { saveModelsAndMasterXml, MAX_UPLOAD_BYTES } from './shared.ts';
-import { logger } from '../log.ts';
+import { safeError } from '../log.ts';
 import { validateBody, paramId } from '../validate.ts';
 import type { Project, RunResult } from '../../shared/types.ts';
 
@@ -317,8 +317,9 @@ router.post(
         return res
           .status(422)
           .json({ error: 'Incorrect password', code: 'PASSWORD_INCORRECT' });
-      logger.error('ets', 'ETS parse error', { error: err.message });
-      return res.status(422).json({ error: `Parse failed: ${err.message}` });
+      return res
+        .status(422)
+        .json({ error: safeError('ets', 'Parse failed', e) });
     }
 
     const {
@@ -374,9 +375,7 @@ router.post(
         data,
       });
     } catch (e) {
-      const err = e as Error;
-      logger.error('ets', 'Import error', { error: (err as Error).message });
-      res.status(500).json({ error: `Import failed: ${err.message}` });
+      res.status(500).json({ error: safeError('ets', 'Import failed', e) });
     }
   },
 );
@@ -410,8 +409,9 @@ router.post(
         return res
           .status(422)
           .json({ error: 'Incorrect password', code: 'PASSWORD_INCORRECT' });
-      logger.error('ets', 'ETS reimport parse error', { error: err.message });
-      return res.status(422).json({ error: `Parse failed: ${err.message}` });
+      return res
+        .status(422)
+        .json({ error: safeError('ets', 'Parse failed', e) });
     }
 
     const {
@@ -475,9 +475,7 @@ router.post(
         data,
       });
     } catch (e) {
-      const err = e as Error;
-      logger.error('ets', 'Reimport error', { error: (err as Error).message });
-      res.status(500).json({ error: `Reimport failed: ${err.message}` });
+      res.status(500).json({ error: safeError('ets', 'Reimport failed', e) });
     }
   },
 );

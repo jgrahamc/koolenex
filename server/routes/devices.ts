@@ -33,7 +33,9 @@ router.post('/projects/:id/devices', (req: Request, res: Response): void => {
   const b = validateBody(
     req,
     z.object({
-      individual_address: z.string().min(1),
+      individual_address: z
+        .string()
+        .regex(/^\d+\.\d+\.\d+$/, 'Must be in X.Y.Z format'),
       name: z.string().optional(),
       description: z.string().optional(),
       comment: z.string().optional(),
@@ -148,7 +150,7 @@ router.put(
       diffs.join('; ') || 'Updated position',
     );
     db.scheduleSave();
-    res.json({ ok: true });
+    res.json(db.get('SELECT * FROM devices WHERE id=?', [did]));
   },
 );
 
@@ -234,7 +236,7 @@ router.patch(
       `status: "${(devS?.status as string) ?? ''}" → "${b.status}" on "${(devS?.name as string) || String(did)}"`,
     );
     db.scheduleSave();
-    res.json({ ok: true });
+    res.json(db.get('SELECT * FROM devices WHERE id=?', [did]));
   },
 );
 

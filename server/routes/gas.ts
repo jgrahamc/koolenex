@@ -53,7 +53,9 @@ router.post('/projects/:id/gas', (req: Request, res: Response): void => {
   const b = validateBody(
     req,
     z.object({
-      address: z.string().min(1),
+      address: z
+        .string()
+        .regex(/^\d+\/\d+(\/\d+)?$/, 'Must be in X/Y/Z or X/Y format'),
       name: z.string().optional(),
       dpt: z.string().optional(),
     }),
@@ -129,7 +131,7 @@ router.put('/projects/:pid/gas/:gid', (req: Request, res: Response): void => {
     diffs.join('; '),
   );
   db.scheduleSave();
-  res.json({ ok: true });
+  res.json(db.get('SELECT * FROM group_addresses WHERE id=?', [gid]));
 });
 
 // Rename a main or middle group

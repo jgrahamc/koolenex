@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import express from 'express';
 import path from 'path';
 import fs from 'fs';
+import { type AddressInfo } from 'net';
 
 let server: any;
 let baseUrl: string;
@@ -50,7 +51,7 @@ before(async () => {
   );
   await new Promise<void>((resolve) => {
     server = app.listen(0, () => {
-      baseUrl = `http://localhost:${(server.address() as any).port}/api`;
+      baseUrl = `http://localhost:${(server.address() as AddressInfo).port}/api`;
       resolve();
     });
   });

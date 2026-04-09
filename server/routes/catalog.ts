@@ -6,7 +6,7 @@ import fs from 'fs';
 import * as db from '../db.ts';
 import { parseKnxproj, type ParsedProject } from '../ets-parser.ts';
 import { APPS_DIR, MAX_UPLOAD_BYTES } from './shared.ts';
-import { logger } from '../log.ts';
+import { logger, safeError } from '../log.ts';
 import { paramId } from '../validate.ts';
 
 const router = express.Router();
@@ -73,12 +73,7 @@ router.post(
     try {
       parsed = parseKnxproj(req.file.buffer, null);
     } catch (err) {
-      logger.error('ets', '.knxprod parse error', {
-        error: (err as Error).message,
-      });
-      res
-        .status(422)
-        .json({ error: `Parse failed: ${(err as Error).message}` });
+      res.status(422).json({ error: safeError('ets', 'Parse failed', err) });
       return;
     }
 
@@ -153,12 +148,7 @@ router.post(
 
       res.json({ ok: true, ...buildCatalogResponse(pid) });
     } catch (err) {
-      logger.error('ets', '.knxprod import error', {
-        error: (err as Error).message,
-      });
-      res
-        .status(500)
-        .json({ error: `Import failed: ${(err as Error).message}` });
+      res.status(500).json({ error: safeError('ets', 'Import failed', err) });
     }
   },
 );

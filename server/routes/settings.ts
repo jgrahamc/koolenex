@@ -421,7 +421,7 @@ router.put(
       old.line != null ? `${old.area}.${old.line}` : `Area ${old.area}`;
     db.audit(pid, 'update', 'topology', String(label), diffs.join('; '));
     db.scheduleSave();
-    res.json({ ok: true });
+    res.json(db.get('SELECT * FROM topology WHERE id=?', [tid]));
   },
 );
 
@@ -561,7 +561,7 @@ router.put(
       diffs.join('; '),
     );
     db.scheduleSave();
-    res.json({ ok: true });
+    res.json(db.get('SELECT * FROM spaces WHERE id=?', [sid]));
   },
 );
 

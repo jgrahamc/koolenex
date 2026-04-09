@@ -25,6 +25,13 @@ function log(
   fn(JSON.stringify(entry));
 }
 
+/** Log the real error server-side, return a generic message to the client. */
+export function safeError(tag: string, context: string, err: unknown): string {
+  const msg = err instanceof Error ? err.message : String(err);
+  logger.error(tag, context, { error: msg });
+  return context;
+}
+
 export const logger = {
   debug: (tag: string, msg: string, data?: Record<string, unknown>) =>
     log('debug', tag, msg, data),
