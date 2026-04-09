@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import * as db from '../server/db.ts';
 
 before(async () => {
-  await db.init();
+  await db.init({ inMemory: true });
 });
 
 // ── init / tables & default settings ────────────────────────────────────────

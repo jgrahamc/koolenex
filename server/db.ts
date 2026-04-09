@@ -29,6 +29,7 @@ const DB_PATH = path.join(process.cwd(), 'koolenex.db');
 
 let SQL: SqlJsStatic | null = null;
 let db: SqlJsDatabase | null = null;
+let _inMemory = false;
 
 function assertDb(d: SqlJsDatabase | null): asserts d is SqlJsDatabase {
   if (!d) throw new Error('Database not initialised — call init() first');
@@ -36,10 +37,16 @@ function assertDb(d: SqlJsDatabase | null): asserts d is SqlJsDatabase {
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 
-export async function init(): Promise<void> {
+export async function init(
+  options: { inMemory?: boolean } = {},
+): Promise<void> {
   SQL = (await initSqlJs()) as SqlJsStatic;
 
-  if (fs.existsSync(DB_PATH)) {
+  if (options.inMemory) {
+    _inMemory = true;
+    db = new SQL.Database();
+    logger.info('db', 'Created in-memory database (test mode)');
+  } else if (fs.existsSync(DB_PATH)) {
     const buf = fs.readFileSync(DB_PATH);
     db = new SQL.Database(buf);
     logger.info('db', `Loaded from ${DB_PATH}`);
@@ -386,6 +393,7 @@ export async function init(): Promise<void> {
 // ── Persist ───────────────────────────────────────────────────────────────────
 
 export function save(): void {
+  if (_inMemory) return;
   assertDb(db);
   const data = db.export(); // Uint8Array
   fs.writeFileSync(DB_PATH, Buffer.from(data));

@@ -54,7 +54,7 @@ async function req(
 
 before(async () => {
   db = await import('../server/db.ts');
-  await db.init();
+  await db.init({ inMemory: true });
   const { router: routes } = await import('../server/routes/index.ts');
   const app = express();
   app.use(express.json());

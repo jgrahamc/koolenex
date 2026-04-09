@@ -2,7 +2,7 @@
 .appShell {
   display: flex;
   flex-direction: column;
-  height: 100vh;
+  height: calc(100vh / 1.45);
   background: var(--bg);
   color: var(--text);
   font-family: 'DM Mono', monospace;
@@ -204,6 +204,7 @@
 .bodyRow {
   display: flex;
   flex: 1;
+  min-height: 0;
   overflow: hidden;
 }
 .sidebar {
@@ -298,6 +299,8 @@
 .viewWrap {
   display: flex;
   flex: 1;
+  min-height: 0;
+  min-width: 0;
   overflow: hidden;
 }
 .statusBar {
