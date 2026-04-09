@@ -32,11 +32,7 @@ import {
 import type { ZipEntry } from './ets-zip.ts';
 import { buildAppIndex } from './ets-app.ts';
 import type { AppIndex, HwInfo, ParamModel } from './ets-app.ts';
-import {
-  parseMfrNames,
-  parseHardware,
-  parseCatalog,
-} from './ets-hardware.ts';
+import { parseMfrNames, parseHardware, parseCatalog } from './ets-hardware.ts';
 import type { CatalogSection, CatalogItem } from './ets-hardware.ts';
 
 // Re-export for backward compatibility — these are the public API symbols

@@ -726,7 +726,8 @@ export function buildAppIndex(buf: Buffer): AppIndex | null {
         const txt = T(attr(e, 'Id'), 'Text') || attr(e, 'Text');
         if (val !== '' && txt) enums[val] = txt;
       }
-      const trSizeInBit = parseInt(attr(pt.TypeRestriction, 'SizeInBit'), 10) || 8;
+      const trSizeInBit =
+        parseInt(attr(pt.TypeRestriction, 'SizeInBit'), 10) || 8;
       paramTypes[tid] = {
         kind: Object.keys(enums).length ? 'enum' : 'other',
         enums,

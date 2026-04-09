@@ -6,12 +6,7 @@
  */
 
 import { logger } from './log.ts';
-import {
-  xmlParser,
-  toArr,
-  attr,
-  type XmlNode,
-} from './ets-parser.ts';
+import { xmlParser, toArr, attr, type XmlNode } from './ets-parser.ts';
 import type { ZipEntry } from './ets-zip.ts';
 import type { HwInfo } from './ets-app.ts';
 
@@ -44,9 +39,10 @@ export interface CatalogItem {
 }
 
 /** Extract manufacturer names from knx_master.xml. */
-export function parseMfrNames(
-  entries: ZipEntry[],
-): { mfrById: Record<string, string>; knxMasterXml: string | null } {
+export function parseMfrNames(entries: ZipEntry[]): {
+  mfrById: Record<string, string>;
+  knxMasterXml: string | null;
+} {
   const mfrById: Record<string, string> = {};
   const byName: Record<string, ZipEntry> = Object.fromEntries(
     entries.map((e) => [e.entryName, e]),
