@@ -370,7 +370,7 @@ router.get('/bus/usb-devices', (_req: Request, res: Response) => {
     res.json({ devices });
   } catch (e) {
     const err = e as Error;
-    res.json({ devices: [], error: err.message });
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -382,7 +382,7 @@ router.get('/bus/usb-devices/all', (_req: Request, res: Response) => {
     res.json({ devices });
   } catch (e) {
     const err = e as Error;
-    res.json({ devices: [], error: err.message });
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -552,7 +552,7 @@ router.post('/bus/scan', async (req: Request, res: Response) => {
   res.json({ ok: true });
   _activeScan = b
     .scan(area, line, timeout, (prog) => {
-      b.broadcast('scan:progress', prog as unknown as Record<string, unknown>);
+      b.broadcast('scan:progress', { ...prog });
     })
     .then((results) => {
       b.broadcast('scan:done', { results, area, line });

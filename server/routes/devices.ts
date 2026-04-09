@@ -6,12 +6,17 @@ import multer from 'multer';
 import { z } from 'zod';
 import * as db from '../db.ts';
 import { validateBody, paramId } from '../validate.ts';
-import { DATA_DIR, APPS_DIR, makeUpdateBuilder } from './shared.ts';
+import {
+  DATA_DIR,
+  APPS_DIR,
+  makeUpdateBuilder,
+  MAX_UPLOAD_BYTES,
+} from './shared.ts';
 
 const router = express.Router();
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 50 * 1024 * 1024 },
+  limits: { fileSize: MAX_UPLOAD_BYTES },
 });
 
 // ── Devices ───────────────────────────────────────────────────────────────────

@@ -4,6 +4,9 @@ import { XMLParser } from 'fast-xml-parser';
 import type { DptInfoEntry } from '../../shared/types.ts';
 import { logger } from '../log.ts';
 
+/** Max upload size for .knxproj / .knxprod / floor-plan files (50 MB). */
+export const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
+
 // ── Per-project knx_master.xml ─────────────────────────────────────────────────
 export const DATA_DIR = path.join(process.cwd(), 'data');
 export const APPS_DIR = path.join(DATA_DIR, 'apps');

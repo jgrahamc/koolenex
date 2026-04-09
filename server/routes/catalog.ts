@@ -5,19 +5,18 @@ import path from 'path';
 import fs from 'fs';
 import * as db from '../db.ts';
 import { parseKnxproj, type ParsedProject } from '../ets-parser.ts';
-import { APPS_DIR } from './shared.ts';
+import { APPS_DIR, MAX_UPLOAD_BYTES } from './shared.ts';
 import { logger } from '../log.ts';
 import { paramId } from '../validate.ts';
 
 const router = express.Router();
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 50 * 1024 * 1024 },
+  limits: { fileSize: MAX_UPLOAD_BYTES },
 });
 
-// ── Catalog ──────────────────────────────────────────────────────────────────
-router.get('/projects/:id/catalog', (req: Request, res: Response): void => {
-  const pid = paramId(req, 'id');
+/** Build catalog response for a project, marking items in use by devices. */
+function buildCatalogResponse(pid: number) {
   const sections = db.all(
     'SELECT * FROM catalog_sections WHERE project_id=? ORDER BY manufacturer, number, name',
     [pid],
@@ -26,7 +25,6 @@ router.get('/projects/:id/catalog', (req: Request, res: Response): void => {
     'SELECT * FROM catalog_items WHERE project_id=? ORDER BY manufacturer, name',
     [pid],
   );
-  // Mark which product_refs are in use by devices in this project
   const usedRefs = new Set(
     db
       .all<{ product_ref: string }>(
@@ -36,13 +34,19 @@ router.get('/projects/:id/catalog', (req: Request, res: Response): void => {
       .map((r) => r.product_ref)
       .filter(Boolean),
   );
-  res.json({
+  return {
     sections,
     items: items.map((i) => ({
       ...i,
       in_use: usedRefs.has(i.product_ref as string),
     })),
-  });
+  };
+}
+
+// ── Catalog ──────────────────────────────────────────────────────────────────
+router.get('/projects/:id/catalog', (req: Request, res: Response): void => {
+  const pid = paramId(req, 'id');
+  res.json(buildCatalogResponse(pid));
 });
 
 // Import a standalone .knxprod file into a project's catalog
@@ -147,31 +151,7 @@ router.post(
         `Imported catalog: ${catalogSections.length} sections, ${catalogItems.length} items`,
       );
 
-      const sections = db.all(
-        'SELECT * FROM catalog_sections WHERE project_id=? ORDER BY manufacturer, number, name',
-        [pid],
-      );
-      const items = db.all(
-        'SELECT * FROM catalog_items WHERE project_id=? ORDER BY manufacturer, name',
-        [pid],
-      );
-      const usedRefs = new Set(
-        db
-          .all<{ product_ref: string }>(
-            'SELECT product_ref FROM devices WHERE project_id=?',
-            [pid],
-          )
-          .map((r) => r.product_ref)
-          .filter(Boolean),
-      );
-      res.json({
-        ok: true,
-        sections,
-        items: items.map((i) => ({
-          ...i,
-          in_use: usedRefs.has(i.product_ref as string),
-        })),
-      });
+      res.json({ ok: true, ...buildCatalogResponse(pid) });
     } catch (err) {
       logger.error('ets', '.knxprod import error', {
         error: (err as Error).message,

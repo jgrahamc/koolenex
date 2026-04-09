@@ -5,7 +5,7 @@ import { z } from 'zod';
 import * as db from '../db.ts';
 import { parseKnxproj } from '../ets-parser.ts';
 import type { ParsedProject } from '../ets-parser.ts';
-import { saveModelsAndMasterXml } from './shared.ts';
+import { saveModelsAndMasterXml, MAX_UPLOAD_BYTES } from './shared.ts';
 import { logger } from '../log.ts';
 import { validateBody, paramId } from '../validate.ts';
 import type { Project, RunResult } from '../../shared/types.ts';
@@ -18,7 +18,7 @@ export const router = express.Router();
 
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 50 * 1024 * 1024 },
+  limits: { fileSize: MAX_UPLOAD_BYTES },
 });
 
 // Shared insert logic used by both import and reimport
