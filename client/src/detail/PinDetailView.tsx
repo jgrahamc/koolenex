@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useEffect, useContext } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { localizedModel } from '../dpt.ts';
 import { PinContext, useDpt } from '../contexts.ts';
 import {
@@ -198,7 +199,7 @@ interface DeviceGroupPanelProps {
   value: string;
   data: any;
   onAddDevice: any;
-  dispatch: any;
+  projectId?: number | null;
 }
 
 function DeviceGroupPanel({
@@ -206,8 +207,9 @@ function DeviceGroupPanel({
   value,
   data,
   onAddDevice,
-  dispatch,
+  projectId,
 }: DeviceGroupPanelProps) {
+  const navigate = useNavigate();
   const pin = useContext(PinContext);
   const { devices = [], spaces: _spaces = [] } = data;
   const { label } = GROUP_WTYPES[wtype as keyof typeof GROUP_WTYPES];
@@ -253,14 +255,16 @@ function DeviceGroupPanel({
               + Add
             </Btn>
           )}
-          {dispatch &&
+          {projectId &&
             (() => {
               const mfr =
                 wtype === 'manufacturer' ? value : matches[0]?.manufacturer;
               return mfr ? (
                 <Btn
                   onClick={() =>
-                    dispatch({ type: 'CATALOG_JUMP', manufacturer: mfr })
+                    navigate(`/projects/${projectId}/catalog`, {
+                      state: { jumpTo: mfr },
+                    })
                   }
                   color="var(--accent)"
                   className={styles.btnSmall}
@@ -795,7 +799,7 @@ interface PinDetailViewProps {
   onGroupJump: any;
   onAddDevice: any;
   onUpdateComObjectGAs: any;
-  dispatch: any;
+  projectId?: number | null;
 }
 
 export function PinDetailView({
@@ -811,7 +815,7 @@ export function PinDetailView({
   onGroupJump,
   onAddDevice,
   onUpdateComObjectGAs,
-  dispatch,
+  projectId,
 }: PinDetailViewProps) {
   const COLMAP: Record<string, string> = {
     actuator: 'var(--actuator)',
@@ -881,7 +885,7 @@ export function PinDetailView({
         value={address!}
         data={data}
         onAddDevice={onAddDevice}
-        dispatch={dispatch}
+        projectId={projectId}
       />
     );
   } else if (wtype === 'multicompare') {

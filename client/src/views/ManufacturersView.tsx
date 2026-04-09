@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { STATUS_COLOR } from '../theme.ts';
 import {
   Badge,
@@ -19,14 +20,15 @@ import styles from './ManufacturersView.module.css';
 interface ManufacturersViewProps {
   data: any;
   onAddDevice?: ((body: any) => Promise<any>) | null;
-  dispatch?: ((action: any) => void) | null;
+  projectId?: number | null;
 }
 
 export function ManufacturersView({
   data,
   onAddDevice,
-  dispatch,
+  projectId,
 }: ManufacturersViewProps) {
+  const navigate = useNavigate();
   const { devices, spaces = [], deviceGAMap = {} } = data;
   const [addDefaults, setAddDefaults] = useState<any>(null);
   const [expanded, setExpanded] = useState<Record<string, boolean>>(() => {
@@ -142,13 +144,12 @@ export function ManufacturersView({
                 <span className={styles.mfrCount}>
                   · {mfrTotal} devices · {mfr.models.length} models
                 </span>
-                {dispatch && (
+                {projectId && (
                   <span
                     onClick={(e) => {
                       e.stopPropagation();
-                      dispatch({
-                        type: 'CATALOG_JUMP',
-                        manufacturer: mfr.name,
+                      navigate(`/projects/${projectId}/catalog`, {
+                        state: { jumpTo: mfr.name },
                       });
                     }}
                     title="View in catalog"

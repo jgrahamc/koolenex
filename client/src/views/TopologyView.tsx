@@ -1,4 +1,5 @@
 import { useState, useEffect, useContext, useMemo } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
 import { MediumCtx, STATUS_COLOR } from '../theme.ts';
 import { localizedModel } from '../dpt.ts';
 import {
@@ -21,7 +22,6 @@ interface TopologyViewProps {
   data: any;
   onPin?: any;
   busConnected: boolean;
-  dispatch?: ((action: any) => void) | null;
   onAddDevice?: ((body: any) => Promise<any>) | null;
   activeProjectId?: any;
   onUpdateTopology?: ((id: any, updates: any) => Promise<any>) | null;
@@ -33,13 +33,14 @@ export function TopologyView({
   data,
   onPin: _onPin,
   busConnected,
-  dispatch,
   onAddDevice,
   activeProjectId: _activeProjectId,
   onUpdateTopology,
   onCreateTopology,
   onDeleteTopology,
 }: TopologyViewProps) {
+  const navigate = useNavigate();
+  const { id: projectId } = useParams();
   const mediumTypes = useContext(MediumCtx);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>(() => {
     try {
@@ -378,12 +379,11 @@ export function TopologyView({
                           −
                         </span>
                       )}
-                      {busConnected && dispatch && (
+                      {busConnected && (
                         <span
                           onClick={(e) => {
                             e.stopPropagation();
-                            dispatch({ type: 'SCAN_RESET' });
-                            dispatch({ type: 'SET_VIEW', view: 'scan' });
+                            navigate(`/projects/${projectId}/scan`);
                             api.busScan(area, line, 200);
                           }}
                           className={`bg ${styles.scanBadge}`}

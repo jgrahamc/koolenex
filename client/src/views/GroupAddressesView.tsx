@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
+import { useLocation } from 'react-router-dom';
 import { useDpt } from '../contexts.ts';
 import {
   Btn,
@@ -29,7 +30,6 @@ interface GroupAddressesViewProps {
   onRenameGAGroup?:
     | ((main: number, mid: number | null, name: string) => Promise<any>)
     | null;
-  jumpTo?: any;
 }
 
 export function GroupAddressesView({
@@ -43,8 +43,18 @@ export function GroupAddressesView({
   onDeleteGA,
   onUpdateGA,
   onRenameGAGroup,
-  jumpTo,
 }: GroupAddressesViewProps) {
+  const location = useLocation();
+  const locState = location.state as {
+    jumpTo?: { main_g: number; middle_g: number | null };
+  } | null;
+  const jumpTo = locState?.jumpTo
+    ? {
+        main_g: locState.jumpTo.main_g,
+        middle_g: locState.jumpTo.middle_g,
+        ts: Date.now(),
+      }
+    : undefined;
   const dpt = useDpt();
   const [search, setSearch] = useState('');
   const [viewMode, setViewMode] = useState(

@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
+import { useNavigate, useLocation, useParams } from 'react-router-dom';
 import { STATUS_COLOR } from '../theme.ts';
 import { localizedModel } from '../dpt.ts';
 import {
@@ -21,22 +22,22 @@ import styles from './DevicesView.module.css';
 interface DevicesViewProps {
   data: any;
   onDeviceStatus?: any;
-  jumpTo?: any;
   onPin?: ((type: string, addr: string) => void) | null;
   onAddDevice?: ((body: any) => Promise<any>) | null;
   onUpdateDevice?: ((id: any, updates: any) => Promise<any>) | null;
-  dispatch?: ((action: any) => void) | null;
 }
 
 export function DevicesView({
   data,
   onDeviceStatus: _onDeviceStatus,
-  jumpTo,
   onPin,
   onAddDevice,
   onUpdateDevice,
-  dispatch,
 }: DevicesViewProps) {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { id: projectId } = useParams();
+  const jumpTo = location.state?.jumpTo;
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState(() => {
     try {
@@ -105,7 +106,8 @@ export function DevicesView({
 
   useEffect(() => {
     if (!jumpTo) return;
-    const d = devices.find((d: any) => d.individual_address === jumpTo.address);
+    const addr = typeof jumpTo === 'string' ? jumpTo : jumpTo.address;
+    const d = devices.find((d: any) => d.individual_address === addr);
     if (d) {
       onPin?.('device', d.individual_address);
       setSearch('');
@@ -266,20 +268,14 @@ export function DevicesView({
             >
               ↓ CSV
             </Btn>,
-            ...(dispatch
-              ? [
-                  <Btn
-                    key="print"
-                    onClick={() =>
-                      dispatch({ type: 'SET_VIEW', view: 'printlabels' })
-                    }
-                    color="var(--muted)"
-                    bg="var(--surface)"
-                  >
-                    ⎙ Labels
-                  </Btn>,
-                ]
-              : []),
+            <Btn
+              key="print"
+              onClick={() => navigate(`/projects/${projectId}/labels`)}
+              color="var(--muted)"
+              bg="var(--surface)"
+            >
+              ⎙ Labels
+            </Btn>,
             ...(onAddDevice
               ? [
                   <Btn

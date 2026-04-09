@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Btn, Chip, SectionHeader } from '../primitives.tsx';
 import styles from './PrintLabelsView.module.css';
 
@@ -117,10 +118,11 @@ const FIELD_OPTIONS = [
 
 interface PrintLabelsViewProps {
   data: any;
-  dispatch: (action: any) => void;
+  projectId?: number | null;
 }
 
-export function PrintLabelsView({ data, dispatch }: PrintLabelsViewProps) {
+export function PrintLabelsView({ data, projectId }: PrintLabelsViewProps) {
+  const navigate = useNavigate();
   const {
     devices = [],
     spaces = [],
@@ -218,7 +220,7 @@ export function PrintLabelsView({ data, dispatch }: PrintLabelsViewProps) {
         actions={[
           <Btn
             key="back"
-            onClick={() => dispatch({ type: 'SET_VIEW', view: 'devices' })}
+            onClick={() => navigate(`/projects/${projectId}/devices`)}
             color="var(--dim)"
           >
             Back to Devices

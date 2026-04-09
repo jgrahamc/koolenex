@@ -1,4 +1,11 @@
 import { useState, useEffect, useRef, useReducer, useMemo } from 'react';
+import {
+  Routes,
+  Route,
+  Navigate,
+  useParams,
+  useNavigate,
+} from 'react-router-dom';
 import './global.css';
 import { api, createWS } from './api.ts';
 import { MediumCtx, MaskCtx, I18nCtx } from './theme.ts';
@@ -65,7 +72,7 @@ export default function App() {
     return { lang: i18nLang, languages: i18nData.languages, t };
   }, [i18nLang, i18nData]);
 
-  // Persist active project + view across sessions, notify server, reload master data
+  // Persist active project, notify server, reload master data
   useEffect(() => {
     if (state.activeProjectId) {
       localStorage.setItem('knx-active-project', String(state.activeProjectId));
@@ -105,10 +112,6 @@ export default function App() {
         .catch((e) => console.warn('[app] getTranslations failed', e.message));
     }
   }, [state.activeProjectId]);
-  useEffect(() => {
-    if (state.view && state.view !== 'projects')
-      localStorage.setItem('knx-last-view', state.view);
-  }, [state.view]);
 
   // Boot: load projects + bus status, then auto-restore last session
   useEffect(() => {
@@ -149,24 +152,6 @@ export default function App() {
       try {
         const projects = await api.listProjects();
         dispatch({ type: 'SET_PROJECTS', projects });
-        const savedPid = Number(localStorage.getItem('knx-active-project'));
-        if (savedPid && projects.find((p: any) => p.id === savedPid)) {
-          dispatch({ type: 'SET_LOADING', loading: true });
-          try {
-            const data = await api.getProject(savedPid);
-            const savedView =
-              localStorage.getItem('knx-last-view') || 'locations';
-            dispatch({
-              type: 'SET_ACTIVE',
-              id: savedPid,
-              data,
-              view: savedView,
-            });
-            const tgs = await api.listTelegrams(savedPid);
-            dispatch({ type: 'SET_TELEGRAMS', telegrams: tgs });
-          } catch {}
-          dispatch({ type: 'SET_LOADING', loading: false });
-        }
       } catch {}
     })();
     api
@@ -227,27 +212,85 @@ export default function App() {
   const projectHandlers = useProjectHandlers(state, dispatch);
   const busHandlers = useBusHandlers(state, dispatch);
 
+  const shellProps = {
+    state,
+    dispatch,
+    theme,
+    onThemeChange: handleThemeChange,
+    dptMode,
+    onDptModeChange: handleDptModeChange,
+    i18nLang,
+    onLangChange: handleLangChange,
+    i18nLanguages: i18nData.languages,
+    ...busHandlers,
+    ...projectHandlers,
+  };
+
   return (
     <DptCtx.Provider value={dptMode}>
       <MediumCtx.Provider value={mediumTypes}>
         <MaskCtx.Provider value={maskVersions}>
           <I18nCtx.Provider value={i18n}>
-            <AppShell
-              state={state}
-              dispatch={dispatch}
-              theme={theme}
-              onThemeChange={handleThemeChange}
-              dptMode={dptMode}
-              onDptModeChange={handleDptModeChange}
-              i18nLang={i18nLang}
-              onLangChange={handleLangChange}
-              i18nLanguages={i18nData.languages}
-              {...busHandlers}
-              {...projectHandlers}
-            />
+            <Routes>
+              <Route path="/" element={<AppShell {...shellProps} />} />
+              <Route path="/settings" element={<AppShell {...shellProps} />} />
+              <Route
+                path="/projects/:id/*"
+                element={<ProjectLoader {...shellProps} />}
+              />
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
           </I18nCtx.Provider>
         </MaskCtx.Provider>
       </MediumCtx.Provider>
     </DptCtx.Provider>
   );
+}
+
+/** Loads project data when the URL contains a project ID, then renders AppShell */
+function ProjectLoader(props: any) {
+  const { id } = useParams();
+  const navigate = useNavigate();
+  const { state, dispatch } = props;
+  const projectId = Number(id);
+  const loadedRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (!projectId || isNaN(projectId)) {
+      navigate('/', { replace: true });
+      return;
+    }
+    // Already loaded this project
+    if (state.activeProjectId === projectId && state.projectData) return;
+    // Already loading this project
+    if (loadedRef.current === projectId) return;
+    loadedRef.current = projectId;
+
+    (async () => {
+      dispatch({ type: 'SET_LOADING', loading: true });
+      try {
+        // Make sure projects list is available
+        if (!state.projects.length) {
+          const projects = await api.listProjects();
+          dispatch({ type: 'SET_PROJECTS', projects });
+        }
+        const data = await api.getProject(projectId);
+        dispatch({ type: 'SET_ACTIVE', id: projectId, data });
+        const tgs = await api.listTelegrams(projectId);
+        dispatch({ type: 'SET_TELEGRAMS', telegrams: tgs });
+      } catch {
+        navigate('/', { replace: true });
+      }
+      dispatch({ type: 'SET_LOADING', loading: false });
+    })();
+  }, [
+    projectId,
+    state.activeProjectId,
+    state.projectData,
+    state.projects.length,
+    dispatch,
+    navigate,
+  ]);
+
+  return <AppShell {...props} />;
 }

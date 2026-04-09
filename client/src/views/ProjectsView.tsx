@@ -1,4 +1,5 @@
 import { useState, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Btn, Spinner } from '../primitives.tsx';
 import { api } from '../api.ts';
 import styles from './ProjectsView.module.css';
@@ -9,6 +10,7 @@ interface ProjectsViewProps {
 }
 
 export function ProjectsView({ state, dispatch }: ProjectsViewProps) {
+  const navigate = useNavigate();
   const [newName, setNewName] = useState('');
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState<any>(null);
@@ -23,6 +25,7 @@ export function ProjectsView({ state, dispatch }: ProjectsViewProps) {
       dispatch({ type: 'SET_ACTIVE', id, data });
       const tgs = await api.listTelegrams(id);
       dispatch({ type: 'SET_TELEGRAMS', telegrams: tgs });
+      navigate(`/projects/${id}/locations`);
     } catch (e: any) {
       dispatch({ type: 'SET_ERROR', error: e.message });
     }

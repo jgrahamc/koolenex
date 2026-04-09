@@ -1,4 +1,5 @@
 import { useState, useContext, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { STATUS_COLOR, I18nCtx } from '../theme.ts';
 import { PinContext } from '../contexts.ts';
 import {
@@ -21,7 +22,7 @@ import styles from './LocationsView.module.css';
 
 interface LocationsViewProps {
   data: any;
-  dispatch?: ((action: any) => void) | null;
+  projectId?: number | null;
   onAddDevice?: ((body: any) => Promise<any>) | null;
   onUpdateDevice?: ((id: any, updates: any) => Promise<any>) | null;
   onUpdateSpace?: ((id: any, updates: any) => Promise<any>) | null;
@@ -31,13 +32,14 @@ interface LocationsViewProps {
 
 export function LocationsView({
   data,
-  dispatch,
+  projectId,
   onAddDevice,
   onUpdateDevice,
   onUpdateSpace,
   onCreateSpace,
   onDeleteSpace,
 }: LocationsViewProps) {
+  const navigate = useNavigate();
   const pin = useContext(PinContext);
   const { t: i18t } = useContext(I18nCtx);
   const COLMAP: Record<string, string> = {
@@ -276,11 +278,13 @@ export function LocationsView({
               · {i18t(node.usage_id) || spaceUsageMap()[node.usage_id]}
             </span>
           )}
-          {node.type === 'Floor' && dispatch && (
+          {node.type === 'Floor' && projectId && (
             <span
               onClick={(e) => {
                 e.stopPropagation();
-                dispatch({ type: 'FLOORPLAN_JUMP', spaceId: node.id });
+                navigate(`/projects/${projectId}/floorplan`, {
+                  state: { jumpTo: node.id },
+                });
               }}
               title="View floor plan"
               className={styles.floorPlanLink}

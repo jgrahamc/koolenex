@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
+import { useLocation } from 'react-router-dom';
 import {
   Btn,
   Spinner,
@@ -15,7 +16,6 @@ interface CatalogViewProps {
   data: any;
   onAddDevice?: ((body: any) => Promise<any>) | null;
   onPin?: ((type: string, value: string) => void) | null;
-  jumpTo?: any;
 }
 
 export function CatalogView({
@@ -23,8 +23,12 @@ export function CatalogView({
   data,
   onAddDevice,
   onPin,
-  jumpTo,
 }: CatalogViewProps) {
+  const location = useLocation();
+  const locState = location.state as { jumpTo?: string } | null;
+  const jumpTo = locState?.jumpTo
+    ? { manufacturer: locState.jumpTo, ts: Date.now() }
+    : undefined;
   const [catalog, setCatalog] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');

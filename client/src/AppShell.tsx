@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import type { AppState, Action } from './state.ts';
 import type { DptMode } from './contexts.ts';
 import { PinContext } from './contexts.ts';
@@ -37,35 +38,137 @@ import { PrintLabelsView } from './views/PrintLabelsView.tsx';
 import { PinDetailView } from './detail/PinDetailView.tsx';
 import { GROUP_WTYPES } from './state.ts';
 import { api } from './api.ts';
+import { pinUrl } from './routes.ts';
 import appStyles from './App.module.css';
 
 // ── Views manifest ─────────────────────────────────────────────────────────────
 interface ViewEntry {
   id: string;
+  slug: string;
   Icon: React.ComponentType<{ size: number }>;
   label: string;
   wip?: boolean;
 }
 
 const VIEWS: ViewEntry[] = [
-  { id: 'locations', Icon: IconLocations, label: 'Locations' },
-  { id: 'floorplan', Icon: IconFloorPlan, label: 'Floor Plan' },
-  { id: 'topology', Icon: IconTopology, label: 'Topology' },
+  {
+    id: 'locations',
+    slug: 'locations',
+    Icon: IconLocations,
+    label: 'Locations',
+  },
+  {
+    id: 'floorplan',
+    slug: 'floorplan',
+    Icon: IconFloorPlan,
+    label: 'Floor Plan',
+  },
+  { id: 'topology', slug: 'topology', Icon: IconTopology, label: 'Topology' },
   {
     id: 'devices',
+    slug: 'devices',
     Icon: ({ size }: { size: number }) => (
       <DeviceTypeIcon type="generic" size={size} />
     ),
     label: 'Devices',
   },
-  { id: 'groups', Icon: IconGroupAddr, label: 'Group Addresses' },
-  { id: 'comobjects', Icon: IconComObjects, label: 'Group Objects' },
-  { id: 'manufacturers', Icon: IconManufacturers, label: 'Manufacturers' },
-  { id: 'catalog', Icon: IconCatalog, label: 'Catalog' },
-  { id: 'monitor', Icon: IconMonitor, label: 'Monitor' },
-  { id: 'scan', Icon: IconScan, label: 'Scan' },
-  { id: 'programming', Icon: IconProgramming, label: 'Programming', wip: true },
+  { id: 'groups', slug: 'gas', Icon: IconGroupAddr, label: 'Group Addresses' },
+  {
+    id: 'comobjects',
+    slug: 'comobjects',
+    Icon: IconComObjects,
+    label: 'Group Objects',
+  },
+  {
+    id: 'manufacturers',
+    slug: 'manufacturers',
+    Icon: IconManufacturers,
+    label: 'Manufacturers',
+  },
+  { id: 'catalog', slug: 'catalog', Icon: IconCatalog, label: 'Catalog' },
+  { id: 'monitor', slug: 'monitor', Icon: IconMonitor, label: 'Monitor' },
+  { id: 'scan', slug: 'scan', Icon: IconScan, label: 'Scan' },
+  {
+    id: 'programming',
+    slug: 'programming',
+    Icon: IconProgramming,
+    label: 'Programming',
+    wip: true,
+  },
 ];
+
+/** Derive active view from the current URL path */
+function useActiveView(): string {
+  const location = useLocation();
+  const path = location.pathname;
+  if (path === '/settings') return 'settings';
+  if (path === '/' || !path.startsWith('/projects/')) return 'projects';
+
+  // Extract the segment after /projects/:id/
+  const rest = path.replace(/^\/projects\/\d+\/?/, '');
+  const seg = rest.split('/')[0] || 'locations';
+
+  // Map URL segments to view IDs
+  const map: Record<string, string> = {
+    locations: 'locations',
+    floorplan: 'floorplan',
+    topology: 'topology',
+    devices: 'devices',
+    gas: 'groups',
+    comobjects: 'comobjects',
+    manufacturers: 'manufacturers',
+    catalog: 'catalog',
+    monitor: 'monitor',
+    scan: 'scan',
+    programming: 'programming',
+    info: 'project',
+    labels: 'printlabels',
+    compare: 'pin',
+    multicompare: 'pin',
+    manufacturer: 'pin',
+    model: 'pin',
+    order: 'pin',
+    space: 'pin',
+  };
+  return map[seg] || 'locations';
+}
+
+/** Derive pinKey from URL for pin detail views */
+function usePinKey(): string | null {
+  const location = useLocation();
+  const path = location.pathname;
+  if (!path.startsWith('/projects/')) return null;
+
+  const rest = path.replace(/^\/projects\/\d+\/?/, '');
+  const parts = rest.split('/');
+  const seg = parts[0];
+
+  if (seg === 'devices' && parts.length >= 2) {
+    return `device:${parts.slice(1).join('.')}`;
+  }
+  if (seg === 'gas' && parts.length >= 4) {
+    return `ga:${parts[1]}/${parts[2]}/${parts[3]}`;
+  }
+  if (seg === 'compare' && parts.length >= 3) {
+    return `compare:${parts[1]}|${parts[2]}`;
+  }
+  if (seg === 'multicompare' && parts.length >= 3) {
+    return `multicompare:${parts.slice(1).join('|')}`;
+  }
+  if (seg === 'manufacturer' && parts.length >= 2) {
+    return `manufacturer:${decodeURIComponent(parts[1]!)}`;
+  }
+  if (seg === 'model' && parts.length >= 2) {
+    return `model:${decodeURIComponent(parts[1]!)}`;
+  }
+  if (seg === 'order' && parts.length >= 2) {
+    return `order_number:${decodeURIComponent(parts[1]!)}`;
+  }
+  if (seg === 'space' && parts.length >= 2) {
+    return `space:${parts[1]}`;
+  }
+  return null;
+}
 
 export interface AppShellProps {
   state: AppState;
@@ -167,6 +270,11 @@ export function AppShell(props: AppShellProps) {
     setToast,
   } = props;
 
+  const navigate = useNavigate();
+  const activeView = useActiveView();
+  const activePinKey = usePinKey();
+  const projectId = state.activeProjectId;
+
   const reimportRef = useRef<HTMLInputElement | null>(null);
   const [reimporting, setReimporting] = useState(false);
   const handleReimport = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -193,37 +301,40 @@ export function AppShell(props: AppShellProps) {
     e.target.value = '';
   };
 
-  const handleDeviceJump = useCallback((address: string) => {
-    dispatch({ type: 'DEVICE_JUMP', address });
-  }, []);
+  const handleDeviceJump = useCallback(
+    (address: string) => {
+      if (projectId)
+        navigate(`/projects/${projectId}/devices`, {
+          state: { jumpTo: address },
+        });
+    },
+    [projectId, navigate],
+  );
+
   const handleGAGroupJump = useCallback(
     (main_g: number, middle_g: number | null) => {
-      dispatch({ type: 'GA_GROUP_JUMP', main_g, middle_g });
+      if (projectId)
+        navigate(`/projects/${projectId}/gas`, {
+          state: { jumpTo: { main_g, middle_g } },
+        });
     },
-    [],
+    [projectId, navigate],
   );
-  const handlePin = useCallback((wtype: string, address: string) => {
-    dispatch({ type: 'OPEN_WINDOW', wtype, address });
-  }, []);
-  const handleCloseWindow = useCallback((key: string) => {
-    dispatch({ type: 'CLOSE_WINDOW', key });
-  }, []);
 
-  // Keyboard back/forward: Alt+Left / Alt+Right
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.altKey && e.key === 'ArrowLeft') {
-        e.preventDefault();
-        dispatch({ type: 'NAV_BACK' });
-      }
-      if (e.altKey && e.key === 'ArrowRight') {
-        e.preventDefault();
-        dispatch({ type: 'NAV_FORWARD' });
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, []);
+  const handlePin = useCallback(
+    (wtype: string, address: string) => {
+      dispatch({ type: 'OPEN_WINDOW', wtype, address });
+      if (projectId) navigate(pinUrl(projectId, wtype, address));
+    },
+    [projectId, navigate, dispatch],
+  );
+
+  const handleCloseWindow = useCallback(
+    (key: string) => {
+      dispatch({ type: 'CLOSE_WINDOW', key });
+    },
+    [dispatch],
+  );
 
   const [sidebarWidth, setSidebarWidth] = useState<number>(
     () => Number(localStorage.getItem('knx-sidebar-width')) || 150,
@@ -258,36 +369,14 @@ export function AppShell(props: AppShellProps) {
       <div className={appStyles.titleBar}>
         <span
           className={appStyles.homeIcon}
-          onClick={() => dispatch({ type: 'SET_VIEW', view: 'projects' })}
+          onClick={() => navigate('/')}
           title="Home"
         >
           <img src="/icon.svg" alt="koolenex" className={appStyles.homeLogo} />
         </span>
-        <span
-          onClick={() => dispatch({ type: 'SET_VIEW', view: 'projects' })}
-          className={appStyles.brandName}
-        >
+        <span onClick={() => navigate('/')} className={appStyles.brandName}>
           KOOLENEX
         </span>
-        {/* Back / Forward */}
-        <div className={appStyles.navBtns}>
-          <button
-            onClick={() => dispatch({ type: 'NAV_BACK' })}
-            disabled={state.navIndex <= 0}
-            className={`${appStyles.navBtn} ${state.navIndex <= 0 ? appStyles.navBtnDisabled : appStyles.navBtnEnabled}`}
-            title="Back (Alt+←)"
-          >
-            ‹
-          </button>
-          <button
-            onClick={() => dispatch({ type: 'NAV_FORWARD' })}
-            disabled={state.navIndex >= state.navHistory.length - 1}
-            className={`${appStyles.navBtn} ${state.navIndex >= state.navHistory.length - 1 ? appStyles.navBtnDisabled : appStyles.navBtnEnabled}`}
-            title="Forward (Alt+→)"
-          >
-            ›
-          </button>
-        </div>
         {undoCount > 0 && (
           <div className={appStyles.undoWrap}>
             <button
@@ -348,7 +437,7 @@ export function AppShell(props: AppShellProps) {
           <>
             <span className={appStyles.breadcrumbSep}>/</span>
             <span
-              onClick={() => dispatch({ type: 'SET_VIEW', view: 'locations' })}
+              onClick={() => navigate(`/projects/${projectId}/locations`)}
               className={appStyles.projectName}
               title="Back to project"
             >
@@ -387,13 +476,13 @@ export function AppShell(props: AppShellProps) {
               : 'No bus'}
           </div>
           <button
-            onClick={() => dispatch({ type: 'SET_VIEW', view: 'settings' })}
+            onClick={() => navigate('/settings')}
             className={`${appStyles.toolbarBtn} bg`}
           >
             ⚙
           </button>
           <button
-            onClick={() => dispatch({ type: 'SET_VIEW', view: 'projects' })}
+            onClick={() => navigate('/')}
             className={`${appStyles.toolbarBtn} bg`}
           >
             ⊠ Projects
@@ -403,205 +492,216 @@ export function AppShell(props: AppShellProps) {
 
       <div className={appStyles.bodyRow}>
         {/* Sidebar */}
-        {hasProject && state.view !== 'projects' && (
-          <div className={appStyles.sidebar} style={{ width: sidebarWidth }}>
-            <div className={appStyles.sidebarInner}>
-              <div className={appStyles.navItems}>
-                {VIEWS.map((v) => (
-                  <div
-                    key={v.id}
-                    className={`ni ${state.view === v.id ? 'active' : ''} ${appStyles.navItem}`}
-                    onClick={() => dispatch({ type: 'SET_VIEW', view: v.id })}
-                  >
-                    <v.Icon size={15} />
-                    <span className={v.wip ? appStyles.navItemWip : undefined}>
-                      {v.label}
-                    </span>
-                  </div>
-                ))}
-              </div>
-              {state.windows.length > 0 && (
-                <div className={appStyles.pinSection}>
-                  {(
-                    [
-                      ['device', 'DEVICES', 'var(--accent)'],
-                      ['ga', 'GROUP ADDRESSES', 'var(--purple)'],
-                      ['compare', 'COMPARISONS', 'var(--purple)'],
-                      ['multicompare', 'MULTI-COMPARE', 'var(--purple)'],
-                      ['manufacturer', 'BY MANUFACTURER', 'var(--amber)'],
-                      ['model', 'BY MODEL', 'var(--amber)'],
-                      ['order_number', 'BY ORDER #', 'var(--amber)'],
-                      ['space', 'BY LOCATION', 'var(--amber)'],
-                    ] as const
-                  ).map(([wtype, label, col]) => {
-                    const cmpPhys = (a: string, b: string) => {
-                      const p = (s: string) => s.split('.').map(Number);
-                      const [x, y] = [p(a), p(b)];
-                      for (let i = 0; i < 3; i++) {
-                        const d = (x[i] ?? 0) - (y[i] ?? 0);
-                        if (d) return d;
+        {hasProject &&
+          activeView !== 'projects' &&
+          activeView !== 'settings' &&
+          projectId && (
+            <div className={appStyles.sidebar} style={{ width: sidebarWidth }}>
+              <div className={appStyles.sidebarInner}>
+                <div className={appStyles.navItems}>
+                  {VIEWS.map((v) => (
+                    <div
+                      key={v.id}
+                      className={`ni ${activeView === v.id ? 'active' : ''} ${appStyles.navItem}`}
+                      onClick={() =>
+                        navigate(`/projects/${projectId}/${v.slug}`)
                       }
-                      return 0;
-                    };
-                    const cmpGA = (a: string, b: string) => {
-                      const ga = (addr: string) => {
-                        const g = state.projectData?.gas?.find(
-                          (ga) => ga.address === addr,
-                        );
-                        return [
-                          g?.main_g ?? 0,
-                          g?.middle_g ?? 0,
-                          g?.sub_g ?? 0,
-                        ];
+                    >
+                      <v.Icon size={15} />
+                      <span
+                        className={v.wip ? appStyles.navItemWip : undefined}
+                      >
+                        {v.label}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                {state.windows.length > 0 && (
+                  <div className={appStyles.pinSection}>
+                    {(
+                      [
+                        ['device', 'DEVICES', 'var(--accent)'],
+                        ['ga', 'GROUP ADDRESSES', 'var(--purple)'],
+                        ['compare', 'COMPARISONS', 'var(--purple)'],
+                        ['multicompare', 'MULTI-COMPARE', 'var(--purple)'],
+                        ['manufacturer', 'BY MANUFACTURER', 'var(--amber)'],
+                        ['model', 'BY MODEL', 'var(--amber)'],
+                        ['order_number', 'BY ORDER #', 'var(--amber)'],
+                        ['space', 'BY LOCATION', 'var(--amber)'],
+                      ] as const
+                    ).map(([wtype, label, col]) => {
+                      const cmpPhys = (a: string, b: string) => {
+                        const p = (s: string) => s.split('.').map(Number);
+                        const [x, y] = [p(a), p(b)];
+                        for (let i = 0; i < 3; i++) {
+                          const d = (x[i] ?? 0) - (y[i] ?? 0);
+                          if (d) return d;
+                        }
+                        return 0;
                       };
-                      const [x, y] = [ga(a), ga(b)];
-                      for (let i = 0; i < 3; i++) {
-                        const d = (x[i] ?? 0) - (y[i] ?? 0);
-                        if (d) return d;
-                      }
-                      return 0;
-                    };
-                    const group = [
-                      ...state.windows.filter((w) => w.wtype === wtype),
-                    ].sort((a, b) =>
-                      wtype === 'device'
-                        ? cmpPhys(a.address, b.address)
-                        : wtype === 'ga'
-                          ? cmpGA(a.address, b.address)
-                          : 0,
-                    );
-                    if (!group.length) return null;
-                    const spaceMap = Object.fromEntries(
-                      (state.projectData?.spaces || []).map((s) => [s.id, s]),
-                    );
-                    const spacePath = (spaceId: number): string => {
-                      const parts: string[] = [];
-                      let cur = spaceMap[spaceId];
-                      while (cur) {
-                        if (cur.type !== 'Building') parts.unshift(cur.name);
-                        cur = cur.parent_id
-                          ? spaceMap[cur.parent_id]
-                          : undefined;
-                      }
-                      return parts.join(' › ');
-                    };
-                    return (
-                      <div key={wtype}>
-                        <div className={appStyles.pinGroupLabel}>{label}</div>
-                        {group.map((w) => {
-                          let displayAddr: string = w.address,
-                            displayLabel: string | null = null;
-                          if (wtype === 'multicompare') {
-                            const addrs = w.address.split('|');
-                            displayAddr = `${addrs.length} devices`;
-                            displayLabel = addrs.join(', ');
-                          } else if (wtype === 'compare') {
-                            const [a, b] = w.address.split('|');
-                            const nA = state.projectData?.devices?.find(
-                              (d) => d.individual_address === a,
-                            )?.name;
-                            const nB = state.projectData?.devices?.find(
-                              (d) => d.individual_address === b,
-                            )?.name;
-                            displayAddr = `${a} ⇄ ${b}`;
-                            displayLabel = [nA, nB].filter(Boolean).join(' / ');
-                          } else if (wtype === 'ga') {
-                            displayLabel =
-                              state.projectData?.gas?.find(
-                                (g) => g.address === w.address,
-                              )?.name ?? null;
-                          } else if (wtype === 'space') {
-                            const sp = state.projectData?.spaces?.find(
-                              (s) => s.id === parseInt(w.address),
-                            );
-                            displayAddr = sp?.name ?? w.address;
-                            displayLabel = sp?.type ?? null;
-                          } else if (
-                            GROUP_WTYPES[wtype as keyof typeof GROUP_WTYPES]
-                          ) {
-                            displayAddr = w.address; // already the human-readable value
-                          } else {
-                            const dev = state.projectData?.devices?.find(
-                              (d) => d.individual_address === w.address,
-                            );
-                            displayLabel = dev?.name ?? null;
-                            const location = dev?.space_id
-                              ? spacePath(dev.space_id)
-                              : null;
-                            if (location)
-                              displayLabel = displayLabel
-                                ? `${displayLabel} — ${location}`
-                                : location;
-                          }
-                          const tooltip = [w.address, displayLabel]
-                            .filter(Boolean)
-                            .join(' — ');
-                          return (
-                            <div
-                              key={w.key}
-                              className={`${appStyles.pinItem} ${state.activePinKey === w.key ? appStyles.pinItemActive : ''}`}
-                            >
-                              <span
-                                className={`rh ${appStyles.pinItemLabel}`}
-                                onClick={() =>
-                                  dispatch({
-                                    type: 'PIN_VIEW',
-                                    key: w.key,
-                                  })
-                                }
-                                title={tooltip}
+                      const cmpGA = (a: string, b: string) => {
+                        const ga = (addr: string) => {
+                          const g = state.projectData?.gas?.find(
+                            (ga) => ga.address === addr,
+                          );
+                          return [
+                            g?.main_g ?? 0,
+                            g?.middle_g ?? 0,
+                            g?.sub_g ?? 0,
+                          ];
+                        };
+                        const [x, y] = [ga(a), ga(b)];
+                        for (let i = 0; i < 3; i++) {
+                          const d = (x[i] ?? 0) - (y[i] ?? 0);
+                          if (d) return d;
+                        }
+                        return 0;
+                      };
+                      const group = [
+                        ...state.windows.filter((w) => w.wtype === wtype),
+                      ].sort((a, b) =>
+                        wtype === 'device'
+                          ? cmpPhys(a.address, b.address)
+                          : wtype === 'ga'
+                            ? cmpGA(a.address, b.address)
+                            : 0,
+                      );
+                      if (!group.length) return null;
+                      const spaceMap = Object.fromEntries(
+                        (state.projectData?.spaces || []).map((s) => [s.id, s]),
+                      );
+                      const spacePath = (spaceId: number): string => {
+                        const parts: string[] = [];
+                        let cur = spaceMap[spaceId];
+                        while (cur) {
+                          if (cur.type !== 'Building') parts.unshift(cur.name);
+                          cur = cur.parent_id
+                            ? spaceMap[cur.parent_id]
+                            : undefined;
+                        }
+                        return parts.join(' › ');
+                      };
+                      return (
+                        <div key={wtype}>
+                          <div className={appStyles.pinGroupLabel}>{label}</div>
+                          {group.map((w) => {
+                            let displayAddr: string = w.address,
+                              displayLabel: string | null = null;
+                            if (wtype === 'multicompare') {
+                              const addrs = w.address.split('|');
+                              displayAddr = `${addrs.length} devices`;
+                              displayLabel = addrs.join(', ');
+                            } else if (wtype === 'compare') {
+                              const [a, b] = w.address.split('|');
+                              const nA = state.projectData?.devices?.find(
+                                (d) => d.individual_address === a,
+                              )?.name;
+                              const nB = state.projectData?.devices?.find(
+                                (d) => d.individual_address === b,
+                              )?.name;
+                              displayAddr = `${a} ⇄ ${b}`;
+                              displayLabel = [nA, nB]
+                                .filter(Boolean)
+                                .join(' / ');
+                            } else if (wtype === 'ga') {
+                              displayLabel =
+                                state.projectData?.gas?.find(
+                                  (g) => g.address === w.address,
+                                )?.name ?? null;
+                            } else if (wtype === 'space') {
+                              const sp = state.projectData?.spaces?.find(
+                                (s) => s.id === parseInt(w.address),
+                              );
+                              displayAddr = sp?.name ?? w.address;
+                              displayLabel = sp?.type ?? null;
+                            } else if (
+                              GROUP_WTYPES[wtype as keyof typeof GROUP_WTYPES]
+                            ) {
+                              displayAddr = w.address; // already the human-readable value
+                            } else {
+                              const dev = state.projectData?.devices?.find(
+                                (d) => d.individual_address === w.address,
+                              );
+                              displayLabel = dev?.name ?? null;
+                              const location = dev?.space_id
+                                ? spacePath(dev.space_id)
+                                : null;
+                              if (location)
+                                displayLabel = displayLabel
+                                  ? `${displayLabel} — ${location}`
+                                  : location;
+                            }
+                            const tooltip = [w.address, displayLabel]
+                              .filter(Boolean)
+                              .join(' — ');
+                            return (
+                              <div
+                                key={w.key}
+                                className={`${appStyles.pinItem} ${activePinKey === w.key ? appStyles.pinItemActive : ''}`}
                               >
                                 <span
-                                  className={appStyles.pinAddr}
-                                  style={{ color: col }}
+                                  className={`rh ${appStyles.pinItemLabel}`}
+                                  onClick={() =>
+                                    navigate(
+                                      pinUrl(projectId, w.wtype, w.address),
+                                    )
+                                  }
+                                  title={tooltip}
                                 >
-                                  {displayAddr}
-                                </span>
-                                {displayLabel && (
-                                  <span className={appStyles.pinName}>
-                                    {displayLabel}
+                                  <span
+                                    className={appStyles.pinAddr}
+                                    style={{ color: col }}
+                                  >
+                                    {displayAddr}
                                   </span>
-                                )}
-                              </span>
-                              <button
-                                onClick={() => handleCloseWindow(w.key)}
-                                className={appStyles.pinCloseBtn}
-                              >
-                                ×
-                              </button>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-            <div className={appStyles.sidebarBottom}>
-              <div
-                className={`ni ${state.view === 'project' ? 'active' : ''} ${appStyles.navItem}`}
-                onClick={() => dispatch({ type: 'SET_VIEW', view: 'project' })}
-              >
-                <IconProject size={15} />
-                <span>Project</span>
+                                  {displayLabel && (
+                                    <span className={appStyles.pinName}>
+                                      {displayLabel}
+                                    </span>
+                                  )}
+                                </span>
+                                <button
+                                  onClick={() => handleCloseWindow(w.key)}
+                                  className={appStyles.pinCloseBtn}
+                                >
+                                  ×
+                                </button>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
+              <div className={appStyles.sidebarBottom}>
+                <div
+                  className={`ni ${activeView === 'project' ? 'active' : ''} ${appStyles.navItem}`}
+                  onClick={() => navigate(`/projects/${projectId}/info`)}
+                >
+                  <IconProject size={15} />
+                  <span>Project</span>
+                </div>
+              </div>
+              {/* Resize handle */}
+              <div
+                onMouseDown={startSidebarResize}
+                className={appStyles.resizeHandle}
+              />
             </div>
-            {/* Resize handle */}
-            <div
-              onMouseDown={startSidebarResize}
-              className={appStyles.resizeHandle}
-            />
-          </div>
-        )}
+          )}
 
         {/* View */}
         <PinContext.Provider value={handlePin}>
-          <div key={state.view} className={`fi ${appStyles.viewWrap}`}>
-            {state.view === 'projects' && (
+          <div
+            key={activeView + (activePinKey || '')}
+            className={`fi ${appStyles.viewWrap}`}
+          >
+            {activeView === 'projects' && (
               <ProjectsView state={state} dispatch={dispatch} />
             )}
-            {state.view === 'settings' && (
+            {activeView === 'settings' && (
               <SettingsView
                 theme={theme}
                 onThemeChange={onThemeChange}
@@ -609,7 +709,7 @@ export function AppShell(props: AppShellProps) {
                 onDptModeChange={onDptModeChange}
               />
             )}
-            {state.view === 'project' && hasProject && (
+            {activeView === 'project' && hasProject && (
               <ProjectInfoView
                 project={state.projects.find(
                   (p: any) => p.id === state.activeProjectId,
@@ -624,31 +724,28 @@ export function AppShell(props: AppShellProps) {
                 onDisconnect={handleDisconnect}
               />
             )}
-            {state.view === 'topology' && hasProject && (
+            {activeView === 'topology' && hasProject && (
               <TopologyView
                 data={state.projectData}
                 onPin={handlePin}
                 busConnected={state.busStatus.connected}
-                dispatch={dispatch}
-                onAddDevice={handleAddDevice}
                 activeProjectId={state.activeProjectId}
+                onAddDevice={handleAddDevice}
                 onCreateTopology={handleCreateTopology}
                 onUpdateTopology={handleUpdateTopology}
                 onDeleteTopology={handleDeleteTopology}
               />
             )}
-            {state.view === 'devices' && hasProject && (
+            {activeView === 'devices' && hasProject && (
               <DevicesView
                 data={state.projectData}
                 onDeviceStatus={handleDeviceStatus}
-                jumpTo={state.deviceJumpTo}
                 onPin={handlePin}
                 onAddDevice={handleAddDevice}
                 onUpdateDevice={handleUpdateDevice}
-                dispatch={dispatch}
               />
             )}
-            {state.view === 'groups' && hasProject && (
+            {activeView === 'groups' && hasProject && (
               <GroupAddressesView
                 data={state.projectData}
                 busConnected={state.busStatus.connected}
@@ -660,23 +757,22 @@ export function AppShell(props: AppShellProps) {
                 onDeleteGA={handleDeleteGA}
                 onUpdateGA={handleUpdateGA}
                 onRenameGAGroup={handleRenameGAGroup}
-                jumpTo={state.gaJumpTo}
               />
             )}
-            {state.view === 'comobjects' && hasProject && (
+            {activeView === 'comobjects' && hasProject && (
               <ComObjectsView data={state.projectData} />
             )}
-            {state.view === 'manufacturers' && hasProject && (
+            {activeView === 'manufacturers' && hasProject && (
               <ManufacturersView
                 data={state.projectData}
                 onAddDevice={handleAddDevice}
-                dispatch={dispatch}
+                projectId={projectId}
               />
             )}
-            {state.view === 'locations' && hasProject && (
+            {activeView === 'locations' && hasProject && (
               <LocationsView
                 data={state.projectData}
-                dispatch={dispatch}
+                projectId={projectId}
                 onAddDevice={handleAddDevice}
                 onUpdateDevice={handleUpdateDevice}
                 onUpdateSpace={handleUpdateSpace}
@@ -684,16 +780,15 @@ export function AppShell(props: AppShellProps) {
                 onDeleteSpace={handleDeleteSpace}
               />
             )}
-            {state.view === 'floorplan' && hasProject && (
+            {activeView === 'floorplan' && hasProject && (
               <FloorPlanView
                 data={state.projectData}
                 activeProjectId={state.activeProjectId}
                 onUpdateDevice={handleUpdateDevice}
-                jumpTo={state.floorplanJumpTo}
                 onAddDevice={handleAddDevice}
               />
             )}
-            {state.view === 'monitor' && (
+            {activeView === 'monitor' && (
               <BusMonitorView
                 telegrams={state.telegrams}
                 busConnected={state.busStatus.connected}
@@ -703,7 +798,7 @@ export function AppShell(props: AppShellProps) {
                 data={state.projectData}
               />
             )}
-            {state.view === 'scan' && (
+            {activeView === 'scan' && (
               <BusScanView
                 scan={state.scan}
                 busConnected={state.busStatus.connected}
@@ -713,27 +808,26 @@ export function AppShell(props: AppShellProps) {
                 onAddDevice={handleAddScannedDevice}
               />
             )}
-            {state.view === 'catalog' && hasProject && (
+            {activeView === 'catalog' && hasProject && (
               <CatalogView
                 activeProjectId={state.activeProjectId}
                 data={state.projectData}
                 onAddDevice={handleAddDevice}
                 onPin={handlePin}
-                jumpTo={state.catalogJumpTo}
               />
             )}
-            {state.view === 'printlabels' && hasProject && (
-              <PrintLabelsView data={state.projectData} dispatch={dispatch} />
+            {activeView === 'printlabels' && hasProject && (
+              <PrintLabelsView data={state.projectData} projectId={projectId} />
             )}
-            {state.view === 'programming' && hasProject && (
+            {activeView === 'programming' && hasProject && (
               <ProgrammingView
                 data={state.projectData}
                 onDeviceStatus={handleDeviceStatus}
               />
             )}
-            {state.view === 'pin' && hasProject && (
+            {activeView === 'pin' && hasProject && activePinKey && (
               <PinDetailView
-                pinKey={state.activePinKey!}
+                pinKey={activePinKey}
                 data={state.projectData}
                 busStatus={state.busStatus}
                 telegrams={state.telegrams}
@@ -745,7 +839,7 @@ export function AppShell(props: AppShellProps) {
                 onGroupJump={handleGAGroupJump}
                 onAddDevice={handleAddDevice}
                 onUpdateComObjectGAs={handleUpdateComObjectGAs}
-                dispatch={dispatch}
+                projectId={projectId}
               />
             )}
           </div>

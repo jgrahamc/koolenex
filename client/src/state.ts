@@ -37,11 +37,6 @@ export const saveWindows = (pid: number | null, w: WindowEntry[]): void => {
   } catch {}
 };
 
-interface NavEntry {
-  view: string;
-  activePinKey: string | null;
-}
-
 interface ScanProgress {
   address?: string;
   descriptor?: string;
@@ -76,18 +71,10 @@ export interface AppState {
   projectData: ProjectFull | null;
   busStatus: BusStatus;
   telegrams: BusTelegram[];
-  view: string;
   loading: boolean;
   error: string | null;
   windows: WindowEntry[];
-  activePinKey: string | null;
   scan: ScanState;
-  navHistory: NavEntry[];
-  navIndex: number;
-  deviceJumpTo?: { address: string; ts: number };
-  gaJumpTo?: { main_g: number; middle_g: number | null; ts: number };
-  catalogJumpTo?: { manufacturer: string; ts: number };
-  floorplanJumpTo?: { spaceId: number; ts: number };
 }
 
 export const initialState: AppState = {
@@ -96,14 +83,10 @@ export const initialState: AppState = {
   projectData: null,
   busStatus: { connected: false, host: null, hasLib: false },
   telegrams: [],
-  view: 'projects',
   loading: false,
   error: null,
   windows: [],
-  activePinKey: null,
   scan: { results: [], running: false, progress: null },
-  navHistory: [{ view: 'projects', activePinKey: null }],
-  navIndex: 0,
 };
 
 export const GROUP_WTYPES = {
@@ -117,20 +100,11 @@ export const GROUP_WTYPES = {
 export type Action =
   | { type: 'SET_PROJECTS'; projects: Project[] }
   | { type: 'DPT_LOADED' }
-  | { type: 'SET_ACTIVE'; id: number; data: ProjectFull; view?: string }
-  | { type: 'SET_VIEW'; view: string }
-  | { type: 'GRAPH_JUMP' }
-  | { type: 'DEVICE_JUMP'; address: string }
-  | { type: 'GA_GROUP_JUMP'; main_g: number; middle_g?: number | null }
-  | { type: 'CATALOG_JUMP'; manufacturer: string }
-  | { type: 'FLOORPLAN_JUMP'; spaceId: number }
+  | { type: 'SET_ACTIVE'; id: number; data: ProjectFull }
   | { type: 'SET_BUS'; status: BusStatus }
   | { type: 'ADD_TELEGRAM'; telegram: BusTelegram }
   | { type: 'SET_TELEGRAMS'; telegrams: BusTelegram[] }
-  | { type: 'PIN_VIEW'; key: string }
   | { type: 'OPEN_WINDOW'; wtype: string; address: string }
-  | { type: 'NAV_BACK' }
-  | { type: 'NAV_FORWARD' }
   | { type: 'CLOSE_WINDOW'; key: string }
   | { type: 'SET_LOADING'; loading: boolean }
   | { type: 'SET_ERROR'; error: string | null }
@@ -167,18 +141,6 @@ export type Action =
   | { type: 'SCAN_DONE'; results: ScanResult[] }
   | { type: 'SCAN_RESET' };
 
-// Push a navigation entry, truncating any forward history
-export function pushNav(state: AppState, entry: NavEntry): Partial<AppState> {
-  const cur = state.navHistory[state.navIndex];
-  if (
-    cur?.view === entry.view &&
-    cur?.activePinKey === (entry.activePinKey ?? null)
-  )
-    return {};
-  const hist = [...state.navHistory.slice(0, state.navIndex + 1), entry];
-  return { navHistory: hist, navIndex: hist.length - 1 };
-}
-
 export function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
     case 'SET_PROJECTS':
@@ -186,59 +148,11 @@ export function reducer(state: AppState, action: Action): AppState {
     case 'DPT_LOADED':
       return { ...state }; // triggers re-render so DPT_INFO is used
     case 'SET_ACTIVE': {
-      const targetView = action.view || 'locations';
-      const nav = pushNav(state, { view: targetView, activePinKey: null });
       return {
         ...state,
         activeProjectId: action.id,
         projectData: action.data,
-        view: targetView,
         windows: loadWindows(action.id),
-        activePinKey: null,
-        ...nav,
-      };
-    }
-    case 'SET_VIEW': {
-      const nav = pushNav(state, {
-        view: action.view,
-        activePinKey: action.view === 'pin' ? state.activePinKey : null,
-      });
-      return { ...state, view: action.view, ...nav };
-    }
-    case 'GRAPH_JUMP': {
-      const nav = pushNav(state, { view: 'topology', activePinKey: null });
-      return { ...state, view: 'topology', ...nav };
-    }
-    case 'DEVICE_JUMP': {
-      const jt = { address: action.address, ts: Date.now() };
-      const nav = pushNav(state, { view: 'devices', activePinKey: null });
-      return { ...state, view: 'devices', deviceJumpTo: jt, ...nav };
-    }
-    case 'GA_GROUP_JUMP': {
-      const jt = {
-        main_g: action.main_g,
-        middle_g: action.middle_g ?? null,
-        ts: Date.now(),
-      };
-      const nav = pushNav(state, { view: 'groups', activePinKey: null });
-      return { ...state, view: 'groups', gaJumpTo: jt, ...nav };
-    }
-    case 'CATALOG_JUMP': {
-      const nav = pushNav(state, { view: 'catalog', activePinKey: null });
-      return {
-        ...state,
-        view: 'catalog',
-        catalogJumpTo: { manufacturer: action.manufacturer, ts: Date.now() },
-        ...nav,
-      };
-    }
-    case 'FLOORPLAN_JUMP': {
-      const nav = pushNav(state, { view: 'floorplan', activePinKey: null });
-      return {
-        ...state,
-        view: 'floorplan',
-        floorplanJumpTo: { spaceId: action.spaceId, ts: Date.now() },
-        ...nav,
       };
     }
     case 'SET_BUS':
@@ -250,10 +164,6 @@ export function reducer(state: AppState, action: Action): AppState {
       };
     case 'SET_TELEGRAMS':
       return { ...state, telegrams: action.telegrams };
-    case 'PIN_VIEW': {
-      const nav = pushNav(state, { view: 'pin', activePinKey: action.key });
-      return { ...state, view: 'pin', activePinKey: action.key, ...nav };
-    }
     case 'OPEN_WINDOW': {
       const key = `${action.wtype}:${action.address}`;
       const exists = state.windows.find((w) => w.key === key);
@@ -264,36 +174,7 @@ export function reducer(state: AppState, action: Action): AppState {
             { key, wtype: action.wtype, address: action.address },
           ];
       if (!exists) saveWindows(state.activeProjectId, next);
-      const nav = pushNav(state, { view: 'pin', activePinKey: key });
-      return {
-        ...state,
-        windows: next,
-        view: 'pin',
-        activePinKey: key,
-        ...nav,
-      };
-    }
-    case 'NAV_BACK': {
-      if (state.navIndex <= 0) return state;
-      const idx = state.navIndex - 1;
-      const e = state.navHistory[idx]!;
-      return {
-        ...state,
-        navIndex: idx,
-        view: e.view,
-        activePinKey: e.activePinKey ?? null,
-      };
-    }
-    case 'NAV_FORWARD': {
-      if (state.navIndex >= state.navHistory.length - 1) return state;
-      const idx = state.navIndex + 1;
-      const e = state.navHistory[idx]!;
-      return {
-        ...state,
-        navIndex: idx,
-        view: e.view,
-        activePinKey: e.activePinKey ?? null,
-      };
+      return { ...state, windows: next };
     }
     case 'CLOSE_WINDOW': {
       const next = state.windows.filter((w) => w.key !== action.key);

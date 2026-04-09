@@ -6,6 +6,7 @@ import {
   useMemo,
   useCallback,
 } from 'react';
+import { useLocation } from 'react-router-dom';
 import { PinContext } from '../contexts.ts';
 import { DeviceTypeIcon } from '../icons.tsx';
 import { Btn, Empty } from '../primitives.tsx';
@@ -25,7 +26,6 @@ interface FloorPlanViewProps {
   data: any;
   activeProjectId: any;
   onUpdateDevice?: ((id: any, updates: any) => void) | null;
-  jumpTo?: any;
   onAddDevice?: ((body: any) => Promise<any>) | null;
 }
 
@@ -33,9 +33,14 @@ export function FloorPlanView({
   data,
   activeProjectId,
   onUpdateDevice,
-  jumpTo,
   onAddDevice,
 }: FloorPlanViewProps) {
+  const location = useLocation();
+  const locState = location.state as { jumpTo?: number } | null;
+  const jumpTo =
+    locState?.jumpTo != null
+      ? { spaceId: locState.jumpTo as any, ts: Date.now() }
+      : undefined;
   const pin = useContext(PinContext);
   const { spaces = [], devices = [] } = data || {};
 
