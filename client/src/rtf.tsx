@@ -101,7 +101,6 @@ interface EditableRtfFieldProps {
   label: string;
   value?: string;
   onSave?: (draft: string) => Promise<void>;
-  C: any;
 }
 
 /**
@@ -112,7 +111,6 @@ export function EditableRtfField({
   label,
   value,
   onSave,
-  C,
 }: EditableRtfFieldProps) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState('');
@@ -164,8 +162,7 @@ export function EditableRtfField({
           <div className={styles.editActions}>
             <span
               onClick={!saving ? handleSave : undefined}
-              className={`${styles.saveBtn} bg`}
-              style={{ cursor: saving ? 'default' : 'pointer' }}
+              className={`${styles.saveBtn} bg ${saving ? styles.saveBtnDisabled : styles.saveBtnEnabled}`}
             >
               {saving ? 'Saving…' : 'Save'}
             </span>
@@ -180,11 +177,7 @@ export function EditableRtfField({
       ) : (
         <div
           onClick={onSave ? startEdit : undefined}
-          className={styles.displayBox}
-          style={{
-            color: value ? C.muted : C.dim,
-            cursor: onSave ? 'pointer' : 'default',
-          }}
+          className={`${styles.displayBox} ${value ? styles.displayHasValue : styles.displayEmpty} ${onSave ? styles.displayEditable : styles.displayReadonly}`}
           title={onSave ? 'Click to edit' : undefined}
         >
           {value ? (

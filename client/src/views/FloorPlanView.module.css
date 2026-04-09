@@ -1,0 +1,143 @@
+/* FloorPlanView */
+.root {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.emptyWrap {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.tabBar {
+  display: flex;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  overflow: auto;
+}
+.tab {
+  padding: 8px 16px;
+  font-size: 11px;
+  cursor: pointer;
+  white-space: nowrap;
+  border-bottom: 2px solid transparent;
+  color: var(--muted);
+  font-weight: 400;
+}
+.tabActive {
+  composes: tab;
+  border-bottom: 2px solid var(--accent);
+  color: var(--text);
+  font-weight: 600;
+}
+.placedDev {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--text);
+  white-space: nowrap;
+  user-select: none;
+}
+.canvasWrap {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+}
+.canvasArea {
+  flex: 1;
+  overflow: auto;
+  position: relative;
+  background: var(--bg);
+}
+.imgWrap {
+  position: relative;
+  display: inline-block;
+}
+.floorImg {
+  display: block;
+  max-width: 100%;
+  user-select: none;
+  pointer-events: none;
+}
+.dragOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  cursor: grabbing;
+}
+.noImgWrap {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 12px;
+}
+.noImgText {
+  font-size: 11px;
+  color: var(--muted);
+}
+.controls {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  gap: 6px;
+  z-index: 300;
+}
+.unplacedSidebar {
+  width: 180px;
+  border-left: 1px solid var(--border);
+  overflow: auto;
+  flex-shrink: 0;
+  padding: 8px;
+}
+.unplacedLabel {
+  font-size: 9px;
+  color: var(--dim);
+  letter-spacing: 0.08em;
+  margin-bottom: 8px;
+}
+.roomGroup {
+  margin-bottom: 10px;
+}
+.roomName {
+  font-size: 9px;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+.unplacedDev {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 6px;
+  margin-bottom: 2px;
+  border-radius: 3px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  font-size: 9px;
+  color: var(--text);
+  cursor: grab;
+  user-select: none;
+}
+.devNameClip {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.removePin {
+  cursor: pointer;
+  color: var(--dim);
+  line-height: 1;
+}
+.hidden {
+  display: none;
+}
+.btnSmall {
+  font-size: 9px;
+  padding: 3px 8px;
+}

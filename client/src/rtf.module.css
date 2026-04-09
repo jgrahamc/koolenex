@@ -72,3 +72,27 @@
   font-style: italic;
   opacity: 0.5;
 }
+
+.saveBtnDisabled {
+  cursor: default;
+}
+
+.saveBtnEnabled {
+  cursor: pointer;
+}
+
+.displayHasValue {
+  color: var(--muted);
+}
+
+.displayEmpty {
+  color: var(--dim);
+}
+
+.displayEditable {
+  cursor: pointer;
+}
+
+.displayReadonly {
+  cursor: default;
+}

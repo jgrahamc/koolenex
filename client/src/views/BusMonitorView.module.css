@@ -1,0 +1,220 @@
+/* BusMonitorView */
+.root {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  overflow: hidden;
+}
+.sendPanel {
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.sendLabel {
+  font-size: 10px;
+  color: var(--dim);
+  flex-shrink: 0;
+}
+.sendInput {
+  background: var(--bg);
+  border: 1px solid var(--border2);
+  border-radius: 4px;
+  padding: 6px 10px;
+  color: var(--text);
+  font-size: 11px;
+  font-family: inherit;
+}
+.sendSelect {
+  background: var(--bg);
+  border: 1px solid var(--border2);
+  border-radius: 4px;
+  padding: 6px 10px;
+  color: var(--text);
+  font-size: 11px;
+  font-family: inherit;
+}
+.boolRow {
+  display: flex;
+  gap: 4px;
+}
+.pausedBar {
+  padding: 4px 16px;
+  background: #150f00;
+  border-bottom: 1px solid color-mix(in srgb, var(--amber) 13%, transparent);
+  font-size: 10px;
+  color: var(--amber);
+}
+.scrollArea {
+  overflow: auto;
+  flex: 1;
+}
+.table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.monoSmall {
+  color: var(--dim);
+  font-family: monospace;
+  font-size: 10px;
+}
+.gaName {
+  color: var(--muted);
+  font-size: 10px;
+}
+.decodedVal {
+  color: var(--text);
+}
+.dptSmall {
+  color: var(--dim);
+  font-size: 9px;
+}
+.prioritySmall {
+  color: var(--dim);
+  font-size: 10px;
+}
+/* TelegramFlowPanel */
+.flowPanel {
+  border-top: 1px solid var(--border);
+  background: var(--sidebar);
+  padding: 8px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  flex-shrink: 0;
+}
+.flowEmpty {
+  border-top: 1px solid var(--border);
+  background: var(--sidebar);
+  height: 54px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.flowEmptyText {
+  font-size: 11px;
+  color: var(--dim);
+}
+.flowLabel {
+  font-size: 9px;
+  color: var(--dim);
+  letter-spacing: 0.1em;
+  margin-bottom: 1px;
+}
+.flowRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 22px;
+  overflow: hidden;
+}
+.flowChip {
+  border-radius: 3px;
+  padding: 1px 8px;
+  font-size: 10px;
+  font-family: monospace;
+  white-space: nowrap;
+  flex-shrink: 0;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.flowChipSub {
+  color: var(--dim);
+  font-size: 9px;
+  margin-left: 5px;
+}
+.flowArrow {
+  font-size: 13px;
+  flex-shrink: 0;
+}
+.flowDstChip {
+  border-radius: 3px;
+  padding: 1px 8px;
+  font-size: 10px;
+  font-family: monospace;
+  white-space: nowrap;
+  flex-shrink: 0;
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.flowDstName {
+  color: var(--muted);
+  font-size: 9px;
+  margin-left: 5px;
+}
+.flowDecodedVal {
+  color: var(--text);
+  font-weight: 600;
+  margin-left: 8px;
+  font-size: 10px;
+}
+.flowReceivers {
+  display: flex;
+  gap: 4px;
+  overflow: hidden;
+}
+.flowType {
+  margin-left: auto;
+  font-size: 9px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.sendInputWide {
+  composes: sendInput;
+  width: 110px;
+}
+.sendInputNarrow {
+  composes: sendInput;
+  width: 80px;
+}
+.srcAddr {
+  color: var(--accent);
+  font-family: monospace;
+}
+.dstAddr {
+  color: var(--purple);
+  font-family: monospace;
+}
+.typeSpan {
+  font-size: 10px;
+}
+.decodedBold {
+  color: var(--text);
+  font-weight: 500;
+}
+.decodedNormal {
+  color: var(--text);
+  font-weight: 400;
+}
+.thTimestamp {
+  width: 155px;
+}
+.thDelta {
+  width: 75px;
+}
+.thSrc {
+  width: 75px;
+}
+.thDst {
+  width: 75px;
+}
+.thType {
+  width: 170px;
+}
+.thRaw {
+  width: 80px;
+}
+.thDecoded {
+  width: 100px;
+}
+.thDpt {
+  width: 65px;
+}
+.thPriority {
+  width: 65px;
+}

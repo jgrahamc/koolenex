@@ -190,3 +190,43 @@
 .spacePathSep {
   opacity: 0.5;
 }
+
+.chipActive {
+  background: var(--selected);
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  color: var(--accent);
+}
+
+.chipInactive {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+
+.tabBarBorder {
+  border-bottom: 1px solid var(--border);
+}
+
+.tabBtnActive {
+  border-bottom: 2px solid var(--accent);
+  color: var(--accent);
+}
+
+.tabBtnInactive {
+  border-bottom: 2px solid transparent;
+  color: var(--muted);
+}
+
+.pinAddrClickable {
+  cursor: pointer;
+}
+
+.spacePathSegClickable {
+  color: var(--amber);
+  cursor: pointer;
+}
+
+.spacePathSegDefault {
+  color: inherit;
+  cursor: default;
+}

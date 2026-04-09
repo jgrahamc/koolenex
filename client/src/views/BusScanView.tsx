@@ -1,11 +1,11 @@
 import { useState, useEffect, useContext } from 'react';
-import { useC, MaskCtx } from '../theme.ts';
+import { MaskCtx } from '../theme.ts';
 import { Btn, TH, TD, SectionHeader, PinAddr } from '../primitives.tsx';
 import { api } from '../api.ts';
+import styles from './BusScanView.module.css';
 
 function decodeMask(descriptor: string | undefined, maskVersions: any) {
   if (!descriptor) return null;
-  // Descriptor is hex string like "07b0" -- look up first 4 chars
   const key = descriptor.slice(0, 4).toLowerCase();
   return maskVersions[key] || null;
 }
@@ -27,12 +27,11 @@ export function BusScanView({
   dispatch,
   onAddDevice,
 }: BusScanViewProps) {
-  const C = useC();
   const maskVersions = useContext(MaskCtx);
   const [area, setArea] = useState('1');
   const [line, setLine] = useState('1');
   const [scanTimeout, setScanTimeout] = useState('200');
-  const [deviceInfos, setDeviceInfos] = useState<Record<string, any>>({}); // addr -> info
+  const [deviceInfos, setDeviceInfos] = useState<Record<string, any>>({});
   const [readingAddr, setReadingAddr] = useState<string | null>(null);
 
   const knownAddrs = new Set(
@@ -67,7 +66,6 @@ export function BusScanView({
       : 0;
   const currentAddr = progress?.address || '';
 
-  // Sync area/line inputs from incoming scan progress (e.g. scan started from topology view)
   useEffect(() => {
     if (!scan.running || !progress?.address) return;
     const parts = progress.address.split('.');
@@ -75,26 +73,8 @@ export function BusScanView({
     if (parts[1] !== line) setLine(parts[1]);
   }, [scan.running, progress?.address]);
 
-  const inputStyle: React.CSSProperties = {
-    background: C.inputBg,
-    border: `1px solid ${C.border2}`,
-    borderRadius: 4,
-    padding: '4px 8px',
-    color: C.text,
-    fontSize: 11,
-    fontFamily: 'monospace',
-    width: 60,
-  };
-
   return (
-    <div
-      style={{
-        flex: 1,
-        display: 'flex',
-        flexDirection: 'column',
-        overflow: 'hidden',
-      }}
-    >
+    <div className={styles.root}>
       <SectionHeader
         title="Scan"
         count={
@@ -103,38 +83,38 @@ export function BusScanView({
             : undefined
         }
         actions={
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <span style={{ fontSize: 10, color: C.dim }}>Area</span>
+          <div className={styles.actionRow}>
+            <span className={styles.inputLabel}>Area</span>
             <input
               value={area}
               onChange={(e) => setArea(e.target.value)}
-              style={{ ...inputStyle, width: 40 }}
+              className={`${styles.scanInput} ${styles.scanInputArea}`}
               disabled={scan.running}
             />
-            <span style={{ fontSize: 10, color: C.dim }}>Line</span>
+            <span className={styles.inputLabel}>Line</span>
             <input
               value={line}
               onChange={(e) => setLine(e.target.value)}
-              style={{ ...inputStyle, width: 40 }}
+              className={`${styles.scanInput} ${styles.scanInputLine}`}
               disabled={scan.running}
             />
-            <span style={{ fontSize: 10, color: C.dim }}>Timeout (ms)</span>
+            <span className={styles.inputLabel}>Timeout (ms)</span>
             <input
               value={scanTimeout}
               onChange={(e) => setScanTimeout(e.target.value)}
-              style={{ ...inputStyle, width: 55 }}
+              className={`${styles.scanInput} ${styles.scanInputTimeout}`}
               disabled={scan.running}
             />
             {!scan.running ? (
               <Btn
                 onClick={handleScan}
                 disabled={!busConnected}
-                color={C.accent}
+                color="var(--accent)"
               >
                 ⊙ Scan
               </Btn>
             ) : (
-              <Btn onClick={handleAbort} color={C.red}>
+              <Btn onClick={handleAbort} color="var(--red)">
                 ■ Abort
               </Btn>
             )}
@@ -143,43 +123,24 @@ export function BusScanView({
       />
 
       {!busConnected && (
-        <div style={{ padding: 24, color: C.dim, fontSize: 11 }}>
-          Connect to a KNX gateway first.
-        </div>
+        <div className={styles.offlineMsg}>Connect to a KNX gateway first.</div>
       )}
 
       {busConnected && (scan.running || scan.results.length > 0) && (
         <>
-          {/* Progress bar */}
-          <div
-            style={{
-              padding: '8px 16px',
-              borderBottom: `1px solid ${C.border}`,
-              flexShrink: 0,
-            }}
-          >
-            <div
-              style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                fontSize: 10,
-                color: C.dim,
-                marginBottom: 4,
-              }}
-            >
+          <div className={styles.progressWrap}>
+            <div className={styles.progressInfo}>
               <span>
                 {scan.running ? (
                   <>
                     <span>
                       Scanning{' '}
-                      <span
-                        style={{ fontFamily: 'monospace', color: C.accent }}
-                      >
+                      <span className={styles.scanAddr}>
                         {area}.{line}.*
                       </span>
                     </span>
                     {currentAddr && (
-                      <span style={{ marginLeft: 8, color: C.dim }}>
+                      <span className={styles.progressAddrHint}>
                         · {currentAddr}
                       </span>
                     )}
@@ -187,7 +148,7 @@ export function BusScanView({
                 ) : (
                   <span>
                     Scan complete —{' '}
-                    <span style={{ fontFamily: 'monospace', color: C.accent }}>
+                    <span className={styles.scanAddr}>
                       {area}.{line}.*
                     </span>
                   </span>
@@ -195,25 +156,18 @@ export function BusScanView({
               </span>
               <span>{pct}%</span>
             </div>
-            <div style={{ height: 3, background: C.border, borderRadius: 2 }}>
+            <div className={styles.progressTrack}>
               <div
-                style={{
-                  height: 3,
-                  width: `${pct}%`,
-                  background: C.accent,
-                  borderRadius: 2,
-                  transition: 'width 0.15s',
-                }}
+                className={styles.progressBar}
+                style={{ width: `${pct}%` }}
               />
             </div>
           </div>
 
-          {/* Results table */}
-          <div style={{ flex: 1, overflow: 'auto' }}>
+          <div className={styles.resultsArea}>
             {scan.results.length === 0 &&
               !scan.running &&
               (() => {
-                // Show missing project devices even when nothing responded
                 const scanA = parseInt(area),
                   scanL = parseInt(line);
                 const missing = (projectData?.devices || []).filter(
@@ -221,14 +175,13 @@ export function BusScanView({
                 );
                 if (missing.length === 0)
                   return (
-                    <div style={{ padding: 24, color: C.dim, fontSize: 11 }}>
+                    <div className={styles.noResults}>
                       No devices responded.
                     </div>
                   );
-                return null; // will be shown in merged table below
+                return null;
               })()}
             {(() => {
-              // Merge scan results with project devices on this line that weren't found
               const foundAddrs = new Set(
                 scan.results.map((r: any) => r.address),
               );
@@ -255,7 +208,6 @@ export function BusScanView({
                 })),
               ];
               if (rows.length === 0) return null;
-              // Sort by address
               const cmp = (a: any, b: any) => {
                 const pa = a.address.split('.').map(Number),
                   pb = b.address.split('.').map(Number);
@@ -267,17 +219,17 @@ export function BusScanView({
               };
               rows.sort(cmp);
               return (
-                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <table className={styles.table}>
                   <thead>
                     <tr>
-                      <TH style={{ width: 100 }}>ADDRESS</TH>
+                      <TH className={styles.thAddr}>ADDRESS</TH>
                       <TH>IN PROJECT</TH>
-                      <TH style={{ width: 80 }}>MASK</TH>
-                      <TH style={{ width: 50 }}>STATUS</TH>
+                      <TH className={styles.thMask}>MASK</TH>
+                      <TH className={styles.thStatus}>STATUS</TH>
                       <TH>SERIAL</TH>
                       <TH>MFR ID</TH>
                       <TH>ORDER</TH>
-                      <TH style={{ width: 120 }}></TH>
+                      <TH className={styles.thActions}></TH>
                     </tr>
                   </thead>
                   <tbody>
@@ -292,34 +244,31 @@ export function BusScanView({
                       return (
                         <tr
                           key={r.address}
-                          className="rh"
-                          style={{ opacity: r.found ? 1 : 0.45 }}
+                          className={`rh${r.found ? '' : ` ${styles.rowMissing}`}`}
                         >
                           <TD>
                             <PinAddr
                               address={r.address}
                               wtype="device"
-                              style={{
-                                color: r.found ? C.accent : C.dim,
-                                fontFamily: 'monospace',
-                              }}
+                              className={
+                                r.found ? styles.scanAddr : styles.monoSmall
+                              }
                             />
                           </TD>
                           <TD>
                             {inProject ? (
                               <span
-                                style={{
-                                  color: r.found ? C.green : C.dim,
-                                  fontSize: 11,
-                                }}
+                                className={
+                                  r.found
+                                    ? styles.inProjectFound
+                                    : styles.inProjectMissing
+                                }
                               >
                                 {r.found ? '✓' : '✗'}{' '}
                                 {projDev?.name || r.address}
                               </span>
                             ) : (
-                              <span style={{ color: C.dim, fontSize: 11 }}>
-                                —
-                              </span>
+                              <span className={styles.inProjectNone}>—</span>
                             )}
                           </TD>
                           <TD>
@@ -333,11 +282,7 @@ export function BusScanView({
                                   title={
                                     r.descriptor ? `0x${r.descriptor}` : ''
                                   }
-                                  style={{
-                                    color: C.dim,
-                                    fontFamily: 'monospace',
-                                    fontSize: 10,
-                                  }}
+                                  className={styles.monoSmall}
                                 >
                                   {mask ? mask.name : r.descriptor || '—'}
                                 </span>
@@ -346,51 +291,31 @@ export function BusScanView({
                           </TD>
                           <TD>
                             {r.found ? (
-                              <span style={{ color: C.green, fontSize: 10 }}>
-                                found
-                              </span>
+                              <span className={styles.foundText}>found</span>
                             ) : (
-                              <span style={{ color: C.red, fontSize: 10 }}>
+                              <span className={styles.missingText}>
                                 missing
                               </span>
                             )}
                           </TD>
                           <TD>
-                            <span
-                              style={{
-                                color: C.dim,
-                                fontFamily: 'monospace',
-                                fontSize: 10,
-                              }}
-                            >
+                            <span className={styles.monoSmall}>
                               {di?.serialNumber || '—'}
                             </span>
                           </TD>
                           <TD>
-                            <span
-                              style={{
-                                color: C.dim,
-                                fontFamily: 'monospace',
-                                fontSize: 10,
-                              }}
-                            >
+                            <span className={styles.monoSmall}>
                               {di?.manufacturerId != null
                                 ? `0x${di.manufacturerId.toString(16).padStart(4, '0')}`
                                 : '—'}
                             </span>
                           </TD>
                           <TD>
-                            <span
-                              style={{
-                                color: C.dim,
-                                fontFamily: 'monospace',
-                                fontSize: 10,
-                              }}
-                            >
+                            <span className={styles.monoSmall}>
                               {di?.orderInfo || '—'}
                             </span>
                           </TD>
-                          <TD style={{ whiteSpace: 'nowrap' }}>
+                          <TD className={styles.tdNoWrap}>
                             {r.found && !di && (
                               <span
                                 onClick={
@@ -399,21 +324,7 @@ export function BusScanView({
                                     : undefined
                                 }
                                 title="Read device properties"
-                                style={{
-                                  fontSize: 9,
-                                  padding: '2px 8px',
-                                  borderRadius: 10,
-                                  background: `${C.accent}18`,
-                                  color: C.accent,
-                                  border: `1px solid ${C.accent}30`,
-                                  cursor:
-                                    readingAddr !== r.address
-                                      ? 'pointer'
-                                      : 'default',
-                                  letterSpacing: '0.06em',
-                                  marginRight: 4,
-                                }}
-                                className="bg"
+                                className={`bg ${readingAddr !== r.address ? styles.scanBadge : styles.scanBadgeDisabled}`}
                               >
                                 {readingAddr === r.address
                                   ? 'SCANNING…'
@@ -423,17 +334,7 @@ export function BusScanView({
                             {r.found && !inProject && activeProjectId && (
                               <span
                                 onClick={() => onAddDevice(r.address)}
-                                style={{
-                                  fontSize: 9,
-                                  padding: '2px 8px',
-                                  borderRadius: 10,
-                                  background: `${C.green}18`,
-                                  color: C.green,
-                                  border: `1px solid ${C.green}30`,
-                                  cursor: 'pointer',
-                                  letterSpacing: '0.06em',
-                                }}
-                                className="bg"
+                                className={`bg ${styles.addBadge}`}
                               >
                                 + ADD
                               </span>

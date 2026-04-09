@@ -1,5 +1,4 @@
 import { useState, useEffect, useMemo } from 'react';
-import { useC } from '../theme.ts';
 import { useDpt } from '../contexts.ts';
 import {
   Btn,
@@ -15,6 +14,7 @@ import {
 } from '../primitives.tsx';
 import { useColumns, ColumnPicker, dlCSV } from '../columns.tsx';
 import { RtfText } from '../rtf.tsx';
+import styles from './GroupAddressesView.module.css';
 
 interface GroupAddressesViewProps {
   data: any;
@@ -45,7 +45,6 @@ export function GroupAddressesView({
   onRenameGAGroup,
   jumpTo,
 }: GroupAddressesViewProps) {
-  const C = useC();
   const dpt = useDpt();
   const [search, setSearch] = useState('');
   const [viewMode, setViewMode] = useState(
@@ -236,25 +235,18 @@ export function GroupAddressesView({
     const [hovered, setHovered] = useState(false);
     return (
       <tr
-        className="rh"
+        className={`rh ${styles.gaRow}`}
         onClick={() => onPin?.('ga', g.address)}
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
-        style={{ borderLeft: '2px solid transparent', cursor: 'pointer' }}
       >
         {gcv('address') && (
           <TD style={{ paddingLeft: 12 + indent }}>
-            <div
-              style={{
-                position: 'relative',
-                display: 'inline-flex',
-                alignItems: 'center',
-              }}
-            >
+            <div className={styles.gaRowAddrWrap}>
               <PinAddr
                 address={g.address}
                 wtype="ga"
-                style={{ color: C.purple, fontFamily: 'monospace' }}
+                className={styles.pinAddr}
               />
               {onDeleteGA && (
                 <span
@@ -263,16 +255,8 @@ export function GroupAddressesView({
                     setDeleteConfirm(g);
                   }}
                   title="Delete GA"
-                  style={{
-                    position: 'absolute',
-                    right: -16,
-                    color: C.red,
-                    fontSize: 11,
-                    cursor: 'pointer',
-                    opacity: hovered ? 0.7 : 0,
-                    lineHeight: 1,
-                    transition: 'opacity 0.1s',
-                  }}
+                  className={styles.deleteX}
+                  style={{ opacity: hovered ? 0.7 : 0 }}
                 >
                   ✕
                 </span>
@@ -291,12 +275,11 @@ export function GroupAddressesView({
                   setEditGAId(null);
                 }}
                 onCancel={() => setEditGAId(null)}
-                C={C}
               />
             ) : (
               <span
                 onClick={onUpdateGA ? (e) => startEditGA(e, g) : undefined}
-                style={{ cursor: onUpdateGA ? 'text' : 'default' }}
+                className={onUpdateGA ? styles.cursorText : undefined}
                 title={onUpdateGA ? 'Click to rename' : undefined}
               >
                 {g.name}
@@ -306,24 +289,21 @@ export function GroupAddressesView({
         )}
         {gcv('dpt') && (
           <TD>
-            <span
-              style={{ color: C.muted, fontSize: 10 }}
-              title={dpt.hover(g.dpt)}
-            >
+            <span className={styles.textMuted} title={dpt.hover(g.dpt)}>
               {dpt.display(g.dpt)}
             </span>
           </TD>
         )}
         {gcv('devices') && (
           <TD>
-            <span style={{ color: C.dim }}>
+            <span className={styles.textDim}>
               {(gaDeviceMap[g.address] || []).length}
             </span>
           </TD>
         )}
         {gcv('main_group') && (
           <TD>
-            <span style={{ color: C.dim, fontSize: 10 }}>
+            <span className={styles.textDimSmall}>
               {g.main_g}
               {g.main_group_name ? ` — ${g.main_group_name}` : ''}
             </span>
@@ -331,7 +311,7 @@ export function GroupAddressesView({
         )}
         {gcv('middle_group') && (
           <TD>
-            <span style={{ color: C.dim, fontSize: 10 }}>
+            <span className={styles.textDimSmall}>
               {g.middle_g}
               {g.middle_group_name ? ` — ${g.middle_group_name}` : ''}
             </span>
@@ -339,14 +319,12 @@ export function GroupAddressesView({
         )}
         {gcv('description') && (
           <TD>
-            <span style={{ color: C.dim, fontSize: 10 }}>
-              {g.description || ''}
-            </span>
+            <span className={styles.textDimSmall}>{g.description || ''}</span>
           </TD>
         )}
         {gcv('comment') && (
           <TD>
-            <span style={{ color: C.dim, fontSize: 10 }}>
+            <span className={styles.textDimSmall}>
               <RtfText value={g.comment} />
             </span>
           </TD>
@@ -372,7 +350,7 @@ export function GroupAddressesView({
     : [];
 
   return (
-    <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+    <div className={styles.root}>
       {deleteConfirm && (
         <ConfirmModal
           title={`Delete ${deleteConfirm.address} — ${deleteConfirm.name}?`}
@@ -382,24 +360,17 @@ export function GroupAddressesView({
         >
           {assocDevices.length > 0 ? (
             <>
-              <div style={{ marginBottom: 8 }}>
+              <div className={styles.confirmMb}>
                 This will also remove <strong>{assocDevices.length}</strong>{' '}
                 device association{assocDevices.length !== 1 ? 's' : ''}:
               </div>
-              <ul
-                style={{
-                  margin: 0,
-                  paddingLeft: 18,
-                  maxHeight: 120,
-                  overflowY: 'auto',
-                }}
-              >
+              <ul className={styles.assocList}>
                 {assocDevices.map((addr: any) => {
                   const dev = devices.find(
                     (d: any) => d.individual_address === addr,
                   );
                   return (
-                    <li key={addr} style={{ fontFamily: 'monospace' }}>
+                    <li key={addr} className={styles.assocItem}>
                       {addr}
                       {dev?.name ? ` — ${dev.name}` : ''}
                     </li>
@@ -415,14 +386,7 @@ export function GroupAddressesView({
           )}
         </ConfirmModal>
       )}
-      <div
-        style={{
-          flex: 1,
-          display: 'flex',
-          flexDirection: 'column',
-          overflow: 'hidden',
-        }}
-      >
+      <div className={styles.main}>
         <SectionHeader
           title="Group Addresses"
           count={filtered.length}
@@ -451,90 +415,57 @@ export function GroupAddressesView({
               <Btn
                 key="new"
                 onClick={() => setCreating((p) => !p)}
-                color={C.green}
+                color="var(--green)"
               >
                 + New GA
               </Btn>
             ),
-            <ColumnPicker key="cp" cols={gaCols} onChange={saveGaCols} C={C} />,
-            <Btn key="csv" onClick={exportGACSV} color={C.muted} bg={C.surface}>
+            <ColumnPicker key="cp" cols={gaCols} onChange={saveGaCols} />,
+            <Btn
+              key="csv"
+              onClick={exportGACSV}
+              color="var(--muted)"
+              bg="var(--surface)"
+            >
               ↓ CSV
             </Btn>,
           ]}
         />
         {creating && (
-          <div
-            style={{
-              padding: '10px 16px',
-              borderBottom: `1px solid ${C.border}`,
-              background: C.surface,
-              display: 'flex',
-              gap: 8,
-              alignItems: 'center',
-              flexWrap: 'wrap',
-            }}
-          >
+          <div className={styles.createBar}>
             <input
               value={newAddr}
               onChange={(e) => setNewAddr(e.target.value)}
               placeholder="1/2/3"
-              style={{
-                background: C.inputBg,
-                border: `1px solid ${C.border2}`,
-                borderRadius: 4,
-                padding: '6px 10px',
-                color: C.text,
-                fontSize: 11,
-                fontFamily: 'monospace',
-                width: 80,
-              }}
+              className={styles.addrInput}
             />
             <input
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
               placeholder="Name"
-              style={{
-                background: C.inputBg,
-                border: `1px solid ${C.border2}`,
-                borderRadius: 4,
-                padding: '6px 10px',
-                color: C.text,
-                fontSize: 11,
-                fontFamily: 'inherit',
-                flex: 1,
-                minWidth: 120,
-              }}
+              className={styles.nameInput}
             />
             <input
               value={newDpt}
               onChange={(e) => setNewDpt(e.target.value)}
               placeholder="DPT (optional)"
-              style={{
-                background: C.inputBg,
-                border: `1px solid ${C.border2}`,
-                borderRadius: 4,
-                padding: '6px 10px',
-                color: C.text,
-                fontSize: 11,
-                fontFamily: 'monospace',
-                width: 120,
-              }}
+              className={styles.dptInput}
             />
             <Btn
               onClick={handleCreate}
               disabled={newSaving || !newAddr.trim() || !newName.trim()}
-              color={C.green}
+              color="var(--green)"
             >
               {newSaving ? <Spinner /> : 'Create'}
             </Btn>
-            <Btn onClick={() => setCreating(false)} color={C.dim}>
+            <Btn onClick={() => setCreating(false)} color="var(--dim)">
               Cancel
             </Btn>
           </div>
         )}
-        <div style={{ overflow: 'auto', flex: 1 }}>
+        <div className={styles.scrollArea}>
           {viewMode === 'flat' ? (
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <table className={styles.table}>
               <thead>
                 <tr>
                   {gaCols
@@ -542,14 +473,14 @@ export function GroupAddressesView({
                     .map((col: any) => (
                       <TH
                         key={col.id}
-                        style={
+                        className={
                           col.id === 'address'
-                            ? { width: 100 }
+                            ? styles.thAddr
                             : col.id === 'devices'
-                              ? { width: 70 }
+                              ? styles.thDevices
                               : col.id === 'dpt'
-                                ? { width: 180 }
-                                : {}
+                                ? styles.thDpt
+                                : undefined
                         }
                       >
                         {col.label.toUpperCase().replace('GAS', 'GAs')}
@@ -575,18 +506,9 @@ export function GroupAddressesView({
                 <div key={`m${main}`}>
                   <div
                     onClick={() => toggleMain(main)}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 8,
-                      padding: '6px 14px',
-                      background: C.surface,
-                      borderBottom: `1px solid ${C.border}`,
-                      cursor: 'pointer',
-                      userSelect: 'none',
-                    }}
+                    className={styles.mainGroupHeader}
                   >
-                    <span style={{ fontSize: 9, color: C.dim, width: 14 }}>
+                    <span className={styles.chevron}>
                       {mainExpanded ? '▾' : '▸'}
                     </span>
                     {editGroup?.main === main && editGroup?.middle === null ? (
@@ -599,19 +521,10 @@ export function GroupAddressesView({
                           setEditGroup(null);
                         }}
                         onCancel={() => setEditGroup(null)}
-                        C={C}
                       />
                     ) : (
                       <>
-                        <span
-                          style={{
-                            color: C.accent,
-                            fontSize: 11,
-                            fontWeight: 600,
-                          }}
-                        >
-                          {main}
-                        </span>
+                        <span className={styles.mainGroupLabel}>{main}</span>
                         {mainName ? (
                           <span
                             onClick={
@@ -619,12 +532,7 @@ export function GroupAddressesView({
                                 ? (e) => startEditGroup(e, main, null)
                                 : undefined
                             }
-                            style={{
-                              color: C.accent,
-                              fontSize: 11,
-                              fontWeight: 600,
-                              cursor: onRenameGAGroup ? 'text' : 'default',
-                            }}
+                            className={`${styles.mainGroupLabel} ${onRenameGAGroup ? styles.cursorText : ''}`}
                             title={
                               onRenameGAGroup ? 'Click to rename' : undefined
                             }
@@ -635,12 +543,7 @@ export function GroupAddressesView({
                           onRenameGAGroup && (
                             <span
                               onClick={(e) => startEditGroup(e, main, null)}
-                              style={{
-                                color: C.dim,
-                                fontSize: 10,
-                                cursor: 'pointer',
-                                fontStyle: 'italic',
-                              }}
+                              className={styles.nameAddLink}
                             >
                               + name
                             </span>
@@ -648,69 +551,33 @@ export function GroupAddressesView({
                         )}
                       </>
                     )}
-                    <span style={{ color: C.dim, fontSize: 10 }}>
+                    <span className={styles.countLabel}>
                       · {mainGAs.length}
                     </span>
                     {onCreateGA && (
                       <span
                         onClick={(e) => openInlineCreate(e, main, null)}
                         title="Add GA under this group"
-                        style={{
-                          marginLeft: 4,
-                          color: C.green,
-                          fontSize: 13,
-                          lineHeight: 1,
-                          cursor: 'pointer',
-                          opacity: 0.7,
-                        }}
+                        className={styles.addIcon}
                       >
                         +
                       </span>
                     )}
                   </div>
                   {inlineCreate?.main === main && inlineCreate.mid === null && (
-                    <div
-                      style={{
-                        padding: '8px 14px 8px 28px',
-                        borderBottom: `1px solid ${C.border}`,
-                        background: C.surface,
-                        display: 'flex',
-                        gap: 8,
-                        alignItems: 'center',
-                        flexWrap: 'wrap',
-                      }}
-                    >
+                    <div className={styles.inlineCreateBar}>
                       <input
                         value={inlineAddr}
                         onChange={(e) => setInlineAddr(e.target.value)}
                         placeholder="m/mi"
-                        style={{
-                          background: C.inputBg,
-                          border: `1px solid ${C.border2}`,
-                          borderRadius: 4,
-                          padding: '6px 10px',
-                          color: C.text,
-                          fontSize: 11,
-                          fontFamily: 'monospace',
-                          width: 80,
-                        }}
+                        className={styles.addrInput}
                       />
                       <input
                         value={inlineName}
                         onChange={(e) => setInlineName(e.target.value)}
                         placeholder="Group name"
                         autoFocus
-                        style={{
-                          background: C.inputBg,
-                          border: `1px solid ${C.border2}`,
-                          borderRadius: 4,
-                          padding: '6px 10px',
-                          color: C.text,
-                          fontSize: 11,
-                          fontFamily: 'inherit',
-                          flex: 1,
-                          minWidth: 120,
-                        }}
+                        className={styles.nameInput}
                       />
                       <Btn
                         onClick={handleInlineCreate}
@@ -719,11 +586,14 @@ export function GroupAddressesView({
                           !inlineAddr.trim() ||
                           !inlineName.trim()
                         }
-                        color={C.green}
+                        color="var(--green)"
                       >
                         {inlineSaving ? <Spinner /> : 'Create'}
                       </Btn>
-                      <Btn onClick={() => setInlineCreate(null)} color={C.dim}>
+                      <Btn
+                        onClick={() => setInlineCreate(null)}
+                        color="var(--dim)"
+                      >
                         Cancel
                       </Btn>
                     </div>
@@ -752,20 +622,9 @@ export function GroupAddressesView({
                         <div key={`m${main}mi${mid}`}>
                           <div
                             onClick={() => toggleMid(main, mid)}
-                            style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: 8,
-                              padding: '5px 14px 5px 28px',
-                              background: C.hover,
-                              borderBottom: `1px solid ${C.border}`,
-                              cursor: 'pointer',
-                              userSelect: 'none',
-                            }}
+                            className={styles.midGroupHeader}
                           >
-                            <span
-                              style={{ fontSize: 9, color: C.dim, width: 14 }}
-                            >
+                            <span className={styles.chevron}>
                               {midExpanded ? '▾' : '▸'}
                             </span>
                             {editGroup?.main === main &&
@@ -779,17 +638,10 @@ export function GroupAddressesView({
                                   setEditGroup(null);
                                 }}
                                 onCancel={() => setEditGroup(null)}
-                                C={C}
                               />
                             ) : (
                               <>
-                                <span
-                                  style={{
-                                    color: C.text,
-                                    fontSize: 10,
-                                    fontWeight: 500,
-                                  }}
-                                >
+                                <span className={styles.midGroupLabel}>
                                   {main}/{mid}
                                 </span>
                                 {midName ? (
@@ -799,14 +651,7 @@ export function GroupAddressesView({
                                         ? (e) => startEditGroup(e, main, mid)
                                         : undefined
                                     }
-                                    style={{
-                                      color: C.text,
-                                      fontSize: 10,
-                                      fontWeight: 500,
-                                      cursor: onRenameGAGroup
-                                        ? 'text'
-                                        : 'default',
-                                    }}
+                                    className={`${styles.midGroupLabel} ${onRenameGAGroup ? styles.cursorText : ''}`}
                                     title={
                                       onRenameGAGroup
                                         ? 'Click to rename'
@@ -821,12 +666,7 @@ export function GroupAddressesView({
                                       onClick={(e) =>
                                         startEditGroup(e, main, mid)
                                       }
-                                      style={{
-                                        color: C.dim,
-                                        fontSize: 9,
-                                        cursor: 'pointer',
-                                        fontStyle: 'italic',
-                                      }}
+                                      className={styles.nameAddLinkSmall}
                                     >
                                       + name
                                     </span>
@@ -834,21 +674,14 @@ export function GroupAddressesView({
                                 )}
                               </>
                             )}
-                            <span style={{ color: C.dim, fontSize: 10 }}>
+                            <span className={styles.countLabel}>
                               · {subs.length}
                             </span>
                             {onCreateGA && (
                               <span
                                 onClick={(e) => openInlineCreate(e, main, mid)}
                                 title="Add GA under this group"
-                                style={{
-                                  marginLeft: 4,
-                                  color: C.green,
-                                  fontSize: 13,
-                                  lineHeight: 1,
-                                  cursor: 'pointer',
-                                  opacity: 0.7,
-                                }}
+                                className={styles.addIcon}
                               >
                                 +
                               </span>
@@ -856,33 +689,14 @@ export function GroupAddressesView({
                           </div>
                           {inlineCreate?.main === main &&
                             inlineCreate.mid === mid && (
-                              <div
-                                style={{
-                                  padding: '8px 14px 8px 42px',
-                                  borderBottom: `1px solid ${C.border}`,
-                                  background: C.hover,
-                                  display: 'flex',
-                                  gap: 8,
-                                  alignItems: 'center',
-                                  flexWrap: 'wrap',
-                                }}
-                              >
+                              <div className={styles.inlineCreateBarIndent}>
                                 <input
                                   value={inlineAddr}
                                   onChange={(e) =>
                                     setInlineAddr(e.target.value)
                                   }
                                   placeholder="m/mi/s"
-                                  style={{
-                                    background: C.inputBg,
-                                    border: `1px solid ${C.border2}`,
-                                    borderRadius: 4,
-                                    padding: '6px 10px',
-                                    color: C.text,
-                                    fontSize: 11,
-                                    fontFamily: 'monospace',
-                                    width: 80,
-                                  }}
+                                  className={styles.addrInput}
                                 />
                                 <input
                                   value={inlineName}
@@ -891,32 +705,13 @@ export function GroupAddressesView({
                                   }
                                   placeholder="Name"
                                   autoFocus
-                                  style={{
-                                    background: C.inputBg,
-                                    border: `1px solid ${C.border2}`,
-                                    borderRadius: 4,
-                                    padding: '6px 10px',
-                                    color: C.text,
-                                    fontSize: 11,
-                                    fontFamily: 'inherit',
-                                    flex: 1,
-                                    minWidth: 120,
-                                  }}
+                                  className={styles.nameInput}
                                 />
                                 <input
                                   value={inlineDpt}
                                   onChange={(e) => setInlineDpt(e.target.value)}
                                   placeholder="DPT (optional)"
-                                  style={{
-                                    background: C.inputBg,
-                                    border: `1px solid ${C.border2}`,
-                                    borderRadius: 4,
-                                    padding: '6px 10px',
-                                    color: C.text,
-                                    fontSize: 11,
-                                    fontFamily: 'monospace',
-                                    width: 120,
-                                  }}
+                                  className={styles.dptInput}
                                 />
                                 <Btn
                                   onClick={handleInlineCreate}
@@ -925,25 +720,20 @@ export function GroupAddressesView({
                                     !inlineAddr.trim() ||
                                     !inlineName.trim()
                                   }
-                                  color={C.green}
+                                  color="var(--green)"
                                 >
                                   {inlineSaving ? <Spinner /> : 'Create'}
                                 </Btn>
                                 <Btn
                                   onClick={() => setInlineCreate(null)}
-                                  color={C.dim}
+                                  color="var(--dim)"
                                 >
                                   Cancel
                                 </Btn>
                               </div>
                             )}
                           {midExpanded && (
-                            <table
-                              style={{
-                                width: '100%',
-                                borderCollapse: 'collapse',
-                              }}
-                            >
+                            <table className={styles.midTable}>
                               <thead>
                                 <tr>
                                   {gaCols
@@ -951,14 +741,14 @@ export function GroupAddressesView({
                                     .map((col: any) => (
                                       <TH
                                         key={col.id}
-                                        style={
+                                        className={
                                           col.id === 'address'
-                                            ? { width: 100, paddingLeft: 42 }
+                                            ? styles.thAddrIndent
                                             : col.id === 'devices'
-                                              ? { width: 70 }
+                                              ? styles.thDevices
                                               : col.id === 'dpt'
-                                                ? { width: 180 }
-                                                : {}
+                                                ? styles.thDpt
+                                                : undefined
                                         }
                                       >
                                         {col.label
@@ -996,14 +786,12 @@ function InlineEdit({
   fontSize = 11,
   onSave,
   onCancel,
-  C,
 }: {
   initial: string;
   prefix?: string;
   fontSize?: number;
   onSave: (v: string) => Promise<void>;
   onCancel: () => void;
-  C: any;
 }) {
   const [value, setValue] = useState(initial);
   const [saving, setSaving] = useState(false);
@@ -1016,12 +804,9 @@ function InlineEdit({
     setSaving(false);
   };
   return (
-    <div
-      onClick={(e) => e.stopPropagation()}
-      style={{ display: 'flex', gap: 4, alignItems: 'center', flex: 1 }}
-    >
+    <div onClick={(e) => e.stopPropagation()} className={styles.inlineEditWrap}>
       {prefix && (
-        <span style={{ fontSize, fontWeight: 600, whiteSpace: 'nowrap' }}>
+        <span className={styles.inlineEditPrefix} style={{ fontSize }}>
           {prefix}
         </span>
       )}
@@ -1033,22 +818,17 @@ function InlineEdit({
           if (e.key === 'Enter') save();
           if (e.key === 'Escape') onCancel();
         }}
-        style={{
-          background: C.inputBg,
-          border: `1px solid ${C.accent}`,
-          borderRadius: 3,
-          padding: '2px 6px',
-          color: C.text,
-          fontSize,
-          fontFamily: 'inherit',
-          flex: 1,
-          minWidth: 80,
-        }}
+        className={styles.inlineEditInput}
+        style={{ fontSize }}
       />
-      <Btn onClick={save} disabled={saving || !value.trim()} color={C.green}>
+      <Btn
+        onClick={save}
+        disabled={saving || !value.trim()}
+        color="var(--green)"
+      >
         {saving ? <Spinner /> : 'Save'}
       </Btn>
-      <Btn onClick={onCancel} color={C.dim}>
+      <Btn onClick={onCancel} color="var(--dim)">
         Cancel
       </Btn>
     </div>

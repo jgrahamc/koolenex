@@ -1,0 +1,150 @@
+/* SettingsView */
+.root {
+  flex: 1;
+  padding: 40px;
+  overflow: auto;
+}
+.inner {
+  max-width: 480px;
+}
+.heading {
+  font-family: 'Syne', sans-serif;
+  font-weight: 700;
+  font-size: 16px;
+  color: var(--text);
+  margin-bottom: 24px;
+}
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 20px;
+  margin-bottom: 20px;
+}
+.sectionTitle {
+  font-size: 11px;
+  color: var(--accent);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  margin-bottom: 16px;
+}
+.label {
+  font-size: 9px;
+  color: var(--dim);
+  margin-bottom: 8px;
+}
+.optionRow {
+  display: flex;
+  gap: 8px;
+}
+.themeOption {
+  flex: 1;
+  padding: 10px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.themeIcon {
+  font-size: 14px;
+}
+.themeLabel {
+  font-size: 11px;
+}
+.themeSub {
+  font-size: 9px;
+}
+.checkMark {
+  margin-left: auto;
+  color: var(--accent);
+  font-size: 14px;
+}
+.dptOption {
+  flex: 1;
+  padding: 10px 14px;
+  border-radius: 6px;
+  background: var(--bg);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.dptIcon {
+  font-size: 13px;
+  color: var(--muted);
+  font-family: monospace;
+}
+.dptLabel {
+  font-size: 11px;
+  color: var(--text);
+}
+.dptSub {
+  font-size: 9px;
+  color: var(--dim);
+}
+.dptHint {
+  font-size: 9px;
+  color: var(--dim);
+  margin-top: 8px;
+}
+.sectionTitleSmall {
+  font-size: 11px;
+  color: var(--accent);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  margin-bottom: 12px;
+}
+.aboutText {
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.8;
+}
+.versionDim {
+  color: var(--dim);
+}
+.themeOptionActive {
+  composes: themeOption;
+  border: 2px solid var(--accent);
+}
+.themeOptionInactive {
+  composes: themeOption;
+  border: 2px solid var(--border);
+}
+.themeOptionDark {
+  background: #060a10;
+}
+.themeOptionLight {
+  background: #f0f4f8;
+}
+.themeLabelDark {
+  composes: themeLabel;
+  color: #e0eeff;
+}
+.themeLabelLight {
+  composes: themeLabel;
+  color: #1a2a3a;
+}
+.themeLabelActive {
+  font-weight: 600;
+}
+.themeSubDark {
+  composes: themeSub;
+  color: #5a80a8;
+}
+.themeSubLight {
+  composes: themeSub;
+  color: #7090a8;
+}
+.dptOptionActive {
+  composes: dptOption;
+  border: 2px solid var(--accent);
+}
+.dptOptionInactive {
+  composes: dptOption;
+  border: 2px solid var(--border);
+}
+.dptLabelActive {
+  composes: dptLabel;
+  font-weight: 600;
+}

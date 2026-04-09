@@ -106,3 +106,110 @@
   font-size: 9px;
   color: var(--dim);
 }
+
+.deviceCardA {
+  border: 2px solid color-mix(in srgb, var(--accent) 25%, transparent);
+}
+
+.deviceCardB {
+  border: 2px solid color-mix(in srgb, var(--purple) 25%, transparent);
+}
+
+.colorA {
+  color: var(--accent);
+}
+
+.colorB {
+  color: var(--purple);
+}
+
+.tdDim {
+  color: var(--dim);
+}
+
+.tdMuted {
+  color: var(--muted);
+}
+
+.tdText {
+  color: var(--text);
+}
+
+.tdAmber {
+  color: var(--amber);
+}
+
+.thColA {
+  composes: th;
+  color: var(--accent);
+}
+
+.thColB {
+  composes: th;
+  color: var(--purple);
+}
+
+.thCenterColA {
+  composes: th;
+  color: var(--accent);
+  text-align: center;
+}
+
+.thCenterColB {
+  composes: th;
+  color: var(--purple);
+  text-align: center;
+}
+
+.gaAddrMono {
+  font-family: monospace;
+  font-size: 10px;
+}
+
+.gaAddrPurple {
+  font-family: monospace;
+  color: var(--purple);
+}
+
+.dptMono {
+  font-family: monospace;
+  color: var(--dim);
+}
+
+.checkGreen {
+  color: var(--green);
+}
+
+.checkDim {
+  color: var(--dim);
+}
+
+.tdCenter {
+  text-align: center;
+}
+
+/* Static TH widths */
+.thSection {
+  width: 22%;
+}
+.thName {
+  width: 26%;
+}
+.thObjNum {
+  width: 36px;
+}
+.thDpt {
+  width: 70px;
+}
+.thFlags {
+  width: 60px;
+}
+.thGaAddr {
+  width: 100px;
+}
+.thGaDpt {
+  width: 70px;
+}
+.thPresence {
+  width: 60px;
+}

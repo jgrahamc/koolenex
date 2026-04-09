@@ -14,10 +14,9 @@ interface SearchResult {
 interface GlobalSearchProps {
   projectData: any;
   onPin: (wtype: string, address: string) => void;
-  C: any;
 }
 
-export function GlobalSearch({ projectData, onPin, C }: GlobalSearchProps) {
+export function GlobalSearch({ projectData, onPin }: GlobalSearchProps) {
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
   const [focused, setFocused] = useState(false);
@@ -151,9 +150,9 @@ export function GlobalSearch({ projectData, onPin, C }: GlobalSearchProps) {
   };
 
   const TYPE_COLOR: Record<string, string> = {
-    device: C.accent,
-    ga: C.purple,
-    space: C.green,
+    device: 'var(--accent)',
+    ga: 'var(--purple)',
+    space: 'var(--green)',
   };
   const TYPE_LABEL: Record<string, string> = {
     device: 'DEV',
@@ -164,8 +163,7 @@ export function GlobalSearch({ projectData, onPin, C }: GlobalSearchProps) {
   return (
     <div ref={containerRef} className={styles.container}>
       <div
-        className={styles.inputWrap}
-        style={{ border: `1px solid ${focused ? C.accent : C.border}` }}
+        className={`${styles.inputWrap} ${focused ? styles.inputWrapFocused : styles.inputWrapBlurred}`}
       >
         <span className={styles.searchIcon}>○</span>
         <input
@@ -207,17 +205,12 @@ export function GlobalSearch({ projectData, onPin, C }: GlobalSearchProps) {
                 handleSelect(r);
               }}
               onMouseEnter={() => setHilite(i)}
-              className={styles.resultRow}
-              style={{
-                borderBottom:
-                  i < results.length - 1 ? `1px solid ${C.border}` : 'none',
-                background: i === hilite ? `${C.accent}18` : 'transparent',
-              }}
+              className={`${styles.resultRow} ${i < results.length - 1 ? styles.resultRowBorder : ''} ${i === hilite ? styles.resultRowHilite : ''}`}
             >
               <span
                 className={styles.resultBadge}
                 style={{
-                  background: `${TYPE_COLOR[r.type]}20`,
+                  background: `color-mix(in srgb, ${TYPE_COLOR[r.type]} 12%, transparent)`,
                   color: TYPE_COLOR[r.type],
                 }}
               >

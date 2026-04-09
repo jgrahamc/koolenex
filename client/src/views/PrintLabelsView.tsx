@@ -1,6 +1,6 @@
 import { useState, useMemo, useRef } from 'react';
-import { useC } from '../theme.ts';
 import { Btn, Chip, SectionHeader } from '../primitives.tsx';
+import styles from './PrintLabelsView.module.css';
 
 // Label sheet definitions (all dimensions in mm)
 const SHEETS: any[] = [
@@ -121,7 +121,6 @@ interface PrintLabelsViewProps {
 }
 
 export function PrintLabelsView({ data, dispatch }: PrintLabelsViewProps) {
-  const C = useC();
   const {
     devices = [],
     spaces = [],
@@ -214,14 +213,7 @@ export function PrintLabelsView({ data, dispatch }: PrintLabelsViewProps) {
   };
 
   return (
-    <div
-      style={{
-        flex: 1,
-        display: 'flex',
-        flexDirection: 'column',
-        overflow: 'hidden',
-      }}
-    >
+    <div className={styles.root}>
       <SectionHeader
         title="Print Labels"
         count={filteredDevices.length}
@@ -229,11 +221,11 @@ export function PrintLabelsView({ data, dispatch }: PrintLabelsViewProps) {
           <Btn
             key="back"
             onClick={() => dispatch({ type: 'SET_VIEW', view: 'devices' })}
-            color={C.dim}
+            color="var(--dim)"
           >
             Back to Devices
           </Btn>,
-          <Btn key="print" onClick={handlePrint} color={C.accent}>
+          <Btn key="print" onClick={handlePrint} color="var(--accent)">
             {sheet?.legend
               ? 'Print Legend Sheet'
               : `Print ${filteredDevices.length} Labels`}
@@ -241,45 +233,17 @@ export function PrintLabelsView({ data, dispatch }: PrintLabelsViewProps) {
         ]}
       />
 
-      <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+      <div className={styles.body}>
         {/* Settings panel */}
-        <div
-          style={{
-            width: 280,
-            borderRight: `1px solid ${C.border}`,
-            overflow: 'auto',
-            padding: 14,
-            flexShrink: 0,
-          }}
-        >
+        <div className={styles.settingsPanel}>
           {/* Sheet format */}
-          <div style={{ marginBottom: 16 }}>
-            <div
-              style={{
-                fontSize: 9,
-                color: C.dim,
-                letterSpacing: '0.08em',
-                marginBottom: 6,
-              }}
-            >
-              LABEL FORMAT
-            </div>
+          <div className={styles.sectionGroup}>
+            <div className={styles.sectionLabel}>LABEL FORMAT</div>
             {SHEETS.map((s) => (
               <div
                 key={s.id}
                 onClick={() => setSheetId(s.id)}
-                style={{
-                  padding: '6px 8px',
-                  fontSize: 10,
-                  borderRadius: 4,
-                  cursor: 'pointer',
-                  marginBottom: 2,
-                  background:
-                    sheetId === s.id ? `${C.accent}18` : 'transparent',
-                  color: sheetId === s.id ? C.accent : C.text,
-                  fontWeight: sheetId === s.id ? 600 : 400,
-                }}
-                className="rh"
+                className={`${styles.sheetOption} rh ${sheetId === s.id ? styles.sheetOptionActive : styles.sheetOptionInactive}`}
               >
                 {s.name}
               </div>
@@ -287,35 +251,15 @@ export function PrintLabelsView({ data, dispatch }: PrintLabelsViewProps) {
           </div>
 
           {/* Fields */}
-          <div style={{ marginBottom: 16 }}>
-            <div
-              style={{
-                fontSize: 9,
-                color: C.dim,
-                letterSpacing: '0.08em',
-                marginBottom: 6,
-              }}
-            >
-              FIELDS
-            </div>
+          <div className={styles.sectionGroup}>
+            <div className={styles.sectionLabel}>FIELDS</div>
             {FIELD_OPTIONS.map((f) => (
-              <label
-                key={f.id}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 6,
-                  padding: '3px 0',
-                  fontSize: 10,
-                  color: C.text,
-                  cursor: 'pointer',
-                }}
-              >
+              <label key={f.id} className={styles.fieldLabel}>
                 <input
                   type="checkbox"
                   checked={fields.has(f.id)}
                   onChange={() => toggleField(f.id)}
-                  style={{ accentColor: C.accent }}
+                  className={styles.fieldCheck}
                 />
                 {f.label}
               </label>
@@ -323,18 +267,9 @@ export function PrintLabelsView({ data, dispatch }: PrintLabelsViewProps) {
           </div>
 
           {/* Area/Line filter */}
-          <div style={{ marginBottom: 16 }}>
-            <div
-              style={{
-                fontSize: 9,
-                color: C.dim,
-                letterSpacing: '0.08em',
-                marginBottom: 6,
-              }}
-            >
-              FILTER BY LINE
-            </div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+          <div className={styles.sectionGroup}>
+            <div className={styles.sectionLabel}>FILTER BY LINE</div>
+            <div className={styles.filterRow}>
               <Chip
                 active={filterArea === 'all'}
                 onClick={() => setFilterArea('all')}
@@ -355,87 +290,32 @@ export function PrintLabelsView({ data, dispatch }: PrintLabelsViewProps) {
 
           {/* Device selection */}
           <div>
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6,
-                marginBottom: 6,
-              }}
-            >
-              <span
-                style={{ fontSize: 9, color: C.dim, letterSpacing: '0.08em' }}
-              >
-                DEVICES
-              </span>
-              <span style={{ fontSize: 9, color: C.dim }}>
+            <div className={styles.devHeader}>
+              <span className={styles.devHeaderLabel}>DEVICES</span>
+              <span className={styles.devCount}>
                 ({selectedDevices.size}/{devices.length})
               </span>
-              <span
-                onClick={selectAll}
-                style={{ fontSize: 9, color: C.accent, cursor: 'pointer' }}
-                className="bg"
-              >
+              <span onClick={selectAll} className={`${styles.selLink} bg`}>
                 all
               </span>
-              <span
-                onClick={selectNone}
-                style={{ fontSize: 9, color: C.accent, cursor: 'pointer' }}
-                className="bg"
-              >
+              <span onClick={selectNone} className={`${styles.selLink} bg`}>
                 none
               </span>
             </div>
-            <div
-              style={{
-                maxHeight: 300,
-                overflow: 'auto',
-                border: `1px solid ${C.border}`,
-                borderRadius: 4,
-              }}
-            >
+            <div className={styles.devList}>
               {devices.map((d: any) => (
                 <label
                   key={d.individual_address}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 6,
-                    padding: '3px 8px',
-                    fontSize: 10,
-                    cursor: 'pointer',
-                    borderBottom: `1px solid ${C.border}11`,
-                    background: selectedDevices.has(d.individual_address)
-                      ? `${C.accent}08`
-                      : 'transparent',
-                  }}
+                  className={`${styles.devItem} ${selectedDevices.has(d.individual_address) ? styles.devItemSelected : styles.devItemUnselected}`}
                 >
                   <input
                     type="checkbox"
                     checked={selectedDevices.has(d.individual_address)}
                     onChange={() => toggleDevice(d.individual_address)}
-                    style={{ accentColor: C.accent, flexShrink: 0 }}
+                    className={styles.fieldCheckNoShrink}
                   />
-                  <span
-                    style={{
-                      color: C.accent,
-                      fontFamily: 'monospace',
-                      fontSize: 9,
-                      flexShrink: 0,
-                    }}
-                  >
-                    {d.individual_address}
-                  </span>
-                  <span
-                    style={{
-                      color: C.text,
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    {d.name}
-                  </span>
+                  <span className={styles.devAddr}>{d.individual_address}</span>
+                  <span className={styles.devName}>{d.name}</span>
                 </label>
               ))}
             </div>
@@ -443,32 +323,19 @@ export function PrintLabelsView({ data, dispatch }: PrintLabelsViewProps) {
         </div>
 
         {/* Preview */}
-        <div
-          style={{ flex: 1, overflow: 'auto', background: C.bg, padding: 20 }}
-        >
-          <div
-            style={{
-              fontSize: 9,
-              color: C.dim,
-              letterSpacing: '0.08em',
-              marginBottom: 12,
-            }}
-          >
-            PREVIEW
-          </div>
+        <div className={styles.previewArea}>
+          <div className={styles.previewLabel}>PREVIEW</div>
           {sheet?.legend ? (
             <LegendPreview
               devices={filteredDevices}
               fields={fields}
               spacePath={spacePath}
-              C={C}
             />
           ) : (
             <LabelPreview
               devices={filteredDevices}
               sheet={sheet}
               labelData={labelData}
-              C={C}
             />
           )}
         </div>
@@ -481,17 +348,13 @@ function LabelPreview({
   devices,
   sheet,
   labelData,
-  C,
 }: {
   devices: any[];
   sheet: any;
   labelData: (d: any) => any[];
-  C: any;
 }) {
   if (!sheet || !devices.length)
-    return (
-      <div style={{ color: C.dim, fontSize: 11 }}>No devices selected</div>
-    );
+    return <div className={styles.noDevices}>No devices selected</div>;
   const labelsPerPage = sheet.cols * sheet.rows;
   const pages: any[][] = [];
   for (let i = 0; i < devices.length; i += labelsPerPage) {
@@ -499,25 +362,14 @@ function LabelPreview({
   }
   const scale = 2.5;
   return (
-    <div
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 20,
-        alignItems: 'center',
-      }}
-    >
+    <div className={styles.pagesWrap}>
       {pages.map((page, pi) => (
         <div
           key={pi}
+          className={styles.pageSheet}
           style={{
             width: sheet.pageW * scale,
             height: sheet.pageH * scale,
-            background: 'white',
-            border: '1px solid #ccc',
-            borderRadius: 4,
-            position: 'relative',
-            boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
           }}
         >
           {page.map((d: any, i: number) => {
@@ -529,32 +381,23 @@ function LabelPreview({
             return (
               <div
                 key={d.individual_address}
+                className={styles.labelCell}
                 style={{
-                  position: 'absolute',
                   left: x * scale,
                   top: y * scale,
                   width: sheet.labelW * scale,
                   height: sheet.labelH * scale,
-                  border: '0.5px dashed #ccc',
                   padding: `${1 * scale}px ${1.5 * scale}px`,
-                  overflow: 'hidden',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  justifyContent: 'center',
                 }}
               >
                 {parts.map((p: any, j: number) => (
                   <div
                     key={j}
+                    className={styles.labelPart}
                     style={{
                       fontSize:
                         p.size === 'large' ? 8 : p.size === 'medium' ? 6 : 5,
                       fontWeight: p.bold ? 700 : 400,
-                      color: '#000',
-                      lineHeight: 1.3,
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
                     }}
                   >
                     {p.text}
@@ -573,49 +416,21 @@ function LegendPreview({
   devices,
   fields,
   spacePath,
-  C,
 }: {
   devices: any[];
   fields: Set<string>;
   spacePath: (id: any) => string;
-  C: any;
 }) {
   if (!devices.length)
-    return (
-      <div style={{ color: C.dim, fontSize: 11 }}>No devices selected</div>
-    );
+    return <div className={styles.noDevices}>No devices selected</div>;
   const cols = FIELD_OPTIONS.filter((f) => fields.has(f.id));
   return (
-    <div
-      style={{
-        background: 'white',
-        borderRadius: 4,
-        padding: 16,
-        boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
-      }}
-    >
-      <table
-        style={{
-          width: '100%',
-          borderCollapse: 'collapse',
-          fontSize: 9,
-          color: '#000',
-        }}
-      >
+    <div className={styles.legendWrap}>
+      <table className={styles.legendTable}>
         <thead>
           <tr>
             {cols.map((f) => (
-              <th
-                key={f.id}
-                style={{
-                  textAlign: 'left',
-                  padding: '4px 6px',
-                  borderBottom: '2px solid #333',
-                  fontWeight: 700,
-                  fontSize: 8,
-                  letterSpacing: '0.05em',
-                }}
-              >
+              <th key={f.id} className={styles.legendTh}>
                 {f.label.toUpperCase()}
               </th>
             ))}
@@ -627,9 +442,8 @@ function LegendPreview({
               {cols.map((f) => (
                 <td
                   key={f.id}
+                  className={styles.legendTd}
                   style={{
-                    padding: '3px 6px',
-                    borderBottom: '0.5px solid #ddd',
                     fontWeight: f.id === 'address' ? 700 : 400,
                     fontFamily:
                       f.id === 'address' || f.id === 'order_number'

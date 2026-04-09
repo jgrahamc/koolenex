@@ -98,3 +98,19 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+.inputWrapFocused {
+  border: 1px solid var(--accent);
+}
+
+.inputWrapBlurred {
+  border: 1px solid var(--border);
+}
+
+.resultRowBorder {
+  border-bottom: 1px solid var(--border);
+}
+
+.resultRowHilite {
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
+}

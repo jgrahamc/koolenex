@@ -183,3 +183,13 @@
   composes: subDisplay;
   cursor: text;
 }
+
+.groupValueLink {
+  font-size: 10px;
+  color: var(--purple);
+  display: inline;
+}
+
+.groupCardDefault {
+  cursor: default;
+}

@@ -8,7 +8,6 @@ import { PinTelegramFeed } from './PinTelegramFeed.tsx';
 import styles from './GAPinPanel.module.css';
 
 interface GAPinPanelProps {
-  C: any;
   COLMAP: any;
   ga: any;
   linkedDevices: any[];
@@ -25,7 +24,6 @@ interface GAPinPanelProps {
 }
 
 export function GAPinPanel({
-  C,
   COLMAP: _COLMAP,
   ga,
   linkedDevices,
@@ -139,11 +137,11 @@ export function GAPinPanel({
                 <Btn
                   onClick={handleSave}
                   disabled={saving || !editName.trim()}
-                  color={C.green}
+                  color="var(--green)"
                 >
                   {saving ? <Spinner /> : 'Save'}
                 </Btn>
-                <Btn onClick={() => setEditing(false)} color={C.dim}>
+                <Btn onClick={() => setEditing(false)} color="var(--dim)">
                   Cancel
                 </Btn>
               </div>
@@ -158,9 +156,7 @@ export function GAPinPanel({
                       }
                     : undefined
                 }
-                className={
-                  onUpdateGA ? styles.gaNameClickable : styles.gaName
-                }
+                className={onUpdateGA ? styles.gaNameClickable : styles.gaName}
                 title={onUpdateGA ? 'Click to edit' : undefined}
               >
                 {ga.name}
@@ -169,13 +165,12 @@ export function GAPinPanel({
           </div>
           {ga.dpt && (
             <span title={dpt.hover(ga.dpt)}>
-              <Badge label={dpt.display(ga.dpt)} color={C.purple} />
+              <Badge label={dpt.display(ga.dpt)} color="var(--purple)" />
             </span>
           )}
         </div>
         {/* Tab bar */}
         <TabBar
-          C={C}
           active={gaTab}
           onChange={handleGaTab}
           tabs={[
@@ -193,15 +188,7 @@ export function GAPinPanel({
                 className={styles.groupCard}
               >
                 <div className={styles.groupLabel}>Main Group</div>
-                <div
-                  className="pa"
-                  data-pin="1"
-                  style={{
-                    fontSize: 10,
-                    color: 'var(--purple)',
-                    display: 'inline',
-                  }}
-                >
+                <div className={`pa ${styles.groupValueLink}`} data-pin="1">
                   {ga.main_g} &mdash; {ga.main_group_name || ''}
                 </div>
               </div>
@@ -210,24 +197,15 @@ export function GAPinPanel({
                 className={styles.groupCard}
               >
                 <div className={styles.groupLabel}>Middle Group</div>
-                <div
-                  className="pa"
-                  data-pin="1"
-                  style={{
-                    fontSize: 10,
-                    color: 'var(--purple)',
-                    display: 'inline',
-                  }}
-                >
+                <div className={`pa ${styles.groupValueLink}`} data-pin="1">
                   {ga.middle_g} &mdash; {ga.middle_group_name || ''}
                 </div>
               </div>
-              <SubNameCard ga={ga} C={C} onUpdateGA={onUpdateGA} />
+              <SubNameCard ga={ga} onUpdateGA={onUpdateGA} />
             </div>
             <EditableRtfField
               label="DESCRIPTION"
               value={ga.description || ''}
-              C={C}
               onSave={
                 onUpdateGA
                   ? (v: string) => onUpdateGA(ga.id, { description: v })
@@ -237,7 +215,6 @@ export function GAPinPanel({
             <EditableRtfField
               label="COMMENT"
               value={ga.comment || ''}
-              C={C}
               onSave={
                 onUpdateGA
                   ? (v: string) => onUpdateGA(ga.id, { comment: v })
@@ -249,7 +226,6 @@ export function GAPinPanel({
                 ga={ga}
                 linkedDevices={linkedDevices}
                 allCOs={allCOs}
-                C={C}
                 gaTelegrams={gaTelegrams}
               />
             )}
@@ -282,14 +258,14 @@ export function GAPinPanel({
                     <div className={styles.boolBtns}>
                       <Btn
                         onClick={() => handleSend('1')}
-                        color={C.green}
+                        color="var(--green)"
                         disabled={sending}
                       >
                         On
                       </Btn>
                       <Btn
                         onClick={() => handleSend('0')}
-                        color={C.red}
+                        color="var(--red)"
                         disabled={sending}
                       >
                         Off
@@ -321,7 +297,7 @@ export function GAPinPanel({
                       <Btn
                         onClick={() => handleSend()}
                         disabled={sending || writeVal === ''}
-                        color={C.accent}
+                        color="var(--accent)"
                       >
                         {sending ? (
                           <>
@@ -355,11 +331,10 @@ export function GAPinPanel({
 
 interface SubNameCardProps {
   ga: any;
-  C: any;
   onUpdateGA: any;
 }
 
-function SubNameCard({ ga, C, onUpdateGA }: SubNameCardProps) {
+function SubNameCard({ ga, onUpdateGA }: SubNameCardProps) {
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(ga.name);
   const [saving, setSaving] = useState(false);
@@ -379,7 +354,7 @@ function SubNameCard({ ga, C, onUpdateGA }: SubNameCardProps) {
   };
 
   return (
-    <div className={styles.groupCard} style={{ cursor: 'default' }}>
+    <div className={`${styles.groupCard} ${styles.groupCardDefault}`}>
       <div className={styles.groupLabel}>Sub</div>
       {editing ? (
         <div className={styles.subEditRow}>
@@ -396,7 +371,11 @@ function SubNameCard({ ga, C, onUpdateGA }: SubNameCardProps) {
             }}
             className={styles.subEditInput}
           />
-          <Btn onClick={save} disabled={saving || !name.trim()} color={C.green}>
+          <Btn
+            onClick={save}
+            disabled={saving || !name.trim()}
+            color="var(--green)"
+          >
             {saving ? <Spinner /> : 'Save'}
           </Btn>
           <Btn
@@ -404,7 +383,7 @@ function SubNameCard({ ga, C, onUpdateGA }: SubNameCardProps) {
               setEditing(false);
               setName(ga.name);
             }}
-            color={C.dim}
+            color="var(--dim)"
           >
             Cancel
           </Btn>

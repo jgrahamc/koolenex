@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
-import { useC } from './theme.ts';
 import { Btn } from './primitives.tsx';
 import { DeviceTypeIcon } from './icons.tsx';
+import styles from './AddDeviceModal.module.css';
 
 // Compute next available device number on a line
 function nextDeviceNum(devices: any[], area: number, line: number) {
@@ -72,7 +72,6 @@ export function AddDeviceModal({
   onAdd,
   onClose,
 }: AddDeviceModalProps) {
-  const C = useC();
   const { devices = [], spaces = [] } = data || {};
 
   // Build manufacturer → model list from existing devices
@@ -221,91 +220,32 @@ export function AddDeviceModal({
     if (device) onClose();
   };
 
-  const inputStyle: React.CSSProperties = {
-    background: C.inputBg,
-    border: `1px solid ${C.border2}`,
-    borderRadius: 4,
-    padding: '5px 8px',
-    color: C.text,
-    fontSize: 11,
-    fontFamily: 'inherit',
-  };
-
   return (
-    <div
-      style={{
-        position: 'fixed',
-        inset: 0,
-        background: 'rgba(0,0,0,0.55)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: 2000,
-      }}
-      onClick={onClose}
-    >
+    <div className={styles.overlay} onClick={onClose}>
       <div
-        style={{
-          background: C.surface,
-          border: `1px solid ${C.border2}`,
-          borderRadius: 8,
-          padding: 20,
-          width: 480,
-          maxHeight: '80vh',
-          display: 'flex',
-          flexDirection: 'column',
-          boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
-        }}
+        className={styles.modal}
         onClick={(e: React.MouseEvent) => e.stopPropagation()}
       >
-        <div
-          style={{
-            fontSize: 12,
-            fontWeight: 600,
-            color: C.text,
-            marginBottom: 14,
-          }}
-        >
-          Add Device
-        </div>
+        <div className={styles.modalTitle}>Add Device</div>
 
-        {/* Device type picker — hidden when type is pre-selected */}
+        {/* Device type picker -- hidden when type is pre-selected */}
         {typeFixed ? (
-          <div style={{ marginBottom: 14 }}>
-            <div
-              style={{
-                fontSize: 9,
-                color: C.dim,
-                letterSpacing: '0.08em',
-                marginBottom: 4,
-              }}
-            >
-              DEVICE TYPE
-            </div>
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6,
-                padding: '6px 8px',
-                background: C.bg,
-                border: `1px solid ${C.border}`,
-                borderRadius: 4,
-              }}
-            >
+          <div className={styles.typeFixedWrap}>
+            <div className={styles.fieldLabel}>DEVICE TYPE</div>
+            <div className={styles.typeFixedBox}>
               {modelInfo && (
                 <DeviceTypeIcon
                   type={modelInfo.device_type}
                   size={11}
-                  style={{ color: C.muted }}
+                  style={{ color: 'var(--muted)' }}
                 />
               )}
-              <span style={{ fontSize: 10, color: C.text }}>
+              <span className={styles.typeFixedName}>
                 {selectedMfr}
                 {selectedModel ? ` — ${selectedModel}` : ''}
               </span>
               {modelInfo?.order_number && (
-                <span style={{ fontSize: 9, color: C.dim, marginLeft: 'auto' }}>
+                <span className={styles.typeFixedOrder}>
                   {modelInfo.order_number}
                 </span>
               )}
@@ -313,58 +253,24 @@ export function AddDeviceModal({
           </div>
         ) : (
           <>
-            <div
-              style={{
-                fontSize: 9,
-                color: C.dim,
-                letterSpacing: '0.08em',
-                marginBottom: 4,
-              }}
-            >
-              DEVICE TYPE
-            </div>
+            <div className={styles.fieldLabel}>DEVICE TYPE</div>
             <input
               value={search}
               onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
                 setSearch(e.target.value)
               }
               placeholder="Search manufacturer, model, or order number..."
-              style={{ ...inputStyle, width: '100%', marginBottom: 6 }}
+              className={styles.searchInput}
             />
-            <div
-              style={{
-                maxHeight: 150,
-                overflow: 'auto',
-                border: `1px solid ${C.border}`,
-                borderRadius: 4,
-                marginBottom: 14,
-              }}
-            >
+            <div className={styles.typeList}>
               {searchResults.length === 0 && (
-                <div
-                  style={{
-                    padding: 12,
-                    fontSize: 10,
-                    color: C.dim,
-                    textAlign: 'center',
-                  }}
-                >
+                <div className={styles.typeListEmpty}>
                   No matching device types
                 </div>
               )}
               {searchResults.map((mfr) => (
                 <div key={mfr.name}>
-                  <div
-                    style={{
-                      fontSize: 9,
-                      color: C.dim,
-                      padding: '4px 8px',
-                      background: C.bg,
-                      borderBottom: `1px solid ${C.border}`,
-                    }}
-                  >
-                    {mfr.name}
-                  </div>
+                  <div className={styles.mfrHeader}>{mfr.name}</div>
                   {mfr.models.map((m: any) => {
                     const isSel =
                       selectedMfr === mfr.name && selectedModel === m.name;
@@ -372,38 +278,24 @@ export function AddDeviceModal({
                       <div
                         key={m.name}
                         onClick={() => handleModelSelect(mfr, m)}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 6,
-                          padding: '4px 8px',
-                          cursor: 'pointer',
-                          background: isSel ? `${C.accent}20` : 'transparent',
-                          borderBottom: `1px solid ${C.border}`,
-                        }}
-                        className="rh"
+                        className={`rh ${isSel ? styles.modelRowSelected : styles.modelRow}`}
                       >
                         <DeviceTypeIcon
                           type={m.device_type}
                           size={11}
-                          style={{ color: C.muted }}
+                          style={{ color: 'var(--muted)' }}
                         />
                         <span
-                          style={{
-                            fontSize: 10,
-                            color: isSel ? C.accent : C.text,
-                          }}
+                          className={
+                            isSel
+                              ? styles.modelNameSelected
+                              : styles.modelNameDefault
+                          }
                         >
                           {m.name}
                         </span>
                         {m.order_number && (
-                          <span
-                            style={{
-                              fontSize: 9,
-                              color: C.dim,
-                              marginLeft: 'auto',
-                            }}
-                          >
+                          <span className={styles.modelOrder}>
                             {m.order_number}
                           </span>
                         )}
@@ -419,17 +311,7 @@ export function AddDeviceModal({
                   setSelectedModel('');
                   setName(name || 'New Device');
                 }}
-                style={{
-                  padding: '4px 8px',
-                  cursor: 'pointer',
-                  fontSize: 10,
-                  color: C.muted,
-                  background:
-                    !selectedMfr && !selectedModel
-                      ? `${C.accent}20`
-                      : 'transparent',
-                }}
-                className="rh"
+                className={`rh ${!selectedMfr && !selectedModel ? styles.genericOptionSelected : styles.genericOption}`}
               >
                 Generic device (no type)
               </div>
@@ -438,47 +320,24 @@ export function AddDeviceModal({
         )}
 
         {/* Name */}
-        <div
-          style={{
-            fontSize: 9,
-            color: C.dim,
-            letterSpacing: '0.08em',
-            marginBottom: 4,
-          }}
-        >
-          NAME
-        </div>
+        <div className={styles.fieldLabel}>NAME</div>
         <input
           value={name}
           onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
             setName(e.target.value)
           }
           placeholder="Device name"
-          style={{ ...inputStyle, width: '100%', marginBottom: 14 }}
+          className={styles.nameInput}
         />
 
         {/* Address */}
-        <div
-          style={{
-            fontSize: 9,
-            color: C.dim,
-            letterSpacing: '0.08em',
-            marginBottom: 4,
-          }}
-        >
+        <div className={styles.fieldLabel}>
           INDIVIDUAL ADDRESS
           {addressExists && (
-            <span style={{ color: C.red, marginLeft: 8 }}>already exists</span>
+            <span className={styles.addrConflict}>already exists</span>
           )}
         </div>
-        <div
-          style={{
-            display: 'flex',
-            gap: 6,
-            alignItems: 'center',
-            marginBottom: 14,
-          }}
-        >
+        <div className={styles.addressWrap}>
           <input
             type="number"
             min={1}
@@ -488,9 +347,9 @@ export function AddDeviceModal({
               handleAreaChange(+e.target.value)
             }
             disabled={areaFixed}
-            style={{ ...inputStyle, width: 50, textAlign: 'center' }}
+            className={styles.addrInput}
           />
-          <span style={{ color: C.dim }}>.</span>
+          <span className={styles.addrDot}>.</span>
           <input
             type="number"
             min={0}
@@ -500,9 +359,9 @@ export function AddDeviceModal({
               handleLineChange(+e.target.value)
             }
             disabled={lineFixed}
-            style={{ ...inputStyle, width: 50, textAlign: 'center' }}
+            className={styles.addrInput}
           />
-          <span style={{ color: C.dim }}>.</span>
+          <span className={styles.addrDot}>.</span>
           <input
             type="number"
             min={1}
@@ -511,30 +370,21 @@ export function AddDeviceModal({
             onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
               setDevNum(+e.target.value)
             }
-            style={{ ...inputStyle, width: 60, textAlign: 'center' }}
+            className={styles.addrInputWide}
           />
-          <span style={{ fontSize: 9, color: C.dim, marginLeft: 4 }}>
+          <span className={styles.addrNext}>
             next: {nextDeviceNum(devices, area, line) ?? 'full'}
           </span>
         </div>
 
         {/* Location */}
-        <div
-          style={{
-            fontSize: 9,
-            color: C.dim,
-            letterSpacing: '0.08em',
-            marginBottom: 4,
-          }}
-        >
-          LOCATION
-        </div>
+        <div className={styles.fieldLabel}>LOCATION</div>
         <select
           value={spaceId}
           onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
             setSpaceId(+e.target.value || '')
           }
-          style={{ ...inputStyle, width: '100%', marginBottom: 14 }}
+          className={styles.selectField}
         >
           <option value="">— None —</option>
           {flatSpaces.map((s) => (
@@ -546,18 +396,18 @@ export function AddDeviceModal({
         </select>
 
         {/* Error */}
-        {error && (
-          <div style={{ fontSize: 10, color: C.red, marginBottom: 8 }}>
-            {error}
-          </div>
-        )}
+        {error && <div className={styles.error}>{error}</div>}
 
         {/* Buttons */}
-        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-          <Btn onClick={onClose} color={C.dim}>
+        <div className={styles.actions}>
+          <Btn onClick={onClose} color="var(--dim)">
             Cancel
           </Btn>
-          <Btn onClick={handleSubmit} color={C.accent} disabled={addressExists}>
+          <Btn
+            onClick={handleSubmit}
+            color="var(--accent)"
+            disabled={addressExists}
+          >
             Add Device
           </Btn>
         </div>

@@ -1,0 +1,238 @@
+/* LocationsView */
+.root {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.scrollArea {
+  flex: 1;
+  overflow: auto;
+}
+.spaceRow {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  border-bottom: 1px solid var(--border);
+}
+.chevronSmall {
+  color: var(--dim);
+  font-size: 9px;
+  width: 10px;
+}
+.spacerSmall {
+  width: 10px;
+}
+.usageLabel {
+  color: var(--dim);
+  font-size: 10px;
+  margin-left: 4px;
+}
+.floorPlanLink {
+  color: var(--accent);
+  font-size: 9px;
+  margin-left: 6px;
+  cursor: pointer;
+  opacity: 0.7;
+}
+.editLink {
+  color: var(--dim);
+  font-size: 9px;
+  cursor: pointer;
+  opacity: 0.5;
+}
+.addIcon {
+  color: var(--green);
+  font-size: 13px;
+  margin-left: 4px;
+  cursor: pointer;
+  opacity: 0.7;
+  line-height: 1;
+}
+.deleteIcon {
+  color: var(--red);
+  font-size: 13px;
+  margin-left: 4px;
+  cursor: pointer;
+  opacity: 0.5;
+  line-height: 1;
+}
+.countLabel {
+  font-size: 10px;
+  color: var(--dim);
+}
+.table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.devNameWrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.textMuted {
+  color: var(--muted);
+}
+.textDim {
+  color: var(--dim);
+}
+.monoSmall {
+  color: var(--dim);
+  font-family: monospace;
+  font-size: 10px;
+}
+.dimSmall {
+  color: var(--dim);
+  font-size: 10px;
+}
+.rowBorder {
+  border-left: 2px solid transparent;
+}
+.accentMono {
+  color: var(--accent);
+  font-family: monospace;
+}
+.amberText {
+  color: var(--amber);
+}
+.amberMono {
+  color: var(--amber);
+  font-family: monospace;
+  font-size: 10px;
+}
+.colAddr {
+  width: 100px;
+}
+.colAddrIndented {
+  width: 100px;
+  padding-left: 42px;
+}
+.tdIndented {
+  padding-left: 42px;
+}
+.colGas {
+  width: 50px;
+}
+.colStatus {
+  width: 100px;
+}
+.unplacedHeader {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 14px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+.unplacedIcon {
+  color: var(--dim);
+  font-size: 12px;
+}
+.unplacedTitle {
+  font-weight: 600;
+  font-size: 11px;
+  color: var(--muted);
+}
+.statusBar {
+  padding: 5px 14px;
+  border-top: 1px solid var(--border);
+  font-size: 10px;
+  color: var(--dim);
+  display: flex;
+  gap: 14px;
+  flex-shrink: 0;
+}
+.statusItem {
+  cursor: pointer;
+}
+/* AddMenu */
+.addMenuWrap {
+  position: relative;
+  margin-left: 4px;
+}
+.addMenuIcon {
+  color: var(--green);
+  font-size: 13px;
+  cursor: pointer;
+  opacity: 0.7;
+  line-height: 1;
+}
+.addMenuBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 999;
+}
+.addMenuDropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 4px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+  z-index: 1000;
+  min-width: 120px;
+  overflow: hidden;
+}
+.addMenuItem {
+  padding: 6px 12px;
+  font-size: 10px;
+  color: var(--text);
+  cursor: pointer;
+  white-space: nowrap;
+}
+/* AddSpaceForm */
+.addSpaceForm {
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.selectInput {
+  background: var(--input-bg);
+  border: 1px solid var(--border2);
+  border-radius: 4px;
+  padding: 5px 8px;
+  color: var(--text);
+  font-size: 10px;
+  font-family: inherit;
+}
+.nameInput {
+  background: var(--input-bg);
+  border: 1px solid var(--border2);
+  border-radius: 4px;
+  padding: 5px 8px;
+  color: var(--text);
+  font-size: 10px;
+  font-family: inherit;
+  flex: 1;
+  min-width: 120px;
+}
+/* InlineEdit */
+.inlineEditWrap {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  flex: 1;
+}
+.inlineEditInput {
+  background: var(--input-bg);
+  border: 1px solid var(--accent);
+  border-radius: 3px;
+  padding: 2px 6px;
+  color: var(--text);
+  font-family: inherit;
+  flex: 1;
+  min-width: 80px;
+}
+.renameable {
+  cursor: text;
+}
+.statusItemActive {
+  composes: statusItem;
+  font-weight: 600;
+}

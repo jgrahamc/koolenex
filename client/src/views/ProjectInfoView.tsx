@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useC } from '../theme.ts';
 import { Btn, Spinner } from '../primitives.tsx';
 import { api } from '../api.ts';
+import styles from './ProjectInfoView.module.css';
 
 interface ProjectInfoViewProps {
   project: any;
@@ -26,7 +26,6 @@ export function ProjectInfoView({
   onConnectUsb,
   onDisconnect,
 }: ProjectInfoViewProps) {
-  const C = useC();
   const info = (() => {
     try {
       return JSON.parse(project?.project_info || '{}');
@@ -106,131 +105,66 @@ export function ProjectInfoView({
     setUsbLoading(false);
   };
 
-  const tabStyle = (id: string): React.CSSProperties => ({
-    padding: '6px 16px',
-    fontSize: 11,
-    fontFamily: 'inherit',
-    cursor: 'pointer',
-    fontWeight: 600,
-    background: tab === id ? C.accent + '18' : 'transparent',
-    color: tab === id ? C.accent : C.dim,
-    border: 'none',
-    borderBottom:
-      tab === id ? `2px solid ${C.accent}` : '2px solid transparent',
-    letterSpacing: '0.04em',
-  });
+  const tabClass = (id: string) =>
+    tab === id ? styles.tabActive : styles.tabInactive;
 
   return (
-    <div className="fi" style={{ flex: 1, padding: 40, overflow: 'auto' }}>
-      <div style={{ maxWidth: 480 }}>
-        <div
-          style={{
-            fontFamily: "'Syne',sans-serif",
-            fontWeight: 700,
-            fontSize: 16,
-            color: C.text,
-            marginBottom: 24,
-          }}
-        >
-          Project
-        </div>
+    <div className={`fi ${styles.root}`}>
+      <div className={styles.inner}>
+        <div className={styles.heading}>Project</div>
 
-        <div
-          style={{
-            background: C.surface,
-            border: `1px solid ${C.border}`,
-            borderRadius: 8,
-            padding: 20,
-            marginBottom: 20,
-          }}
-        >
-          <div
-            style={{
-              fontSize: 11,
-              color: C.accent,
-              fontWeight: 600,
-              letterSpacing: '0.08em',
-              marginBottom: 12,
-            }}
-          >
-            BUS CONNECTION
-          </div>
+        <div className={styles.card}>
+          <div className={styles.sectionTitle}>BUS CONNECTION</div>
 
           {!busStatus.connected && (
-            <div
-              style={{
-                display: 'flex',
-                borderBottom: `1px solid ${C.border}`,
-                marginBottom: 16,
-              }}
-            >
-              <button style={tabStyle('ip')} onClick={() => setTab('ip')}>
+            <div className={styles.tabRow}>
+              <button
+                className={`${styles.tabBtn} ${tabClass('ip')}`}
+                onClick={() => setTab('ip')}
+              >
                 KNXnet/IP
               </button>
-              <button style={tabStyle('usb')} onClick={() => setTab('usb')}>
+              <button
+                className={`${styles.tabBtn} ${tabClass('usb')}`}
+                onClick={() => setTab('usb')}
+              >
                 USB
               </button>
             </div>
           )}
 
           {busStatus.connected ? (
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-              <span style={{ fontSize: 11, color: C.green }}>
+            <div className={styles.connectedRow}>
+              <span className={styles.connectedLabel}>
                 {busStatus.type === 'usb'
                   ? '● Connected via USB'
                   : `● Connected to ${busStatus.host}:${busStatus.port || 3671}`}
               </span>
-              <Btn onClick={onDisconnect} color={C.red} bg="#1a0a0a">
+              <Btn onClick={onDisconnect} color="var(--red)" bg="#1a0a0a">
                 Disconnect
               </Btn>
             </div>
           ) : tab === 'ip' ? (
             <>
-              <div style={{ display: 'flex', gap: 10, marginBottom: 12 }}>
-                <div style={{ flex: 2 }}>
-                  <div style={{ fontSize: 9, color: C.dim, marginBottom: 5 }}>
-                    IP ADDRESS
-                  </div>
+              <div className={styles.ipRow}>
+                <div className={styles.ipCol}>
+                  <div className={styles.fieldLabel}>IP ADDRESS</div>
                   <input
                     value={host}
                     onChange={(e) => setHost(e.target.value)}
-                    style={{
-                      width: '100%',
-                      background: C.inputBg,
-                      border: `1px solid ${C.border2}`,
-                      borderRadius: 4,
-                      padding: '6px 10px',
-                      color: C.text,
-                      fontSize: 12,
-                      fontFamily: 'inherit',
-                    }}
+                    className={styles.textInput}
                   />
                 </div>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 9, color: C.dim, marginBottom: 5 }}>
-                    PORT
-                  </div>
+                <div className={styles.portCol}>
+                  <div className={styles.fieldLabel}>PORT</div>
                   <input
                     value={port}
                     onChange={(e) => setPort(e.target.value)}
-                    style={{
-                      width: '100%',
-                      background: C.inputBg,
-                      border: `1px solid ${C.border2}`,
-                      borderRadius: 4,
-                      padding: '6px 10px',
-                      color: C.text,
-                      fontSize: 12,
-                      fontFamily: 'inherit',
-                    }}
+                    className={styles.textInput}
                   />
                 </div>
               </div>
-              {error && (
-                <div style={{ fontSize: 11, color: C.red, marginBottom: 10 }}>
-                  &#x2717; {error}
-                </div>
-              )}
+              {error && <div className={styles.errorMsg}>&#x2717; {error}</div>}
               <Btn onClick={doConnect} disabled={connecting}>
                 {connecting ? (
                   <>
@@ -243,7 +177,7 @@ export function ProjectInfoView({
             </>
           ) : (
             <>
-              <div style={{ marginBottom: 12 }}>
+              <div className={styles.usbScanBtn}>
                 <Btn onClick={scanUsb} disabled={usbLoading}>
                   {usbLoading ? (
                     <>
@@ -258,38 +192,16 @@ export function ProjectInfoView({
               {usbDevices !== null &&
                 usbDevices.length === 0 &&
                 !usbLoading && (
-                  <div
-                    style={{
-                      fontSize: 11,
-                      color: C.dim,
-                      marginBottom: 10,
-                      padding: '8px 12px',
-                      background: C.bg,
-                      borderRadius: 4,
-                      border: `1px solid ${C.border}`,
-                    }}
-                  >
+                  <div className={styles.noUsbMsg}>
                     No KNX USB devices found. Make sure the device is plugged in
-                    and{' '}
-                    <code
-                      style={{
-                        background: C.surface,
-                        padding: '1px 5px',
-                        borderRadius: 3,
-                        fontSize: 10,
-                      }}
-                    >
-                      node-hid
-                    </code>{' '}
-                    is installed.
+                    and <code className={styles.codeBg}>node-hid</code> is
+                    installed.
                   </div>
                 )}
 
               {usbDevices && usbDevices.length > 0 && (
-                <div style={{ marginBottom: 12 }}>
-                  <div style={{ fontSize: 9, color: C.dim, marginBottom: 5 }}>
-                    SELECT DEVICE
-                  </div>
+                <div className={styles.usbList}>
+                  <div className={styles.fieldLabel}>SELECT DEVICE</div>
                   {usbDevices.map((d: any) => {
                     const label =
                       d.knxName ||
@@ -303,35 +215,18 @@ export function ProjectInfoView({
                       <div
                         key={d.path}
                         onClick={() => setSelectedUsb(d.path)}
-                        style={{
-                          padding: '8px 12px',
-                          marginBottom: 4,
-                          borderRadius: 4,
-                          cursor: 'pointer',
-                          background: sel ? C.accent + '18' : C.bg,
-                          border: `1px solid ${sel ? C.accent + '55' : C.border}`,
-                        }}
+                        className={`${styles.usbDevice} ${sel ? styles.usbDeviceSelected : styles.usbDeviceUnselected}`}
                       >
                         <div
-                          style={{
-                            fontSize: 11,
-                            color: sel ? C.accent : C.text,
-                            fontWeight: sel ? 600 : 400,
-                          }}
+                          className={`${styles.usbDevLabel} ${sel ? styles.usbDevLabelSelected : styles.usbDevLabelUnselected}`}
                         >
                           {label}
                         </div>
                         {subtitle && (
-                          <div
-                            style={{ fontSize: 9, color: C.dim, marginTop: 2 }}
-                          >
-                            {subtitle}
-                          </div>
+                          <div className={styles.usbDevSub}>{subtitle}</div>
                         )}
                         {d.serialNumber && (
-                          <div
-                            style={{ fontSize: 9, color: C.dim, marginTop: 1 }}
-                          >
+                          <div className={styles.usbDevSerial}>
                             SN: {d.serialNumber}
                           </div>
                         )}
@@ -341,11 +236,7 @@ export function ProjectInfoView({
                 </div>
               )}
 
-              {error && (
-                <div style={{ fontSize: 11, color: C.red, marginBottom: 10 }}>
-                  &#x2717; {error}
-                </div>
-              )}
+              {error && <div className={styles.errorMsg}>&#x2717; {error}</div>}
               {usbDevices && usbDevices.length > 0 && (
                 <Btn
                   onClick={doConnectUsb}
@@ -364,52 +255,16 @@ export function ProjectInfoView({
           )}
 
           {!busStatus.hasLib && (
-            <div
-              style={{
-                marginTop: 12,
-                padding: '8px 12px',
-                background: '#1a140a',
-                border: `1px solid ${C.amber}33`,
-                borderRadius: 4,
-                fontSize: 11,
-                color: C.amber,
-              }}
-            >
+            <div className={`${styles.warningBox} ${styles.warningBorder}`}>
               &#x26A0; KNX package not installed. Run{' '}
-              <code
-                style={{
-                  background: C.bg,
-                  padding: '1px 5px',
-                  borderRadius: 3,
-                }}
-              >
-                npm install knx
-              </code>{' '}
-              in the server directory.
+              <code className={styles.warningCodeBg}>npm install knx</code> in
+              the server directory.
             </div>
           )}
         </div>
 
-        <div
-          style={{
-            background: C.surface,
-            border: `1px solid ${C.border}`,
-            borderRadius: 8,
-            padding: 20,
-            marginBottom: 20,
-          }}
-        >
-          <div
-            style={{
-              fontSize: 11,
-              color: C.accent,
-              fontWeight: 600,
-              letterSpacing: '0.08em',
-              marginBottom: 16,
-            }}
-          >
-            ETS PROJECT
-          </div>
+        <div className={styles.card}>
+          <div className={styles.sectionTitleWide}>ETS PROJECT</div>
           {[
             ['Project', project?.name],
             ['File', project?.file_name],
@@ -422,108 +277,47 @@ export function ProjectInfoView({
           ]
             .filter(([, v]) => v && v !== '—')
             .map(([label, value]) => (
-              <div
-                key={label}
-                style={{ display: 'flex', fontSize: 11, marginBottom: 6 }}
-              >
-                <span style={{ color: C.dim, width: 110, flexShrink: 0 }}>
-                  {label}
-                </span>
-                <span style={{ color: C.muted, wordBreak: 'break-all' }}>
-                  {value}
-                </span>
+              <div key={label} className={styles.infoRow}>
+                <span className={styles.infoLabel}>{label}</span>
+                <span className={styles.infoValue}>{value}</span>
               </div>
             ))}
           {project?.thumbnail && (
-            <div style={{ marginTop: 12 }}>
+            <div className={styles.thumbnailWrap}>
               <img
                 src={`data:image/jpeg;base64,${project.thumbnail}`}
                 alt=""
-                style={{ maxWidth: '100%', borderRadius: 4 }}
+                className={styles.thumbnailImg}
               />
             </div>
           )}
         </div>
 
-        <div
-          style={{
-            background: C.surface,
-            border: `1px solid ${C.border}`,
-            borderRadius: 8,
-            padding: 20,
-            marginBottom: 20,
-          }}
-        >
-          <div
-            style={{
-              fontSize: 11,
-              color: C.accent,
-              fontWeight: 600,
-              letterSpacing: '0.08em',
-              marginBottom: 16,
-            }}
-          >
-            SUMMARY
-          </div>
+        <div className={styles.card}>
+          <div className={styles.sectionTitleWide}>SUMMARY</div>
           {[
             ['Devices', data?.devices?.length],
             ['Group Addresses', data?.gas?.length],
             ['Group Objects', data?.comObjects?.length],
             ['Spaces', data?.spaces?.length],
           ].map(([label, value]) => (
-            <div
-              key={label as string}
-              style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                fontSize: 11,
-                marginBottom: 6,
-              }}
-            >
-              <span style={{ color: C.dim }}>{label}</span>
-              <span style={{ color: C.muted }}>{value ?? '—'}</span>
+            <div key={label as string} className={styles.summaryRow}>
+              <span className={styles.summaryLabel}>{label}</span>
+              <span className={styles.summaryValue}>{value ?? '—'}</span>
             </div>
           ))}
         </div>
 
-        <AuditLogSection projectId={project?.id} C={C} />
+        <AuditLogSection projectId={project?.id} />
 
         {languages && languages.length > 1 && (
-          <div
-            style={{
-              background: C.surface,
-              border: `1px solid ${C.border}`,
-              borderRadius: 8,
-              padding: 20,
-            }}
-          >
-            <div
-              style={{
-                fontSize: 11,
-                color: C.accent,
-                fontWeight: 600,
-                letterSpacing: '0.08em',
-                marginBottom: 16,
-              }}
-            >
-              LANGUAGE
-            </div>
-            <div style={{ fontSize: 9, color: C.dim, marginBottom: 8 }}>
-              KNX DATA LANGUAGE
-            </div>
+          <div className={styles.card}>
+            <div className={styles.sectionTitleWide}>LANGUAGE</div>
+            <div className={styles.langLabel}>KNX DATA LANGUAGE</div>
             <select
               value={lang}
               onChange={(e) => onLangChange(e.target.value)}
-              style={{
-                width: '100%',
-                background: C.inputBg,
-                border: `1px solid ${C.border2}`,
-                borderRadius: 4,
-                padding: '6px 10px',
-                color: C.text,
-                fontSize: 12,
-                fontFamily: 'inherit',
-              }}
+              className={styles.langSelect}
             >
               {languages.map((l: any) => (
                 <option key={l.id} value={l.id}>
@@ -531,7 +325,7 @@ export function ProjectInfoView({
                 </option>
               ))}
             </select>
-            <div style={{ fontSize: 9, color: C.dim, marginTop: 8 }}>
+            <div className={styles.langHint}>
               Translates KNX data types, space usages, and function types.
             </div>
           </div>
@@ -543,10 +337,9 @@ export function ProjectInfoView({
 
 interface AuditLogSectionProps {
   projectId: any;
-  C: any;
 }
 
-function AuditLogSection({ projectId, C }: AuditLogSectionProps) {
+function AuditLogSection({ projectId }: AuditLogSectionProps) {
   const [logs, setLogs] = useState<any[] | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -566,49 +359,25 @@ function AuditLogSection({ projectId, C }: AuditLogSectionProps) {
   }, [expanded, logs, load]);
 
   const actionColor = (a: string) => {
-    if (a === 'create' || a === 'import') return C.green;
-    if (a === 'delete') return C.red;
-    if (a === 'update' || a === 'reimport') return C.amber;
-    return C.muted;
+    if (a === 'create' || a === 'import') return 'var(--green)';
+    if (a === 'delete') return 'var(--red)';
+    if (a === 'update' || a === 'reimport') return 'var(--amber)';
+    return 'var(--muted)';
   };
 
   return (
-    <div
-      style={{
-        background: C.surface,
-        border: `1px solid ${C.border}`,
-        borderRadius: 8,
-        padding: 20,
-        marginBottom: 20,
-      }}
-    >
+    <div className={styles.card}>
       <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          cursor: 'pointer',
-        }}
+        className={styles.auditHeader}
         onClick={() => setExpanded(!expanded)}
       >
-        <div
-          style={{
-            fontSize: 11,
-            color: C.accent,
-            fontWeight: 600,
-            letterSpacing: '0.08em',
-          }}
-        >
-          AUDIT LOG
-        </div>
-        <span style={{ fontSize: 10, color: C.dim }}>
-          {expanded ? '▲' : '▼'}
-        </span>
+        <div className={styles.auditTitle}>AUDIT LOG</div>
+        <span className={styles.auditToggle}>{expanded ? '▲' : '▼'}</span>
       </div>
 
       {expanded && (
-        <div style={{ marginTop: 12 }}>
-          <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+        <div className={styles.auditContent}>
+          <div className={styles.auditActions}>
             <Btn onClick={load} disabled={loading}>
               {loading ? 'Loading...' : '↻ Refresh'}
             </Btn>
@@ -616,19 +385,7 @@ function AuditLogSection({ projectId, C }: AuditLogSectionProps) {
               <a
                 href={api.auditLogCsvUrl(projectId)}
                 download
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  padding: '4px 12px',
-                  fontSize: 11,
-                  fontFamily: 'inherit',
-                  fontWeight: 600,
-                  borderRadius: 4,
-                  background: C.accent + '18',
-                  color: C.accent,
-                  textDecoration: 'none',
-                  border: `1px solid ${C.accent}33`,
-                }}
+                className={`${styles.csvLink} ${styles.csvLinkThemed}`}
               >
                 ↓ Download CSV
               </a>
@@ -636,41 +393,16 @@ function AuditLogSection({ projectId, C }: AuditLogSectionProps) {
           </div>
 
           {logs && logs.length === 0 && (
-            <div style={{ fontSize: 11, color: C.dim, padding: '8px 0' }}>
-              No audit log entries yet.
-            </div>
+            <div className={styles.auditEmpty}>No audit log entries yet.</div>
           )}
 
           {logs && logs.length > 0 && (
-            <div
-              style={{
-                maxHeight: 320,
-                overflow: 'auto',
-                border: `1px solid ${C.border}`,
-                borderRadius: 4,
-              }}
-            >
-              <table
-                style={{
-                  width: '100%',
-                  borderCollapse: 'collapse',
-                  fontSize: 10,
-                  fontFamily: 'inherit',
-                }}
-              >
+            <div className={styles.auditTableWrap}>
+              <table className={styles.auditTable}>
                 <thead>
-                  <tr style={{ position: 'sticky', top: 0, background: C.bg }}>
+                  <tr className={styles.auditTheadRow}>
                     {['Time', 'Action', 'Entity', 'ID', 'Detail'].map((h) => (
-                      <th
-                        key={h}
-                        style={{
-                          textAlign: 'left',
-                          padding: '6px 8px',
-                          color: C.dim,
-                          fontWeight: 600,
-                          borderBottom: `1px solid ${C.border}`,
-                        }}
-                      >
+                      <th key={h} className={styles.auditTh}>
                         {h}
                       </th>
                     ))}
@@ -678,42 +410,27 @@ function AuditLogSection({ projectId, C }: AuditLogSectionProps) {
                 </thead>
                 <tbody>
                   {logs.map((r: any) => (
-                    <tr
-                      key={r.id}
-                      style={{ borderBottom: `1px solid ${C.border}22` }}
-                    >
+                    <tr key={r.id} className={styles.auditRowBorder}>
                       <td
-                        style={{
-                          padding: '4px 8px',
-                          color: C.dim,
-                          whiteSpace: 'nowrap',
-                        }}
+                        className={`${styles.auditTd} ${styles.auditTimestamp}`}
                       >
                         {r.timestamp}
                       </td>
                       <td
-                        style={{
-                          padding: '4px 8px',
-                          color: actionColor(r.action),
-                          fontWeight: 600,
-                        }}
+                        className={`${styles.auditTd} ${styles.auditAction}`}
+                        style={{ color: actionColor(r.action) }}
                       >
                         {r.action}
                       </td>
-                      <td style={{ padding: '4px 8px', color: C.muted }}>
+                      <td className={`${styles.auditTd} ${styles.auditEntity}`}>
                         {r.entity}
                       </td>
                       <td
-                        style={{
-                          padding: '4px 8px',
-                          color: C.text,
-                          fontFamily: "'IBM Plex Mono',monospace",
-                          fontSize: 9,
-                        }}
+                        className={`${styles.auditTd} ${styles.auditEntityId}`}
                       >
                         {r.entity_id}
                       </td>
-                      <td style={{ padding: '4px 8px', color: C.muted }}>
+                      <td className={`${styles.auditTd} ${styles.auditDetail}`}>
                         {r.detail}
                       </td>
                     </tr>

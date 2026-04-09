@@ -1,0 +1,143 @@
+/* ProgrammingView */
+.root {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+.main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.content {
+  overflow: auto;
+  flex: 1;
+  padding: 20px;
+}
+.statGrid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-bottom: 24px;
+}
+.statCard {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 14px 16px;
+}
+.statNumber {
+  font-size: 28px;
+  font-weight: 700;
+  font-family: 'Syne', sans-serif;
+}
+.statLabel {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+.table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.devName {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.mfrLabel {
+  color: var(--dim);
+  font-size: 9px;
+}
+.progressWrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.progressTrack {
+  flex: 1;
+  height: 3px;
+  background: #1a2030;
+  border-radius: 2px;
+  overflow: hidden;
+}
+.progressBar {
+  height: 100%;
+  transition: width 0.15s;
+  border-radius: 2px;
+}
+.progressPct {
+  font-size: 10px;
+  color: var(--muted);
+  width: 32px;
+}
+.progressErr {
+  font-size: 10px;
+  color: var(--red);
+}
+.progressDash {
+  color: var(--dim);
+  font-size: 10px;
+}
+.sidebar {
+  width: 220px;
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.logHeader {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  font-size: 9px;
+  color: var(--dim);
+  letter-spacing: 0.1em;
+}
+.logBody {
+  flex: 1;
+  overflow: auto;
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.logEmpty {
+  font-size: 10px;
+  color: var(--dim);
+}
+.logEntry {
+  font-size: 10px;
+  line-height: 1.5;
+}
+.logFooter {
+  padding: 10px 12px;
+  border-top: 1px solid var(--border);
+}
+.logFooterBtn {
+  width: 100%;
+}
+.thAddr {
+  width: 90px;
+}
+.thStatus {
+  width: 120px;
+}
+.thProgress {
+  width: 200px;
+}
+.thActions {
+  width: 110px;
+}
+.accentMono {
+  color: var(--accent);
+  font-family: monospace;
+}
+.logEntrySuccess {
+  composes: logEntry;
+  color: var(--green);
+}
+.logEntryNormal {
+  composes: logEntry;
+  color: var(--muted);
+}

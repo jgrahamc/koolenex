@@ -19,9 +19,9 @@ import { DeviceParameters } from './DeviceParameters.tsx';
 import { PinTelegramFeed } from './PinTelegramFeed.tsx';
 import { api } from '../api.ts';
 import { EditableRtfField } from '../rtf.tsx';
+import styles from './DevicePinPanel.module.css';
 
 interface DevicePinPanelProps {
-  C: any;
   COLMAP: Record<string, string>;
   dev: any;
   devCOs: any[];
@@ -42,7 +42,6 @@ interface DevicePinPanelProps {
 }
 
 export function DevicePinPanel({
-  C,
   COLMAP,
   dev,
   devCOs,
@@ -141,55 +140,35 @@ export function DevicePinPanel({
 
   const reachColor =
     reachability === 'reachable'
-      ? C.green
+      ? 'var(--green)'
       : reachability === 'unreachable'
-        ? C.red
-        : C.dim;
+        ? 'var(--red)'
+        : 'var(--dim)';
 
   return (
-    <div style={{ padding: 24 }}>
-      <div style={{ width: '100%' }}>
+    <div className={styles.panel}>
+      <div className={styles.inner}>
         {/* Header */}
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 12,
-            marginBottom: 20,
-          }}
-        >
+        <div className={styles.header}>
           <DeviceTypeIcon
             type={editing ? editType : dev.device_type}
             size={28}
             style={{
-              color: COLMAP[editing ? editType : dev.device_type] || C.muted,
+              color:
+                COLMAP[editing ? editType : dev.device_type] || 'var(--muted)',
             }}
           />
-          <div style={{ flex: 1 }}>
+          <div className={styles.headerFlex}>
             <div
               onClick={
                 pin ? () => pin('device', dev.individual_address) : undefined
               }
-              style={{
-                fontFamily: "'DM Mono',monospace",
-                fontWeight: 700,
-                fontSize: 20,
-                color: C.text,
-                cursor: pin ? 'pointer' : 'default',
-              }}
+              className={pin ? styles.devAddressClickable : styles.devAddress}
             >
               {dev.individual_address}
             </div>
             {editing ? (
-              <div
-                style={{
-                  display: 'flex',
-                  gap: 6,
-                  alignItems: 'center',
-                  flexWrap: 'wrap',
-                  marginTop: 4,
-                }}
-              >
+              <div className={styles.editRow}>
                 <input
                   value={editName}
                   onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
@@ -200,32 +179,14 @@ export function DevicePinPanel({
                     if (e.key === 'Enter') handleSave();
                     if (e.key === 'Escape') setEditing(false);
                   }}
-                  style={{
-                    background: C.inputBg,
-                    border: `1px solid ${C.accent}`,
-                    borderRadius: 4,
-                    padding: '4px 8px',
-                    color: C.text,
-                    fontSize: 12,
-                    fontFamily: 'monospace',
-                    flex: 1,
-                    minWidth: 120,
-                  }}
+                  className={styles.editNameInput}
                 />
                 <select
                   value={editType}
                   onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
                     setEditType(e.target.value)
                   }
-                  style={{
-                    background: C.inputBg,
-                    border: `1px solid ${C.border2}`,
-                    borderRadius: 4,
-                    padding: '4px 8px',
-                    color: C.text,
-                    fontSize: 11,
-                    fontFamily: 'inherit',
-                  }}
+                  className={styles.editTypeSelect}
                 >
                   {['generic', 'actuator', 'sensor', 'router'].map((t) => (
                     <option key={t} value={t}>
@@ -236,11 +197,11 @@ export function DevicePinPanel({
                 <Btn
                   onClick={handleSave}
                   disabled={saving || !editName.trim()}
-                  color={C.green}
+                  color="var(--green)"
                 >
                   {saving ? <Spinner /> : 'Save'}
                 </Btn>
-                <Btn onClick={() => setEditing(false)} color={C.dim}>
+                <Btn onClick={() => setEditing(false)} color="var(--dim)">
                   Cancel
                 </Btn>
               </div>
@@ -255,39 +216,28 @@ export function DevicePinPanel({
                       }
                     : undefined
                 }
-                style={{
-                  fontSize: 12,
-                  color: C.muted,
-                  marginTop: 2,
-                  cursor: onUpdateDevice ? 'pointer' : 'default',
-                }}
+                className={
+                  onUpdateDevice ? styles.devNameClickable : styles.devName
+                }
                 title={onUpdateDevice ? 'Click to edit' : undefined}
               >
                 {dev.name}
               </div>
             )}
             {dev.space_id && (
-              <div style={{ fontSize: 10, marginTop: 2 }}>
+              <div className={styles.spaceRow}>
                 <SpacePath
                   spaceId={dev.space_id}
                   spaces={spaces}
-                  style={{ color: C.dim }}
+                  className={styles.spacePathDim}
                 />
               </div>
             )}
           </div>
-          <div
-            style={{
-              display: 'flex',
-              gap: 6,
-              alignItems: 'center',
-              flexWrap: 'wrap',
-              justifyContent: 'flex-end',
-            }}
-          >
+          <div className={styles.badgeWrap}>
             <Badge
               label={dev.status?.toUpperCase()}
-              color={(STATUS_COLOR as any)[dev.status] || C.dim}
+              color={(STATUS_COLOR as any)[dev.status] || 'var(--dim)'}
             />
             {busConnected && (
               <>
@@ -306,67 +256,23 @@ export function DevicePinPanel({
                 <span
                   onClick={reachability !== 'checking' ? handlePing : undefined}
                   title="Ping device"
-                  style={{
-                    fontSize: 9,
-                    padding: '2px 6px',
-                    borderRadius: 10,
-                    background: `${C.accent}18`,
-                    color: C.accent,
-                    border: `1px solid ${C.accent}30`,
-                    letterSpacing: '0.06em',
-                    whiteSpace: 'nowrap',
-                    cursor: reachability !== 'checking' ? 'pointer' : 'default',
-                  }}
-                  className="bg"
+                  className={`bg ${reachability !== 'checking' ? styles.pingBtnActive : styles.pingBtnDisabled}`}
                 >
                   PING
                 </span>
                 <span
                   onClick={!identifying ? handleIdentify : undefined}
                   title="Flash device LED"
-                  style={{
-                    fontSize: 9,
-                    padding: '2px 6px',
-                    borderRadius: 10,
-                    background: `${C.amber}18`,
-                    color: C.amber,
-                    border: `1px solid ${C.amber}30`,
-                    letterSpacing: '0.06em',
-                    whiteSpace: 'nowrap',
-                    cursor: !identifying ? 'pointer' : 'default',
-                  }}
-                  className="bg"
+                  className={`bg ${!identifying ? styles.identifyBtnActive : styles.identifyBtnDisabled}`}
                 >
                   {identifying ? (
                     <>
-                      <span
-                        style={{
-                          display: 'inline-block',
-                          width: 7,
-                          height: 7,
-                          borderRadius: '50%',
-                          background: C.amber,
-                          boxShadow: `0 0 6px 2px ${C.amber}`,
-                          marginRight: 5,
-                          animation:
-                            'pulse 0.5s ease-in-out infinite alternate',
-                        }}
-                      />
+                      <span className={styles.identifyDotActive} />
                       IDENTIFYING&hellip;
                     </>
                   ) : (
                     <>
-                      <span
-                        style={{
-                          display: 'inline-block',
-                          width: 7,
-                          height: 7,
-                          borderRadius: '50%',
-                          background: `${C.amber}55`,
-                          border: `1px solid ${C.amber}40`,
-                          marginRight: 5,
-                        }}
-                      />
+                      <span className={styles.identifyDotIdle} />
                       IDENTIFY
                     </>
                   )}
@@ -374,18 +280,7 @@ export function DevicePinPanel({
                 <span
                   onClick={!readingInfo ? handleReadInfo : undefined}
                   title="Read device properties from bus"
-                  style={{
-                    fontSize: 9,
-                    padding: '2px 6px',
-                    borderRadius: 10,
-                    background: `${C.green}18`,
-                    color: C.green,
-                    border: `1px solid ${C.green}30`,
-                    letterSpacing: '0.06em',
-                    whiteSpace: 'nowrap',
-                    cursor: !readingInfo ? 'pointer' : 'default',
-                  }}
-                  className="bg"
+                  className={`bg ${!readingInfo ? styles.scanBtnActive : styles.scanBtnDisabled}`}
                 >
                   {readingInfo ? 'SCANNING…' : 'SCAN'}
                 </span>
@@ -395,18 +290,7 @@ export function DevicePinPanel({
               <span
                 onClick={() => setShowDuplicate(true)}
                 title="Duplicate this device"
-                style={{
-                  fontSize: 9,
-                  padding: '2px 6px',
-                  borderRadius: 10,
-                  background: `${C.green}18`,
-                  color: C.green,
-                  border: `1px solid ${C.green}30`,
-                  letterSpacing: '0.06em',
-                  whiteSpace: 'nowrap',
-                  cursor: 'pointer',
-                }}
-                className="bg"
+                className={`bg ${styles.duplicateBtn}`}
               >
                 DUPLICATE
               </span>
@@ -419,13 +303,11 @@ export function DevicePinPanel({
             data={{ devices: allDevices, spaces }}
             onAdd={onAddDevice}
             onClose={() => setShowDuplicate(false)}
-            C={C}
           />
         )}
 
         {/* Tab bar */}
         <TabBar
-          C={C}
           active={devTab}
           onChange={handleDevTab}
           tabs={[
@@ -450,25 +332,9 @@ export function DevicePinPanel({
         {devTab === 'overview' && (
           <>
             {busInfo && !busInfo.error && (
-              <div style={{ marginBottom: 16 }}>
-                <div
-                  style={{
-                    fontSize: 10,
-                    color: C.dim,
-                    letterSpacing: '0.08em',
-                    marginBottom: 6,
-                  }}
-                >
-                  BUS INFO (LIVE)
-                </div>
-                <div
-                  style={{
-                    background: C.surface,
-                    borderRadius: 4,
-                    border: `1px solid ${C.border}`,
-                    padding: '8px 12px',
-                  }}
-                >
+              <div className={styles.busInfoSection}>
+                <div className={styles.busInfoLabel}>BUS INFO (LIVE)</div>
+                <div className={styles.busInfoCard}>
                   {(() => {
                     const maskKey = busInfo.descriptor
                       ?.slice(0, 4)
@@ -514,28 +380,9 @@ export function DevicePinPanel({
                           entry != null && entry[1] != null,
                       )
                       .map(([label, value]) => (
-                        <div
-                          key={label}
-                          style={{
-                            display: 'flex',
-                            fontSize: 11,
-                            marginBottom: 4,
-                          }}
-                        >
-                          <span
-                            style={{ color: C.dim, width: 130, flexShrink: 0 }}
-                          >
-                            {label}
-                          </span>
-                          <span
-                            style={{
-                              color: C.muted,
-                              fontFamily: 'monospace',
-                              fontSize: 10,
-                            }}
-                          >
-                            {value}
-                          </span>
+                        <div key={label} className={styles.busInfoRow}>
+                          <span className={styles.busInfoKey}>{label}</span>
+                          <span className={styles.busInfoValue}>{value}</span>
                         </div>
                       ));
                   })()}
@@ -543,18 +390,9 @@ export function DevicePinPanel({
               </div>
             )}
             {busInfo?.error && (
-              <div style={{ marginBottom: 16, fontSize: 11, color: C.red }}>
-                {busInfo.error}
-              </div>
+              <div className={styles.busInfoError}>{busInfo.error}</div>
             )}
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(3,1fr)',
-                gap: 10,
-                marginBottom: 20,
-              }}
-            >
+            <div className={styles.overviewGrid}>
               {(
                 [
                   [
@@ -609,20 +447,15 @@ export function DevicePinPanel({
                 .map(([k, v, wt, display]) => (
                   <div
                     key={k}
-                    style={{
-                      background: C.surface,
-                      border: `1px solid ${C.border}`,
-                      borderRadius: 4,
-                      padding: '8px 12px',
-                      cursor: wt && pin ? 'pointer' : 'default',
-                    }}
+                    className={`${wt && pin ? `bg ${styles.infoCardClickable}` : styles.infoCard}`}
                     onClick={wt && pin ? () => pin(wt, v) : undefined}
-                    className={wt && pin ? 'bg' : ''}
                   >
-                    <div style={{ fontSize: 9, color: C.dim, marginBottom: 3 }}>
-                      {k}
-                    </div>
-                    <div style={{ fontSize: 10, color: wt ? C.amber : C.text }}>
+                    <div className={styles.infoCardLabel}>{k}</div>
+                    <div
+                      className={
+                        wt ? styles.infoCardValueLink : styles.infoCardValue
+                      }
+                    >
                       {display}
                     </div>
                   </div>
@@ -635,7 +468,6 @@ export function DevicePinPanel({
                   ? dev.description
                   : ''
               }
-              C={C}
               onSave={
                 onUpdateDevice
                   ? (v: string) => onUpdateDevice(dev.id, { description: v })
@@ -645,7 +477,6 @@ export function DevicePinPanel({
             <EditableRtfField
               label="COMMENT"
               value={dev.comment || ''}
-              C={C}
               onSave={
                 onUpdateDevice
                   ? (v: string) => onUpdateDevice(dev.id, { comment: v })
@@ -655,7 +486,6 @@ export function DevicePinPanel({
             <EditableRtfField
               label="INSTALLATION HINTS"
               value={dev.installation_hints || ''}
-              C={C}
               onSave={
                 onUpdateDevice
                   ? (v: string) =>
@@ -667,7 +497,6 @@ export function DevicePinPanel({
               dev={dev}
               allDevices={allDevices}
               spaces={spaces}
-              C={C}
               pin={pin}
             />
           </>
@@ -677,31 +506,15 @@ export function DevicePinPanel({
         {devTab === 'gas' && (
           <>
             {linkedGAs.length === 0 ? (
-              <div
-                style={{
-                  fontSize: 11,
-                  color: C.dim,
-                  padding: '24px 0',
-                  textAlign: 'center',
-                }}
-              >
-                No linked group addresses
-              </div>
+              <div className={styles.emptyTab}>No linked group addresses</div>
             ) : (
               <>
-                <table
-                  style={{
-                    width: '100%',
-                    borderCollapse: 'collapse',
-                    fontSize: 10,
-                    marginBottom: 20,
-                  }}
-                >
+                <table className={styles.gaTable}>
                   <thead>
                     <tr>
-                      <TH style={{ width: 90 }}>ADDRESS</TH>
+                      <TH className={styles.thGaAddr}>ADDRESS</TH>
                       <TH>NAME</TH>
-                      <TH style={{ width: 80 }}>DPT</TH>
+                      <TH className={styles.thGaDpt}>DPT</TH>
                     </tr>
                   </thead>
                   <tbody>
@@ -711,15 +524,15 @@ export function DevicePinPanel({
                           <PinAddr
                             address={g.address}
                             wtype="ga"
-                            style={{ color: C.purple, fontFamily: 'monospace' }}
+                            className={styles.gaAddrCell}
                           />
                         </TD>
                         <TD>
-                          <span style={{ color: C.muted }}>{g.name}</span>
+                          <span className={styles.mutedText}>{g.name}</span>
                         </TD>
                         <TD>
                           <span
-                            style={{ color: C.dim }}
+                            className={styles.dimText}
                             title={dpt.hover(g.dpt)}
                           >
                             {dpt.display(g.dpt)}
@@ -737,7 +550,6 @@ export function DevicePinPanel({
                     gaDeviceMap={gaDeviceMap}
                     allCOs={allCOs}
                     devMap={devMap}
-                    C={C}
                     devTelegrams={devTelegrams}
                   />
                 )}
@@ -750,33 +562,18 @@ export function DevicePinPanel({
         {devTab === 'comobjects' && (
           <>
             {devCOs.length === 0 ? (
-              <div
-                style={{
-                  fontSize: 11,
-                  color: C.dim,
-                  padding: '24px 0',
-                  textAlign: 'center',
-                }}
-              >
-                No group objects
-              </div>
+              <div className={styles.emptyTab}>No group objects</div>
             ) : (
-              <table
-                style={{
-                  width: '100%',
-                  borderCollapse: 'collapse',
-                  fontSize: 10,
-                }}
-              >
+              <table className={styles.coTable}>
                 <thead>
                   <tr>
-                    <TH style={{ width: 40 }}>#</TH>
-                    <TH style={{ width: 120 }}>CHANNEL</TH>
+                    <TH className={styles.thCoNum}>#</TH>
+                    <TH className={styles.thCoChannel}>CHANNEL</TH>
                     <TH>NAME</TH>
                     <TH>OBJECT FUNCTION</TH>
-                    <TH style={{ width: 100 }}>DPT</TH>
-                    <TH style={{ width: 90, whiteSpace: 'nowrap' }}>SIZE</TH>
-                    <TH style={{ width: 60 }}>FLAGS</TH>
+                    <TH className={styles.thCoDpt}>DPT</TH>
+                    <TH className={styles.thCoSizeNoWrap}>SIZE</TH>
+                    <TH className={styles.thCoFlags}>FLAGS</TH>
                     <TH>GA</TH>
                   </tr>
                 </thead>
@@ -784,24 +581,26 @@ export function DevicePinPanel({
                   {devCOs.map((co: any, i: number) => (
                     <tr key={i} className="rh">
                       <TD>
-                        <span style={{ color: C.dim }}>{co.object_number}</span>
+                        <span className={styles.dimText}>
+                          {co.object_number}
+                        </span>
                       </TD>
                       <TD>
-                        <span style={{ color: C.muted }}>{co.channel}</span>
+                        <span className={styles.mutedText}>{co.channel}</span>
                       </TD>
                       <TD>
-                        <span style={{ color: C.text }}>
+                        <span className={styles.normalText}>
                           {co.name || '—'}
                         </span>
                       </TD>
                       <TD>
-                        <span style={{ color: C.muted }}>
+                        <span className={styles.mutedText}>
                           {co.function_text || '—'}
                         </span>
                       </TD>
                       <TD>
                         <span
-                          style={{ color: C.dim, fontFamily: 'monospace' }}
+                          className={styles.dimMono}
                           title={dpt.hover(
                             co.dpt ||
                               coGAs(co)
@@ -818,42 +617,19 @@ export function DevicePinPanel({
                         </span>
                       </TD>
                       <TD>
-                        <span style={{ color: C.dim, whiteSpace: 'nowrap' }}>
+                        <span className={styles.dimNoWrap}>
                           {co.object_size}
                         </span>
                       </TD>
                       <TD>
-                        <span style={{ color: C.dim, fontFamily: 'monospace' }}>
-                          {co.flags}
-                        </span>
+                        <span className={styles.dimMono}>{co.flags}</span>
                       </TD>
                       <TD>
-                        <span
-                          style={{
-                            display: 'flex',
-                            flexDirection: 'column',
-                            gap: 3,
-                          }}
-                        >
+                        <span className={styles.gaCellWrap}>
                           {coGAs(co).map((ga: string, idx: number) => (
-                            <span
-                              key={ga}
-                              style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 4,
-                              }}
-                            >
+                            <span key={ga} className={styles.gaRow}>
                               {onUpdateComObjectGAs && coGAs(co).length > 1 && (
-                                <span
-                                  style={{
-                                    display: 'flex',
-                                    flexDirection: 'column',
-                                    gap: 0,
-                                    lineHeight: 1,
-                                    flexShrink: 0,
-                                  }}
-                                >
+                                <span className={styles.reorderCol}>
                                   {idx > 0 && (
                                     <span
                                       onClick={() =>
@@ -862,11 +638,7 @@ export function DevicePinPanel({
                                           position: idx - 1,
                                         })
                                       }
-                                      style={{
-                                        color: C.dim,
-                                        fontSize: 7,
-                                        cursor: 'pointer',
-                                      }}
+                                      className={styles.reorderArrow}
                                       title="Move up"
                                     >
                                       &#9650;
@@ -880,11 +652,7 @@ export function DevicePinPanel({
                                           position: idx + 1,
                                         })
                                       }
-                                      style={{
-                                        color: C.dim,
-                                        fontSize: 7,
-                                        cursor: 'pointer',
-                                      }}
+                                      className={styles.reorderArrow}
                                       title="Move down"
                                     >
                                       &#9660;
@@ -895,16 +663,12 @@ export function DevicePinPanel({
                               <PinAddr
                                 address={ga}
                                 wtype="ga"
-                                style={{
-                                  color: C.purple,
-                                  fontFamily: 'monospace',
-                                  flexShrink: 0,
-                                }}
+                                className={styles.gaPinAddr}
                               >
                                 {ga}
                               </PinAddr>
                               {gaMap[ga] && (
-                                <span style={{ color: C.dim, fontSize: 9 }}>
+                                <span className={styles.gaSubName}>
                                   {gaMap[ga].name}
                                 </span>
                               )}
@@ -914,12 +678,7 @@ export function DevicePinPanel({
                                     onUpdateComObjectGAs(co.id, { remove: ga })
                                   }
                                   title="Remove GA"
-                                  style={{
-                                    color: C.dim,
-                                    fontSize: 8,
-                                    cursor: 'pointer',
-                                    marginLeft: 'auto',
-                                  }}
+                                  className={styles.gaRemoveBtn}
                                 >
                                   &#10005;
                                 </span>
@@ -930,7 +689,6 @@ export function DevicePinPanel({
                             <ComObjectGAAdder
                               co={co}
                               gaMap={gaMap}
-                              C={C}
                               onAdd={(ga: string) =>
                                 onUpdateComObjectGAs(co.id, { add: ga })
                               }
@@ -948,7 +706,7 @@ export function DevicePinPanel({
 
         {/* Parameters tab */}
         {devTab === 'parameters' && (
-          <DeviceParameters dev={dev} C={C} projectId={activeProjectId} />
+          <DeviceParameters dev={dev} projectId={activeProjectId} />
         )}
 
         {/* Telegrams tab */}
@@ -969,11 +727,10 @@ export function DevicePinPanel({
 interface ComObjectGAAdderProps {
   co: any;
   gaMap: Record<string, any>;
-  C: any;
   onAdd: (ga: string) => void;
 }
 
-function ComObjectGAAdder({ co, gaMap, C, onAdd }: ComObjectGAAdderProps) {
+function ComObjectGAAdder({ co, gaMap, onAdd }: ComObjectGAAdderProps) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
 
@@ -981,7 +738,7 @@ function ComObjectGAAdder({ co, gaMap, C, onAdd }: ComObjectGAAdderProps) {
     return (
       <span
         onClick={() => setOpen(true)}
-        style={{ color: C.green, fontSize: 8, cursor: 'pointer', opacity: 0.7 }}
+        className={styles.gaLinkBtn}
         title="Link group address"
       >
         + link GA
@@ -1001,10 +758,8 @@ function ComObjectGAAdder({ co, gaMap, C, onAdd }: ComObjectGAAdderProps) {
     .slice(0, 15);
 
   return (
-    <div
-      style={{ display: 'flex', flexDirection: 'column', gap: 3, marginTop: 2 }}
-    >
-      <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+    <div className={styles.gaAdderWrap}>
+      <div className={styles.gaAdderRow}>
         <input
           value={search}
           onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
@@ -1015,33 +770,14 @@ function ComObjectGAAdder({ co, gaMap, C, onAdd }: ComObjectGAAdderProps) {
           onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) =>
             e.key === 'Escape' && setOpen(false)
           }
-          style={{
-            background: C.inputBg,
-            border: `1px solid ${C.border2}`,
-            borderRadius: 3,
-            padding: '2px 6px',
-            color: C.text,
-            fontSize: 9,
-            fontFamily: 'inherit',
-            width: 120,
-          }}
+          className={styles.gaAdderInput}
         />
-        <span
-          onClick={() => setOpen(false)}
-          style={{ color: C.dim, fontSize: 9, cursor: 'pointer' }}
-        >
+        <span onClick={() => setOpen(false)} className={styles.gaAdderCancel}>
           cancel
         </span>
       </div>
       {filtered.length > 0 && (
-        <div
-          style={{
-            border: `1px solid ${C.border}`,
-            borderRadius: 3,
-            maxHeight: 100,
-            overflow: 'auto',
-          }}
-        >
+        <div className={styles.gaAdderDropdown}>
           {filtered.map((g: any) => (
             <div
               key={g.address}
@@ -1050,44 +786,16 @@ function ComObjectGAAdder({ co, gaMap, C, onAdd }: ComObjectGAAdderProps) {
                 setOpen(false);
                 setSearch('');
               }}
-              style={{
-                display: 'flex',
-                gap: 4,
-                padding: '2px 6px',
-                cursor: 'pointer',
-                fontSize: 9,
-                alignItems: 'center',
-              }}
-              className="rh"
+              className={`rh ${styles.gaAdderItem}`}
             >
-              <span
-                style={{
-                  color: C.purple,
-                  fontFamily: 'monospace',
-                  flexShrink: 0,
-                }}
-              >
-                {g.address}
-              </span>
-              <span
-                style={{
-                  color: C.dim,
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                  flex: 1,
-                }}
-              >
-                {g.name}
-              </span>
+              <span className={styles.gaAdderAddr}>{g.address}</span>
+              <span className={styles.gaAdderName}>{g.name}</span>
             </div>
           ))}
         </div>
       )}
       {filtered.length === 0 && search && (
-        <div style={{ fontSize: 9, color: C.dim, padding: '2px 6px' }}>
-          No matching GAs
-        </div>
+        <div className={styles.gaAdderEmpty}>No matching GAs</div>
       )}
     </div>
   );
@@ -1098,7 +806,6 @@ interface DuplicateDeviceModalProps {
   data: any;
   onAdd: any;
   onClose: () => void;
-  C: any;
 }
 
 function DuplicateDeviceModal({
@@ -1106,7 +813,6 @@ function DuplicateDeviceModal({
   data,
   onAdd,
   onClose,
-  C,
 }: DuplicateDeviceModalProps) {
   const { devices = [], spaces = [] } = data;
   const [name, setName] = useState(dev.name + ' (copy)');
@@ -1209,97 +915,37 @@ function DuplicateDeviceModal({
     if (newDev) onClose();
   };
 
-  const inputStyle: React.CSSProperties = {
-    background: C.inputBg,
-    border: `1px solid ${C.border2}`,
-    borderRadius: 4,
-    padding: '5px 8px',
-    color: C.text,
-    fontSize: 11,
-    fontFamily: 'inherit',
-  };
-
   return (
-    <div
-      style={{
-        position: 'fixed',
-        inset: 0,
-        background: 'rgba(0,0,0,0.55)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: 2000,
-      }}
-      onClick={onClose}
-    >
+    <div className={styles.modalOverlay} onClick={onClose}>
       <div
-        style={{
-          background: C.surface,
-          border: `1px solid ${C.border2}`,
-          borderRadius: 8,
-          padding: 20,
-          width: 400,
-          boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
-        }}
+        className={styles.modalBox}
         onClick={(e: React.MouseEvent) => e.stopPropagation()}
       >
-        <div
-          style={{
-            fontSize: 12,
-            fontWeight: 600,
-            color: C.text,
-            marginBottom: 4,
-          }}
-        >
-          Duplicate Device
-        </div>
-        <div style={{ fontSize: 10, color: C.dim, marginBottom: 14 }}>
+        <div className={styles.modalTitle}>Duplicate Device</div>
+        <div className={styles.modalSubtitle}>
           Copy {dev.individual_address} ({dev.manufacturer} {dev.model}) with
           parameters. Group addresses and channel assignments are not copied.
         </div>
 
         {/* Name */}
-        <div
-          style={{
-            fontSize: 9,
-            color: C.dim,
-            letterSpacing: '0.08em',
-            marginBottom: 4,
-          }}
-        >
-          NAME
-        </div>
+        <div className={styles.fieldLabel}>NAME</div>
         <input
           value={name}
           onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
             setName(e.target.value)
           }
           autoFocus
-          style={{ ...inputStyle, width: '100%', marginBottom: 14 }}
+          className={styles.nameInput}
         />
 
         {/* Address */}
-        <div
-          style={{
-            fontSize: 9,
-            color: C.dim,
-            letterSpacing: '0.08em',
-            marginBottom: 4,
-          }}
-        >
+        <div className={styles.fieldLabel}>
           INDIVIDUAL ADDRESS
           {addressExists && (
-            <span style={{ color: C.red, marginLeft: 8 }}>already exists</span>
+            <span className={styles.addrConflict}>already exists</span>
           )}
         </div>
-        <div
-          style={{
-            display: 'flex',
-            gap: 6,
-            alignItems: 'center',
-            marginBottom: 14,
-          }}
-        >
+        <div className={styles.addressWrap}>
           <input
             type="number"
             min={1}
@@ -1310,9 +956,9 @@ function DuplicateDeviceModal({
               setArea(a);
               setDevNum(recomputeDevNum(a, line));
             }}
-            style={{ ...inputStyle, width: 50, textAlign: 'center' }}
+            className={styles.addrInput}
           />
-          <span style={{ color: C.dim }}>.</span>
+          <span className={styles.addrDot}>.</span>
           <input
             type="number"
             min={0}
@@ -1323,9 +969,9 @@ function DuplicateDeviceModal({
               setLine(l);
               setDevNum(recomputeDevNum(area, l));
             }}
-            style={{ ...inputStyle, width: 50, textAlign: 'center' }}
+            className={styles.addrInput}
           />
-          <span style={{ color: C.dim }}>.</span>
+          <span className={styles.addrDot}>.</span>
           <input
             type="number"
             min={1}
@@ -1334,27 +980,18 @@ function DuplicateDeviceModal({
             onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
               setDevNum(+e.target.value)
             }
-            style={{ ...inputStyle, width: 60, textAlign: 'center' }}
+            className={styles.addrInputWide}
           />
         </div>
 
         {/* Location */}
-        <div
-          style={{
-            fontSize: 9,
-            color: C.dim,
-            letterSpacing: '0.08em',
-            marginBottom: 4,
-          }}
-        >
-          LOCATION
-        </div>
+        <div className={styles.fieldLabel}>LOCATION</div>
         <select
           value={spaceId}
           onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
             setSpaceId(+e.target.value || '')
           }
-          style={{ ...inputStyle, width: '100%', marginBottom: 14 }}
+          className={styles.selectField}
         >
           <option value="">&mdash; None &mdash;</option>
           {flatSpaces.map((s: any) => (
@@ -1365,17 +1002,17 @@ function DuplicateDeviceModal({
           ))}
         </select>
 
-        {error && (
-          <div style={{ fontSize: 10, color: C.red, marginBottom: 8 }}>
-            {error}
-          </div>
-        )}
+        {error && <div className={styles.error}>{error}</div>}
 
-        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-          <Btn onClick={onClose} color={C.dim}>
+        <div className={styles.actions}>
+          <Btn onClick={onClose} color="var(--dim)">
             Cancel
           </Btn>
-          <Btn onClick={handleSubmit} color={C.green} disabled={addressExists}>
+          <Btn
+            onClick={handleSubmit}
+            color="var(--green)"
+            disabled={addressExists}
+          >
             Duplicate
           </Btn>
         </div>
@@ -1388,7 +1025,6 @@ interface SameDeviceSectionProps {
   dev: any;
   allDevices: any[];
   spaces: any[];
-  C: any;
   pin: any;
 }
 
@@ -1396,7 +1032,6 @@ function SameDeviceSection({
   dev,
   allDevices,
   spaces,
-  C,
   pin,
 }: SameDeviceSectionProps) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -1422,88 +1057,55 @@ function SameDeviceSection({
     pin('multicompare', [dev.individual_address, ...selected].join('|'));
   };
   return (
-    <div style={{ marginTop: 4, marginBottom: 20 }}>
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 8,
-          marginBottom: 8,
-        }}
-      >
-        <span style={{ fontSize: 10, color: C.dim, letterSpacing: '0.08em' }}>
+    <div className={styles.sameDevSection}>
+      <div className={styles.sameDevHeader}>
+        <span className={styles.sameDevLabel}>
           SAME DEVICE TYPE ({similar.length}) &mdash; {key}
         </span>
         {selected.size >= 1 && pin && (
           <Btn
             onClick={compareSelected}
-            color={C.accent}
-            style={{ fontSize: 9, padding: '2px 8px' }}
+            color="var(--accent)"
+            className={styles.compareBtnSmall}
           >
             Compare {selected.size + 1} Devices
           </Btn>
         )}
       </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <div className={styles.sameDevList}>
         {similar.map((d: any) => (
           <div
             key={d.individual_address}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 10,
-              padding: '6px 10px',
-              background: selected.has(d.individual_address)
-                ? `${C.accent}10`
-                : C.surface,
-              border: `1px solid ${selected.has(d.individual_address) ? C.accent + '40' : C.border}`,
-              borderRadius: 4,
-            }}
+            className={
+              selected.has(d.individual_address)
+                ? styles.sameDevRowSelected
+                : styles.sameDevRowDefault
+            }
           >
             {pin && (
               <input
                 type="checkbox"
                 checked={selected.has(d.individual_address)}
                 onChange={() => toggleSelect(d.individual_address)}
-                style={{
-                  cursor: 'pointer',
-                  accentColor: C.accent,
-                  flexShrink: 0,
-                }}
+                className={styles.selectCheck}
               />
             )}
             <PinAddr
               address={d.individual_address}
               wtype="device"
-              style={{
-                color: C.accent,
-                fontFamily: 'monospace',
-                fontSize: 11,
-                flexShrink: 0,
-              }}
+              className={styles.sameDevAddr}
             />
-            <span
-              style={{
-                color: C.muted,
-                fontSize: 11,
-                flex: 1,
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              {d.name}
-            </span>
+            <span className={styles.sameDevName}>{d.name}</span>
             {d.space_id && (
               <SpacePath
                 spaceId={d.space_id}
                 spaces={spaces}
-                style={{ fontSize: 10, color: C.dim, flexShrink: 0 }}
+                className={styles.spacePathSmall}
               />
             )}
             <Badge
               label={d.status?.toUpperCase()}
-              color={(STATUS_COLOR as any)[d.status] || C.dim}
+              color={(STATUS_COLOR as any)[d.status] || 'var(--dim)'}
             />
             <span
               onClick={() =>
@@ -1513,18 +1115,7 @@ function SameDeviceSection({
                   `${dev.individual_address}|${d.individual_address}`,
                 )
               }
-              style={{
-                fontSize: 9,
-                padding: '2px 7px',
-                borderRadius: 10,
-                background: `${C.purple}18`,
-                color: C.purple,
-                border: `1px solid ${C.purple}30`,
-                cursor: 'pointer',
-                letterSpacing: '0.06em',
-                flexShrink: 0,
-              }}
-              className="bg"
+              className={`bg ${styles.compareBtn}`}
             >
               COMPARE
             </span>

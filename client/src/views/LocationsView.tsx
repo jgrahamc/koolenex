@@ -1,5 +1,5 @@
 import { useState, useContext, useMemo } from 'react';
-import { useC, STATUS_COLOR, I18nCtx } from '../theme.ts';
+import { STATUS_COLOR, I18nCtx } from '../theme.ts';
 import { PinContext } from '../contexts.ts';
 import {
   Badge,
@@ -17,6 +17,7 @@ import { useColumns, ColumnPicker, dlCSV } from '../columns.tsx';
 import { spaceUsageMap, localizedModel } from '../dpt.ts';
 
 import { AddDeviceModal } from '../AddDeviceModal.tsx';
+import styles from './LocationsView.module.css';
 
 interface LocationsViewProps {
   data: any;
@@ -37,14 +38,13 @@ export function LocationsView({
   onCreateSpace,
   onDeleteSpace,
 }: LocationsViewProps) {
-  const C = useC();
   const pin = useContext(PinContext) as any;
   const { t: i18t } = useContext(I18nCtx);
   const COLMAP: Record<string, any> = {
-    actuator: C.actuator,
-    sensor: C.sensor,
-    router: C.router,
-    generic: C.muted,
+    actuator: 'var(--actuator)',
+    sensor: 'var(--sensor)',
+    router: 'var(--router)',
+    generic: 'var(--muted)',
   };
   const { spaces = [], devices = [], deviceGAMap = {} } = data || {};
   const [search, setSearch] = useState('');
@@ -99,14 +99,7 @@ export function LocationsView({
 
   if (!spaces.length)
     return (
-      <div
-        style={{
-          flex: 1,
-          display: 'flex',
-          flexDirection: 'column',
-          overflow: 'hidden',
-        }}
-      >
+      <div className={styles.root}>
         <SectionHeader title="Locations" count={0} />
         <Empty
           icon="◻"
@@ -197,28 +190,29 @@ export function LocationsView({
     return (
       <div key={`sp-${node.id}`}>
         <div
+          className={styles.spaceRow}
           style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 7,
             padding:
               depth === 0 ? '6px 14px' : `5px 14px 5px ${14 + depth * 18}px`,
             background:
-              depth === 0 ? C.surface : depth === 1 ? C.hover : 'transparent',
-            borderBottom: `1px solid ${C.border}`,
+              depth === 0
+                ? 'var(--surface)'
+                : depth === 1
+                  ? 'var(--hover)'
+                  : 'transparent',
             cursor: hasChildren ? 'pointer' : 'default',
           }}
           onClick={() => hasChildren && toggleCollapse(node.id)}
         >
           {hasChildren ? (
-            <span style={{ color: C.dim, fontSize: 9, width: 10 }}>
+            <span className={styles.chevronSmall}>
               {isCollapsed ? '▸' : '▾'}
             </span>
           ) : (
-            <span style={{ width: 10 }} />
+            <span className={styles.spacerSmall} />
           )}
           <span
-            style={{ color: depth === 0 ? C.amber : C.dim }}
+            style={{ color: depth === 0 ? 'var(--amber)' : 'var(--dim)' }}
             title={node.type}
           >
             <SpaceTypeIcon type={node.type} size={13} />
@@ -232,7 +226,6 @@ export function LocationsView({
                 setEditSpaceId(null);
               }}
               onCancel={() => setEditSpaceId(null)}
-              C={C}
             />
           ) : (
             <span
@@ -241,7 +234,12 @@ export function LocationsView({
               style={{
                 fontWeight: depth <= 1 ? 600 : 400,
                 fontSize: depth === 0 ? 11 : 10,
-                color: depth === 0 ? C.amber : pin ? C.amber : C.text,
+                color:
+                  depth === 0
+                    ? 'var(--amber)'
+                    : pin
+                      ? 'var(--amber)'
+                      : 'var(--text)',
                 cursor: pin ? 'pointer' : 'default',
               }}
               onClick={
@@ -263,19 +261,13 @@ export function LocationsView({
                 setEditSpaceId(node.id);
               }}
               title="Rename"
-              style={{
-                color: C.dim,
-                fontSize: 9,
-                cursor: 'pointer',
-                opacity: 0.5,
-              }}
-              className="bg"
+              className={`bg ${styles.editLink}`}
             >
               edit
             </span>
           )}
           {node.type === 'Room' && spaceUsageMap()[node.usage_id] && (
-            <span style={{ color: C.dim, fontSize: 10, marginLeft: 4 }}>
+            <span className={styles.usageLabel}>
               · {i18t(node.usage_id) || spaceUsageMap()[node.usage_id]}
             </span>
           )}
@@ -286,13 +278,7 @@ export function LocationsView({
                 dispatch({ type: 'FLOORPLAN_JUMP', spaceId: node.id });
               }}
               title="View floor plan"
-              style={{
-                color: C.accent,
-                fontSize: 9,
-                marginLeft: 6,
-                cursor: 'pointer',
-                opacity: 0.7,
-              }}
+              className={styles.floorPlanLink}
             >
               floor plan
             </span>
@@ -301,7 +287,6 @@ export function LocationsView({
             nodeId={node.id}
             nodeType={node.type}
             nodeName={node.name}
-            C={C}
             onAddDevice={
               onAddDevice ? () => setAddDefaults({ space_id: node.id }) : null
             }
@@ -329,20 +314,13 @@ export function LocationsView({
                 onDeleteSpace(node.id);
               }}
               title={`Delete ${node.name}`}
-              style={{
-                color: C.red,
-                fontSize: 13,
-                marginLeft: 4,
-                cursor: 'pointer',
-                opacity: 0.5,
-                lineHeight: 1,
-              }}
+              className={styles.deleteIcon}
             >
               −
             </span>
           )}
           {(filteredDevs.length > 0 || node.children.length > 0) && (
-            <span style={{ fontSize: 10, color: C.dim }}>
+            <span className={styles.countLabel}>
               ·{' '}
               {filteredDevs.length +
                 node.children.reduce((s: any, c: any) => s + c.devs.length, 0)}
@@ -353,7 +331,6 @@ export function LocationsView({
           <AddSpaceForm
             parentId={node.id}
             defaultType={addSpaceParent.defaultType}
-            C={C}
             onSave={async (body) => {
               await onCreateSpace!(body);
               setAddSpaceParent(null);
@@ -364,20 +341,25 @@ export function LocationsView({
         {!isCollapsed && (
           <>
             {filteredDevs.length > 0 && (
-              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <table className={styles.table}>
                 <thead>
                   <tr>
                     {visibleLocCols.map((col: any) => (
                       <TH
                         key={col.id}
+                        className={
+                          col.id === 'individual_address'
+                            ? styles.colAddr
+                            : col.id === 'gas'
+                              ? styles.colGas
+                              : col.id === 'status'
+                                ? styles.colStatus
+                                : undefined
+                        }
                         style={
                           col.id === 'individual_address'
-                            ? { width: 100, paddingLeft: 14 + depth * 18 + 28 }
-                            : col.id === 'gas'
-                              ? { width: 50 }
-                              : col.id === 'status'
-                                ? { width: 100 }
-                                : {}
+                            ? { paddingLeft: 14 + depth * 18 + 28 }
+                            : {}
                         }
                       >
                         {col.label.toUpperCase().replace('GAS', 'GAs')}
@@ -387,17 +369,13 @@ export function LocationsView({
                 </thead>
                 <tbody>
                   {filteredDevs.map((d: any) => (
-                    <tr
-                      key={d.id}
-                      className="rh"
-                      style={{ borderLeft: '2px solid transparent' }}
-                    >
+                    <tr key={d.id} className={`rh ${styles.rowBorder}`}>
                       {lcv('individual_address') && (
                         <TD style={{ paddingLeft: 14 + depth * 18 + 28 }}>
                           <PinAddr
                             address={d.individual_address}
                             wtype="device"
-                            style={{ color: C.accent, fontFamily: 'monospace' }}
+                            className={styles.accentMono}
                           />
                         </TD>
                       )}
@@ -412,20 +390,14 @@ export function LocationsView({
                                 setEditDevId(null);
                               }}
                               onCancel={() => setEditDevId(null)}
-                              C={C}
                             />
                           ) : (
-                            <span
-                              style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 6,
-                              }}
-                            >
+                            <span className={styles.devNameWrap}>
                               <DeviceTypeIcon
                                 type={d.device_type}
                                 style={{
-                                  color: COLMAP[d.device_type] || C.muted,
+                                  color:
+                                    COLMAP[d.device_type] || 'var(--muted)',
                                 }}
                               />
                               <span
@@ -452,7 +424,7 @@ export function LocationsView({
                       )}
                       {lcv('device_type') && (
                         <TD>
-                          <span style={{ color: C.muted }}>
+                          <span className={styles.textMuted}>
                             {d.device_type}
                           </span>
                         </TD>
@@ -462,7 +434,7 @@ export function LocationsView({
                           <PinAddr
                             address={d.manufacturer}
                             wtype="manufacturer"
-                            style={{ color: C.amber }}
+                            className={styles.amberText}
                           >
                             {d.manufacturer || '—'}
                           </PinAddr>
@@ -473,11 +445,7 @@ export function LocationsView({
                           <PinAddr
                             address={d.model}
                             wtype="model"
-                            style={{
-                              color: C.amber,
-                              fontFamily: 'monospace',
-                              fontSize: 10,
-                            }}
+                            className={styles.amberMono}
                           >
                             {localizedModel(d) || '—'}
                           </PinAddr>
@@ -485,13 +453,7 @@ export function LocationsView({
                       )}
                       {lcv('serial_number') && (
                         <TD>
-                          <span
-                            style={{
-                              color: C.dim,
-                              fontFamily: 'monospace',
-                              fontSize: 10,
-                            }}
-                          >
+                          <span className={styles.monoSmall}>
                             {d.serial_number || '—'}
                           </span>
                         </TD>
@@ -500,13 +462,15 @@ export function LocationsView({
                         <TD>
                           <Badge
                             label={d.status.toUpperCase()}
-                            color={(STATUS_COLOR as any)[d.status] || C.dim}
+                            color={
+                              (STATUS_COLOR as any)[d.status] || 'var(--dim)'
+                            }
                           />
                         </TD>
                       )}
                       {lcv('gas') && (
                         <TD>
-                          <span style={{ color: C.dim }}>
+                          <span className={styles.textDim}>
                             {(deviceGAMap[d.individual_address] || []).length}
                           </span>
                         </TD>
@@ -534,14 +498,7 @@ export function LocationsView({
     );
 
   return (
-    <div
-      style={{
-        flex: 1,
-        display: 'flex',
-        flexDirection: 'column',
-        overflow: 'hidden',
-      }}
-    >
+    <div className={styles.root}>
       <SectionHeader
         title="Locations"
         count={spaces.length}
@@ -572,8 +529,13 @@ export function LocationsView({
           >
             By Name
           </Chip>,
-          <ColumnPicker key="cp" cols={locCols} onChange={saveLocCols} C={C} />,
-          <Btn key="csv" onClick={exportLocCSV} color={C.muted} bg={C.surface}>
+          <ColumnPicker key="cp" cols={locCols} onChange={saveLocCols} />,
+          <Btn
+            key="csv"
+            onClick={exportLocCSV}
+            color="var(--muted)"
+            bg="var(--surface)"
+          >
             ↓ CSV
           </Btn>,
           ...(onCreateSpace
@@ -586,8 +548,8 @@ export function LocationsView({
                       defaultType: 'Building',
                     })
                   }
-                  color={C.green}
-                  bg={C.surface}
+                  color="var(--green)"
+                  bg="var(--surface)"
                 >
                   + Building
                 </Btn>,
@@ -595,12 +557,11 @@ export function LocationsView({
             : []),
         ]}
       />
-      <div style={{ flex: 1, overflow: 'auto' }}>
+      <div className={styles.scrollArea}>
         {addSpaceParent?.parentId === null && (
           <AddSpaceForm
             parentId={null}
             defaultType="Building"
-            C={C}
             onSave={async (body) => {
               await onCreateSpace!(body);
               setAddSpaceParent(null);
@@ -611,38 +572,25 @@ export function LocationsView({
         {roots.map((r) => renderSpace(r, 0))}
         {unplaced.length > 0 && (
           <div>
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 7,
-                padding: '6px 14px',
-                background: C.surface,
-                borderBottom: `1px solid ${C.border}`,
-              }}
-            >
-              <span style={{ color: C.dim, fontSize: 12 }}>◉</span>
-              <span style={{ fontWeight: 600, fontSize: 11, color: C.muted }}>
-                Unplaced
-              </span>
-              <span style={{ fontSize: 10, color: C.dim }}>
-                · {unplaced.length}
-              </span>
+            <div className={styles.unplacedHeader}>
+              <span className={styles.unplacedIcon}>◉</span>
+              <span className={styles.unplacedTitle}>Unplaced</span>
+              <span className={styles.countLabel}>· {unplaced.length}</span>
             </div>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <table className={styles.table}>
               <thead>
                 <tr>
                   {visibleLocCols.map((col: any) => (
                     <TH
                       key={col.id}
-                      style={
+                      className={
                         col.id === 'individual_address'
-                          ? { width: 100, paddingLeft: 42 }
+                          ? styles.colAddrIndented
                           : col.id === 'gas'
-                            ? { width: 50 }
+                            ? styles.colGas
                             : col.id === 'status'
-                              ? { width: 100 }
-                              : {}
+                              ? styles.colStatus
+                              : undefined
                       }
                     >
                       {col.label.toUpperCase().replace('GAS', 'GAs')}
@@ -652,17 +600,13 @@ export function LocationsView({
               </thead>
               <tbody>
                 {unplaced.map((d: any) => (
-                  <tr
-                    key={d.id}
-                    className="rh"
-                    style={{ borderLeft: '2px solid transparent' }}
-                  >
+                  <tr key={d.id} className={`rh ${styles.rowBorder}`}>
                     {lcv('individual_address') && (
-                      <TD style={{ paddingLeft: 42 }}>
+                      <TD className={styles.tdIndented}>
                         <PinAddr
                           address={d.individual_address}
                           wtype="device"
-                          style={{ color: C.accent, fontFamily: 'monospace' }}
+                          className={styles.accentMono}
                         />
                       </TD>
                     )}
@@ -677,20 +621,13 @@ export function LocationsView({
                               setEditDevId(null);
                             }}
                             onCancel={() => setEditDevId(null)}
-                            C={C}
                           />
                         ) : (
-                          <span
-                            style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: 6,
-                            }}
-                          >
+                          <span className={styles.devNameWrap}>
                             <DeviceTypeIcon
                               type={d.device_type}
                               style={{
-                                color: COLMAP[d.device_type] || C.muted,
+                                color: COLMAP[d.device_type] || 'var(--muted)',
                               }}
                             />
                             <span
@@ -702,9 +639,9 @@ export function LocationsView({
                                     }
                                   : undefined
                               }
-                              style={{
-                                cursor: onUpdateDevice ? 'text' : 'default',
-                              }}
+                              className={
+                                onUpdateDevice ? styles.renameable : undefined
+                              }
                               title={
                                 onUpdateDevice ? 'Click to rename' : undefined
                               }
@@ -717,7 +654,9 @@ export function LocationsView({
                     )}
                     {lcv('device_type') && (
                       <TD>
-                        <span style={{ color: C.muted }}>{d.device_type}</span>
+                        <span className={styles.textMuted}>
+                          {d.device_type}
+                        </span>
                       </TD>
                     )}
                     {lcv('manufacturer') && (
@@ -725,7 +664,7 @@ export function LocationsView({
                         <PinAddr
                           address={d.manufacturer}
                           wtype="manufacturer"
-                          style={{ color: C.amber }}
+                          className={styles.amberText}
                         >
                           {d.manufacturer || '—'}
                         </PinAddr>
@@ -736,11 +675,7 @@ export function LocationsView({
                         <PinAddr
                           address={d.model}
                           wtype="model"
-                          style={{
-                            color: C.amber,
-                            fontFamily: 'monospace',
-                            fontSize: 10,
-                          }}
+                          className={styles.amberMono}
                         >
                           {d.model || '—'}
                         </PinAddr>
@@ -748,13 +683,7 @@ export function LocationsView({
                     )}
                     {lcv('serial_number') && (
                       <TD>
-                        <span
-                          style={{
-                            color: C.dim,
-                            fontFamily: 'monospace',
-                            fontSize: 10,
-                          }}
-                        >
+                        <span className={styles.monoSmall}>
                           {d.serial_number || '—'}
                         </span>
                       </TD>
@@ -763,13 +692,15 @@ export function LocationsView({
                       <TD>
                         <Badge
                           label={d.status.toUpperCase()}
-                          color={(STATUS_COLOR as any)[d.status] || C.dim}
+                          color={
+                            (STATUS_COLOR as any)[d.status] || 'var(--dim)'
+                          }
                         />
                       </TD>
                     )}
                     {lcv('gas') && (
                       <TD>
-                        <span style={{ color: C.dim }}>
+                        <span className={styles.textDim}>
                           {(deviceGAMap[d.individual_address] || []).length}
                         </span>
                       </TD>
@@ -781,27 +712,13 @@ export function LocationsView({
           </div>
         )}
       </div>
-      <div
-        style={{
-          padding: '5px 14px',
-          borderTop: `1px solid ${C.border}`,
-          fontSize: 10,
-          color: C.dim,
-          display: 'flex',
-          gap: 14,
-          flexShrink: 0,
-        }}
-      >
+      <div className={styles.statusBar}>
         {Object.entries(STATUS_COLOR).map(([s, c]) => (
           <span
             key={s}
-            className="rh"
+            className={`rh ${filterStatus === s ? styles.statusItemActive : styles.statusItem}`}
             onClick={() => setFilterStatus((p) => (p === s ? 'all' : s))}
-            style={{
-              cursor: 'pointer',
-              color: filterStatus === s ? c : C.dim,
-              fontWeight: filterStatus === s ? 600 : 400,
-            }}
+            style={{ color: filterStatus === s ? c : 'var(--dim)' }}
           >
             <span style={{ color: c }}>●</span>{' '}
             {devices.filter((d: any) => d.status === s).length} {s}
@@ -824,14 +741,12 @@ function AddMenu({
   nodeId: _nodeId,
   nodeType: _nodeType,
   nodeName: _nodeName,
-  C,
   onAddDevice,
   onAddSpace,
 }: {
   nodeId: any;
   nodeType: any;
   nodeName: any;
-  C: any;
   onAddDevice: (() => void) | null;
   onAddSpace: (() => void) | null;
 }) {
@@ -849,34 +764,21 @@ function AddMenu({
           options[0]!.action();
         }}
         title={options[0]!.label}
-        style={{
-          color: C.green,
-          fontSize: 13,
-          marginLeft: 4,
-          cursor: 'pointer',
-          opacity: 0.7,
-          lineHeight: 1,
-        }}
+        className={styles.addIcon}
       >
         +
       </span>
     );
   }
   return (
-    <span style={{ position: 'relative', marginLeft: 4 }}>
+    <span className={styles.addMenuWrap}>
       <span
         onClick={(e) => {
           e.stopPropagation();
           setOpen((p) => !p);
         }}
         title="Add…"
-        style={{
-          color: C.green,
-          fontSize: 13,
-          cursor: 'pointer',
-          opacity: 0.7,
-          lineHeight: 1,
-        }}
+        className={styles.addMenuIcon}
       >
         +
       </span>
@@ -884,23 +786,9 @@ function AddMenu({
         <>
           <div
             onClick={() => setOpen(false)}
-            style={{ position: 'fixed', inset: 0, zIndex: 999 }}
+            className={styles.addMenuBackdrop}
           />
-          <div
-            style={{
-              position: 'absolute',
-              top: '100%',
-              left: 0,
-              marginTop: 4,
-              background: C.surface,
-              border: `1px solid ${C.border}`,
-              borderRadius: 4,
-              boxShadow: '0 4px 12px rgba(0,0,0,0.25)',
-              zIndex: 1000,
-              minWidth: 120,
-              overflow: 'hidden',
-            }}
-          >
+          <div className={styles.addMenuDropdown}>
             {options.map((o) => (
               <div
                 key={o.label}
@@ -909,14 +797,7 @@ function AddMenu({
                   o.action();
                   setOpen(false);
                 }}
-                className="rh"
-                style={{
-                  padding: '6px 12px',
-                  fontSize: 10,
-                  color: C.text,
-                  cursor: 'pointer',
-                  whiteSpace: 'nowrap',
-                }}
+                className={`rh ${styles.addMenuItem}`}
               >
                 {o.label}
               </div>
@@ -940,13 +821,11 @@ const SPACE_TYPES = [
 function AddSpaceForm({
   parentId,
   defaultType,
-  C,
   onSave,
   onCancel,
 }: {
   parentId: any;
   defaultType: string;
-  C: any;
   onSave: (body: any) => Promise<void>;
   onCancel: () => void;
 }) {
@@ -972,34 +851,15 @@ function AddSpaceForm({
     } catch (_) {}
     setSaving(false);
   };
-  const selectStyle = {
-    background: C.inputBg,
-    border: `1px solid ${C.border2}`,
-    borderRadius: 4,
-    padding: '5px 8px',
-    color: C.text,
-    fontSize: 10,
-    fontFamily: 'inherit',
-  };
   return (
-    <div
-      style={{
-        padding: '8px 14px',
-        borderBottom: `1px solid ${C.border}`,
-        background: C.surface,
-        display: 'flex',
-        gap: 8,
-        alignItems: 'center',
-        flexWrap: 'wrap',
-      }}
-    >
+    <div className={styles.addSpaceForm}>
       <select
         value={type}
         onChange={(e) => {
           setType(e.target.value);
           if (e.target.value !== 'Room') setUsageId('');
         }}
-        style={selectStyle}
+        className={styles.selectInput}
       >
         {SPACE_TYPES.map((t) => (
           <option key={t} value={t}>
@@ -1011,7 +871,7 @@ function AddSpaceForm({
         <select
           value={usageId}
           onChange={(e) => setUsageId(e.target.value)}
-          style={selectStyle}
+          className={styles.selectInput}
         >
           <option value="">— Use —</option>
           {usageEntries.map(([id, text]) => (
@@ -1030,22 +890,16 @@ function AddSpaceForm({
           if (e.key === 'Enter') save();
           if (e.key === 'Escape') onCancel();
         }}
-        style={{
-          background: C.inputBg,
-          border: `1px solid ${C.border2}`,
-          borderRadius: 4,
-          padding: '5px 8px',
-          color: C.text,
-          fontSize: 10,
-          fontFamily: 'inherit',
-          flex: 1,
-          minWidth: 120,
-        }}
+        className={styles.nameInput}
       />
-      <Btn onClick={save} disabled={saving || !name.trim()} color={C.green}>
+      <Btn
+        onClick={save}
+        disabled={saving || !name.trim()}
+        color="var(--green)"
+      >
         {saving ? 'Creating…' : 'Create'}
       </Btn>
-      <Btn onClick={onCancel} color={C.dim}>
+      <Btn onClick={onCancel} color="var(--dim)">
         Cancel
       </Btn>
     </div>
@@ -1057,13 +911,11 @@ function InlineEdit({
   fontSize = 11,
   onSave,
   onCancel,
-  C,
 }: {
   initial: string;
   fontSize?: number;
   onSave: (v: string) => Promise<void>;
   onCancel: () => void;
-  C: any;
 }) {
   const [value, setValue] = useState(initial);
   const [saving, setSaving] = useState(false);
@@ -1076,10 +928,7 @@ function InlineEdit({
     setSaving(false);
   };
   return (
-    <div
-      onClick={(e) => e.stopPropagation()}
-      style={{ display: 'flex', gap: 4, alignItems: 'center', flex: 1 }}
-    >
+    <div onClick={(e) => e.stopPropagation()} className={styles.inlineEditWrap}>
       <input
         value={value}
         onChange={(e) => setValue(e.target.value)}
@@ -1088,22 +937,17 @@ function InlineEdit({
           if (e.key === 'Enter') save();
           if (e.key === 'Escape') onCancel();
         }}
-        style={{
-          background: C.inputBg,
-          border: `1px solid ${C.accent}`,
-          borderRadius: 3,
-          padding: '2px 6px',
-          color: C.text,
-          fontSize,
-          fontFamily: 'inherit',
-          flex: 1,
-          minWidth: 80,
-        }}
+        className={styles.inlineEditInput}
+        style={{ fontSize }}
       />
-      <Btn onClick={save} disabled={saving || !value.trim()} color={C.green}>
+      <Btn
+        onClick={save}
+        disabled={saving || !value.trim()}
+        color="var(--green)"
+      >
         {saving ? 'Saving' : 'Save'}
       </Btn>
-      <Btn onClick={onCancel} color={C.dim}>
+      <Btn onClick={onCancel} color="var(--dim)">
         Cancel
       </Btn>
     </div>

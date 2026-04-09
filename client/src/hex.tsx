@@ -12,10 +12,9 @@ interface HexDumpProps {
   hex: string;
   annotations?: Annotation[];
   title?: string;
-  C: any;
 }
 
-export function HexDump({ hex, annotations = [], title, C }: HexDumpProps) {
+export function HexDump({ hex, annotations = [], title }: HexDumpProps) {
   const [hovered, setHovered] = useState<number | null>(null);
   if (!hex || hex.length < 2)
     return <div className={styles.noData}>No data</div>;
@@ -66,16 +65,14 @@ export function HexDump({ hex, annotations = [], title, C }: HexDumpProps) {
                       title={makeTitle(idx)}
                       onMouseEnter={() => setHovered(idx)}
                       onMouseLeave={() => setHovered(null)}
+                      className={styles.hexByte}
                       style={{
-                        color: anno ? anno.color : C.text,
+                        color: anno ? anno.color : 'var(--text)',
                         background: isHov
-                          ? `${anno.color}22`
+                          ? `color-mix(in srgb, ${anno.color} 13%, transparent)`
                           : hovered === idx
-                            ? `${C.accent}22`
+                            ? 'var(--accent-22)'
                             : 'transparent',
-                        padding: '1px 0',
-                        borderRadius: 2,
-                        cursor: 'default',
                       }}
                     >
                       {b.toString(16).padStart(2, '0')}
@@ -93,7 +90,7 @@ export function HexDump({ hex, annotations = [], title, C }: HexDumpProps) {
                     );
                   })}
               </span>
-              <span className={styles.asciiCol} style={{ color: C.dim }}>
+              <span className={styles.asciiCol}>
                 {rowBytes.map((b, ci) => {
                   const idx = start + ci;
                   const anno = annoMap[idx];
@@ -108,18 +105,18 @@ export function HexDump({ hex, annotations = [], title, C }: HexDumpProps) {
                       title={makeTitle(idx)}
                       onMouseEnter={() => setHovered(idx)}
                       onMouseLeave={() => setHovered(null)}
+                      className={styles.asciiByte}
                       style={{
                         color: anno
                           ? anno.color
                           : b >= 32 && b < 127
-                            ? C.muted
-                            : C.dim,
+                            ? 'var(--muted)'
+                            : 'var(--dim)',
                         background: isHov
-                          ? `${anno.color}22`
+                          ? `color-mix(in srgb, ${anno.color} 13%, transparent)`
                           : hovered === idx
-                            ? `${C.accent}22`
+                            ? 'var(--accent-22)'
                             : 'transparent',
-                        cursor: 'default',
                       }}
                     >
                       {ch}
@@ -141,7 +138,6 @@ interface HexDumpCompareProps {
   hexB: string;
   labelA: string;
   labelB: string;
-  C: any;
   colA: string;
   colB: string;
   annotations?: Annotation[];
@@ -153,7 +149,6 @@ export function HexDumpCompare({
   hexB,
   labelA,
   labelB,
-  C,
   colA,
   colB,
   annotations = [],
@@ -171,9 +166,7 @@ export function HexDumpCompare({
   const bytesB = toBytes(hexB);
   const len = Math.max(bytesA.length, bytesB.length);
   if (!len)
-    return (
-      <div className={styles.noData}>No image data for either device</div>
-    );
+    return <div className={styles.noData}>No image data for either device</div>;
 
   // Build annotation map: byteIdx -> { label, color }
   const annoMap: Record<number, { label: string; color: string }> = {};
@@ -199,13 +192,17 @@ export function HexDumpCompare({
     const diff = b !== bOther;
     const anno = annoMap[idx];
     const isHov = hovAnno && anno?.label === hovAnno.label;
-    const color = missing ? C.dim : diff ? C.amber : C.muted;
+    const color = missing
+      ? 'var(--dim)'
+      : diff
+        ? 'var(--amber)'
+        : 'var(--muted)';
     const bg = isHov
-      ? `${anno.color}22`
+      ? `color-mix(in srgb, ${anno.color} 13%, transparent)`
       : hovered === idx
-        ? `${C.accent}22`
+        ? 'var(--accent-22)'
         : diff
-          ? `${C.amber}11`
+          ? 'var(--amber-11)'
           : 'transparent';
     const hexStr = missing ? '--' : b.toString(16).padStart(2, '0');
     const titleStr = `0x${idx.toString(16).padStart(4, '0')} (${idx})${anno ? ' — ' + anno.label : ''}`;
@@ -215,7 +212,8 @@ export function HexDumpCompare({
         title={titleStr}
         onMouseEnter={() => setHovered(idx)}
         onMouseLeave={() => setHovered(null)}
-        style={{ color, background: bg, borderRadius: 2, cursor: 'default' }}
+        className={styles.compareCell}
+        style={{ color, background: bg }}
       >
         {hexStr}{' '}
       </span>
@@ -246,18 +244,18 @@ export function HexDumpCompare({
           key={ci}
           onMouseEnter={() => setHovered(idx)}
           onMouseLeave={() => setHovered(null)}
+          className={styles.compareAscii}
           style={{
             color: diff
-              ? C.amber
+              ? 'var(--amber)'
               : b !== undefined && b >= 32 && b < 127
-                ? C.muted
-                : C.dim,
+                ? 'var(--muted)'
+                : 'var(--dim)',
             background: isHov
-              ? `${anno.color}22`
+              ? `color-mix(in srgb, ${anno.color} 13%, transparent)`
               : hovered === idx
-                ? `${C.accent}22`
+                ? 'var(--accent-22)'
                 : 'transparent',
-            cursor: 'default',
           }}
         >
           {ch}
@@ -328,11 +326,11 @@ export function HexDumpCompare({
 }
 
 // Build HexDump annotations for a GA table hex string
-export function buildGATableAnnotations(hex: string, C: any): Annotation[] {
+export function buildGATableAnnotations(hex: string): Annotation[] {
   if (!hex || hex.length < 2) return [];
   const count = parseInt(hex.slice(0, 2), 16);
   const annos: Annotation[] = [
-    { start: 0, len: 1, label: `count = ${count}`, color: C.accent },
+    { start: 0, len: 1, label: `count = ${count}`, color: 'var(--accent)' },
   ];
   for (let i = 0; i < count; i++) {
     const off = 1 + i * 2;
@@ -346,18 +344,18 @@ export function buildGATableAnnotations(hex: string, C: any): Annotation[] {
       start: off,
       len: 2,
       label: `GA[${i}] = ${main}/${mid}/${sub}`,
-      color: C.purple,
+      color: 'var(--purple)',
     });
   }
   return annos;
 }
 
 // Build HexDump annotations for an association table hex string
-export function buildAssocTableAnnotations(hex: string, C: any): Annotation[] {
+export function buildAssocTableAnnotations(hex: string): Annotation[] {
   if (!hex || hex.length < 2) return [];
   const count = parseInt(hex.slice(0, 2), 16);
   const annos: Annotation[] = [
-    { start: 0, len: 1, label: `count = ${count}`, color: C.accent },
+    { start: 0, len: 1, label: `count = ${count}`, color: 'var(--accent)' },
   ];
   for (let i = 0; i < count; i++) {
     const off = 1 + i * 2;
@@ -368,7 +366,7 @@ export function buildAssocTableAnnotations(hex: string, C: any): Annotation[] {
       start: off,
       len: 2,
       label: `CO ${co} → GA[${ga}]`,
-      color: C.amber,
+      color: 'var(--amber)',
     });
   }
   return annos;

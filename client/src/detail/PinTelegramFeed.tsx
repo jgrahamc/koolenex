@@ -59,16 +59,16 @@ export function PinTelegramFeed({
           <table className={styles.table}>
             <thead>
               <tr>
-                <TH style={{ width: 155 }}>TIMESTAMP</TH>
-                <TH style={{ width: 65 }}>DELTA</TH>
-                <TH style={{ width: 75 }}>SOURCE</TH>
+                <TH className={styles.thTimestamp}>TIMESTAMP</TH>
+                <TH className={styles.thDelta}>DELTA</TH>
+                <TH className={styles.thSource}>SOURCE</TH>
                 {hasSpaces && <TH>LOCATION</TH>}
-                <TH style={{ width: 75 }}>DEST GA</TH>
+                <TH className={styles.thDestGA}>DEST GA</TH>
                 <TH>GA NAME</TH>
-                <TH style={{ width: 170 }}>TYPE</TH>
-                <TH style={{ width: 80 }}>RAW</TH>
-                <TH style={{ width: 100 }}>DECODED</TH>
-                <TH style={{ width: 55 }}>DPT</TH>
+                <TH className={styles.thType}>TYPE</TH>
+                <TH className={styles.thRaw}>RAW</TH>
+                <TH className={styles.thDecoded}>DECODED</TH>
+                <TH className={styles.thDpt}>DPT</TH>
               </tr>
             </thead>
             <tbody>
@@ -95,19 +95,13 @@ export function PinTelegramFeed({
                       </span>
                     </TD>
                     <TD>
-                      <span className={styles.dimMono}>
-                        {fmtDelta(delta)}
-                      </span>
+                      <span className={styles.dimMono}>{fmtDelta(delta)}</span>
                     </TD>
                     <TD>
                       <PinAddr
                         address={tg.src}
                         wtype="device"
-                        style={{
-                          color: 'var(--accent)',
-                          fontFamily: 'monospace',
-                          fontSize: 10,
-                        }}
+                        className={styles.srcAddr}
                       />
                     </TD>
                     {hasSpaces && (
@@ -115,7 +109,7 @@ export function PinTelegramFeed({
                         <SpacePath
                           spaceId={devMap[tg.src]?.space_id}
                           spaces={spaces}
-                          style={{ color: 'var(--dim)', fontSize: 10 }}
+                          className={styles.spacePathCell}
                         />
                       </TD>
                     )}
@@ -123,11 +117,7 @@ export function PinTelegramFeed({
                       <PinAddr
                         address={tg.dst}
                         wtype="ga"
-                        style={{
-                          color: 'var(--purple)',
-                          fontFamily: 'monospace',
-                          fontSize: 10,
-                        }}
+                        className={styles.dstAddr}
                       />
                     </TD>
                     <TD>
@@ -146,10 +136,7 @@ export function PinTelegramFeed({
                     </TD>
                     <TD>
                       <span
-                        style={{
-                          color: 'var(--text)',
-                          fontWeight: ga ? 500 : 400,
-                        }}
+                        className={ga ? styles.decodedGa : styles.decodedNormal}
                       >
                         {decoded}
                       </span>

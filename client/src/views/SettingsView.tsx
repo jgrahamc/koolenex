@@ -1,4 +1,4 @@
-import { useC } from '../theme.ts';
+import styles from './SettingsView.module.css';
 
 interface SettingsViewProps {
   theme: string;
@@ -13,125 +13,48 @@ export function SettingsView({
   dptMode,
   onDptModeChange,
 }: SettingsViewProps) {
-  const C = useC();
-
   return (
-    <div className="fi" style={{ flex: 1, padding: 40, overflow: 'auto' }}>
-      <div style={{ maxWidth: 480 }}>
-        <div
-          style={{
-            fontFamily: "'Syne',sans-serif",
-            fontWeight: 700,
-            fontSize: 16,
-            color: C.text,
-            marginBottom: 24,
-          }}
-        >
-          Settings
-        </div>
+    <div className={`fi ${styles.root}`}>
+      <div className={styles.inner}>
+        <div className={styles.heading}>Settings</div>
 
-        <div
-          style={{
-            background: C.surface,
-            border: `1px solid ${C.border}`,
-            borderRadius: 8,
-            padding: 20,
-            marginBottom: 20,
-          }}
-        >
-          <div
-            style={{
-              fontSize: 11,
-              color: C.accent,
-              fontWeight: 600,
-              letterSpacing: '0.08em',
-              marginBottom: 16,
-            }}
-          >
-            APPEARANCE
-          </div>
-          <div style={{ fontSize: 9, color: C.dim, marginBottom: 8 }}>
-            THEME
-          </div>
-          <div style={{ display: 'flex', gap: 8 }}>
+        <div className={styles.card}>
+          <div className={styles.sectionTitle}>APPEARANCE</div>
+          <div className={styles.label}>THEME</div>
+          <div className={styles.optionRow}>
             {['dark', 'light'].map((t) => (
               <div
                 key={t}
                 onClick={() => onThemeChange(t)}
-                style={{
-                  flex: 1,
-                  padding: '10px 14px',
-                  borderRadius: 6,
-                  border: `2px solid ${theme === t ? C.accent : C.border}`,
-                  background: t === 'dark' ? '#060a10' : '#f0f4f8',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 8,
-                }}
+                className={`${theme === t ? styles.themeOptionActive : styles.themeOptionInactive} ${t === 'dark' ? styles.themeOptionDark : styles.themeOptionLight}`}
               >
-                <span style={{ fontSize: 14 }}>
+                <span className={styles.themeIcon}>
                   {t === 'dark' ? '◑' : '○'}
                 </span>
                 <div>
                   <div
-                    style={{
-                      fontSize: 11,
-                      color: t === 'dark' ? '#e0eeff' : '#1a2a3a',
-                      fontWeight: theme === t ? 600 : 400,
-                    }}
+                    className={`${t === 'dark' ? styles.themeLabelDark : styles.themeLabelLight}${theme === t ? ` ${styles.themeLabelActive}` : ''}`}
                   >
                     {t.charAt(0).toUpperCase() + t.slice(1)}
                   </div>
                   <div
-                    style={{
-                      fontSize: 9,
-                      color: t === 'dark' ? '#5a80a8' : '#7090a8',
-                    }}
+                    className={
+                      t === 'dark' ? styles.themeSubDark : styles.themeSubLight
+                    }
                   >
                     {t === 'dark' ? 'Dark background' : 'Light background'}
                   </div>
                 </div>
-                {theme === t && (
-                  <span
-                    style={{
-                      marginLeft: 'auto',
-                      color: C.accent,
-                      fontSize: 14,
-                    }}
-                  >
-                    ✓
-                  </span>
-                )}
+                {theme === t && <span className={styles.checkMark}>✓</span>}
               </div>
             ))}
           </div>
         </div>
 
-        <div
-          style={{
-            background: C.surface,
-            border: `1px solid ${C.border}`,
-            borderRadius: 8,
-            padding: 20,
-            marginBottom: 20,
-          }}
-        >
-          <div
-            style={{
-              fontSize: 11,
-              color: C.accent,
-              fontWeight: 600,
-              letterSpacing: '0.08em',
-              marginBottom: 16,
-            }}
-          >
-            DATA POINT TYPES
-          </div>
-          <div style={{ fontSize: 9, color: C.dim, marginBottom: 8 }}>
-            DPT DISPLAY FORMAT
-          </div>
-          <div style={{ display: 'flex', gap: 8 }}>
+        <div className={styles.card}>
+          <div className={styles.sectionTitle}>DATA POINT TYPES</div>
+          <div className={styles.label}>DPT DISPLAY FORMAT</div>
+          <div className={styles.optionRow}>
             {[
               {
                 id: 'numeric',
@@ -155,78 +78,35 @@ export function SettingsView({
               <div
                 key={id}
                 onClick={() => onDptModeChange(id)}
-                style={{
-                  flex: 1,
-                  padding: '10px 14px',
-                  borderRadius: 6,
-                  border: `2px solid ${dptMode === id ? C.accent : C.border}`,
-                  background: C.bg,
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 8,
-                }}
+                className={
+                  dptMode === id
+                    ? styles.dptOptionActive
+                    : styles.dptOptionInactive
+                }
               >
-                <span
-                  style={{
-                    fontSize: 13,
-                    color: C.muted,
-                    fontFamily: 'monospace',
-                  }}
-                >
-                  {icon}
-                </span>
+                <span className={styles.dptIcon}>{icon}</span>
                 <div>
                   <div
-                    style={{
-                      fontSize: 11,
-                      color: C.text,
-                      fontWeight: dptMode === id ? 600 : 400,
-                    }}
+                    className={
+                      dptMode === id ? styles.dptLabelActive : styles.dptLabel
+                    }
                   >
                     {label}
                   </div>
-                  <div style={{ fontSize: 9, color: C.dim }}>{sub}</div>
+                  <div className={styles.dptSub}>{sub}</div>
                 </div>
-                {dptMode === id && (
-                  <span
-                    style={{
-                      marginLeft: 'auto',
-                      color: C.accent,
-                      fontSize: 14,
-                    }}
-                  >
-                    ✓
-                  </span>
-                )}
+                {dptMode === id && <span className={styles.checkMark}>✓</span>}
               </div>
             ))}
           </div>
-          <div style={{ fontSize: 9, color: C.dim, marginTop: 8 }}>
+          <div className={styles.dptHint}>
             Hover over a DPT value to see the other two formats.
           </div>
         </div>
 
-        <div
-          style={{
-            background: C.surface,
-            border: `1px solid ${C.border}`,
-            borderRadius: 8,
-            padding: 20,
-          }}
-        >
-          <div
-            style={{
-              fontSize: 11,
-              color: C.accent,
-              fontWeight: 600,
-              letterSpacing: '0.08em',
-              marginBottom: 12,
-            }}
-          >
-            ABOUT
-          </div>
-          <div style={{ fontSize: 11, color: C.muted, lineHeight: 1.8 }}>
+        <div className={styles.card}>
+          <div className={styles.sectionTitleSmall}>ABOUT</div>
+          <div className={styles.aboutText}>
             koolenex — open source KNX project manager
             <br />
             Backend: Node.js + Express + SQLite
@@ -235,7 +115,7 @@ export function SettingsView({
             <br />
             ETS6 .knxproj import supported
             <br />
-            <span style={{ color: C.dim }}>v0.1.0-alpha</span>
+            <span className={styles.versionDim}>v0.1.0-alpha</span>
           </div>
         </div>
       </div>

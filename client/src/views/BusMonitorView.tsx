@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef, useContext, useMemo } from 'react';
-import { useC } from '../theme.ts';
 import { useDpt, PinContext } from '../contexts.ts';
 import {
   Badge,
@@ -17,19 +16,18 @@ import {
 } from '../primitives.tsx';
 import { useColumns, ColumnPicker, dlCSV } from '../columns.tsx';
 import { dptInfo } from '../dpt.ts';
+import styles from './BusMonitorView.module.css';
 
 function TelegramFlowPanel({
   telegrams,
   gaMap,
   devMap,
   comObjects,
-  C,
 }: {
   telegrams: any[];
   gaMap: Record<string, any>;
   devMap: Record<string, any>;
   comObjects: any[];
-  C: any;
 }) {
   const pin = useContext(PinContext) as any;
   // Build GA → [linked device addresses] from comObjects
@@ -48,44 +46,14 @@ function TelegramFlowPanel({
 
   if (recent.length === 0)
     return (
-      <div
-        style={{
-          borderTop: `1px solid ${C.border}`,
-          background: C.sidebar,
-          height: 54,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}
-      >
-        <span style={{ fontSize: 11, color: C.dim }}>
-          Waiting for live activity…
-        </span>
+      <div className={styles.flowEmpty}>
+        <span className={styles.flowEmptyText}>Waiting for live activity…</span>
       </div>
     );
 
   return (
-    <div
-      style={{
-        borderTop: `1px solid ${C.border}`,
-        background: C.sidebar,
-        padding: '8px 14px',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 5,
-        flexShrink: 0,
-      }}
-    >
-      <div
-        style={{
-          fontSize: 9,
-          color: C.dim,
-          letterSpacing: '0.1em',
-          marginBottom: 1,
-        }}
-      >
-        LIVE FLOW
-      </div>
+    <div className={styles.flowPanel}>
+      <div className={styles.flowLabel}>LIVE FLOW</div>
       {recent.map((tg: any, i: number) => {
         const opacity =
           ([1, 0.82, 0.65, 0.48, 0.32, 0.18] as number[])[i] ?? 0.18;
@@ -99,7 +67,11 @@ function TelegramFlowPanel({
             : null;
         const isWrite = tg.type?.includes('Write');
         const isRead = tg.type?.includes('Read');
-        const typeCol = isWrite ? C.accent : isRead ? C.amber : C.green;
+        const typeCol = isWrite
+          ? 'var(--accent)'
+          : isRead
+            ? 'var(--amber)'
+            : 'var(--green)';
         const receivers = isWrite
           ? (gaDevMap[tg.dst as string] || [])
               .filter((a: string) => a !== tg.src)
@@ -116,111 +88,79 @@ function TelegramFlowPanel({
         ) => (
           <div
             onClick={onClick}
+            className={styles.flowChip}
             style={{
-              background: glow ? `${color}15` : C.surface,
-              border: `1px solid ${glow ? `${color}70` : C.border}`,
-              borderRadius: 3,
-              padding: '1px 8px',
-              fontSize: 10,
-              fontFamily: 'monospace',
+              background: glow
+                ? `color-mix(in srgb, ${color} 8%, transparent)`
+                : 'var(--surface)',
+              border: `1px solid ${glow ? `color-mix(in srgb, ${color} 44%, transparent)` : 'var(--border)'}`,
               color,
-              whiteSpace: 'nowrap',
-              flexShrink: 0,
-              boxShadow: glow ? `0 0 8px ${color}35` : 'none',
-              maxWidth: 220,
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
+              boxShadow: glow
+                ? `0 0 8px color-mix(in srgb, ${color} 21%, transparent)`
+                : 'none',
               cursor: onClick ? 'pointer' : 'default',
             }}
           >
             {label}
-            {sub ? (
-              <span style={{ color: C.dim, fontSize: 9, marginLeft: 5 }}>
-                {sub}
-              </span>
-            ) : null}
+            {sub ? <span className={styles.flowChipSub}>{sub}</span> : null}
           </div>
         );
 
         return (
           <div
             key={tg.id || i}
-            className={isNew ? 'flowin' : ''}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6,
-              opacity,
-              height: 22,
-              overflow: 'hidden',
-            }}
+            className={`${styles.flowRow} ${isNew ? 'flowin' : ''}`}
+            style={{ opacity }}
           >
             {/* Source device */}
             {chip(
               tg.src,
               srcDev?.name?.slice(0, 16),
-              C.accent,
+              'var(--accent)',
               isNew,
               pin ? () => pin('device', tg.src) : undefined,
             )}
 
             {/* Arrow */}
-            <span style={{ color: typeCol, fontSize: 13, flexShrink: 0 }}>
+            <span className={styles.flowArrow} style={{ color: typeCol }}>
               →
             </span>
 
             {/* Destination GA + value */}
             <div
               onClick={pin ? () => pin('ga', tg.dst) : undefined}
+              className={styles.flowDstChip}
               style={{
-                background: isNew ? `${C.purple}15` : C.surface,
-                border: `1px solid ${isNew ? `${C.purple}70` : C.border}`,
-                borderRadius: 3,
-                padding: '1px 8px',
-                fontSize: 10,
-                fontFamily: 'monospace',
-                color: C.purple,
-                whiteSpace: 'nowrap',
-                flexShrink: 0,
-                boxShadow: isNew ? `0 0 8px ${C.purple}35` : 'none',
-                maxWidth: 240,
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
+                background: isNew ? 'var(--purple-15)' : 'var(--surface)',
+                border: `1px solid ${isNew ? 'var(--purple-70)' : 'var(--border)'}`,
+                color: 'var(--purple)',
+                boxShadow: isNew ? '0 0 8px var(--purple-35)' : 'none',
                 cursor: pin ? 'pointer' : 'default',
               }}
             >
               {tg.dst}
               {ga?.name ? (
-                <span style={{ color: C.muted, fontSize: 9, marginLeft: 5 }}>
+                <span className={styles.flowDstName}>
                   {ga.name.slice(0, 18)}
                 </span>
               ) : null}
               {decoded != null ? (
-                <span
-                  style={{
-                    color: C.text,
-                    fontWeight: 600,
-                    marginLeft: 8,
-                    fontSize: 10,
-                  }}
-                >
-                  {decoded}
-                </span>
+                <span className={styles.flowDecodedVal}>{decoded}</span>
               ) : null}
             </div>
 
             {/* Receivers */}
             {receivers.length > 0 && (
               <>
-                <span style={{ color: typeCol, fontSize: 13, flexShrink: 0 }}>
+                <span className={styles.flowArrow} style={{ color: typeCol }}>
                   →
                 </span>
-                <div style={{ display: 'flex', gap: 4, overflow: 'hidden' }}>
+                <div className={styles.flowReceivers}>
                   {receivers.map((addr: string) =>
                     chip(
                       addr,
                       devMap[addr]?.name?.slice(0, 12),
-                      C.muted,
+                      'var(--muted)',
                       false,
                     ),
                   )}
@@ -229,15 +169,7 @@ function TelegramFlowPanel({
             )}
 
             {/* Type label (right-aligned) */}
-            <span
-              style={{
-                marginLeft: 'auto',
-                fontSize: 9,
-                color: typeCol,
-                whiteSpace: 'nowrap',
-                flexShrink: 0,
-              }}
-            >
+            <span className={styles.flowType} style={{ color: typeCol }}>
               {tg.type?.replace('GroupValue', '')?.trim()}
             </span>
           </div>
@@ -264,7 +196,6 @@ export function BusMonitorView({
   onWrite,
   data,
 }: BusMonitorViewProps) {
-  const C = useC();
   const dpt = useDpt();
   const [filter, setFilter] = useState('');
   const [filterType, setFilterType] = useState('all');
@@ -405,7 +336,11 @@ export function BusMonitorView({
   };
 
   const typeColor = (tp: string | undefined) =>
-    tp?.includes('Write') ? C.text : tp?.includes('Read') ? C.amber : C.green;
+    tp?.includes('Write')
+      ? 'var(--text)'
+      : tp?.includes('Read')
+        ? 'var(--amber)'
+        : 'var(--green)';
 
   const fmtDelta = (ms: number | null) => {
     if (ms == null) return '';
@@ -422,14 +357,7 @@ export function BusMonitorView({
   };
 
   return (
-    <div
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        flex: 1,
-        overflow: 'hidden',
-      }}
-    >
+    <div className={styles.root}>
       <SectionHeader
         title="Monitor"
         count={filtered.length}
@@ -437,21 +365,21 @@ export function BusMonitorView({
           <Badge
             key="status"
             label={busConnected ? 'LIVE' : 'OFFLINE'}
-            color={busConnected ? C.green : C.dim}
+            color={busConnected ? 'var(--green)' : 'var(--dim)'}
           />,
           <Btn
             key="pause"
             onClick={togglePause}
-            color={paused ? C.amber : C.muted}
-            bg={C.surface}
+            color={paused ? 'var(--amber)' : 'var(--muted)'}
+            bg="var(--surface)"
           >
             {paused ? '▷ Resume' : '⏸ Pause'}
           </Btn>,
           <Btn
             key="send"
             onClick={() => setShowSend((s) => !s)}
-            color={showSend ? C.accent : C.muted}
-            bg={C.surface}
+            color={showSend ? 'var(--accent)' : 'var(--muted)'}
+            bg="var(--surface)"
             disabled={!busConnected}
           >
             ⊕ Send
@@ -459,16 +387,26 @@ export function BusMonitorView({
           <Btn
             key="flow"
             onClick={() => setShowFlow((s) => !s)}
-            color={showFlow ? C.purple : C.muted}
-            bg={C.surface}
+            color={showFlow ? 'var(--purple)' : 'var(--muted)'}
+            bg="var(--surface)"
           >
             ⬡ Flow
           </Btn>,
-          <ColumnPicker key="cp" cols={monCols} onChange={saveMonCols} C={C} />,
-          <Btn key="exp" onClick={exportMonCSV} color={C.muted} bg={C.surface}>
+          <ColumnPicker key="cp" cols={monCols} onChange={saveMonCols} />,
+          <Btn
+            key="exp"
+            onClick={exportMonCSV}
+            color="var(--muted)"
+            bg="var(--surface)"
+          >
             ↓ CSV
           </Btn>,
-          <Btn key="clr" onClick={onClear} color={C.muted} bg={C.surface}>
+          <Btn
+            key="clr"
+            onClick={onClear}
+            color="var(--muted)"
+            bg="var(--surface)"
+          >
             Clear
           </Btn>,
           <SearchBox
@@ -490,35 +428,14 @@ export function BusMonitorView({
       />
 
       {showSend && (
-        <div
-          style={{
-            padding: '10px 16px',
-            borderBottom: `1px solid ${C.border}`,
-            background: C.surface,
-            display: 'flex',
-            gap: 8,
-            alignItems: 'center',
-            flexWrap: 'wrap',
-          }}
-        >
-          <span style={{ fontSize: 10, color: C.dim, flexShrink: 0 }}>
-            SEND
-          </span>
+        <div className={styles.sendPanel}>
+          <span className={styles.sendLabel}>SEND</span>
           <input
             value={sendGa}
             onChange={(e) => setSendGa(e.target.value)}
             placeholder="GA (x/y/z)"
             list="bm-ga-list"
-            style={{
-              background: C.bg,
-              border: `1px solid ${C.border2}`,
-              borderRadius: 4,
-              padding: '6px 10px',
-              color: C.text,
-              fontSize: 11,
-              fontFamily: 'inherit',
-              width: 110,
-            }}
+            className={styles.sendInputWide}
           />
           <datalist id="bm-ga-list">
             {(data?.gas || []).map((g: any) => (
@@ -530,34 +447,26 @@ export function BusMonitorView({
           <select
             value={sendDpt}
             onChange={(e) => setSendDpt(e.target.value)}
-            style={{
-              background: C.bg,
-              border: `1px solid ${C.border2}`,
-              borderRadius: 4,
-              padding: '6px 10px',
-              color: C.text,
-              fontSize: 11,
-              fontFamily: 'inherit',
-            }}
+            className={styles.sendSelect}
           >
             <option value="1">DPT 1 — Bool</option>
             <option value="5">DPT 5 — 0–255</option>
             <option value="9">DPT 9 — Float</option>
           </select>
           {sendDpt === '1' ? (
-            <div style={{ display: 'flex', gap: 4 }}>
+            <div className={styles.boolRow}>
               <Btn
                 onClick={() => doSend('1')}
-                color={C.green}
-                bg={C.surface}
+                color="var(--green)"
+                bg="var(--surface)"
                 disabled={!sendGa || sending}
               >
                 On
               </Btn>
               <Btn
                 onClick={() => doSend('0')}
-                color={C.red}
-                bg={C.surface}
+                color="var(--red)"
+                bg="var(--surface)"
                 disabled={!sendGa || sending}
               >
                 Off
@@ -569,16 +478,7 @@ export function BusMonitorView({
                 value={sendVal}
                 onChange={(e) => setSendVal(e.target.value)}
                 placeholder="Value"
-                style={{
-                  background: C.bg,
-                  border: `1px solid ${C.border2}`,
-                  borderRadius: 4,
-                  padding: '6px 10px',
-                  color: C.text,
-                  fontSize: 11,
-                  fontFamily: 'inherit',
-                  width: 80,
-                }}
+                className={styles.sendInputNarrow}
               />
               <Btn onClick={() => doSend()} disabled={!sendGa || sending}>
                 {sending ? <Spinner /> : '▷ Send'}
@@ -589,15 +489,7 @@ export function BusMonitorView({
       )}
 
       {paused && (
-        <div
-          style={{
-            padding: '4px 16px',
-            background: '#150f00',
-            borderBottom: `1px solid ${C.amber}22`,
-            fontSize: 10,
-            color: C.amber,
-          }}
-        >
+        <div className={styles.pausedBar}>
           ⏸ Paused
           {newCount > 0
             ? ` — ${newCount} new telegram${newCount !== 1 ? 's' : ''} waiting`
@@ -605,8 +497,8 @@ export function BusMonitorView({
         </div>
       )}
 
-      <div ref={scrollRef} style={{ overflow: 'auto', flex: 1 }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+      <div ref={scrollRef} className={styles.scrollArea}>
+        <table className={styles.table}>
           <thead>
             <tr>
               {monCols
@@ -614,26 +506,26 @@ export function BusMonitorView({
                 .map((col: any) => (
                   <TH
                     key={col.id}
-                    style={
+                    className={
                       col.id === 'timestamp'
-                        ? { width: 155 }
+                        ? styles.thTimestamp
                         : col.id === 'delta'
-                          ? { width: 75 }
+                          ? styles.thDelta
                           : col.id === 'src'
-                            ? { width: 75 }
+                            ? styles.thSrc
                             : col.id === 'dst'
-                              ? { width: 75 }
+                              ? styles.thDst
                               : col.id === 'type'
-                                ? { width: 170 }
+                                ? styles.thType
                                 : col.id === 'raw_value'
-                                  ? { width: 80 }
+                                  ? styles.thRaw
                                   : col.id === 'decoded'
-                                    ? { width: 100 }
+                                    ? styles.thDecoded
                                     : col.id === 'dpt'
-                                      ? { width: 65 }
+                                      ? styles.thDpt
                                       : col.id === 'priority'
-                                        ? { width: 65 }
-                                        : {}
+                                        ? styles.thPriority
+                                        : undefined
                     }
                   >
                     {col.label.toUpperCase().replace('GAS', 'GAs')}
@@ -654,13 +546,7 @@ export function BusMonitorView({
                 >
                   {mcv('timestamp') && (
                     <TD>
-                      <span
-                        style={{
-                          color: C.dim,
-                          fontFamily: 'monospace',
-                          fontSize: 10,
-                        }}
-                      >
+                      <span className={styles.monoSmall}>
                         {tg.timestamp?.replace('T', ' ').slice(0, 22) ||
                           tg.time}
                       </span>
@@ -668,13 +554,7 @@ export function BusMonitorView({
                   )}
                   {mcv('delta') && (
                     <TD>
-                      <span
-                        style={{
-                          color: C.dim,
-                          fontFamily: 'monospace',
-                          fontSize: 10,
-                        }}
-                      >
+                      <span className={styles.monoSmall}>
                         {fmtDelta(delta)}
                       </span>
                     </TD>
@@ -685,7 +565,7 @@ export function BusMonitorView({
                         address={tg.src}
                         wtype="device"
                         title={devMap[tg.src]?.name}
-                        style={{ color: C.accent, fontFamily: 'monospace' }}
+                        className={styles.srcAddr}
                       />
                     </TD>
                   )}
@@ -694,7 +574,7 @@ export function BusMonitorView({
                       <SpacePath
                         spaceId={devMap[tg.src]?.space_id}
                         spaces={data.spaces}
-                        style={{ color: C.dim, fontSize: 10 }}
+                        className={styles.monoSmall}
                       />
                     </TD>
                   )}
@@ -704,41 +584,36 @@ export function BusMonitorView({
                         address={tg.dst}
                         wtype="ga"
                         title={ga?.name}
-                        style={{ color: C.purple, fontFamily: 'monospace' }}
+                        className={styles.dstAddr}
                       />
                     </TD>
                   )}
                   {mcv('ga_name') && (
                     <TD>
-                      <span style={{ color: C.muted, fontSize: 10 }}>
-                        {ga?.name || ''}
-                      </span>
+                      <span className={styles.gaName}>{ga?.name || ''}</span>
                     </TD>
                   )}
                   {mcv('type') && (
                     <TD>
-                      <span style={{ color: typeColor(tg.type), fontSize: 10 }}>
+                      <span
+                        className={styles.typeSpan}
+                        style={{ color: typeColor(tg.type) }}
+                      >
                         {tg.type}
                       </span>
                     </TD>
                   )}
                   {mcv('raw_value') && (
                     <TD>
-                      <span
-                        style={{
-                          color: C.dim,
-                          fontFamily: 'monospace',
-                          fontSize: 10,
-                        }}
-                      >
-                        {tg.raw_value}
-                      </span>
+                      <span className={styles.monoSmall}>{tg.raw_value}</span>
                     </TD>
                   )}
                   {mcv('decoded') && (
                     <TD>
                       <span
-                        style={{ color: C.text, fontWeight: ga ? 500 : 400 }}
+                        className={
+                          ga ? styles.decodedBold : styles.decodedNormal
+                        }
                       >
                         {getDecoded(tg)}
                       </span>
@@ -747,7 +622,7 @@ export function BusMonitorView({
                   {mcv('dpt') && (
                     <TD>
                       <span
-                        style={{ color: C.dim, fontSize: 9 }}
+                        className={styles.dptSmall}
                         title={dpt.hover(ga?.dpt)}
                       >
                         {dpt.display(ga?.dpt)}
@@ -756,7 +631,7 @@ export function BusMonitorView({
                   )}
                   {mcv('priority') && (
                     <TD>
-                      <span style={{ color: C.dim, fontSize: 10 }}>
+                      <span className={styles.prioritySmall}>
                         {tg.priority || ''}
                       </span>
                     </TD>
@@ -783,7 +658,6 @@ export function BusMonitorView({
           gaMap={gaMap}
           devMap={devMap}
           comObjects={data?.comObjects}
-          C={C}
         />
       )}
     </div>

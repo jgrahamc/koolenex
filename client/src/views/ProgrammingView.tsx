@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useC, STATUS_COLOR } from '../theme.ts';
+import { STATUS_COLOR } from '../theme.ts';
 import {
   Btn,
   Spinner,
@@ -12,6 +12,7 @@ import {
 import { DeviceTypeIcon } from '../icons.tsx';
 import { api } from '../api.ts';
 import type { DeviceStatus } from '../../../shared/types.ts';
+import styles from './ProgrammingView.module.css';
 
 interface ProgrammingViewProps {
   data: any;
@@ -22,12 +23,11 @@ export function ProgrammingView({
   data,
   onDeviceStatus,
 }: ProgrammingViewProps) {
-  const C = useC();
   const COLMAP: Record<string, string> = {
-    actuator: C.actuator,
-    sensor: C.sensor,
-    router: C.router,
-    generic: C.muted,
+    actuator: 'var(--actuator)',
+    sensor: 'var(--sensor)',
+    router: 'var(--router)',
+    generic: 'var(--muted)',
   };
   const [progress, setProgress] = useState<
     Record<string, { state: string; pct: number }>
@@ -41,7 +41,6 @@ export function ProgrammingView({
       `[${new Date().toLocaleTimeString()}] Downloading → ${devAddr}`,
       ...l,
     ]);
-    // Animate progress while waiting for the real download to complete
     let pct = 5;
     const iv = setInterval(() => {
       pct = Math.min(pct + (Math.random() * 6 + 2), 90);
@@ -73,32 +72,18 @@ export function ProgrammingView({
       .forEach((d: any) => programDevice(d.id, d.individual_address));
 
   return (
-    <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-      <div
-        style={{
-          flex: 1,
-          display: 'flex',
-          flexDirection: 'column',
-          overflow: 'hidden',
-        }}
-      >
+    <div className={styles.root}>
+      <div className={styles.main}>
         <SectionHeader
           title="Programming"
           actions={[
-            <Btn key="all" onClick={programmAll} color={C.amber}>
+            <Btn key="all" onClick={programmAll} color="var(--amber)">
               ▷ Program All Modified
             </Btn>,
           ]}
         />
-        <div style={{ overflow: 'auto', flex: 1, padding: 20 }}>
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(4,1fr)',
-              gap: 12,
-              marginBottom: 24,
-            }}
-          >
+        <div className={styles.content}>
+          <div className={styles.statGrid}>
             {[
               [
                 'Programmed',
@@ -116,39 +101,25 @@ export function ProgrammingView({
                 STATUS_COLOR.unassigned,
               ],
             ].map(([label, count, col]) => (
-              <div
-                key={label as string}
-                style={{
-                  background: C.surface,
-                  border: `1px solid ${C.border}`,
-                  borderRadius: 6,
-                  padding: '14px 16px',
-                }}
-              >
+              <div key={label as string} className={styles.statCard}>
                 <div
-                  style={{
-                    fontSize: 28,
-                    fontWeight: 700,
-                    color: col as string,
-                    fontFamily: "'Syne',sans-serif",
-                  }}
+                  className={styles.statNumber}
+                  style={{ color: col as string }}
                 >
                   {count}
                 </div>
-                <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>
-                  {label}
-                </div>
+                <div className={styles.statLabel}>{label}</div>
               </div>
             ))}
           </div>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <table className={styles.table}>
             <thead>
               <tr>
-                <TH style={{ width: 90 }}>ADDRESS</TH>
+                <TH className={styles.thAddr}>ADDRESS</TH>
                 <TH>DEVICE</TH>
-                <TH style={{ width: 120 }}>STATUS</TH>
-                <TH style={{ width: 200 }}>PROGRESS</TH>
-                <TH style={{ width: 110 }}></TH>
+                <TH className={styles.thStatus}>STATUS</TH>
+                <TH className={styles.thProgress}>PROGRESS</TH>
+                <TH className={styles.thActions}></TH>
               </tr>
             </thead>
             <tbody>
@@ -160,24 +131,20 @@ export function ProgrammingView({
                       <PinAddr
                         address={d.individual_address}
                         wtype="device"
-                        style={{ color: C.accent, fontFamily: 'monospace' }}
+                        className={styles.accentMono}
                       />
                     </TD>
                     <TD>
-                      <span
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 7,
-                        }}
-                      >
+                      <span className={styles.devName}>
                         <DeviceTypeIcon
                           type={d.device_type}
-                          style={{ color: COLMAP[d.device_type] || C.muted }}
+                          style={{
+                            color: COLMAP[d.device_type] || 'var(--muted)',
+                          }}
                         />
                         {d.name}
                         {d.manufacturer && (
-                          <span style={{ color: C.dim, fontSize: 9 }}>
+                          <span className={styles.mfrLabel}>
                             {d.manufacturer}
                           </span>
                         )}
@@ -185,68 +152,44 @@ export function ProgrammingView({
                     </TD>
                     <TD>
                       {prog?.state === 'done' ? (
-                        <Badge label="PROGRAMMED" color={C.green} />
+                        <Badge label="PROGRAMMED" color="var(--green)" />
                       ) : (
                         <Badge
                           label={d.status.toUpperCase()}
-                          color={(STATUS_COLOR as any)[d.status] || C.dim}
+                          color={
+                            (STATUS_COLOR as any)[d.status] || 'var(--dim)'
+                          }
                         />
                       )}
                     </TD>
                     <TD>
                       {prog ? (
-                        <div
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 8,
-                          }}
-                        >
-                          <div
-                            style={{
-                              flex: 1,
-                              height: 3,
-                              background: '#1a2030',
-                              borderRadius: 2,
-                              overflow: 'hidden',
-                            }}
-                          >
+                        <div className={styles.progressWrap}>
+                          <div className={styles.progressTrack}>
                             <div
+                              className={styles.progressBar}
                               style={{
                                 width: `${prog.pct}%`,
-                                height: '100%',
                                 background:
                                   prog.state === 'done'
-                                    ? C.green
+                                    ? 'var(--green)'
                                     : prog.state === 'error'
-                                      ? C.red
-                                      : C.accent,
-                                transition: 'width 0.15s',
-                                borderRadius: 2,
+                                      ? 'var(--red)'
+                                      : 'var(--accent)',
                               }}
                             />
                           </div>
                           {prog.state !== 'error' && (
-                            <span
-                              style={{
-                                fontSize: 10,
-                                color: C.muted,
-                                width: 32,
-                              }}
-                            >
+                            <span className={styles.progressPct}>
                               {Math.round(prog.pct)}%
                             </span>
                           )}
                           {prog.state === 'error' && (
-                            <span style={{ fontSize: 10, color: C.red }}>
-                              ERR
-                            </span>
+                            <span className={styles.progressErr}>ERR</span>
                           )}
                         </div>
                       ) : (
-                        <span style={{ color: C.dim, fontSize: 10 }}>
-                          —
-                        </span>
+                        <span className={styles.progressDash}>—</span>
                       )}
                     </TD>
                     <TD>
@@ -274,63 +217,32 @@ export function ProgrammingView({
           </table>
         </div>
       </div>
-      <div
-        style={{
-          width: 220,
-          borderLeft: `1px solid ${C.border}`,
-          display: 'flex',
-          flexDirection: 'column',
-          overflow: 'hidden',
-        }}
-      >
-        <div
-          style={{
-            padding: '10px 14px',
-            borderBottom: `1px solid ${C.border}`,
-            fontSize: 9,
-            color: C.dim,
-            letterSpacing: '0.1em',
-          }}
-        >
-          LOG
-        </div>
-        <div
-          style={{
-            flex: 1,
-            overflow: 'auto',
-            padding: '8px 12px',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 3,
-          }}
-        >
+      <div className={styles.sidebar}>
+        <div className={styles.logHeader}>LOG</div>
+        <div className={styles.logBody}>
           {log.length === 0 ? (
-            <span style={{ fontSize: 10, color: C.dim }}>
-              No operations yet
-            </span>
+            <span className={styles.logEmpty}>No operations yet</span>
           ) : (
             log.map((l, i) => (
               <div
                 key={i}
-                style={{
-                  fontSize: 10,
-                  color: l.includes('✓') ? C.green : C.muted,
-                  lineHeight: 1.5,
-                }}
+                className={
+                  l.includes('✓')
+                    ? styles.logEntrySuccess
+                    : styles.logEntryNormal
+                }
               >
                 {l}
               </div>
             ))
           )}
         </div>
-        <div
-          style={{ padding: '10px 12px', borderTop: `1px solid ${C.border}` }}
-        >
+        <div className={styles.logFooter}>
           <Btn
             onClick={() => setLog([])}
-            color={C.dim}
-            bg={C.bg}
-            style={{ width: '100%' }}
+            color="var(--dim)"
+            bg="var(--bg)"
+            className={styles.logFooterBtn}
           >
             Clear Log
           </Btn>

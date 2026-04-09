@@ -94,10 +94,10 @@ function interpTpl(tpl: string | undefined, args: Record<string, any>) {
 interface DeviceParametersProps {
   dev: any;
   projectId: any;
-  C: any;
+  C?: any;
 }
 
-export function DeviceParameters({ dev, projectId, C }: DeviceParametersProps) {
+export function DeviceParameters({ dev, projectId }: DeviceParametersProps) {
   const [mode, setMode] = useState<'view' | 'edit'>('view');
   const [model, setModel] = useState<any>(null);
   const [_loading, setLoading] = useState(false);
@@ -608,10 +608,7 @@ export function DeviceParameters({ dev, projectId, C }: DeviceParametersProps) {
           </button>
         ) : (
           <>
-            <button
-              onClick={() => setMode('view')}
-              className={styles.viewBtn}
-            >
+            <button onClick={() => setMode('view')} className={styles.viewBtn}>
               View
             </button>
             {dirty && (
@@ -623,9 +620,7 @@ export function DeviceParameters({ dev, projectId, C }: DeviceParametersProps) {
                 {saving ? 'Saving…' : 'Save'}
               </button>
             )}
-            {saveErr && (
-              <span className={styles.saveErr}>{saveErr}</span>
-            )}
+            {saveErr && <span className={styles.saveErr}>{saveErr}</span>}
           </>
         )}
       </div>
@@ -655,26 +650,14 @@ export function DeviceParameters({ dev, projectId, C }: DeviceParametersProps) {
                               [grp]: !prev[grp],
                             }))
                           }
-                          style={{
-                            position: 'relative',
-                            padding: '4px 10px 4px 14px',
-                            fontSize: 10,
-                            color: C.muted,
-                            userSelect: 'none',
-                            whiteSpace: 'nowrap',
-                            borderLeft: '2px solid transparent',
-                            cursor: 'pointer',
-                          }}
+                          className={styles.sideGroup}
                         >
                           <span
-                            style={{
-                              position: 'absolute',
-                              left: 5,
-                              top: '50%',
-                              transform: `translateY(-50%) rotate(${collapsed ? '-90deg' : '0deg'})`,
-                              fontSize: 7,
-                              transition: 'transform 0.15s',
-                            }}
+                            className={
+                              collapsed
+                                ? styles.sideGroupArrowCollapsed
+                                : styles.sideGroupArrowExpanded
+                            }
                           >
                             &#9660;
                           </span>
@@ -689,16 +672,12 @@ export function DeviceParameters({ dev, projectId, C }: DeviceParametersProps) {
                     <div
                       key={key}
                       onClick={() => setActiveSection(key)}
-                      style={{
-                        padding: `4px 10px 4px ${paddingLeft}px`,
-                        cursor: 'pointer',
-                        fontSize: 10,
-                        userSelect: 'none',
-                        whiteSpace: 'nowrap',
-                        color: curSec === key ? C.accent : C.muted,
-                        borderLeft: `2px solid ${curSec === key ? C.accent : 'transparent'}`,
-                        background: curSec === key ? C.selected : 'transparent',
-                      }}
+                      className={
+                        curSec === key
+                          ? styles.sideItemActive
+                          : styles.sideItemInactive
+                      }
+                      style={{ padding: `4px 10px 4px ${paddingLeft}px` }}
                     >
                       {lbl}
                     </div>,
@@ -708,12 +687,11 @@ export function DeviceParameters({ dev, projectId, C }: DeviceParametersProps) {
               })()}
             </div>
           )}
-          <div style={{ flex: 1, overflowY: 'auto' }}>
+          <div className={styles.content}>
             <SectionContent
               items={secMap[curSec] || []}
               tableLayout={secTableLayouts[curSec]}
               renderInput={renderInput}
-              C={C}
             />
           </div>
         </div>
@@ -724,10 +702,9 @@ export function DeviceParameters({ dev, projectId, C }: DeviceParametersProps) {
 
 interface SepRowProps {
   item: any;
-  C: any;
 }
 
-function SepRow({ item, C: _C }: SepRowProps) {
+function SepRow({ item }: SepRowProps) {
   if (item.uiHint === 'Headline' && item.text)
     return (
       <tr>
@@ -739,7 +716,7 @@ function SepRow({ item, C: _C }: SepRowProps) {
   if (item.uiHint === 'HorizontalRuler')
     return (
       <tr>
-        <td colSpan={99} style={{ padding: 0 }}>
+        <td colSpan={99} className={styles.sepHrPad}>
           <hr className={styles.sepHr} />
         </td>
       </tr>
@@ -747,7 +724,7 @@ function SepRow({ item, C: _C }: SepRowProps) {
   if (item.uiHint === 'Information' && item.text)
     return (
       <tr>
-        <td colSpan={99} style={{ padding: '6px 8px' }}>
+        <td colSpan={99} className={styles.sepInfoPad}>
           <div className={styles.sepInfo}>
             <span className={styles.sepInfoIcon}>i</span>
             <span>{item.text}</span>
@@ -762,14 +739,12 @@ interface SectionContentProps {
   items: any[];
   tableLayout: any;
   renderInput: (item: any) => React.ReactNode;
-  C: any;
 }
 
 function SectionContent({
   items,
   tableLayout,
   renderInput,
-  C,
 }: SectionContentProps) {
   if (!items?.length) return null;
 
@@ -792,23 +767,15 @@ function SectionContent({
   }
 
   const { rows, columns } = tableLayout || {};
-  const bc = C.border;
 
   return (
     <>
       {runs.map((run: any, ri: number) => {
         if (run.type === 'separator') {
           return (
-            <table
-              key={`s${ri}`}
-              style={{
-                width: '100%',
-                borderCollapse: 'collapse',
-                fontSize: 10,
-              }}
-            >
+            <table key={`s${ri}`} className={styles.paramTable}>
               <tbody>
-                <SepRow item={run.item} C={C} />
+                <SepRow item={run.item} />
               </tbody>
             </table>
           );
@@ -817,38 +784,16 @@ function SectionContent({
           return (
             <table
               key={`t${ri}`}
-              style={{
-                width: '100%',
-                borderCollapse: 'collapse',
-                fontSize: 10,
-                border: `1px solid ${bc}`,
-                margin: '4px 0',
-              }}
+              className={`${styles.tableLayoutTable} ${styles.tableLayoutBorder}`}
             >
               <thead>
                 <tr>
-                  <th
-                    style={{
-                      padding: '4px 8px',
-                      textAlign: 'left',
-                      color: C.dim,
-                      fontSize: 9,
-                      fontWeight: 600,
-                      border: `1px solid ${bc}`,
-                    }}
-                  ></th>
+                  <th className={styles.tableLayoutThBorder}></th>
                   {columns.map((col: any, ci: number) => (
                     <th
                       key={ci}
-                      style={{
-                        padding: '4px 8px',
-                        textAlign: 'left',
-                        color: C.dim,
-                        fontSize: 9,
-                        fontWeight: 600,
-                        width: col.width || 'auto',
-                        border: `1px solid ${bc}`,
-                      }}
+                      className={styles.tableLayoutThBorder}
+                      style={col.width ? { width: col.width } : undefined}
                     >
                       {col.text}
                     </th>
@@ -863,25 +808,11 @@ function SectionContent({
                   if (rowItems.every((x: any) => !x)) return null;
                   return (
                     <tr key={rowIdx}>
-                      <td
-                        style={{
-                          padding: '4px 8px',
-                          color: C.muted,
-                          fontWeight: 500,
-                          border: `1px solid ${bc}`,
-                        }}
-                      >
+                      <td className={styles.tableLayoutRowLabelBorder}>
                         {row.text}
                       </td>
                       {rowItems.map((item: any, ci: number) => (
-                        <td
-                          key={ci}
-                          style={{
-                            padding: '3px 8px',
-                            verticalAlign: 'middle',
-                            border: `1px solid ${bc}`,
-                          }}
-                        >
+                        <td key={ci} className={styles.tableLayoutCellBorder}>
                           {item ? renderInput(item) : null}
                         </td>
                       ))}
@@ -894,30 +825,12 @@ function SectionContent({
         }
         if (run.type === 'params') {
           return (
-            <table
-              key={`p${ri}`}
-              style={{
-                width: '100%',
-                borderCollapse: 'collapse',
-                fontSize: 10,
-              }}
-            >
+            <table key={`p${ri}`} className={styles.paramTable}>
               <tbody>
                 {run.items.map((item: any, i: number) => (
                   <tr key={i}>
-                    <td
-                      style={{
-                        padding: '4px 8px',
-                        color: C.muted,
-                        width: '50%',
-                        verticalAlign: 'middle',
-                      }}
-                    >
-                      {item.label}
-                    </td>
-                    <td style={{ padding: '3px 8px', verticalAlign: 'middle' }}>
-                      {renderInput(item)}
-                    </td>
+                    <td className={styles.paramLabel}>{item.label}</td>
+                    <td className={styles.paramValue}>{renderInput(item)}</td>
                   </tr>
                 ))}
               </tbody>

@@ -40,12 +40,7 @@ interface IconDinBaseProps {
 export function IconDinBase({ size = 13, detail }: IconDinBaseProps) {
   const w = +((size * 10) / 14).toFixed(1);
   return (
-    <svg
-      viewBox="0 0 10 14"
-      width={w}
-      height={size}
-      className={styles.svgIcon}
-    >
+    <svg viewBox="0 0 10 14" width={w} height={size} className={styles.svgIcon}>
       {/* Body */}
       <rect
         x="0.8"

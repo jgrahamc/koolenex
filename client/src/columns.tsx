@@ -50,10 +50,10 @@ export function useColumns(
 interface ColumnPickerProps {
   cols: Column[];
   onChange: (cols: Column[]) => void;
-  C: any;
+  C?: any;
 }
 
-export function ColumnPicker({ cols, onChange, C }: ColumnPickerProps) {
+export function ColumnPicker({ cols, onChange }: ColumnPickerProps) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const dragIdx = useRef<number | null>(null);
@@ -69,8 +69,8 @@ export function ColumnPicker({ cols, onChange, C }: ColumnPickerProps) {
     <div ref={ref} className={styles.pickerWrap}>
       <Btn
         onClick={() => setOpen((o) => !o)}
-        color={open ? C.accent : C.muted}
-        bg={C.surface}
+        color={open ? 'var(--accent)' : 'var(--muted)'}
+        bg="var(--surface)"
         title="Configure columns"
       >
         ⋮ Cols

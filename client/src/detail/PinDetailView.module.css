@@ -1,0 +1,378 @@
+/* PinDetailView.module.css — CSS Modules for PinDetailView.tsx */
+
+.scrollContainer {
+  flex: 1;
+  overflow: auto;
+}
+
+/* SpacePanel */
+.spacePanel {
+  padding: 24px;
+}
+
+.spacePanelHeader {
+  margin-bottom: 20px;
+}
+
+.spaceTypeRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.spaceTypeIcon {
+  color: var(--amber);
+}
+
+.spaceTypeLabel {
+  font-size: 9px;
+  color: var(--amber);
+  letter-spacing: 0.1em;
+}
+
+.spaceNameEdit {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.spaceNameInput {
+  font-family: 'DM Mono', monospace;
+  font-weight: 700;
+  font-size: 20px;
+  color: var(--text);
+  background: var(--input-bg);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  padding: 2px 8px;
+  flex: 1;
+}
+
+.spaceName {
+  font-family: 'DM Mono', monospace;
+  font-weight: 700;
+  font-size: 20px;
+  color: var(--text);
+}
+
+.spaceNameClickable {
+  composes: spaceName;
+  cursor: text;
+}
+
+.spaceStatsRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.spaceDeviceCount {
+  font-size: 11px;
+  color: var(--dim);
+}
+
+.spaceTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 10px;
+}
+
+/* DeviceGroupPanel */
+.groupPanel {
+  padding: 24px;
+}
+
+.groupHeader {
+  margin-bottom: 20px;
+}
+
+.groupTypeLabel {
+  font-size: 9px;
+  color: var(--amber);
+  letter-spacing: 0.1em;
+  margin-bottom: 4px;
+}
+
+.groupTitle {
+  font-family: 'DM Mono', monospace;
+  font-weight: 700;
+  font-size: 20px;
+  color: var(--text);
+}
+
+.groupStatsRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  flex-wrap: wrap;
+}
+
+.groupDeviceCount {
+  font-size: 11px;
+  color: var(--dim);
+}
+
+.groupSep {
+  color: var(--border2);
+}
+
+.groupTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 10px;
+}
+
+.selectCheck {
+  cursor: pointer;
+  accent-color: var(--accent);
+}
+
+.deviceAddr {
+  color: var(--accent);
+  font-family: monospace;
+}
+
+.normalText {
+  color: var(--text);
+}
+
+.amberText {
+  color: var(--amber);
+}
+
+.amberMono {
+  color: var(--amber);
+  font-family: monospace;
+  font-size: 10px;
+}
+
+.dimText {
+  color: var(--dim);
+}
+
+.dimMono {
+  color: var(--dim);
+  font-family: monospace;
+}
+
+.mutedText {
+  color: var(--muted);
+}
+
+/* MultiComparePanel */
+.multiPanel {
+  padding: 20px;
+}
+
+.multiHeader {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+
+.multiDevCard {
+  flex: 1 1 0;
+  min-width: 100px;
+  padding: 8px 12px;
+  background: var(--surface);
+  border-radius: 6px;
+}
+
+.multiDevCardClickable {
+  composes: multiDevCard;
+  cursor: pointer;
+}
+
+.multiDevAddr {
+  font-family: monospace;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.multiDevName {
+  font-size: 10px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+.sectionBlock {
+  margin-bottom: 24px;
+}
+
+.sectionHeaderRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.sectionLabel {
+  font-size: 10px;
+  color: var(--dim);
+  letter-spacing: 0.08em;
+}
+
+.sectionDiffCount {
+  font-size: 10px;
+  color: var(--dim);
+}
+
+.emptyRow {
+  font-size: 11px;
+  color: var(--dim);
+  padding: 8px 0;
+}
+
+.scrollTable {
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.scrollTableTall {
+  composes: scrollTable;
+  max-height: 400px;
+}
+
+.scrollTableMed {
+  composes: scrollTable;
+  max-height: 300px;
+}
+
+.fullTable {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+/* TH2/TD2 local overrides */
+.th2 {
+  padding: 5px 8px;
+  text-align: left;
+  font-size: 9px;
+  color: var(--dim);
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  position: sticky;
+  top: 0;
+}
+
+.td2 {
+  padding: 4px 8px;
+  font-size: 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.td2Diff {
+  composes: td2;
+  background: color-mix(in srgb, var(--amber) 9%, transparent);
+}
+
+.tdDash {
+  color: var(--dim);
+}
+
+.amberValue {
+  color: var(--amber);
+}
+
+.greenCheck {
+  color: var(--green);
+}
+
+.dimCheck {
+  color: var(--dim);
+}
+
+.purpleAddr {
+  font-family: monospace;
+  color: var(--purple);
+}
+
+.monoAddr {
+  font-family: monospace;
+  color: var(--dim);
+}
+
+.identicalMsg {
+  font-size: 11px;
+  color: var(--dim);
+  padding: 8px 0;
+}
+.spacePathDim {
+  color: var(--dim);
+  font-size: 10px;
+}
+.tdCenter {
+  text-align: center;
+}
+.sectionLabelMb {
+  composes: sectionLabel;
+  margin-bottom: 8px;
+}
+.td2Muted {
+  color: var(--muted);
+}
+.td2Dim {
+  color: var(--dim);
+}
+.th2Center {
+  width: 50px;
+  text-align: center;
+}
+
+/* Small button overrides */
+.btnSmall {
+  font-size: 9px;
+  padding: 2px 8px;
+}
+.btnXSmall {
+  font-size: 9px;
+  padding: 1px 6px;
+}
+
+/* Static TH widths */
+.thAddrWide {
+  width: 80px;
+}
+.thCheckbox {
+  width: 30px;
+}
+.thMa {
+  width: 50px;
+}
+.thMm {
+  width: 50px;
+}
+.thSection {
+  width: 18%;
+}
+.thNameCol {
+  width: 20%;
+}
+.thObjNum {
+  width: 36px;
+}
+.thGaAddr {
+  width: 100px;
+}
+.thDpt {
+  width: 70px;
+}
+.thPresence {
+  width: 50px;
+  text-align: center;
+}
+
+/* Selected row highlight */
+.rowSelected {
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+}
+.rowNormal {
+  background: transparent;
+}

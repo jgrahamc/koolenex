@@ -1,0 +1,642 @@
+/* DevicePinPanel.module.css — CSS Modules for DevicePinPanel.tsx */
+
+.panel {
+  padding: 24px;
+}
+
+.inner {
+  width: 100%;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.headerFlex {
+  flex: 1;
+}
+
+.devAddress {
+  font-family: 'DM Mono', monospace;
+  font-weight: 700;
+  font-size: 20px;
+  color: var(--text);
+}
+
+.devAddressClickable {
+  composes: devAddress;
+  cursor: pointer;
+}
+
+.editRow {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+
+.editNameInput {
+  background: var(--input-bg);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  padding: 4px 8px;
+  color: var(--text);
+  font-size: 12px;
+  font-family: monospace;
+  flex: 1;
+  min-width: 120px;
+}
+
+.editTypeSelect {
+  background: var(--input-bg);
+  border: 1px solid var(--border2);
+  border-radius: 4px;
+  padding: 4px 8px;
+  color: var(--text);
+  font-size: 11px;
+  font-family: inherit;
+}
+
+.devName {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+.devNameClickable {
+  composes: devName;
+  cursor: pointer;
+}
+
+.spaceRow {
+  font-size: 10px;
+  margin-top: 2px;
+}
+
+.badgeWrap {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.actionBtn {
+  font-size: 9px;
+  padding: 2px 6px;
+  border-radius: 10px;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+}
+
+.pingBtn {
+  composes: actionBtn;
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
+  color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 19%, transparent);
+}
+
+.pingBtnActive {
+  composes: pingBtn;
+  cursor: pointer;
+}
+
+.pingBtnDisabled {
+  composes: pingBtn;
+  cursor: default;
+}
+
+.identifyBtn {
+  composes: actionBtn;
+  background: color-mix(in srgb, var(--amber) 9%, transparent);
+  color: var(--amber);
+  border: 1px solid color-mix(in srgb, var(--amber) 19%, transparent);
+}
+
+.identifyBtnActive {
+  composes: identifyBtn;
+  cursor: pointer;
+}
+
+.identifyBtnDisabled {
+  composes: identifyBtn;
+  cursor: default;
+}
+
+.identifyDot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  margin-right: 5px;
+}
+
+.identifyDotActive {
+  composes: identifyDot;
+  background: var(--amber);
+  box-shadow: 0 0 6px 2px var(--amber);
+  animation: pulse 0.5s ease-in-out infinite alternate;
+}
+
+.identifyDotIdle {
+  composes: identifyDot;
+  background: color-mix(in srgb, var(--amber) 33%, transparent);
+  border: 1px solid color-mix(in srgb, var(--amber) 25%, transparent);
+}
+
+@keyframes pulse {
+  0% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0.35;
+  }
+}
+
+.scanBtn {
+  composes: actionBtn;
+  background: color-mix(in srgb, var(--green) 9%, transparent);
+  color: var(--green);
+  border: 1px solid color-mix(in srgb, var(--green) 19%, transparent);
+}
+
+.scanBtnActive {
+  composes: scanBtn;
+  cursor: pointer;
+}
+
+.scanBtnDisabled {
+  composes: scanBtn;
+  cursor: default;
+}
+
+.duplicateBtn {
+  composes: actionBtn;
+  background: color-mix(in srgb, var(--green) 9%, transparent);
+  color: var(--green);
+  border: 1px solid color-mix(in srgb, var(--green) 19%, transparent);
+  cursor: pointer;
+}
+
+/* Bus info section */
+.busInfoSection {
+  margin-bottom: 16px;
+}
+
+.busInfoLabel {
+  font-size: 10px;
+  color: var(--dim);
+  letter-spacing: 0.08em;
+  margin-bottom: 6px;
+}
+
+.busInfoCard {
+  background: var(--surface);
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  padding: 8px 12px;
+}
+
+.busInfoRow {
+  display: flex;
+  font-size: 11px;
+  margin-bottom: 4px;
+}
+
+.busInfoKey {
+  color: var(--dim);
+  width: 130px;
+  flex-shrink: 0;
+}
+
+.busInfoValue {
+  color: var(--muted);
+  font-family: monospace;
+  font-size: 10px;
+}
+
+.busInfoError {
+  margin-bottom: 16px;
+  font-size: 11px;
+  color: var(--red);
+}
+
+/* Overview grid */
+.overviewGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.infoCard {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 8px 12px;
+}
+
+.infoCardClickable {
+  composes: infoCard;
+  cursor: pointer;
+}
+
+.infoCardLabel {
+  font-size: 9px;
+  color: var(--dim);
+  margin-bottom: 3px;
+}
+
+.infoCardValue {
+  font-size: 10px;
+  color: var(--text);
+}
+
+.infoCardValueLink {
+  font-size: 10px;
+  color: var(--amber);
+}
+
+/* Tabs content */
+.emptyTab {
+  font-size: 11px;
+  color: var(--dim);
+  padding: 24px 0;
+  text-align: center;
+}
+
+.gaTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 10px;
+  margin-bottom: 20px;
+}
+
+.coTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 10px;
+}
+
+/* Com objects cells */
+.dimText {
+  color: var(--dim);
+}
+
+.mutedText {
+  color: var(--muted);
+}
+
+.normalText {
+  color: var(--text);
+}
+
+.dimMono {
+  color: var(--dim);
+  font-family: monospace;
+}
+
+.dimNoWrap {
+  color: var(--dim);
+  white-space: nowrap;
+}
+
+.gaAddrCell {
+  color: var(--purple);
+  font-family: monospace;
+}
+
+.gaCellWrap {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.gaRow {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.reorderCol {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.reorderArrow {
+  color: var(--dim);
+  font-size: 7px;
+  cursor: pointer;
+}
+
+.gaPinAddr {
+  color: var(--purple);
+  font-family: monospace;
+  flex-shrink: 0;
+}
+
+.gaSubName {
+  color: var(--dim);
+  font-size: 9px;
+}
+
+.gaRemoveBtn {
+  color: var(--dim);
+  font-size: 8px;
+  cursor: pointer;
+  margin-left: auto;
+}
+
+.gaLinkBtn {
+  color: var(--green);
+  font-size: 8px;
+  cursor: pointer;
+  opacity: 0.7;
+}
+
+/* GA adder */
+.gaAdderWrap {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 2px;
+}
+
+.gaAdderRow {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.gaAdderInput {
+  background: var(--input-bg);
+  border: 1px solid var(--border2);
+  border-radius: 3px;
+  padding: 2px 6px;
+  color: var(--text);
+  font-size: 9px;
+  font-family: inherit;
+  width: 120px;
+}
+
+.gaAdderCancel {
+  color: var(--dim);
+  font-size: 9px;
+  cursor: pointer;
+}
+
+.gaAdderDropdown {
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  max-height: 100px;
+  overflow: auto;
+}
+
+.gaAdderItem {
+  display: flex;
+  gap: 4px;
+  padding: 2px 6px;
+  cursor: pointer;
+  font-size: 9px;
+  align-items: center;
+}
+
+.gaAdderAddr {
+  color: var(--purple);
+  font-family: monospace;
+  flex-shrink: 0;
+}
+
+.gaAdderName {
+  color: var(--dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.gaAdderEmpty {
+  font-size: 9px;
+  color: var(--dim);
+  padding: 2px 6px;
+}
+
+/* Duplicate modal */
+.modalOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+}
+
+.modalBox {
+  background: var(--surface);
+  border: 1px solid var(--border2);
+  border-radius: 8px;
+  padding: 20px;
+  width: 400px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+.modalTitle {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+
+.modalSubtitle {
+  font-size: 10px;
+  color: var(--dim);
+  margin-bottom: 14px;
+}
+
+.fieldLabel {
+  font-size: 9px;
+  color: var(--dim);
+  letter-spacing: 0.08em;
+  margin-bottom: 4px;
+}
+
+.inputField {
+  background: var(--input-bg);
+  border: 1px solid var(--border2);
+  border-radius: 4px;
+  padding: 5px 8px;
+  color: var(--text);
+  font-size: 11px;
+  font-family: inherit;
+}
+
+.nameInput {
+  composes: inputField;
+  width: 100%;
+  margin-bottom: 14px;
+}
+
+.addressWrap {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-bottom: 14px;
+}
+
+.addrInput {
+  composes: inputField;
+  width: 50px;
+  text-align: center;
+}
+
+.addrInputWide {
+  composes: inputField;
+  width: 60px;
+  text-align: center;
+}
+
+.addrDot {
+  color: var(--dim);
+}
+
+.addrConflict {
+  color: var(--red);
+  margin-left: 8px;
+}
+
+.selectField {
+  composes: inputField;
+  width: 100%;
+  margin-bottom: 14px;
+}
+
+.error {
+  font-size: 10px;
+  color: var(--red);
+  margin-bottom: 8px;
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+/* Same device section */
+.sameDevSection {
+  margin-top: 4px;
+  margin-bottom: 20px;
+}
+
+.sameDevHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.sameDevLabel {
+  font-size: 10px;
+  color: var(--dim);
+  letter-spacing: 0.08em;
+}
+
+.sameDevList {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sameDevRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border-radius: 4px;
+}
+
+.sameDevAddr {
+  color: var(--accent);
+  font-family: monospace;
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+.sameDevName {
+  color: var(--muted);
+  font-size: 11px;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.compareBtn {
+  font-size: 9px;
+  padding: 2px 7px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--purple) 9%, transparent);
+  color: var(--purple);
+  border: 1px solid color-mix(in srgb, var(--purple) 19%, transparent);
+  cursor: pointer;
+  letter-spacing: 0.06em;
+  flex-shrink: 0;
+}
+
+.selectCheck {
+  cursor: pointer;
+  accent-color: var(--accent);
+  flex-shrink: 0;
+}
+.compareBtnSmall {
+  font-size: 9px;
+  padding: 2px 8px;
+}
+.thGaAddr {
+  width: 90px;
+}
+.thGaDpt {
+  width: 80px;
+}
+.thCoNum {
+  width: 40px;
+}
+.thCoChannel {
+  width: 120px;
+}
+.thCoDpt {
+  width: 100px;
+}
+.thCoSizeNoWrap {
+  width: 90px;
+  white-space: nowrap;
+}
+.thCoFlags {
+  width: 60px;
+}
+.sameDevRowSelected {
+  composes: sameDevRow;
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent);
+}
+.sameDevRowDefault {
+  composes: sameDevRow;
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+.spacePathDim {
+  color: var(--dim);
+}
+.spacePathSmall {
+  font-size: 10px;
+  color: var(--dim);
+  flex-shrink: 0;
+}

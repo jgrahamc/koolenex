@@ -11,17 +11,14 @@ interface GaAddrCellProps {
 function GaAddrCell({ addr, otherAddr }: GaAddrCellProps) {
   if (!addr)
     return (
-      <span className={styles.dimDash} style={{ fontFamily: 'monospace' }}>
-        &mdash;
-      </span>
+      <span className={`${styles.dimDash} ${styles.gaAddrMono}`}>&mdash;</span>
     );
   if (!otherAddr || addr === otherAddr) {
     return (
       <span
         className={styles.gaAddrMono}
         style={{
-          color:
-            addr !== otherAddr ? 'var(--amber)' : 'var(--muted)',
+          color: addr !== otherAddr ? 'var(--amber)' : 'var(--muted)',
         }}
       >
         {addr}
@@ -53,15 +50,10 @@ interface ComparePanelProps {
   addrA: string;
   addrB: string;
   data: any;
-  C: any;
+  C?: any;
 }
 
-export function ComparePanel({
-  addrA,
-  addrB,
-  data,
-  C: _C,
-}: ComparePanelProps) {
+export function ComparePanel({ addrA, addrB, data }: ComparePanelProps) {
   const pin = useContext(PinContext) as any;
   const dpt = useDpt();
   const { devices = [], gas = [], comObjects = [] } = data;
@@ -122,45 +114,30 @@ export function ComparePanel({
   const diffBg = 'color-mix(in srgb, var(--amber) 9%, transparent)';
   const onlyBg = 'color-mix(in srgb, var(--red) 7%, transparent)';
 
-  const colA = 'var(--accent)';
-  const colB = 'var(--purple)';
-
   return (
     <div className={styles.panel}>
       {/* Header */}
       <div className={styles.headerRow}>
-        <div
-          className={styles.deviceCard}
-          style={{ border: `2px solid color-mix(in srgb, var(--accent) 25%, transparent)` }}
-        >
+        <div className={`${styles.deviceCard} ${styles.deviceCardA}`}>
           <div
             onClick={pin ? () => pin('device', addrA) : undefined}
-            className={pin ? styles.deviceAddrClickable : styles.deviceAddr}
-            style={{ color: colA }}
+            className={`${pin ? styles.deviceAddrClickable : styles.deviceAddr} ${styles.colorA}`}
           >
             {addrA}
           </div>
           <div className={styles.deviceName}>{devA.name}</div>
-          {devA.model && (
-            <div className={styles.deviceModel}>{devA.model}</div>
-          )}
+          {devA.model && <div className={styles.deviceModel}>{devA.model}</div>}
         </div>
         <div className={styles.arrowSep}>{'⇄'}</div>
-        <div
-          className={styles.deviceCard}
-          style={{ border: `2px solid color-mix(in srgb, var(--purple) 25%, transparent)` }}
-        >
+        <div className={`${styles.deviceCard} ${styles.deviceCardB}`}>
           <div
             onClick={pin ? () => pin('device', addrB) : undefined}
-            className={pin ? styles.deviceAddrClickable : styles.deviceAddr}
-            style={{ color: colB }}
+            className={`${pin ? styles.deviceAddrClickable : styles.deviceAddr} ${styles.colorB}`}
           >
             {addrB}
           </div>
           <div className={styles.deviceName}>{devB.name}</div>
-          {devB.model && (
-            <div className={styles.deviceModel}>{devB.model}</div>
-          )}
+          {devB.model && <div className={styles.deviceModel}>{devB.model}</div>}
         </div>
       </div>
 
@@ -171,18 +148,10 @@ export function ComparePanel({
           <table className={styles.table}>
             <thead>
               <tr>
-                <th className={styles.th} style={{ width: '22%' }}>
-                  SECTION
-                </th>
-                <th className={styles.th} style={{ width: '26%' }}>
-                  NAME
-                </th>
-                <th className={styles.th} style={{ color: colA }}>
-                  VALUE &mdash; {addrA}
-                </th>
-                <th className={styles.th} style={{ color: colB }}>
-                  VALUE &mdash; {addrB}
-                </th>
+                <th className={`${styles.th} ${styles.thSection}`}>SECTION</th>
+                <th className={`${styles.th} ${styles.thName}`}>NAME</th>
+                <th className={styles.thColA}>VALUE &mdash; {addrA}</th>
+                <th className={styles.thColB}>VALUE &mdash; {addrB}</th>
               </tr>
             </thead>
             <tbody>
@@ -196,26 +165,23 @@ export function ComparePanel({
                 return (
                   <tr key={k}>
                     <td
-                      className={styles.td}
-                      style={{ background: bg, color: 'var(--dim)' }}
+                      className={`${styles.td} ${styles.tdDim}`}
+                      style={{ background: bg }}
                     >
                       {section || ''}
                     </td>
                     <td
-                      className={styles.td}
-                      style={{ background: bg, color: 'var(--muted)' }}
+                      className={`${styles.td} ${styles.tdMuted}`}
+                      style={{ background: bg }}
                     >
                       {name}
                     </td>
                     <td className={styles.td} style={{ background: bg }}>
                       {pA ? (
                         <span
-                          style={{
-                            color:
-                              diff || onlyOne
-                                ? 'var(--amber)'
-                                : 'var(--text)',
-                          }}
+                          className={
+                            diff || onlyOne ? styles.tdAmber : styles.tdText
+                          }
                         >
                           {pA.value}
                         </span>
@@ -226,12 +192,9 @@ export function ComparePanel({
                     <td className={styles.td} style={{ background: bg }}>
                       {pB ? (
                         <span
-                          style={{
-                            color:
-                              diff || onlyOne
-                                ? 'var(--amber)'
-                                : 'var(--text)',
-                          }}
+                          className={
+                            diff || onlyOne ? styles.tdAmber : styles.tdText
+                          }
                         >
                           {pB.value}
                         </span>
@@ -254,23 +217,13 @@ export function ComparePanel({
           <table className={styles.table}>
             <thead>
               <tr>
-                <th className={styles.th} style={{ width: 36 }}>
-                  #
-                </th>
+                <th className={`${styles.th} ${styles.thObjNum}`}>#</th>
                 <th className={styles.th}>NAME</th>
                 <th className={styles.th}>OBJECT FUNCTION</th>
-                <th className={styles.th} style={{ width: 70 }}>
-                  DPT
-                </th>
-                <th className={styles.th} style={{ width: 60 }}>
-                  FLAGS
-                </th>
-                <th className={styles.th} style={{ color: colA }}>
-                  GA &mdash; {addrA}
-                </th>
-                <th className={styles.th} style={{ color: colB }}>
-                  GA &mdash; {addrB}
-                </th>
+                <th className={`${styles.th} ${styles.thDpt}`}>DPT</th>
+                <th className={`${styles.th} ${styles.thFlags}`}>FLAGS</th>
+                <th className={styles.thColA}>GA &mdash; {addrA}</th>
+                <th className={styles.thColB}>GA &mdash; {addrB}</th>
               </tr>
             </thead>
             <tbody>
@@ -295,32 +248,26 @@ export function ComparePanel({
                 return (
                   <tr key={num}>
                     <td
-                      className={styles.td}
-                      style={{ background: rowBg, color: 'var(--dim)' }}
+                      className={`${styles.td} ${styles.tdDim}`}
+                      style={{ background: rowBg }}
                     >
                       {num}
                     </td>
                     <td
-                      className={styles.td}
-                      style={{ background: rowBg, color: 'var(--muted)' }}
+                      className={`${styles.td} ${styles.tdMuted}`}
+                      style={{ background: rowBg }}
                     >
                       {co.name || '—'}
                     </td>
                     <td
-                      className={styles.td}
-                      style={{ background: rowBg, color: 'var(--dim)' }}
+                      className={`${styles.td} ${styles.tdDim}`}
+                      style={{ background: rowBg }}
                     >
                       {co.function_text || '—'}
                     </td>
                     <td className={styles.td} style={{ background: rowBg }}>
                       <span
-                        className={styles.monoCell}
-                        style={{
-                          color:
-                            coA?.dpt !== coB?.dpt
-                              ? 'var(--amber)'
-                              : 'var(--dim)',
-                        }}
+                        className={`${styles.monoCell} ${coA?.dpt !== coB?.dpt ? styles.tdAmber : styles.tdDim}`}
                         title={dpt.hover(co.dpt)}
                       >
                         {dpt.display(co.dpt)}
@@ -328,13 +275,7 @@ export function ComparePanel({
                     </td>
                     <td className={styles.td} style={{ background: rowBg }}>
                       <span
-                        className={styles.monoCell}
-                        style={{
-                          color:
-                            coA?.flags !== coB?.flags
-                              ? 'var(--amber)'
-                              : 'var(--dim)',
-                        }}
+                        className={`${styles.monoCell} ${coA?.flags !== coB?.flags ? styles.tdAmber : styles.tdDim}`}
                       >
                         {co.flags}
                       </span>
@@ -382,23 +323,13 @@ export function ComparePanel({
           <table className={styles.table}>
             <thead>
               <tr>
-                <th className={styles.th} style={{ width: 100 }}>
-                  ADDRESS
-                </th>
+                <th className={`${styles.th} ${styles.thGaAddr}`}>ADDRESS</th>
                 <th className={styles.th}>NAME</th>
-                <th className={styles.th} style={{ width: 70 }}>
-                  DPT
-                </th>
-                <th
-                  className={styles.th}
-                  style={{ width: 60, color: colA, textAlign: 'center' }}
-                >
+                <th className={`${styles.th} ${styles.thGaDpt}`}>DPT</th>
+                <th className={`${styles.thCenterColA} ${styles.thPresence}`}>
                   {addrA}
                 </th>
-                <th
-                  className={styles.th}
-                  style={{ width: 60, color: colB, textAlign: 'center' }}
-                >
+                <th className={`${styles.thCenterColB} ${styles.thPresence}`}>
                   {addrB}
                 </th>
               </tr>
@@ -416,60 +347,41 @@ export function ComparePanel({
                       <PinAddr
                         address={gaAddr}
                         wtype="ga"
-                        style={{
-                          fontFamily: 'monospace',
-                          color: 'var(--purple)',
-                        }}
+                        className={styles.gaAddrPurple}
                       >
                         {gaAddr}
                       </PinAddr>
                     </td>
                     <td
-                      className={styles.td}
-                      style={{
-                        background: rowBg,
-                        color: 'var(--muted)',
-                      }}
+                      className={`${styles.td} ${styles.tdMuted}`}
+                      style={{ background: rowBg }}
                     >
                       {gaInfo?.name}
                     </td>
                     <td className={styles.td} style={{ background: rowBg }}>
                       <span
-                        style={{
-                          fontFamily: 'monospace',
-                          color: 'var(--dim)',
-                        }}
+                        className={styles.dptMono}
                         title={dpt.hover(gaInfo?.dpt)}
                       >
                         {dpt.display(gaInfo?.dpt)}
                       </span>
                     </td>
                     <td
-                      className={styles.td}
-                      style={{
-                        background: rowBg,
-                        textAlign: 'center',
-                      }}
+                      className={`${styles.td} ${styles.tdCenter}`}
+                      style={{ background: rowBg }}
                     >
                       <span
-                        style={{
-                          color: inA ? 'var(--green)' : 'var(--dim)',
-                        }}
+                        className={inA ? styles.checkGreen : styles.checkDim}
                       >
                         {inA ? '✓' : '—'}
                       </span>
                     </td>
                     <td
-                      className={styles.td}
-                      style={{
-                        background: rowBg,
-                        textAlign: 'center',
-                      }}
+                      className={`${styles.td} ${styles.tdCenter}`}
+                      style={{ background: rowBg }}
                     >
                       <span
-                        style={{
-                          color: inB ? 'var(--green)' : 'var(--dim)',
-                        }}
+                        className={inB ? styles.checkGreen : styles.checkDim}
                       >
                         {inB ? '✓' : '—'}
                       </span>

@@ -1,5 +1,4 @@
 import { useState, useEffect, useMemo } from 'react';
-import { useC } from '../theme.ts';
 import { useDpt } from '../contexts.ts';
 import { localizedModel } from '../dpt.ts';
 import {
@@ -14,13 +13,13 @@ import {
 } from '../primitives.tsx';
 import { useColumns, ColumnPicker, dlCSV } from '../columns.tsx';
 import { DeviceTypeIcon } from '../icons.tsx';
+import styles from './ComObjectsView.module.css';
 
 interface ComObjectsViewProps {
   data: any;
 }
 
 export function ComObjectsView({ data }: ComObjectsViewProps) {
-  const C = useC();
   const dpt = useDpt();
   const [search, setSearch] = useState(
     () => localStorage.getItem('knx-co-search') || '',
@@ -119,19 +118,16 @@ export function ComObjectsView({ data }: ComObjectsViewProps) {
     );
 
   const flagColor = (f: string) =>
-    f === 'T' ? C.green : f === 'W' ? C.accent : f === 'R' ? C.amber : C.muted;
-  const dirCol = (d: string) =>
-    d === 'output' ? C.green : d === 'input' ? C.amber : C.muted;
+    f === 'T'
+      ? 'var(--green)'
+      : f === 'W'
+        ? 'var(--accent)'
+        : f === 'R'
+          ? 'var(--amber)'
+          : 'var(--muted)';
 
   return (
-    <div
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        flex: 1,
-        overflow: 'hidden',
-      }}
-    >
+    <div className={styles.root}>
       <SectionHeader
         title="Group Objects"
         count={filtered.length}
@@ -146,15 +142,7 @@ export function ComObjectsView({ data }: ComObjectsViewProps) {
             key="dev"
             value={filterDevice}
             onChange={(e) => setFilterDevice(e.target.value)}
-            style={{
-              background: C.surface,
-              border: `1px solid ${C.border2}`,
-              borderRadius: 4,
-              padding: '5px 8px',
-              color: C.text,
-              fontSize: 11,
-              fontFamily: 'inherit',
-            }}
+            className={styles.filterSelect}
           >
             <option value="all">All Devices</option>
             {devices.map((d: any) => (
@@ -163,67 +151,51 @@ export function ComObjectsView({ data }: ComObjectsViewProps) {
               </option>
             ))}
           </select>,
-          <ColumnPicker key="cp" cols={coCols} onChange={saveCoCols} C={C} />,
-          <Btn key="csv" onClick={exportCOCSV} color={C.muted} bg={C.surface}>
+          <ColumnPicker key="cp" cols={coCols} onChange={saveCoCols} />,
+          <Btn
+            key="csv"
+            onClick={exportCOCSV}
+            color="var(--muted)"
+            bg="var(--surface)"
+          >
             ↓ CSV
           </Btn>,
         ]}
       />
-      <div style={{ overflow: 'auto', flex: 1 }}>
+      <div className={styles.scrollArea}>
         {groupedCOs.map(({ addr, cos }) => {
           const dev = devMap2[addr];
           const isCollapsed = !!collapsedDevs[addr];
           return (
             <div key={`dev-${addr}`}>
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 8,
-                  padding: '5px 14px 5px 28px',
-                  background: C.hover,
-                  borderBottom: `1px solid ${C.border}`,
-                }}
-              >
+              <div className={styles.devGroupHeader}>
                 <span
                   onClick={(e) => {
                     e.stopPropagation();
                     setCollapsedDevs((p) => ({ ...p, [addr]: !p[addr] }));
                   }}
-                  style={{
-                    fontSize: 9,
-                    color: C.dim,
-                    width: 14,
-                    cursor: 'pointer',
-                    userSelect: 'none',
-                  }}
+                  className={styles.chevron}
                 >
                   {isCollapsed ? '▸' : '▾'}
                 </span>
                 <PinAddr
                   address={addr}
                   wtype="device"
-                  style={{
-                    color: C.accent,
-                    fontFamily: 'monospace',
-                    fontSize: 10,
-                  }}
+                  className={styles.accentPinAddr}
                 />
                 {dev && (
                   <>
                     <DeviceTypeIcon
                       type={dev.device_type}
                       size={12}
-                      style={{ color: C.muted }}
+                      style={{ color: 'var(--muted)' }}
                     />
-                    <span style={{ color: C.text, fontSize: 10 }}>
-                      {dev.name}
-                    </span>
+                    <span className={styles.devName}>{dev.name}</span>
                     {dev.manufacturer && (
                       <PinAddr
                         address={dev.manufacturer}
                         wtype="manufacturer"
-                        style={{ color: C.amber, fontSize: 10 }}
+                        className={styles.amberPinAddr}
                       >
                         {dev.manufacturer}
                       </PinAddr>
@@ -232,23 +204,17 @@ export function ComObjectsView({ data }: ComObjectsViewProps) {
                       <PinAddr
                         address={dev.model}
                         wtype="model"
-                        style={{
-                          color: C.amber,
-                          fontFamily: 'monospace',
-                          fontSize: 10,
-                        }}
+                        className={styles.modelPinAddr}
                       >
                         {localizedModel(dev)}
                       </PinAddr>
                     )}
                   </>
                 )}
-                <span style={{ color: C.dim, fontSize: 10 }}>
-                  · {cos.length}
-                </span>
+                <span className={styles.count}>· {cos.length}</span>
               </div>
               {!isCollapsed && (
-                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <table className={styles.table}>
                   <thead>
                     <tr>
                       {coCols
@@ -256,22 +222,22 @@ export function ComObjectsView({ data }: ComObjectsViewProps) {
                         .map((col: any) => (
                           <TH
                             key={col.id}
-                            style={
+                            className={
                               col.id === 'object_number'
-                                ? { width: 40 }
+                                ? styles.thObjNum
                                 : col.id === 'channel'
-                                  ? { width: 70 }
+                                  ? styles.thChannel
                                   : col.id === 'dpt'
-                                    ? { width: 130 }
+                                    ? styles.thDpt
                                     : col.id === 'object_size'
-                                      ? { width: 70, whiteSpace: 'nowrap' }
+                                      ? styles.thSizeNoWrap
                                       : col.id === 'ga_address'
-                                        ? { width: 90 }
+                                        ? styles.thGaAddr
                                         : col.id === 'flags'
-                                          ? { width: 70 }
+                                          ? styles.thFlags
                                           : col.id === 'direction'
-                                            ? { width: 70 }
-                                            : {}
+                                            ? styles.thDirection
+                                            : undefined
                             }
                           >
                             {col.label.toUpperCase().replace('GAS', 'GAs')}
@@ -284,20 +250,14 @@ export function ComObjectsView({ data }: ComObjectsViewProps) {
                       <tr key={co.id} className="rh">
                         {ccv('object_number') && (
                           <TD>
-                            <span style={{ color: C.dim }}>
+                            <span className={styles.textDim}>
                               {co.object_number}
                             </span>
                           </TD>
                         )}
                         {ccv('channel') && (
                           <TD>
-                            <span
-                              style={{
-                                color: C.accent,
-                                fontSize: 10,
-                                fontFamily: 'monospace',
-                              }}
-                            >
+                            <span className={styles.channelMono}>
                               {co.channel || '—'}
                             </span>
                           </TD>
@@ -310,11 +270,7 @@ export function ComObjectsView({ data }: ComObjectsViewProps) {
                         {ccv('dpt') && (
                           <TD>
                             <span
-                              style={{
-                                color: C.muted,
-                                fontSize: 10,
-                                fontFamily: 'monospace',
-                              }}
+                              className={styles.dptMono}
                               title={dpt.hover(
                                 co.dpt ||
                                   coGAs(co)
@@ -333,13 +289,7 @@ export function ComObjectsView({ data }: ComObjectsViewProps) {
                         )}
                         {ccv('object_size') && (
                           <TD>
-                            <span
-                              style={{
-                                color: C.dim,
-                                fontSize: 10,
-                                whiteSpace: 'nowrap',
-                              }}
-                            >
+                            <span className={styles.sizeSmall}>
                               {co.object_size || '—'}
                             </span>
                           </TD>
@@ -347,39 +297,24 @@ export function ComObjectsView({ data }: ComObjectsViewProps) {
                         {ccv('ga_address') && (
                           <TD>
                             {coGAs(co).length ? (
-                              <span
-                                style={{
-                                  display: 'flex',
-                                  flexDirection: 'column',
-                                  gap: 2,
-                                }}
-                              >
+                              <span className={styles.gaCol}>
                                 {coGAs(co).map((ga: string) => (
                                   <PinAddr
                                     key={ga}
                                     address={ga}
                                     wtype="ga"
-                                    style={{
-                                      color: C.purple,
-                                      fontFamily: 'monospace',
-                                    }}
+                                    className={styles.gaPinAddr}
                                   />
                                 ))}
                               </span>
                             ) : (
-                              <span style={{ color: C.dim }}>—</span>
+                              <span className={styles.textDim}>—</span>
                             )}
                           </TD>
                         )}
                         {ccv('flags') && (
                           <TD>
-                            <span
-                              style={{
-                                fontFamily: 'monospace',
-                                fontSize: 11,
-                                letterSpacing: '0.05em',
-                              }}
-                            >
+                            <span className={styles.flagsMono}>
                               {(co.flags || '')
                                 .split('')
                                 .map((f: string, fi: number) => (
@@ -396,10 +331,13 @@ export function ComObjectsView({ data }: ComObjectsViewProps) {
                         {ccv('direction') && (
                           <TD>
                             <span
-                              style={{
-                                color: dirCol(co.direction),
-                                fontSize: 10,
-                              }}
+                              className={
+                                co.direction === 'output'
+                                  ? styles.dirOutput
+                                  : co.direction === 'input'
+                                    ? styles.dirInput
+                                    : styles.dirBoth
+                              }
                             >
                               {co.direction === 'output'
                                 ? '↑ Out'
@@ -411,14 +349,14 @@ export function ComObjectsView({ data }: ComObjectsViewProps) {
                         )}
                         {ccv('device_name') && (
                           <TD>
-                            <span style={{ color: C.dim, fontSize: 10 }}>
+                            <span className={styles.dimSmall}>
                               {co.device_name || '—'}
                             </span>
                           </TD>
                         )}
                         {ccv('function_text') && (
                           <TD>
-                            <span style={{ color: C.dim, fontSize: 10 }}>
+                            <span className={styles.dimSmall}>
                               {co.function_text || '—'}
                             </span>
                           </TD>
@@ -431,22 +369,12 @@ export function ComObjectsView({ data }: ComObjectsViewProps) {
             </div>
           );
         })}
-        {filtered.length === 0 && (
-          <Empty icon="⇅" msg="No group objects" />
-        )}
+        {filtered.length === 0 && <Empty icon="⇅" msg="No group objects" />}
       </div>
-      <div
-        style={{
-          padding: '5px 14px',
-          borderTop: `1px solid ${C.border}`,
-          fontSize: 10,
-          color: C.dim,
-        }}
-      >
+      <div className={styles.footer}>
         Flags:{' '}
-        <span style={{ color: C.muted }}>
-          C=Communication · R=Read · W=Write · T=Transmit ·
-          U=Update
+        <span className={styles.footerMuted}>
+          C=Communication · R=Read · W=Write · T=Transmit · U=Update
         </span>
       </div>
     </div>

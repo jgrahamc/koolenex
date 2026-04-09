@@ -1,0 +1,224 @@
+/* GroupAddressesView */
+.root {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+.main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.createBar {
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.addrInput {
+  background: var(--input-bg);
+  border: 1px solid var(--border2);
+  border-radius: 4px;
+  padding: 6px 10px;
+  color: var(--text);
+  font-size: 11px;
+  font-family: monospace;
+  width: 80px;
+}
+.nameInput {
+  background: var(--input-bg);
+  border: 1px solid var(--border2);
+  border-radius: 4px;
+  padding: 6px 10px;
+  color: var(--text);
+  font-size: 11px;
+  font-family: inherit;
+  flex: 1;
+  min-width: 120px;
+}
+.dptInput {
+  background: var(--input-bg);
+  border: 1px solid var(--border2);
+  border-radius: 4px;
+  padding: 6px 10px;
+  color: var(--text);
+  font-size: 11px;
+  font-family: monospace;
+  width: 120px;
+}
+.scrollArea {
+  overflow: auto;
+  flex: 1;
+}
+.table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.mainGroupHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  user-select: none;
+}
+.midGroupHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 14px 5px 28px;
+  background: var(--hover);
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  user-select: none;
+}
+.chevron {
+  font-size: 9px;
+  color: var(--dim);
+  width: 14px;
+}
+.mainGroupLabel {
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 600;
+}
+.midGroupLabel {
+  color: var(--text);
+  font-size: 10px;
+  font-weight: 500;
+}
+.nameAddLink {
+  color: var(--dim);
+  font-size: 10px;
+  cursor: pointer;
+  font-style: italic;
+}
+.nameAddLinkSmall {
+  color: var(--dim);
+  font-size: 9px;
+  cursor: pointer;
+  font-style: italic;
+}
+.countLabel {
+  color: var(--dim);
+  font-size: 10px;
+}
+.addIcon {
+  margin-left: 4px;
+  color: var(--green);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.7;
+}
+.inlineCreateBar {
+  padding: 8px 14px 8px 28px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.inlineCreateBarIndent {
+  padding: 8px 14px 8px 42px;
+  border-bottom: 1px solid var(--border);
+  background: var(--hover);
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.gaRowAddrWrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+.deleteX {
+  position: absolute;
+  right: -16px;
+  color: var(--red);
+  font-size: 11px;
+  cursor: pointer;
+  line-height: 1;
+  transition: opacity 0.1s;
+}
+.textMuted {
+  color: var(--muted);
+  font-size: 10px;
+}
+.textDim {
+  color: var(--dim);
+}
+.textDimSmall {
+  color: var(--dim);
+  font-size: 10px;
+}
+.gaRow {
+  border-left: 2px solid transparent;
+  cursor: pointer;
+}
+.pinAddr {
+  color: var(--purple);
+  font-family: monospace;
+}
+.cursorText {
+  cursor: text;
+}
+.confirmMb {
+  margin-bottom: 8px;
+}
+.midTable {
+  width: 100%;
+  border-collapse: collapse;
+}
+/* InlineEdit */
+.inlineEditWrap {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  flex: 1;
+}
+.inlineEditPrefix {
+  font-weight: 600;
+  white-space: nowrap;
+}
+.inlineEditInput {
+  background: var(--input-bg);
+  border: 1px solid var(--accent);
+  border-radius: 3px;
+  padding: 2px 6px;
+  color: var(--text);
+  font-family: inherit;
+  flex: 1;
+  min-width: 80px;
+}
+/* confirm modal list */
+.assocList {
+  margin: 0;
+  padding-left: 18px;
+  max-height: 120px;
+  overflow-y: auto;
+}
+.assocItem {
+  font-family: monospace;
+}
+.thAddr {
+  width: 100px;
+}
+.thDevices {
+  width: 70px;
+}
+.thDpt {
+  width: 180px;
+}
+.thAddrIndent {
+  width: 100px;
+  padding-left: 42px;
+}

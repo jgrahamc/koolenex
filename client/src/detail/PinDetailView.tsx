@@ -1,5 +1,4 @@
 import { useState, useRef, useCallback, useEffect, useContext } from 'react';
-import { useC } from '../theme.ts';
 import { localizedModel } from '../dpt.ts';
 import { PinContext, useDpt } from '../contexts.ts';
 import {
@@ -17,11 +16,11 @@ import { AddDeviceModal } from '../AddDeviceModal.tsx';
 import { ComparePanel } from './ComparePanel.tsx';
 import { DevicePinPanel } from './DevicePinPanel.tsx';
 import { GAPinPanel } from './GAPinPanel.tsx';
+import styles from './PinDetailView.module.css';
 
 interface SpacePanelProps {
   spaceId: string;
   data: any;
-  C: any;
   onUpdateSpace: any;
   onAddDevice: any;
 }
@@ -29,7 +28,6 @@ interface SpacePanelProps {
 function SpacePanel({
   spaceId,
   data,
-  C,
   onUpdateSpace,
   onAddDevice,
 }: SpacePanelProps) {
@@ -59,25 +57,18 @@ function SpacePanel({
   };
 
   return (
-    <div style={{ padding: 24 }}>
-      <div style={{ marginBottom: 20 }}>
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8,
-            marginBottom: 4,
-          }}
-        >
-          <span style={{ color: C.amber }}>
+    <div className={styles.spacePanel}>
+      <div className={styles.spacePanelHeader}>
+        <div className={styles.spaceTypeRow}>
+          <span className={styles.spaceTypeIcon}>
             <SpaceTypeIcon type={space.type} size={22} />
           </span>
-          <span style={{ fontSize: 9, color: C.amber, letterSpacing: '0.1em' }}>
+          <span className={styles.spaceTypeLabel}>
             {space.type?.toUpperCase()}
           </span>
         </div>
         {editing ? (
-          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+          <div className={styles.spaceNameEdit}>
             <input
               value={editName}
               onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
@@ -88,38 +79,24 @@ function SpacePanel({
                 if (e.key === 'Enter') handleSave();
                 if (e.key === 'Escape') setEditing(false);
               }}
-              style={{
-                fontFamily: "'DM Mono',monospace",
-                fontWeight: 700,
-                fontSize: 20,
-                color: C.text,
-                background: C.inputBg,
-                border: `1px solid ${C.accent}`,
-                borderRadius: 4,
-                padding: '2px 8px',
-                flex: 1,
-              }}
+              className={styles.spaceNameInput}
             />
             <Btn
               onClick={handleSave}
               disabled={saving || !editName.trim()}
-              color={C.green}
+              color="var(--green)"
             >
               {saving ? 'Saving' : 'Save'}
             </Btn>
-            <Btn onClick={() => setEditing(false)} color={C.dim}>
+            <Btn onClick={() => setEditing(false)} color="var(--dim)">
               Cancel
             </Btn>
           </div>
         ) : (
           <div
-            style={{
-              fontFamily: "'DM Mono',monospace",
-              fontWeight: 700,
-              fontSize: 20,
-              color: C.text,
-              cursor: onUpdateSpace ? 'text' : 'default',
-            }}
+            className={
+              onUpdateSpace ? styles.spaceNameClickable : styles.spaceName
+            }
             onClick={
               onUpdateSpace
                 ? () => {
@@ -133,22 +110,15 @@ function SpacePanel({
             {space.name}
           </div>
         )}
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8,
-            marginTop: 4,
-          }}
-        >
-          <span style={{ fontSize: 11, color: C.dim }}>
+        <div className={styles.spaceStatsRow}>
+          <span className={styles.spaceDeviceCount}>
             {matches.length} device{matches.length !== 1 ? 's' : ''}
           </span>
           {onAddDevice && (
             <Btn
               onClick={() => setShowAdd(true)}
-              color={C.green}
-              style={{ fontSize: 9, padding: '2px 8px' }}
+              color="var(--green)"
+              className={styles.btnSmall}
             >
               + Add Device
             </Btn>
@@ -166,12 +136,10 @@ function SpacePanel({
       {matches.length === 0 ? (
         <Empty icon="◈" msg="No devices in this space" />
       ) : (
-        <table
-          style={{ width: '100%', borderCollapse: 'collapse', fontSize: 10 }}
-        >
+        <table className={styles.spaceTable}>
           <thead>
             <tr>
-              <TH style={{ width: 80 }}>ADDRESS</TH>
+              <TH className={styles.thAddrWide}>ADDRESS</TH>
               <TH>NAME</TH>
               <TH>MANUFACTURER</TH>
               <TH>MODEL</TH>
@@ -180,22 +148,22 @@ function SpacePanel({
           </thead>
           <tbody>
             {matches.map((d: any) => (
-              <tr key={d.id} style={{ borderBottom: `1px solid ${C.border}` }}>
+              <tr key={d.id}>
                 <TD>
                   <PinAddr
                     address={d.individual_address}
                     wtype="device"
-                    style={{ color: C.accent, fontFamily: 'monospace' }}
+                    className={styles.deviceAddr}
                   />
                 </TD>
                 <TD>
-                  <span style={{ color: C.text }}>{d.name}</span>
+                  <span className={styles.normalText}>{d.name}</span>
                 </TD>
                 <TD>
                   <PinAddr
                     address={d.manufacturer}
                     wtype="manufacturer"
-                    style={{ color: C.amber }}
+                    className={styles.amberText}
                   >
                     {d.manufacturer || '—'}
                   </PinAddr>
@@ -204,7 +172,7 @@ function SpacePanel({
                   <PinAddr
                     address={d.model}
                     wtype="model"
-                    style={{ color: C.amber, fontFamily: 'monospace' }}
+                    className={styles.amberMono}
                   >
                     {localizedModel(d) || '—'}
                   </PinAddr>
@@ -213,7 +181,7 @@ function SpacePanel({
                   <SpacePath
                     spaceId={d.space_id}
                     spaces={spaces}
-                    style={{ color: C.dim, fontSize: 10 }}
+                    className={styles.spacePathDim}
                   />
                 </TD>
               </tr>
@@ -229,7 +197,6 @@ interface DeviceGroupPanelProps {
   wtype: string;
   value: string;
   data: any;
-  C: any;
   onAddDevice: any;
   dispatch: any;
 }
@@ -238,7 +205,6 @@ function DeviceGroupPanel({
   wtype,
   value,
   data,
-  C,
   onAddDevice,
   dispatch,
 }: DeviceGroupPanelProps) {
@@ -270,45 +236,19 @@ function DeviceGroupPanel({
   const showOrder = field !== 'order_number';
 
   return (
-    <div style={{ padding: 24 }}>
-      <div style={{ marginBottom: 20 }}>
-        <div
-          style={{
-            fontSize: 9,
-            color: C.amber,
-            letterSpacing: '0.1em',
-            marginBottom: 4,
-          }}
-        >
-          {label}
-        </div>
-        <div
-          style={{
-            fontFamily: "'DM Mono',monospace",
-            fontWeight: 700,
-            fontSize: 20,
-            color: C.text,
-          }}
-        >
-          {value}
-        </div>
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8,
-            marginTop: 4,
-            flexWrap: 'wrap',
-          }}
-        >
-          <span style={{ fontSize: 11, color: C.dim }}>
+    <div className={styles.groupPanel}>
+      <div className={styles.groupHeader}>
+        <div className={styles.groupTypeLabel}>{label}</div>
+        <div className={styles.groupTitle}>{value}</div>
+        <div className={styles.groupStatsRow}>
+          <span className={styles.groupDeviceCount}>
             {matches.length} device{matches.length !== 1 ? 's' : ''}
           </span>
           {onAddDevice && (
             <Btn
               onClick={() => setShowAdd(true)}
-              color={C.green}
-              style={{ fontSize: 9, padding: '2px 8px' }}
+              color="var(--green)"
+              className={styles.btnSmall}
             >
               + Add
             </Btn>
@@ -322,8 +262,8 @@ function DeviceGroupPanel({
                   onClick={() =>
                     dispatch({ type: 'CATALOG_JUMP', manufacturer: mfr })
                   }
-                  color={C.accent}
-                  style={{ fontSize: 9, padding: '2px 8px' }}
+                  color="var(--accent)"
+                  className={styles.btnSmall}
                 >
                   Catalog
                 </Btn>
@@ -331,13 +271,13 @@ function DeviceGroupPanel({
             })()}
           {matches.length >= 2 && pin && (
             <>
-              <span style={{ color: C.border2 }}>|</span>
+              <span className={styles.groupSep}>|</span>
               <Btn
                 onClick={
                   selected.size === matches.length ? selectNone : selectAll
                 }
-                color={C.dim}
-                style={{ fontSize: 9, padding: '2px 8px' }}
+                color="var(--dim)"
+                className={styles.btnSmall}
               >
                 {selected.size === matches.length
                   ? 'Deselect All'
@@ -346,8 +286,8 @@ function DeviceGroupPanel({
               {selected.size >= 2 && (
                 <Btn
                   onClick={compareSelected}
-                  color={C.accent}
-                  style={{ fontSize: 9, padding: '2px 8px' }}
+                  color="var(--accent)"
+                  className={styles.btnSmall}
                 >
                   Compare {selected.size} Devices
                 </Btn>
@@ -373,40 +313,39 @@ function DeviceGroupPanel({
       {matches.length === 0 ? (
         <Empty icon="◈" msg="No matching devices" />
       ) : (
-        <table
-          style={{ width: '100%', borderCollapse: 'collapse', fontSize: 10 }}
-        >
+        <table className={styles.groupTable}>
           <thead>
             <tr>
-              {matches.length >= 2 && pin && <TH style={{ width: 30 }}></TH>}
-              <TH style={{ width: 80 }}>ADDRESS</TH>
+              {matches.length >= 2 && pin && (
+                <TH className={styles.thCheckbox}></TH>
+              )}
+              <TH className={styles.thAddrWide}>ADDRESS</TH>
               <TH>NAME</TH>
               {showMfr && <TH>MANUFACTURER</TH>}
               {showModel && <TH>MODEL</TH>}
               {showOrder && <TH>ORDER #</TH>}
               <TH>LOCATION</TH>
-              <TH style={{ width: 50 }}>mA</TH>
-              <TH style={{ width: 50 }}>mm</TH>
+              <TH className={styles.thMa}>mA</TH>
+              <TH className={styles.thMm}>mm</TH>
             </tr>
           </thead>
           <tbody>
             {matches.map((d: any) => (
               <tr
                 key={d.id}
-                style={{
-                  borderBottom: `1px solid ${C.border}`,
-                  background: selected.has(d.individual_address)
-                    ? `${C.accent}10`
-                    : 'transparent',
-                }}
+                className={
+                  selected.has(d.individual_address)
+                    ? styles.rowSelected
+                    : styles.rowNormal
+                }
               >
                 {matches.length >= 2 && pin && (
-                  <TD style={{ textAlign: 'center' }}>
+                  <TD className={styles.tdCenter}>
                     <input
                       type="checkbox"
                       checked={selected.has(d.individual_address)}
                       onChange={() => toggleSelect(d.individual_address)}
-                      style={{ cursor: 'pointer', accentColor: C.accent }}
+                      className={styles.selectCheck}
                     />
                   </TD>
                 )}
@@ -414,18 +353,18 @@ function DeviceGroupPanel({
                   <PinAddr
                     address={d.individual_address}
                     wtype="device"
-                    style={{ color: C.accent, fontFamily: 'monospace' }}
+                    className={styles.deviceAddr}
                   />
                 </TD>
                 <TD>
-                  <span style={{ color: C.text }}>{d.name}</span>
+                  <span className={styles.normalText}>{d.name}</span>
                 </TD>
                 {showMfr && (
                   <TD>
                     <PinAddr
                       address={d.manufacturer}
                       wtype="manufacturer"
-                      style={{ color: C.amber }}
+                      className={styles.amberText}
                     >
                       {d.manufacturer || '—'}
                     </PinAddr>
@@ -436,11 +375,7 @@ function DeviceGroupPanel({
                     <PinAddr
                       address={d.model}
                       wtype="model"
-                      style={{
-                        color: C.amber,
-                        fontFamily: 'monospace',
-                        fontSize: 10,
-                      }}
+                      className={styles.amberMono}
                     >
                       {localizedModel(d) || '—'}
                     </PinAddr>
@@ -451,11 +386,7 @@ function DeviceGroupPanel({
                     <PinAddr
                       address={d.order_number}
                       wtype="order_number"
-                      style={{
-                        color: C.amber,
-                        fontFamily: 'monospace',
-                        fontSize: 10,
-                      }}
+                      className={styles.amberMono}
                     >
                       {d.order_number || '—'}
                     </PinAddr>
@@ -465,18 +396,14 @@ function DeviceGroupPanel({
                   <SpacePath
                     spaceId={d.space_id}
                     spaces={data.spaces}
-                    style={{ color: C.dim, fontSize: 10 }}
+                    className={styles.spacePathDim}
                   />
                 </TD>
                 <TD>
-                  <span style={{ color: C.dim, fontFamily: 'monospace' }}>
-                    {d.bus_current || '—'}
-                  </span>
+                  <span className={styles.dimMono}>{d.bus_current || '—'}</span>
                 </TD>
                 <TD>
-                  <span style={{ color: C.dim, fontFamily: 'monospace' }}>
-                    {d.width_mm || '—'}
-                  </span>
+                  <span className={styles.dimMono}>{d.width_mm || '—'}</span>
                 </TD>
               </tr>
             ))}
@@ -503,10 +430,9 @@ const COMPARE_COLORS = [
 interface MultiComparePanelProps {
   addrs: string[];
   data: any;
-  C: any;
 }
 
-function MultiComparePanel({ addrs, data, C }: MultiComparePanelProps) {
+function MultiComparePanel({ addrs, data }: MultiComparePanelProps) {
   const pin = useContext(PinContext) as any;
   const dpt = useDpt();
   const { devices = [], gas = [], comObjects = [] } = data;
@@ -585,24 +511,15 @@ function MultiComparePanel({ addrs, data, C }: MultiComparePanelProps) {
   const TH2 = ({
     children,
     style,
+    className,
   }: {
     children?: React.ReactNode;
     style?: React.CSSProperties;
+    className?: string;
   }) => (
     <th
-      style={{
-        padding: '5px 8px',
-        textAlign: 'left',
-        fontSize: 9,
-        color: C.dim,
-        fontWeight: 600,
-        letterSpacing: '0.07em',
-        borderBottom: `1px solid ${C.border}`,
-        background: C.surface,
-        position: 'sticky',
-        top: 0,
-        ...style,
-      }}
+      className={`${styles.th2}${className ? ` ${className}` : ''}`}
+      style={style}
     >
       {children}
     </th>
@@ -611,108 +528,71 @@ function MultiComparePanel({ addrs, data, C }: MultiComparePanelProps) {
     children,
     style,
     diff,
+    className,
   }: {
     children?: React.ReactNode;
     style?: React.CSSProperties;
     diff?: boolean;
+    className?: string;
   }) => (
     <td
-      style={{
-        padding: '4px 8px',
-        fontSize: 10,
-        borderBottom: `1px solid ${C.border}`,
-        background: diff ? `${C.amber}18` : 'transparent',
-        ...style,
-      }}
+      className={`${diff ? styles.td2Diff : styles.td2}${className ? ` ${className}` : ''}`}
+      style={style}
     >
-      {children ?? <span style={{ color: C.dim }}>-</span>}
+      {children ?? <span className={styles.tdDash}>-</span>}
     </td>
   );
 
   return (
-    <div style={{ padding: 20 }}>
+    <div className={styles.multiPanel}>
       {/* Header: device cards */}
-      <div
-        style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap' }}
-      >
+      <div className={styles.multiHeader}>
         {devs.map((d: any, i: number) => (
           <div
             key={d.individual_address}
             onClick={
               pin ? () => pin('device', d.individual_address) : undefined
             }
-            style={{
-              flex: '1 1 0',
-              minWidth: 100,
-              padding: '8px 12px',
-              background: C.surface,
-              border: `2px solid ${colors[i]}40`,
-              borderRadius: 6,
-              cursor: pin ? 'pointer' : 'default',
-            }}
+            className={pin ? styles.multiDevCardClickable : styles.multiDevCard}
+            style={{ border: `2px solid ${colors[i]}40` }}
           >
-            <div
-              style={{
-                fontFamily: 'monospace',
-                fontSize: 12,
-                fontWeight: 700,
-                color: colors[i],
-              }}
-            >
+            <div className={styles.multiDevAddr} style={{ color: colors[i] }}>
               {d.individual_address}
             </div>
-            <div style={{ fontSize: 10, color: C.muted, marginTop: 2 }}>
-              {d.name}
-            </div>
+            <div className={styles.multiDevName}>{d.name}</div>
           </div>
         ))}
       </div>
 
       {/* Parameters */}
-      <div style={{ marginBottom: 24 }}>
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8,
-            marginBottom: 8,
-          }}
-        >
-          <span style={{ fontSize: 10, color: C.dim, letterSpacing: '0.08em' }}>
-            PARAMETERS
-          </span>
-          <span style={{ fontSize: 10, color: C.dim }}>
+      <div className={styles.sectionBlock}>
+        <div className={styles.sectionHeaderRow}>
+          <span className={styles.sectionLabel}>PARAMETERS</span>
+          <span className={styles.sectionDiffCount}>
             {diffRows.length} difference{diffRows.length !== 1 ? 's' : ''} /{' '}
             {paramRows.length} total
           </span>
           <Btn
             onClick={() => setShowAll((p) => !p)}
-            color={C.dim}
-            style={{ fontSize: 9, padding: '1px 6px' }}
+            color="var(--dim)"
+            className={styles.btnXSmall}
           >
             {showAll ? 'Differences Only' : 'Show All'}
           </Btn>
         </div>
         {displayRows.length === 0 ? (
-          <div style={{ fontSize: 11, color: C.dim, padding: '8px 0' }}>
+          <div className={styles.emptyRow}>
             {showAll
               ? 'No parameters found.'
               : 'All parameters are identical across selected devices.'}
           </div>
         ) : (
-          <div
-            style={{
-              maxHeight: 400,
-              overflow: 'auto',
-              border: `1px solid ${C.border}`,
-              borderRadius: 4,
-            }}
-          >
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <div className={styles.scrollTableTall}>
+            <table className={styles.fullTable}>
               <thead>
                 <tr>
-                  <TH2 style={{ width: '18%' }}>SECTION</TH2>
-                  <TH2 style={{ width: '20%' }}>NAME</TH2>
+                  <TH2 className={styles.thSection}>SECTION</TH2>
+                  <TH2 className={styles.thNameCol}>NAME</TH2>
                   {devs.map((d: any, i: number) => (
                     <TH2
                       key={d.individual_address}
@@ -728,23 +608,22 @@ function MultiComparePanel({ addrs, data, C }: MultiComparePanelProps) {
                   const [section, name] = key.split('|');
                   return (
                     <tr key={key}>
-                      <TD2 style={{ color: C.dim }} diff={!allSame}>
+                      <TD2 className={styles.td2Dim} diff={!allSame}>
                         {section}
                       </TD2>
-                      <TD2 style={{ color: C.muted }} diff={!allSame}>
+                      <TD2 className={styles.td2Muted} diff={!allSame}>
                         {name}
                       </TD2>
                       {vals.map((v: any, i: number) => (
                         <TD2 key={i} diff={!allSame}>
                           <span
-                            style={{
-                              color:
-                                v === null
-                                  ? C.dim
-                                  : !allSame
-                                    ? C.amber
-                                    : C.text,
-                            }}
+                            className={
+                              v === null
+                                ? styles.dimText
+                                : !allSame
+                                  ? styles.amberValue
+                                  : styles.normalText
+                            }
                           >
                             {v ?? '-'}
                           </span>
@@ -761,30 +640,16 @@ function MultiComparePanel({ addrs, data, C }: MultiComparePanelProps) {
 
       {/* Group Objects -- differences only */}
       {diffCORows.length > 0 && (
-        <div style={{ marginBottom: 24 }}>
-          <div
-            style={{
-              fontSize: 10,
-              color: C.dim,
-              letterSpacing: '0.08em',
-              marginBottom: 8,
-            }}
-          >
+        <div className={styles.sectionBlock}>
+          <div className={styles.sectionLabelMb}>
             GROUP OBJECTS &mdash; {diffCORows.length} difference
             {diffCORows.length !== 1 ? 's' : ''}
           </div>
-          <div
-            style={{
-              maxHeight: 300,
-              overflow: 'auto',
-              border: `1px solid ${C.border}`,
-              borderRadius: 4,
-            }}
-          >
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <div className={styles.scrollTableMed}>
+            <table className={styles.fullTable}>
               <thead>
                 <tr>
-                  <TH2 style={{ width: 36 }}>#</TH2>
+                  <TH2 className={styles.thObjNum}>#</TH2>
                   <TH2>NAME</TH2>
                   {devs.map((d: any, i: number) => (
                     <TH2
@@ -801,29 +666,23 @@ function MultiComparePanel({ addrs, data, C }: MultiComparePanelProps) {
                   const co = cos.find((c: any) => c) || {};
                   return (
                     <tr key={num}>
-                      <TD2 style={{ color: C.dim }} diff>
+                      <TD2 className={styles.td2Dim} diff>
                         {num}
                       </TD2>
-                      <TD2 style={{ color: C.muted }} diff>
+                      <TD2 className={styles.td2Muted} diff>
                         {co.name || co.function_text}
                       </TD2>
                       {gasArr.map((ga: string, i: number) => (
                         <TD2 key={i} diff>
                           {ga ? (
-                            <span
-                              style={{
-                                fontFamily: 'monospace',
-                                fontSize: 10,
-                                color: C.amber,
-                              }}
-                            >
+                            <span className={styles.amberMono}>
                               {ga.split(/\s+/).map((a: string, j: number) => (
                                 <span key={j}>
                                   {j > 0 && ' '}
                                   <PinAddr
                                     address={a}
                                     wtype="ga"
-                                    style={{ color: C.amber }}
+                                    className={styles.amberText}
                                   >
                                     {a}
                                   </PinAddr>
@@ -831,7 +690,7 @@ function MultiComparePanel({ addrs, data, C }: MultiComparePanelProps) {
                               ))}
                             </span>
                           ) : (
-                            <span style={{ color: C.dim }}>-</span>
+                            <span className={styles.dimText}>-</span>
                           )}
                         </TD2>
                       ))}
@@ -846,40 +705,23 @@ function MultiComparePanel({ addrs, data, C }: MultiComparePanelProps) {
 
       {/* Group Addresses -- differences only */}
       {diffGARows.length > 0 && (
-        <div style={{ marginBottom: 24 }}>
-          <div
-            style={{
-              fontSize: 10,
-              color: C.dim,
-              letterSpacing: '0.08em',
-              marginBottom: 8,
-            }}
-          >
+        <div className={styles.sectionBlock}>
+          <div className={styles.sectionLabelMb}>
             GROUP ADDRESSES &mdash; {diffGARows.length} difference
             {diffGARows.length !== 1 ? 's' : ''}
           </div>
-          <div
-            style={{
-              maxHeight: 300,
-              overflow: 'auto',
-              border: `1px solid ${C.border}`,
-              borderRadius: 4,
-            }}
-          >
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <div className={styles.scrollTableMed}>
+            <table className={styles.fullTable}>
               <thead>
                 <tr>
-                  <TH2 style={{ width: 100 }}>ADDRESS</TH2>
+                  <TH2 className={styles.thGaAddr}>ADDRESS</TH2>
                   <TH2>NAME</TH2>
-                  <TH2 style={{ width: 70 }}>DPT</TH2>
+                  <TH2 className={styles.thDpt}>DPT</TH2>
                   {devs.map((d: any, i: number) => (
                     <TH2
                       key={d.individual_address}
-                      style={{
-                        width: 50,
-                        textAlign: 'center',
-                        color: colors[i],
-                      }}
+                      className={styles.thPresence}
+                      style={{ color: colors[i] }}
                     >
                       {d.individual_address}
                     </TH2>
@@ -895,25 +737,27 @@ function MultiComparePanel({ addrs, data, C }: MultiComparePanelProps) {
                         <PinAddr
                           address={ga}
                           wtype="ga"
-                          style={{ fontFamily: 'monospace', color: C.purple }}
+                          className={styles.purpleAddr}
                         >
                           {ga}
                         </PinAddr>
                       </TD2>
-                      <TD2 diff style={{ color: C.muted }}>
+                      <TD2 diff className={styles.td2Muted}>
                         {gaInfo?.name}
                       </TD2>
                       <TD2 diff>
                         <span
-                          style={{ fontFamily: 'monospace', color: C.dim }}
+                          className={styles.monoAddr}
                           title={dpt.hover(gaInfo?.dpt)}
                         >
                           {dpt.display(gaInfo?.dpt)}
                         </span>
                       </TD2>
                       {present.map((p: boolean, i: number) => (
-                        <TD2 key={i} diff style={{ textAlign: 'center' }}>
-                          <span style={{ color: p ? C.green : C.dim }}>
+                        <TD2 key={i} diff className={styles.tdCenter}>
+                          <span
+                            className={p ? styles.greenCheck : styles.dimCheck}
+                          >
                             {p ? '✓' : '-'}
                           </span>
                         </TD2>
@@ -930,7 +774,7 @@ function MultiComparePanel({ addrs, data, C }: MultiComparePanelProps) {
       {diffCORows.length === 0 &&
         diffGARows.length === 0 &&
         diffRows.length === 0 && (
-          <div style={{ fontSize: 11, color: C.dim, padding: '8px 0' }}>
+          <div className={styles.identicalMsg}>
             All devices are identically configured.
           </div>
         )}
@@ -969,12 +813,11 @@ export function PinDetailView({
   onUpdateComObjectGAs,
   dispatch,
 }: PinDetailViewProps) {
-  const C = useC();
   const COLMAP: Record<string, string> = {
-    actuator: C.actuator,
-    sensor: C.sensor,
-    router: C.router,
-    generic: C.muted,
+    actuator: 'var(--actuator)',
+    sensor: 'var(--sensor)',
+    router: 'var(--router)',
+    generic: 'var(--muted)',
   };
   const scrollRef = useRef<HTMLDivElement>(null);
   const savedScrolls = useRef<Record<string, number>>({});
@@ -1027,7 +870,6 @@ export function PinDetailView({
       <SpacePanel
         spaceId={address!}
         data={data}
-        C={C}
         onUpdateSpace={onUpdateSpace}
         onAddDevice={onAddDevice}
       />
@@ -1038,17 +880,16 @@ export function PinDetailView({
         wtype={wtype!}
         value={address!}
         data={data}
-        C={C}
         onAddDevice={onAddDevice}
         dispatch={dispatch}
       />
     );
   } else if (wtype === 'multicompare') {
     const addrs = address!.split('|');
-    content = <MultiComparePanel addrs={addrs} data={data} C={C} />;
+    content = <MultiComparePanel addrs={addrs} data={data} />;
   } else if (wtype === 'compare') {
     const [addrA, addrB] = address!.split('|');
-    content = <ComparePanel addrA={addrA!} addrB={addrB!} data={data} C={C} />;
+    content = <ComparePanel addrA={addrA!} addrB={addrB!} data={data} />;
   } else if (wtype === 'device') {
     const dev = devices.find((d: any) => d.individual_address === address);
     if (!dev) content = <Empty icon="◈" msg="Device not found" />;
@@ -1064,7 +905,6 @@ export function PinDetailView({
       );
       content = (
         <DevicePinPanel
-          C={C}
           COLMAP={COLMAP}
           dev={dev}
           devCOs={devCOs}
@@ -1099,7 +939,6 @@ export function PinDetailView({
       );
       content = (
         <GAPinPanel
-          C={C}
           COLMAP={COLMAP}
           ga={ga}
           linkedDevices={linkedDevices}
@@ -1119,11 +958,7 @@ export function PinDetailView({
   }
 
   return (
-    <div
-      ref={scrollRef}
-      onScroll={onScroll}
-      style={{ flex: 1, overflow: 'auto' }}
-    >
+    <div ref={scrollRef} onScroll={onScroll} className={styles.scrollContainer}>
       {content}
     </div>
   );

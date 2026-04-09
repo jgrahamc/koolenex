@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { useC, STATUS_COLOR } from '../theme.ts';
+import { STATUS_COLOR } from '../theme.ts';
 import { localizedModel } from '../dpt.ts';
 import {
   Badge,
@@ -16,6 +16,7 @@ import {
 import { useColumns, ColumnPicker, dlCSV } from '../columns.tsx';
 import { RtfText } from '../rtf.tsx';
 import { AddDeviceModal } from '../AddDeviceModal.tsx';
+import styles from './DevicesView.module.css';
 
 interface DevicesViewProps {
   data: any;
@@ -36,7 +37,6 @@ export function DevicesView({
   onUpdateDevice,
   dispatch,
 }: DevicesViewProps) {
-  const C = useC();
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState(() => {
     try {
@@ -218,33 +218,18 @@ export function DevicesView({
     [key: string]: any;
   }) => (
     <TH {...rest}>
-      <span
-        onClick={() => sortBy(col)}
-        style={{
-          cursor: 'pointer',
-          display: 'flex',
-          alignItems: 'center',
-          gap: 4,
-        }}
-      >
+      <span onClick={() => sortBy(col)} className={styles.sortHeader}>
         {children}
         {sort.col === col && (
-          <span style={{ color: C.accent }}>{sort.dir > 0 ? '↑' : '↓'}</span>
+          <span className={styles.sortArrow}>{sort.dir > 0 ? '↑' : '↓'}</span>
         )}
       </span>
     </TH>
   );
 
   return (
-    <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-      <div
-        style={{
-          flex: 1,
-          display: 'flex',
-          flexDirection: 'column',
-          overflow: 'hidden',
-        }}
-      >
+    <div className={styles.root}>
+      <div className={styles.main}>
         <SectionHeader
           title="Devices"
           count={filtered.length}
@@ -264,20 +249,20 @@ export function DevicesView({
                 {s === 'all' ? 'All' : s.charAt(0).toUpperCase() + s.slice(1)}
               </Chip>
             )),
-            <ColumnPicker key="cp" cols={cols} onChange={saveCols} C={C} />,
+            <ColumnPicker key="cp" cols={cols} onChange={saveCols} />,
             <Btn
               key="grp"
               onClick={() => setGroupMode((g) => !g)}
-              color={groupMode ? C.accent : C.muted}
-              bg={C.surface}
+              color={groupMode ? 'var(--accent)' : 'var(--muted)'}
+              bg="var(--surface)"
             >
               {groupMode ? '⊞ Grouped' : '⊞ Group'}
             </Btn>,
             <Btn
               key="csv"
               onClick={exportDevCSV}
-              color={C.muted}
-              bg={C.surface}
+              color="var(--muted)"
+              bg="var(--surface)"
             >
               ↓ CSV
             </Btn>,
@@ -288,8 +273,8 @@ export function DevicesView({
                     onClick={() =>
                       dispatch({ type: 'SET_VIEW', view: 'printlabels' })
                     }
-                    color={C.muted}
-                    bg={C.surface}
+                    color="var(--muted)"
+                    bg="var(--surface)"
                   >
                     ⎙ Labels
                   </Btn>,
@@ -300,8 +285,8 @@ export function DevicesView({
                   <Btn
                     key="add"
                     onClick={() => setShowAdd(true)}
-                    color={C.green}
-                    bg={C.surface}
+                    color="var(--green)"
+                    bg="var(--surface)"
                   >
                     + Add
                   </Btn>,
@@ -309,7 +294,7 @@ export function DevicesView({
               : []),
           ]}
         />
-        <div style={{ overflow: 'auto', flex: 1 }}>
+        <div className={styles.scrollArea}>
           {groupMode ? (
             <div>
               {(groupTree || []).map((mfr) => {
@@ -321,40 +306,21 @@ export function DevicesView({
                 );
                 return (
                   <div key={mfrKey}>
-                    <div
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 8,
-                        padding: '6px 14px',
-                        background: C.surface,
-                        borderBottom: `1px solid ${C.border}`,
-                      }}
-                    >
+                    <div className={styles.grpMfrHeader}>
                       <span
                         onClick={(e) => toggleGrp(mfrKey, e)}
-                        style={{
-                          fontSize: 9,
-                          color: C.dim,
-                          width: 14,
-                          cursor: 'pointer',
-                          userSelect: 'none',
-                        }}
+                        className={styles.chevron}
                       >
                         {mfrOpen ? '▾' : '▸'}
                       </span>
                       <PinAddr
                         address={mfr.name}
                         wtype="manufacturer"
-                        style={{
-                          color: C.amber,
-                          fontSize: 11,
-                          fontWeight: 600,
-                        }}
+                        className={styles.grpMfrPinAddr}
                       >
                         {mfr.name}
                       </PinAddr>
-                      <span style={{ color: C.dim, fontSize: 10 }}>
+                      <span className={styles.countLabel}>
                         · {mfrTotal} devices · {mfr.models.length} models
                       </span>
                     </div>
@@ -364,141 +330,54 @@ export function DevicesView({
                         const mdlOpen = isGrpOpen(mdlKey);
                         return (
                           <div key={mdlKey}>
-                            <div
-                              style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 8,
-                                padding: '5px 14px 5px 28px',
-                                background: C.hover,
-                                borderBottom: `1px solid ${C.border}`,
-                              }}
-                            >
+                            <div className={styles.grpMdlHeader}>
                               <span
                                 onClick={(e) => toggleGrp(mdlKey, e)}
-                                style={{
-                                  fontSize: 9,
-                                  color: C.dim,
-                                  width: 14,
-                                  cursor: 'pointer',
-                                  userSelect: 'none',
-                                }}
+                                className={styles.chevron}
                               >
                                 {mdlOpen ? '▾' : '▸'}
                               </span>
                               <PinAddr
                                 address={mdl.name}
                                 wtype="model"
-                                style={{
-                                  color: C.text,
-                                  fontSize: 10,
-                                  fontFamily: 'monospace',
-                                }}
+                                className={styles.grpMdlPinAddr}
                               >
                                 {mdl.name}
                               </PinAddr>
-                              <span style={{ color: C.dim, fontSize: 10 }}>
+                              <span className={styles.countLabel}>
                                 · {mdl.devices.length}
                               </span>
                             </div>
                             {mdlOpen && (
-                              <table
-                                style={{
-                                  width: '100%',
-                                  borderCollapse: 'collapse',
-                                }}
-                              >
+                              <table className={styles.grpTable}>
                                 <thead>
                                   <tr>
                                     {cols
                                       .filter((c: any) => c.visible !== false)
                                       .map((col: any) => {
-                                        if (col.id === 'individual_address')
-                                          return (
-                                            <TH
-                                              key={col.id}
-                                              style={{
-                                                width: 100,
-                                                paddingLeft: 42,
-                                              }}
-                                            >
-                                              {col.label
-                                                .toUpperCase()
-                                                .replace('GAS', 'GAs')}
-                                            </TH>
-                                          );
-                                        if (col.id === 'device_type')
-                                          return (
-                                            <TH
-                                              key={col.id}
-                                              style={{ width: 90 }}
-                                            >
-                                              {col.label
-                                                .toUpperCase()
-                                                .replace('GAS', 'GAs')}
-                                            </TH>
-                                          );
-                                        if (col.id === 'location')
-                                          return spaces.length > 0 ? (
-                                            <TH key={col.id}>
-                                              {col.label
-                                                .toUpperCase()
-                                                .replace('GAS', 'GAs')}
-                                            </TH>
-                                          ) : null;
-                                        if (col.id === 'manufacturer')
-                                          return (
-                                            <TH
-                                              key={col.id}
-                                              style={{ width: 110 }}
-                                            >
-                                              {col.label
-                                                .toUpperCase()
-                                                .replace('GAS', 'GAs')}
-                                            </TH>
-                                          );
-                                        if (col.id === 'model')
-                                          return (
-                                            <TH
-                                              key={col.id}
-                                              style={{ width: 110 }}
-                                            >
-                                              {col.label
-                                                .toUpperCase()
-                                                .replace('GAS', 'GAs')}
-                                            </TH>
-                                          );
-                                        if (col.id === 'serial_number')
-                                          return (
-                                            <TH
-                                              key={col.id}
-                                              style={{ width: 130 }}
-                                            >
-                                              {col.label
-                                                .toUpperCase()
-                                                .replace('GAS', 'GAs')}
-                                            </TH>
-                                          );
-                                        if (col.id === 'status')
-                                          return (
-                                            <TH
-                                              key={col.id}
-                                              style={{ width: 110 }}
-                                            >
-                                              {col.label
-                                                .toUpperCase()
-                                                .replace('GAS', 'GAs')}
-                                            </TH>
-                                          );
+                                        if (
+                                          col.id === 'location' &&
+                                          !spaces.length
+                                        )
+                                          return null;
+                                        const cls =
+                                          col.id === 'individual_address'
+                                            ? styles.colAddrIndented
+                                            : col.id === 'device_type'
+                                              ? styles.colType
+                                              : col.id === 'manufacturer'
+                                                ? styles.colMfr
+                                                : col.id === 'model'
+                                                  ? styles.colModel
+                                                  : col.id === 'serial_number'
+                                                    ? styles.colSerial
+                                                    : col.id === 'status'
+                                                      ? styles.colStatus
+                                                      : col.id === 'gas'
+                                                        ? styles.colGas
+                                                        : undefined;
                                         return (
-                                          <TH
-                                            key={col.id}
-                                            style={
-                                              col.id === 'gas'
-                                                ? { width: 50 }
-                                                : {}
-                                            }
-                                          >
+                                          <TH key={col.id} className={cls}>
                                             {col.label
                                               .toUpperCase()
                                               .replace('GAS', 'GAs')}
@@ -511,24 +390,17 @@ export function DevicesView({
                                   {mdl.devices.map((d) => (
                                     <tr
                                       key={d.id}
-                                      className="rh"
+                                      className={`rh ${styles.rowClickable}`}
                                       onClick={() =>
                                         onPin?.('device', d.individual_address)
                                       }
-                                      style={{
-                                        borderLeft: '2px solid transparent',
-                                        cursor: 'pointer',
-                                      }}
                                     >
                                       {cv('individual_address') && (
-                                        <TD style={{ paddingLeft: 42 }}>
+                                        <TD className={styles.tdIndented}>
                                           <PinAddr
                                             address={d.individual_address}
                                             wtype="device"
-                                            style={{
-                                              color: C.accent,
-                                              fontFamily: 'monospace',
-                                            }}
+                                            className={styles.accentMono}
                                           />
                                         </TD>
                                       )}
@@ -547,7 +419,6 @@ export function DevicesView({
                                               onCancel={() =>
                                                 setEditDevId(null)
                                               }
-                                              C={C}
                                             />
                                           ) : (
                                             <span
@@ -577,7 +448,7 @@ export function DevicesView({
                                       )}
                                       {cv('device_type') && (
                                         <TD>
-                                          <span style={{ color: C.muted }}>
+                                          <span className={styles.textMuted}>
                                             {d.device_type}
                                           </span>
                                         </TD>
@@ -587,10 +458,7 @@ export function DevicesView({
                                           <SpacePath
                                             spaceId={d.space_id}
                                             spaces={spaces}
-                                            style={{
-                                              color: C.dim,
-                                              fontSize: 10,
-                                            }}
+                                            className={styles.dimLocPath}
                                           />
                                         </TD>
                                       )}
@@ -599,7 +467,7 @@ export function DevicesView({
                                           <PinAddr
                                             address={d.manufacturer}
                                             wtype="manufacturer"
-                                            style={{ color: C.amber }}
+                                            className={styles.amberText}
                                           >
                                             {d.manufacturer || '—'}
                                           </PinAddr>
@@ -610,11 +478,7 @@ export function DevicesView({
                                           <PinAddr
                                             address={d.model}
                                             wtype="model"
-                                            style={{
-                                              color: C.amber,
-                                              fontFamily: 'monospace',
-                                              fontSize: 10,
-                                            }}
+                                            className={styles.amberMono}
                                           >
                                             {localizedModel(d) || '—'}
                                           </PinAddr>
@@ -622,26 +486,14 @@ export function DevicesView({
                                       )}
                                       {cv('order_number') && (
                                         <TD>
-                                          <span
-                                            style={{
-                                              color: C.dim,
-                                              fontFamily: 'monospace',
-                                              fontSize: 10,
-                                            }}
-                                          >
+                                          <span className={styles.monoSmall}>
                                             {d.order_number || '—'}
                                           </span>
                                         </TD>
                                       )}
                                       {cv('serial_number') && (
                                         <TD>
-                                          <span
-                                            style={{
-                                              color: C.dim,
-                                              fontFamily: 'monospace',
-                                              fontSize: 10,
-                                            }}
-                                          >
+                                          <span className={styles.monoSmall}>
                                             {d.serial_number || '—'}
                                           </span>
                                         </TD>
@@ -652,14 +504,14 @@ export function DevicesView({
                                             label={d.status.toUpperCase()}
                                             color={
                                               (STATUS_COLOR as any)[d.status] ||
-                                              C.dim
+                                              'var(--dim)'
                                             }
                                           />
                                         </TD>
                                       )}
                                       {cv('gas') && (
                                         <TD>
-                                          <span style={{ color: C.dim }}>
+                                          <span className={styles.textDim}>
                                             {
                                               (
                                                 deviceGAMap[
@@ -672,12 +524,7 @@ export function DevicesView({
                                       )}
                                       {cv('description') && (
                                         <TD>
-                                          <span
-                                            style={{
-                                              color: C.dim,
-                                              fontSize: 10,
-                                            }}
-                                          >
+                                          <span className={styles.dimSmall}>
                                             {d.description &&
                                             d.description !== d.name
                                               ? d.description
@@ -687,38 +534,28 @@ export function DevicesView({
                                       )}
                                       {cv('comment') && (
                                         <TD>
-                                          <span
-                                            style={{
-                                              color: C.dim,
-                                              fontSize: 10,
-                                            }}
-                                          >
+                                          <span className={styles.dimSmall}>
                                             <RtfText value={d.comment} />
                                           </span>
                                         </TD>
                                       )}
                                       {cv('area') && (
                                         <TD>
-                                          <span style={{ color: C.dim }}>
+                                          <span className={styles.textDim}>
                                             {d.area}
                                           </span>
                                         </TD>
                                       )}
                                       {cv('line') && (
                                         <TD>
-                                          <span style={{ color: C.dim }}>
+                                          <span className={styles.textDim}>
                                             {d.line}
                                           </span>
                                         </TD>
                                       )}
                                       {cv('last_download') && (
                                         <TD>
-                                          <span
-                                            style={{
-                                              color: C.dim,
-                                              fontSize: 10,
-                                            }}
-                                          >
+                                          <span className={styles.dimSmall}>
                                             {d.last_download || '—'}
                                           </span>
                                         </TD>
@@ -736,89 +573,47 @@ export function DevicesView({
               })}
             </div>
           ) : (
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <table className={styles.table}>
               <thead>
                 <tr>
                   {cols
                     .filter((c: any) => c.visible !== false)
                     .map((col: any) => {
-                      if (col.id === 'individual_address')
+                      if (col.id === 'location' && !spaces.length) return null;
+                      const sortable = [
+                        'individual_address',
+                        'name',
+                        'device_type',
+                        'manufacturer',
+                        'model',
+                        'serial_number',
+                        'status',
+                      ].includes(col.id);
+                      const cls =
+                        col.id === 'individual_address'
+                          ? styles.colAddr
+                          : col.id === 'device_type'
+                            ? styles.colType
+                            : col.id === 'manufacturer'
+                              ? styles.colMfr
+                              : col.id === 'model'
+                                ? styles.colModel
+                                : col.id === 'serial_number'
+                                  ? styles.colSerial
+                                  : col.id === 'status'
+                                    ? styles.colStatus
+                                    : col.id === 'gas'
+                                      ? styles.colGas
+                                      : undefined;
+                      if (sortable) {
                         return (
-                          <SortTH
-                            key={col.id}
-                            col="individual_address"
-                            style={{ width: 100 }}
-                          >
+                          <SortTH key={col.id} col={col.id} className={cls}>
                             {col.label.toUpperCase().replace('GAS', 'GAs')}
                           </SortTH>
                         );
-                      if (col.id === 'name')
-                        return (
-                          <SortTH key={col.id} col="name">
-                            {col.label.toUpperCase().replace('GAS', 'GAs')}
-                          </SortTH>
-                        );
-                      if (col.id === 'device_type')
-                        return (
-                          <SortTH
-                            key={col.id}
-                            col="device_type"
-                            style={{ width: 90 }}
-                          >
-                            {col.label.toUpperCase().replace('GAS', 'GAs')}
-                          </SortTH>
-                        );
-                      if (col.id === 'location')
-                        return spaces.length > 0 ? (
-                          <TH key={col.id}>
-                            {col.label.toUpperCase().replace('GAS', 'GAs')}
-                          </TH>
-                        ) : null;
-                      if (col.id === 'manufacturer')
-                        return (
-                          <SortTH
-                            key={col.id}
-                            col="manufacturer"
-                            style={{ width: 110 }}
-                          >
-                            {col.label.toUpperCase().replace('GAS', 'GAs')}
-                          </SortTH>
-                        );
-                      if (col.id === 'model')
-                        return (
-                          <SortTH
-                            key={col.id}
-                            col="model"
-                            style={{ width: 110 }}
-                          >
-                            {col.label.toUpperCase().replace('GAS', 'GAs')}
-                          </SortTH>
-                        );
-                      if (col.id === 'serial_number')
-                        return (
-                          <SortTH
-                            key={col.id}
-                            col="serial_number"
-                            style={{ width: 130 }}
-                          >
-                            {col.label.toUpperCase().replace('GAS', 'GAs')}
-                          </SortTH>
-                        );
-                      if (col.id === 'status')
-                        return (
-                          <SortTH
-                            key={col.id}
-                            col="status"
-                            style={{ width: 110 }}
-                          >
-                            {col.label.toUpperCase().replace('GAS', 'GAs')}
-                          </SortTH>
-                        );
+                      }
                       return (
-                        <TH
-                          key={col.id}
-                          style={col.id === 'gas' ? { width: 50 } : {}}
-                        >
+                        <TH key={col.id} className={cls}>
                           {col.label.toUpperCase().replace('GAS', 'GAs')}
                         </TH>
                       );
@@ -829,19 +624,15 @@ export function DevicesView({
                 {filtered.map((d: any) => (
                   <tr
                     key={d.id}
-                    className="rh"
+                    className={`rh ${styles.rowClickable}`}
                     onClick={() => onPin?.('device', d.individual_address)}
-                    style={{
-                      borderLeft: '2px solid transparent',
-                      cursor: 'pointer',
-                    }}
                   >
                     {cv('individual_address') && (
                       <TD>
                         <PinAddr
                           address={d.individual_address}
                           wtype="device"
-                          style={{ color: C.accent, fontFamily: 'monospace' }}
+                          className={styles.accentMono}
                         />
                       </TD>
                     )}
@@ -856,7 +647,6 @@ export function DevicesView({
                               setEditDevId(null);
                             }}
                             onCancel={() => setEditDevId(null)}
-                            C={C}
                           />
                         ) : (
                           <span
@@ -868,9 +658,9 @@ export function DevicesView({
                                   }
                                 : undefined
                             }
-                            style={{
-                              cursor: onUpdateDevice ? 'text' : 'default',
-                            }}
+                            className={
+                              onUpdateDevice ? styles.renameable : undefined
+                            }
                             title={
                               onUpdateDevice ? 'Click to rename' : undefined
                             }
@@ -882,7 +672,9 @@ export function DevicesView({
                     )}
                     {cv('device_type') && (
                       <TD>
-                        <span style={{ color: C.muted }}>{d.device_type}</span>
+                        <span className={styles.textMuted}>
+                          {d.device_type}
+                        </span>
                       </TD>
                     )}
                     {cv('location') && spaces.length > 0 && (
@@ -890,7 +682,7 @@ export function DevicesView({
                         <SpacePath
                           spaceId={d.space_id}
                           spaces={spaces}
-                          style={{ color: C.dim, fontSize: 10 }}
+                          className={styles.dimLocPath}
                         />
                       </TD>
                     )}
@@ -899,7 +691,7 @@ export function DevicesView({
                         <PinAddr
                           address={d.manufacturer}
                           wtype="manufacturer"
-                          style={{ color: C.amber }}
+                          className={styles.amberText}
                         >
                           {d.manufacturer || '—'}
                         </PinAddr>
@@ -910,11 +702,7 @@ export function DevicesView({
                         <PinAddr
                           address={d.model}
                           wtype="model"
-                          style={{
-                            color: C.amber,
-                            fontFamily: 'monospace',
-                            fontSize: 10,
-                          }}
+                          className={styles.amberMono}
                         >
                           {localizedModel(d) || '—'}
                         </PinAddr>
@@ -922,26 +710,14 @@ export function DevicesView({
                     )}
                     {cv('order_number') && (
                       <TD>
-                        <span
-                          style={{
-                            color: C.dim,
-                            fontFamily: 'monospace',
-                            fontSize: 10,
-                          }}
-                        >
+                        <span className={styles.monoSmall}>
                           {d.order_number || '—'}
                         </span>
                       </TD>
                     )}
                     {cv('serial_number') && (
                       <TD>
-                        <span
-                          style={{
-                            color: C.dim,
-                            fontFamily: 'monospace',
-                            fontSize: 10,
-                          }}
-                        >
+                        <span className={styles.monoSmall}>
                           {d.serial_number || '—'}
                         </span>
                       </TD>
@@ -950,20 +726,22 @@ export function DevicesView({
                       <TD>
                         <Badge
                           label={d.status.toUpperCase()}
-                          color={(STATUS_COLOR as any)[d.status] || C.dim}
+                          color={
+                            (STATUS_COLOR as any)[d.status] || 'var(--dim)'
+                          }
                         />
                       </TD>
                     )}
                     {cv('gas') && (
                       <TD>
-                        <span style={{ color: C.dim }}>
+                        <span className={styles.textDim}>
                           {(deviceGAMap[d.individual_address] || []).length}
                         </span>
                       </TD>
                     )}
                     {cv('description') && (
                       <TD>
-                        <span style={{ color: C.dim, fontSize: 10 }}>
+                        <span className={styles.dimSmall}>
                           {d.description && d.description !== d.name
                             ? d.description
                             : ''}
@@ -972,24 +750,24 @@ export function DevicesView({
                     )}
                     {cv('comment') && (
                       <TD>
-                        <span style={{ color: C.dim, fontSize: 10 }}>
+                        <span className={styles.dimSmall}>
                           <RtfText value={d.comment} />
                         </span>
                       </TD>
                     )}
                     {cv('area') && (
                       <TD>
-                        <span style={{ color: C.dim }}>{d.area}</span>
+                        <span className={styles.textDim}>{d.area}</span>
                       </TD>
                     )}
                     {cv('line') && (
                       <TD>
-                        <span style={{ color: C.dim }}>{d.line}</span>
+                        <span className={styles.textDim}>{d.line}</span>
                       </TD>
                     )}
                     {cv('last_download') && (
                       <TD>
-                        <span style={{ color: C.dim, fontSize: 10 }}>
+                        <span className={styles.dimSmall}>
                           {d.last_download || '—'}
                         </span>
                       </TD>
@@ -1001,26 +779,13 @@ export function DevicesView({
           )}
           {filtered.length === 0 && <Empty msg="No devices match" />}
         </div>
-        <div
-          style={{
-            padding: '5px 14px',
-            borderTop: `1px solid ${C.border}`,
-            fontSize: 10,
-            color: C.dim,
-            display: 'flex',
-            gap: 14,
-          }}
-        >
+        <div className={styles.statusBar}>
           {Object.entries(STATUS_COLOR).map(([s, c]) => (
             <span
               key={s}
-              className="rh"
+              className={`rh ${filterStatus === s ? styles.statusItemActive : styles.statusItem}`}
               onClick={() => setFilterStatus((p) => (p === s ? 'all' : s))}
-              style={{
-                cursor: 'pointer',
-                color: filterStatus === s ? c : C.dim,
-                fontWeight: filterStatus === s ? 600 : 400,
-              }}
+              style={{ color: filterStatus === s ? c : 'var(--dim)' }}
             >
               <span style={{ color: c }}>●</span>{' '}
               {devices.filter((d: any) => d.status === s).length} {s}
@@ -1045,13 +810,11 @@ function InlineEdit({
   fontSize = 11,
   onSave,
   onCancel,
-  C,
 }: {
   initial: string;
   fontSize?: number;
   onSave: (v: string) => Promise<void>;
   onCancel: () => void;
-  C: any;
 }) {
   const [value, setValue] = useState(initial);
   const [saving, setSaving] = useState(false);
@@ -1064,10 +827,7 @@ function InlineEdit({
     setSaving(false);
   };
   return (
-    <div
-      onClick={(e) => e.stopPropagation()}
-      style={{ display: 'flex', gap: 4, alignItems: 'center', flex: 1 }}
-    >
+    <div onClick={(e) => e.stopPropagation()} className={styles.inlineEditWrap}>
       <input
         value={value}
         onChange={(e) => setValue(e.target.value)}
@@ -1076,22 +836,17 @@ function InlineEdit({
           if (e.key === 'Enter') save();
           if (e.key === 'Escape') onCancel();
         }}
-        style={{
-          background: C.inputBg,
-          border: `1px solid ${C.accent}`,
-          borderRadius: 3,
-          padding: '2px 6px',
-          color: C.text,
-          fontSize,
-          fontFamily: 'inherit',
-          flex: 1,
-          minWidth: 80,
-        }}
+        className={styles.inlineEditInput}
+        style={{ fontSize }}
       />
-      <Btn onClick={save} disabled={saving || !value.trim()} color={C.green}>
+      <Btn
+        onClick={save}
+        disabled={saving || !value.trim()}
+        color="var(--green)"
+      >
         {saving ? 'Saving' : 'Save'}
       </Btn>
-      <Btn onClick={onCancel} color={C.dim}>
+      <Btn onClick={onCancel} color="var(--dim)">
         Cancel
       </Btn>
     </div>

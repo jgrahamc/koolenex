@@ -68,6 +68,7 @@ import { CatalogView } from './views/CatalogView.tsx';
 import { PrintLabelsView } from './views/PrintLabelsView.tsx';
 import { PinDetailView } from './detail/PinDetailView.tsx';
 import { GROUP_WTYPES } from './state.ts';
+import appStyles from './App.module.css';
 
 // Global styles are now in global.css (imported above)
 
@@ -841,34 +842,11 @@ export default function App() {
         <MediumCtx.Provider value={mediumTypes}>
           <MaskCtx.Provider value={maskVersions}>
             <I18nCtx.Provider value={i18n}>
-              <div
-                style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  height: '100vh',
-                  background: C.bg,
-                  color: C.text,
-                  fontFamily: "'DM Mono',monospace",
-                  overflow: 'hidden',
-                  zoom: 1.45,
-                }}
-              >
-
+              <div className={appStyles.appShell}>
                 {/* Title bar */}
-                <div
-                  style={{
-                    height: 40,
-                    background: C.sidebar,
-                    borderBottom: `1px solid ${C.border}`,
-                    display: 'flex',
-                    alignItems: 'center',
-                    padding: '0 16px',
-                    gap: 14,
-                    flexShrink: 0,
-                  }}
-                >
+                <div className={appStyles.titleBar}>
                   <span
-                    style={{ cursor: 'pointer' }}
+                    className={appStyles.homeIcon}
                     onClick={() =>
                       dispatch({ type: 'SET_VIEW', view: 'projects' })
                     }
@@ -877,38 +855,23 @@ export default function App() {
                     <img
                       src="/icon.svg"
                       alt="koolenex"
-                      style={{ width: 22, height: 22, verticalAlign: 'middle' }}
+                      className={appStyles.homeLogo}
                     />
                   </span>
                   <span
                     onClick={() =>
                       dispatch({ type: 'SET_VIEW', view: 'projects' })
                     }
-                    style={{
-                      fontFamily: "'Syne',sans-serif",
-                      fontWeight: 800,
-                      fontSize: 13,
-                      letterSpacing: '0.1em',
-                      color: C.text,
-                      cursor: 'pointer',
-                    }}
+                    className={appStyles.brandName}
                   >
                     KOOLENEX
                   </span>
                   {/* Back / Forward */}
-                  <div style={{ display: 'flex', gap: 2 }}>
+                  <div className={appStyles.navBtns}>
                     <button
                       onClick={() => dispatch({ type: 'NAV_BACK' })}
                       disabled={state.navIndex <= 0}
-                      style={{
-                        background: 'none',
-                        border: 'none',
-                        color: state.navIndex <= 0 ? C.dim : C.muted,
-                        fontSize: 14,
-                        cursor: state.navIndex <= 0 ? 'default' : 'pointer',
-                        padding: '0 4px',
-                        lineHeight: 1,
-                      }}
+                      className={`${appStyles.navBtn} ${state.navIndex <= 0 ? appStyles.navBtnDisabled : appStyles.navBtnEnabled}`}
                       title="Back (Alt+←)"
                     >
                       ‹
@@ -916,61 +879,26 @@ export default function App() {
                     <button
                       onClick={() => dispatch({ type: 'NAV_FORWARD' })}
                       disabled={state.navIndex >= state.navHistory.length - 1}
-                      style={{
-                        background: 'none',
-                        border: 'none',
-                        color:
-                          state.navIndex >= state.navHistory.length - 1
-                            ? C.dim
-                            : C.muted,
-                        fontSize: 14,
-                        cursor:
-                          state.navIndex >= state.navHistory.length - 1
-                            ? 'default'
-                            : 'pointer',
-                        padding: '0 4px',
-                        lineHeight: 1,
-                      }}
+                      className={`${appStyles.navBtn} ${state.navIndex >= state.navHistory.length - 1 ? appStyles.navBtnDisabled : appStyles.navBtnEnabled}`}
                       title="Forward (Alt+→)"
                     >
                       ›
                     </button>
                   </div>
                   {undoCount > 0 && (
-                    <div
-                      style={{ display: 'inline-flex', alignItems: 'center' }}
-                    >
+                    <div className={appStyles.undoWrap}>
                       <button
                         onClick={() => performUndo()}
                         title={`Undo (Ctrl+Z)`}
-                        style={{
-                          background: 'none',
-                          border: 'none',
-                          color: C.amber,
-                          fontSize: 11,
-                          cursor: 'pointer',
-                          padding: '0 2px 0 6px',
-                          lineHeight: 1,
-                        }}
-                        className="bg"
+                        className={`${appStyles.undoBtn} bg`}
                       >
                         ↩ {undoCount}
                       </button>
-                      <div style={{ position: 'relative' }}>
+                      <div className={appStyles.undoDropdownWrap}>
                         <button
                           onClick={() => setUndoOpen((p) => !p)}
                           title="Show undo history"
-                          style={{
-                            background: 'none',
-                            border: 'none',
-                            color: C.amber,
-                            fontSize: 8,
-                            cursor: 'pointer',
-                            padding: '0 4px',
-                            lineHeight: 1,
-                            opacity: 0.7,
-                          }}
-                          className="bg"
+                          className={`${appStyles.undoDropdownBtn} bg`}
                         >
                           ▾
                         </button>
@@ -978,38 +906,10 @@ export default function App() {
                           <>
                             <div
                               onClick={() => setUndoOpen(false)}
-                              style={{
-                                position: 'fixed',
-                                inset: 0,
-                                zIndex: 999,
-                              }}
+                              className={appStyles.undoBackdrop}
                             />
-                            <div
-                              style={{
-                                position: 'absolute',
-                                top: '100%',
-                                left: 0,
-                                marginTop: 6,
-                                background: C.surface,
-                                border: `1px solid ${C.border}`,
-                                borderRadius: 6,
-                                boxShadow: '0 4px 16px rgba(0,0,0,0.3)',
-                                zIndex: 1000,
-                                minWidth: 240,
-                                maxHeight: 320,
-                                overflow: 'auto',
-                              }}
-                            >
-                              <div
-                                style={{
-                                  padding: '8px 12px',
-                                  borderBottom: `1px solid ${C.border}`,
-                                  fontSize: 9,
-                                  color: C.dim,
-                                  fontWeight: 600,
-                                  letterSpacing: '0.08em',
-                                }}
-                              >
+                            <div className={appStyles.undoDropdown}>
+                              <div className={appStyles.undoDropdownTitle}>
                                 UNDO HISTORY
                               </div>
                               {[...undoStackRef.current]
@@ -1018,50 +918,22 @@ export default function App() {
                                   <div
                                     key={i}
                                     onClick={() => performUndo(i + 1)}
-                                    className="rh"
-                                    style={{
-                                      padding: '6px 12px',
-                                      cursor: 'pointer',
-                                      borderBottom: `1px solid ${C.border}11`,
-                                    }}
+                                    className={`rh ${appStyles.undoItem} ${appStyles.undoItemBorder}`}
                                   >
-                                    <div
-                                      style={{
-                                        display: 'flex',
-                                        justifyContent: 'space-between',
-                                        alignItems: 'center',
-                                      }}
-                                    >
-                                      <span
-                                        style={{ fontSize: 11, color: C.text }}
-                                      >
+                                    <div className={appStyles.undoItemRow}>
+                                      <span className={appStyles.undoItemDesc}>
                                         {item.desc}
                                       </span>
                                       {i > 0 && (
                                         <span
-                                          style={{
-                                            fontSize: 9,
-                                            color: C.dim,
-                                            marginLeft: 8,
-                                            whiteSpace: 'nowrap',
-                                          }}
+                                          className={appStyles.undoItemIndex}
                                         >
                                           +{i}
                                         </span>
                                       )}
                                     </div>
                                     {item.detail && (
-                                      <div
-                                        style={{
-                                          fontSize: 9,
-                                          color: C.dim,
-                                          marginTop: 2,
-                                          overflow: 'hidden',
-                                          textOverflow: 'ellipsis',
-                                          whiteSpace: 'nowrap',
-                                          maxWidth: 300,
-                                        }}
-                                      >
+                                      <div className={appStyles.undoItemDetail}>
                                         {item.detail}
                                       </div>
                                     )}
@@ -1075,16 +947,12 @@ export default function App() {
                   )}
                   {state.projectData?.project && (
                     <>
-                      <span style={{ color: C.border2 }}>/</span>
+                      <span className={appStyles.breadcrumbSep}>/</span>
                       <span
                         onClick={() =>
                           dispatch({ type: 'SET_VIEW', view: 'locations' })
                         }
-                        style={{
-                          fontSize: 11,
-                          color: C.muted,
-                          cursor: 'pointer',
-                        }}
+                        className={appStyles.projectName}
                         title="Back to project"
                       >
                         {state.projectData.project.name}
@@ -1094,22 +962,12 @@ export default function App() {
                         type="file"
                         accept=".knxproj"
                         onChange={handleReimport}
-                        style={{ display: 'none' }}
+                        className={appStyles.fileInput}
                       />
                       <span
                         onClick={() => reimportRef.current?.click()}
                         title="Re-import .knxproj to refresh project data"
-                        style={{
-                          fontSize: 9,
-                          padding: '2px 7px',
-                          borderRadius: 10,
-                          background: `${C.accent}15`,
-                          color: reimporting ? C.dim : C.accent,
-                          border: `1px solid ${C.accent}30`,
-                          cursor: reimporting ? 'default' : 'pointer',
-                          letterSpacing: '0.06em',
-                        }}
-                        className={reimporting ? '' : 'bg'}
+                        className={`${appStyles.reimportBadge} ${reimporting ? appStyles.reimportBadgeDisabled : `bg ${appStyles.reimportBadgeActive}`}`}
                       >
                         {reimporting ? 'REIMPORTING…' : 'REIMPORT'}
                       </span>
@@ -1119,36 +977,14 @@ export default function App() {
                     <GlobalSearch
                       projectData={state.projectData}
                       onPin={handlePin}
-                      C={C}
                     />
                   )}
-                  <div
-                    style={{
-                      marginLeft: 'auto',
-                      display: 'flex',
-                      gap: 8,
-                      alignItems: 'center',
-                    }}
-                  >
+                  <div className={appStyles.rightArea}>
                     <div
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 5,
-                        fontSize: 10,
-                        color: state.busStatus.connected ? C.green : C.dim,
-                      }}
+                      className={`${appStyles.busStatus} ${state.busStatus.connected ? appStyles.busConnected : appStyles.busDisconnected}`}
                     >
                       <span
-                        style={{
-                          width: 6,
-                          height: 6,
-                          borderRadius: '50%',
-                          background: state.busStatus.connected
-                            ? C.green
-                            : C.dim,
-                        }}
-                        className={state.busStatus.connected ? 'pulse' : ''}
+                        className={`${appStyles.busDot} ${state.busStatus.connected ? `pulse ${appStyles.busDotConnected}` : appStyles.busDotDisconnected}`}
                       />
                       {state.busStatus.connected
                         ? state.busStatus.type === 'usb'
@@ -1160,17 +996,7 @@ export default function App() {
                       onClick={() =>
                         dispatch({ type: 'SET_VIEW', view: 'settings' })
                       }
-                      className="bg"
-                      style={{
-                        background: C.surface,
-                        border: `1px solid ${C.border}`,
-                        color: C.muted,
-                        padding: '3px 10px',
-                        borderRadius: 4,
-                        fontSize: 10,
-                        fontFamily: 'inherit',
-                        cursor: 'pointer',
-                      }}
+                      className={`${appStyles.toolbarBtn} bg`}
                     >
                       ⚙
                     </button>
@@ -1178,72 +1004,35 @@ export default function App() {
                       onClick={() =>
                         dispatch({ type: 'SET_VIEW', view: 'projects' })
                       }
-                      className="bg"
-                      style={{
-                        background: C.surface,
-                        border: `1px solid ${C.border}`,
-                        color: C.muted,
-                        padding: '3px 10px',
-                        borderRadius: 4,
-                        fontSize: 10,
-                        fontFamily: 'inherit',
-                        cursor: 'pointer',
-                      }}
+                      className={`${appStyles.toolbarBtn} bg`}
                     >
                       ⊠ Projects
                     </button>
                   </div>
                 </div>
 
-                <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+                <div className={appStyles.bodyRow}>
                   {/* Sidebar */}
                   {hasProject && state.view !== 'projects' && (
                     <div
-                      style={{
-                        width: sidebarWidth,
-                        borderRight: `1px solid ${C.border}`,
-                        background: C.sidebar,
-                        display: 'flex',
-                        flexDirection: 'column',
-                        overflow: 'hidden',
-                        flexShrink: 0,
-                        position: 'relative',
-                      }}
+                      className={appStyles.sidebar}
+                      style={{ width: sidebarWidth }}
                     >
-                      <div
-                        style={{
-                          display: 'flex',
-                          flexDirection: 'column',
-                          flex: 1,
-                          overflow: 'hidden',
-                        }}
-                      >
-                        <div style={{ padding: '8px 0' }}>
+                      <div className={appStyles.sidebarInner}>
+                        <div className={appStyles.navItems}>
                           {VIEWS.map((v) => (
                             <div
                               key={v.id}
-                              className={`ni ${state.view === v.id ? 'active' : ''}`}
+                              className={`ni ${state.view === v.id ? 'active' : ''} ${appStyles.navItem}`}
                               onClick={() =>
                                 dispatch({ type: 'SET_VIEW', view: v.id })
                               }
-                              style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 9,
-                                padding: '8px 14px',
-                                fontSize: 11,
-                                color: state.view === v.id ? C.accent : C.muted,
-                                borderLeft: '2px solid transparent',
-                              }}
                             >
                               <v.Icon size={15} />
                               <span
-                                style={{
-                                  textDecoration: v.wip
-                                    ? 'line-through'
-                                    : 'none',
-                                  opacity: v.wip ? 0.5 : 1,
-                                }}
+                                className={
+                                  v.wip ? appStyles.navItemWip : undefined
+                                }
                               >
                                 {v.label}
                               </span>
@@ -1251,23 +1040,25 @@ export default function App() {
                           ))}
                         </div>
                         {state.windows.length > 0 && (
-                          <div
-                            style={{
-                              borderTop: `1px solid ${C.border}`,
-                              overflow: 'auto',
-                              flex: 1,
-                            }}
-                          >
+                          <div className={appStyles.pinSection}>
                             {(
                               [
-                                ['device', 'DEVICES', C.accent],
-                                ['ga', 'GROUP ADDRESSES', C.purple],
-                                ['compare', 'COMPARISONS', C.purple],
-                                ['multicompare', 'MULTI-COMPARE', C.purple],
-                                ['manufacturer', 'BY MANUFACTURER', C.amber],
-                                ['model', 'BY MODEL', C.amber],
-                                ['order_number', 'BY ORDER #', C.amber],
-                                ['space', 'BY LOCATION', C.amber],
+                                ['device', 'DEVICES', 'var(--accent)'],
+                                ['ga', 'GROUP ADDRESSES', 'var(--purple)'],
+                                ['compare', 'COMPARISONS', 'var(--purple)'],
+                                [
+                                  'multicompare',
+                                  'MULTI-COMPARE',
+                                  'var(--purple)',
+                                ],
+                                [
+                                  'manufacturer',
+                                  'BY MANUFACTURER',
+                                  'var(--amber)',
+                                ],
+                                ['model', 'BY MODEL', 'var(--amber)'],
+                                ['order_number', 'BY ORDER #', 'var(--amber)'],
+                                ['space', 'BY LOCATION', 'var(--amber)'],
                               ] as const
                             ).map(([wtype, label, col]) => {
                               const cmpPhys = (a: string, b: string) => {
@@ -1330,14 +1121,7 @@ export default function App() {
                               };
                               return (
                                 <div key={wtype}>
-                                  <div
-                                    style={{
-                                      padding: '6px 14px 2px',
-                                      fontSize: 9,
-                                      color: C.dim,
-                                      letterSpacing: '0.08em',
-                                    }}
-                                  >
+                                  <div className={appStyles.pinGroupLabel}>
                                     {label}
                                   </div>
                                   {group.map((w) => {
@@ -1400,19 +1184,10 @@ export default function App() {
                                     return (
                                       <div
                                         key={w.key}
-                                        style={{
-                                          display: 'flex',
-                                          alignItems: 'center',
-                                          padding: '3px 6px 3px 14px',
-                                          gap: 4,
-                                          background:
-                                            state.activePinKey === w.key
-                                              ? C.border
-                                              : 'transparent',
-                                        }}
+                                        className={`${appStyles.pinItem} ${state.activePinKey === w.key ? appStyles.pinItemActive : ''}`}
                                       >
                                         <span
-                                          className="rh"
+                                          className={`rh ${appStyles.pinItemLabel}`}
                                           onClick={() =>
                                             dispatch({
                                               type: 'PIN_VIEW',
@@ -1420,31 +1195,15 @@ export default function App() {
                                             })
                                           }
                                           title={tooltip}
-                                          style={{
-                                            flex: 1,
-                                            fontSize: 10,
-                                            cursor: 'pointer',
-                                            overflow: 'hidden',
-                                            textOverflow: 'ellipsis',
-                                            whiteSpace: 'nowrap',
-                                            padding: '2px 0',
-                                          }}
                                         >
                                           <span
-                                            style={{
-                                              fontFamily: 'monospace',
-                                              color: col,
-                                            }}
+                                            className={appStyles.pinAddr}
+                                            style={{ color: col }}
                                           >
                                             {displayAddr}
                                           </span>
                                           {displayLabel && (
-                                            <span
-                                              style={{
-                                                color: C.muted,
-                                                marginLeft: 5,
-                                              }}
-                                            >
+                                            <span className={appStyles.pinName}>
                                               {displayLabel}
                                             </span>
                                           )}
@@ -1453,16 +1212,7 @@ export default function App() {
                                           onClick={() =>
                                             handleCloseWindow(w.key)
                                           }
-                                          style={{
-                                            background: 'transparent',
-                                            border: 'none',
-                                            color: C.dim,
-                                            fontSize: 12,
-                                            cursor: 'pointer',
-                                            lineHeight: 1,
-                                            padding: '0 2px',
-                                            flexShrink: 0,
-                                          }}
+                                          className={appStyles.pinCloseBtn}
                                         >
                                           ×
                                         </button>
@@ -1475,28 +1225,12 @@ export default function App() {
                           </div>
                         )}
                       </div>
-                      <div
-                        style={{
-                          borderTop: `1px solid ${C.border}`,
-                          padding: '8px 0',
-                        }}
-                      >
+                      <div className={appStyles.sidebarBottom}>
                         <div
-                          className={`ni ${state.view === 'project' ? 'active' : ''}`}
+                          className={`ni ${state.view === 'project' ? 'active' : ''} ${appStyles.navItem}`}
                           onClick={() =>
                             dispatch({ type: 'SET_VIEW', view: 'project' })
                           }
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 9,
-                            padding: '8px 14px',
-                            fontSize: 11,
-                            color:
-                              state.view === 'project' ? C.accent : C.muted,
-                            borderLeft: '2px solid transparent',
-                            cursor: 'pointer',
-                          }}
                         >
                           <IconProject size={15} />
                           <span>Project</span>
@@ -1505,21 +1239,7 @@ export default function App() {
                       {/* Resize handle */}
                       <div
                         onMouseDown={startSidebarResize}
-                        style={{
-                          position: 'absolute',
-                          top: 0,
-                          right: 0,
-                          width: 4,
-                          height: '100%',
-                          cursor: 'col-resize',
-                          zIndex: 10,
-                        }}
-                        onMouseEnter={(e) =>
-                          (e.currentTarget.style.background = C.border2)
-                        }
-                        onMouseLeave={(e) =>
-                          (e.currentTarget.style.background = 'transparent')
-                        }
+                        className={appStyles.resizeHandle}
                       />
                     </div>
                   )}
@@ -1528,8 +1248,7 @@ export default function App() {
                   <PinContext.Provider value={handlePin}>
                     <div
                       key={state.view}
-                      className="fi"
-                      style={{ display: 'flex', flex: 1, overflow: 'hidden' }}
+                      className={`fi ${appStyles.viewWrap}`}
                     >
                       {state.view === 'projects' && (
                         <ProjectsView state={state} dispatch={dispatch} />
@@ -1689,22 +1408,11 @@ export default function App() {
                 </div>
 
                 {/* Status bar */}
-                <div
-                  style={{
-                    height: 22,
-                    background: C.sidebar,
-                    borderTop: `1px solid ${C.border}`,
-                    display: 'flex',
-                    alignItems: 'center',
-                    padding: '0 14px',
-                    gap: 16,
-                    fontSize: 10,
-                    color: C.dim,
-                    flexShrink: 0,
-                  }}
-                >
+                <div className={appStyles.statusBar}>
                   {state.error && (
-                    <span style={{ color: C.red }}>✗ {state.error}</span>
+                    <span className={appStyles.statusError}>
+                      ✗ {state.error}
+                    </span>
                   )}
                   {state.loading && (
                     <>
@@ -1727,7 +1435,7 @@ export default function App() {
                       </span>
                     </>
                   )}
-                  <span style={{ marginLeft: 'auto' }}>
+                  <span className={appStyles.statusVersion}>
                     koolenex v0.1.0-alpha
                   </span>
                 </div>

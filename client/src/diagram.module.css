@@ -51,3 +51,61 @@
   color: var(--dim);
   opacity: 0.6;
 }
+
+/* Speech bubble */
+.bubbleGroup {
+  pointer-events: none;
+}
+.bubbleTriFill {
+  fill: var(--bg);
+}
+.bubbleRect {
+  fill: var(--bg);
+  stroke: var(--purple);
+}
+.bubbleLine {
+  stroke: var(--purple);
+}
+.bubbleLabel {
+  fill: var(--dim);
+}
+.bubbleValue {
+  fill: var(--text);
+}
+
+/* Diagram node transitions */
+.nodeTransition {
+  transition: opacity 0.15s;
+}
+.fillTransition {
+  transition:
+    fill 0.15s,
+    stroke-width 0.15s;
+}
+
+/* GA / device text styles */
+.gaAddrPin {
+  text-decoration: underline;
+  cursor: pointer;
+}
+.gaAddrNoPin {
+  text-decoration: none;
+  cursor: default;
+}
+.peerAddrPin {
+  text-decoration: underline;
+  cursor: pointer;
+}
+.peerAddrNoPin {
+  text-decoration: none;
+  cursor: default;
+}
+.devAddrPin {
+  cursor: pointer;
+}
+.devAddrNoPin {
+  cursor: default;
+}
+.clickableNode {
+  cursor: pointer;
+}

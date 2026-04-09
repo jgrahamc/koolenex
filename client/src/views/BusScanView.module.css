@@ -1,0 +1,153 @@
+/* BusScanView */
+.root {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.actionRow {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.inputLabel {
+  font-size: 10px;
+  color: var(--dim);
+}
+.scanInput {
+  background: var(--input-bg);
+  border: 1px solid var(--border2);
+  border-radius: 4px;
+  padding: 4px 8px;
+  color: var(--text);
+  font-size: 11px;
+  font-family: monospace;
+}
+.offlineMsg {
+  padding: 24px;
+  color: var(--dim);
+  font-size: 11px;
+}
+.progressWrap {
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.progressInfo {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  color: var(--dim);
+  margin-bottom: 4px;
+}
+.scanAddr {
+  font-family: monospace;
+  color: var(--accent);
+}
+.progressTrack {
+  height: 3px;
+  background: var(--border);
+  border-radius: 2px;
+}
+.progressBar {
+  height: 3px;
+  background: var(--accent);
+  border-radius: 2px;
+  transition: width 0.15s;
+}
+.resultsArea {
+  flex: 1;
+  overflow: auto;
+}
+.noResults {
+  padding: 24px;
+  color: var(--dim);
+  font-size: 11px;
+}
+.table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.monoSmall {
+  color: var(--dim);
+  font-family: monospace;
+  font-size: 10px;
+}
+.foundText {
+  color: var(--green);
+  font-size: 10px;
+}
+.missingText {
+  color: var(--red);
+  font-size: 10px;
+}
+.inProjectFound {
+  color: var(--green);
+  font-size: 11px;
+}
+.inProjectMissing {
+  color: var(--dim);
+  font-size: 11px;
+}
+.inProjectNone {
+  color: var(--dim);
+  font-size: 11px;
+}
+.actionBadge {
+  font-size: 9px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  cursor: pointer;
+  letter-spacing: 0.06em;
+  margin-right: 4px;
+}
+.scanBadge {
+  composes: actionBadge;
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
+  color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 19%, transparent);
+}
+.addBadge {
+  composes: actionBadge;
+  background: color-mix(in srgb, var(--green) 9%, transparent);
+  color: var(--green);
+  border: 1px solid color-mix(in srgb, var(--green) 19%, transparent);
+}
+.scanInputArea {
+  width: 40px;
+}
+.scanInputLine {
+  width: 40px;
+}
+.scanInputTimeout {
+  width: 55px;
+}
+.progressAddrHint {
+  margin-left: 8px;
+  color: var(--dim);
+}
+.thAddr {
+  width: 100px;
+}
+.thMask {
+  width: 80px;
+}
+.thStatus {
+  width: 50px;
+}
+.thActions {
+  width: 120px;
+}
+.rowMissing {
+  opacity: 0.45;
+}
+.tdNoWrap {
+  white-space: nowrap;
+}
+.scanBadgeDisabled {
+  composes: actionBadge;
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
+  color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 19%, transparent);
+  cursor: default;
+}

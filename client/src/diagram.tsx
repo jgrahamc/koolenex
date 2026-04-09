@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef, useContext, useMemo } from 'react';
-import { useC, ThemeColors } from './theme.ts';
 import { PinContext } from './contexts.ts';
 import { coGAs } from './primitives.tsx';
 import { dptUnit, dptName } from './dpt.ts';
@@ -21,7 +20,6 @@ export function GASpeechBubble({
   rawDecoded,
   arriveMs,
 }: GASpeechBubbleProps) {
-  const C = useC();
   const ref = useRef<SVGGElement>(null);
   const GA_HALF_H = 12;
   const BW = 96,
@@ -72,11 +70,11 @@ export function GASpeechBubble({
   const label = dptName(dptStr || '') || dptStr || null;
 
   return (
-    <g ref={ref} opacity={0} style={{ pointerEvents: 'none' }}>
+    <g ref={ref} opacity={0} className={dStyles.bubbleGroup}>
       {/* Triangle fill (covers border of rect) */}
       <polygon
         points={`${x - 7},${BY + BH} ${x + 7},${BY + BH} ${x},${tipY}`}
-        fill={C.bg}
+        className={dStyles.bubbleTriFill}
       />
       {/* Bubble body */}
       <rect
@@ -85,8 +83,7 @@ export function GASpeechBubble({
         width={BW}
         height={BH}
         rx={5}
-        fill={C.bg}
-        stroke={C.purple}
+        className={dStyles.bubbleRect}
         strokeWidth={1.2}
       />
       {/* Triangle outline — only sides, not base (base hidden behind rect) */}
@@ -95,7 +92,7 @@ export function GASpeechBubble({
         y1={BY + BH}
         x2={x}
         y2={tipY}
-        stroke={C.purple}
+        className={dStyles.bubbleLine}
         strokeWidth={1.2}
       />
       <line
@@ -103,11 +100,17 @@ export function GASpeechBubble({
         y1={BY + BH}
         x2={x}
         y2={tipY}
-        stroke={C.purple}
+        className={dStyles.bubbleLine}
         strokeWidth={1.2}
       />
       {label && (
-        <text x={x} y={BY + 13} textAnchor="middle" fontSize={8} fill={C.dim}>
+        <text
+          x={x}
+          y={BY + 13}
+          textAnchor="middle"
+          fontSize={8}
+          className={dStyles.bubbleLabel}
+        >
           {label}
         </text>
       )}
@@ -116,7 +119,7 @@ export function GASpeechBubble({
         y={BY + (label ? 28 : 24)}
         textAnchor="middle"
         fontSize={label ? 12 : 13}
-        fill={C.text}
+        className={dStyles.bubbleValue}
         fontWeight="700"
         fontFamily="monospace"
       >
@@ -207,7 +210,6 @@ interface DeviceNetworkDiagramProps {
   gaDeviceMap: Record<string, string[]>;
   allCOs: any[];
   devMap: Record<string, any>;
-  C: ThemeColors;
   devTelegrams: any[];
 }
 
@@ -218,7 +220,6 @@ export function DeviceNetworkDiagram({
   gaDeviceMap,
   allCOs,
   devMap,
-  C,
   devTelegrams,
 }: DeviceNetworkDiagramProps) {
   const W = 540,
@@ -501,7 +502,13 @@ export function DeviceNetworkDiagram({
 
     // Helper: line colour for dev↔GA edge
     const edgeColor = (tx: boolean, rx: boolean) =>
-      tx && rx ? C.green : tx ? C.accent : rx ? C.amber : C.dim;
+      tx && rx
+        ? 'var(--green)'
+        : tx
+          ? 'var(--accent)'
+          : rx
+            ? 'var(--amber)'
+            : 'var(--dim)';
 
     const devTids: ReturnType<typeof setTimeout>[] = [];
 
@@ -656,8 +663,6 @@ export function DeviceNetworkDiagram({
       ? 1
       : DIM;
 
-  const TRANS = 'opacity 0.15s ease';
-
   return (
     <div className={dStyles.diagramWrap}>
       <div className={dStyles.diagramTitle}>
@@ -678,7 +683,7 @@ export function DeviceNetworkDiagram({
         {(() => {
           const lit = litDevices.has(dev.individual_address);
           return (
-            <g style={{ transition: 'opacity 0.15s' }}>
+            <g className={dStyles.nodeTransition}>
               <title>
                 {dev.individual_address}
                 {dev.name ? ` — ${dev.name}` : ''}
@@ -689,17 +694,17 @@ export function DeviceNetworkDiagram({
                 width={DEV_W}
                 height={DEV_H}
                 rx={4}
-                fill={lit ? `${C.accent}40` : `${C.accent}18`}
-                stroke={C.accent}
+                fill={lit ? 'var(--accent-40)' : 'var(--accent-18)'}
+                stroke="var(--accent)"
                 strokeWidth={lit ? 2.5 : 1.5}
-                style={{ transition: 'fill 0.15s, stroke-width 0.15s' }}
+                className={dStyles.fillTransition}
               />
               <text
                 x={COL_DEV}
                 y={devY - 4}
                 textAnchor="middle"
                 fontSize={9}
-                fill={C.accent}
+                fill="var(--accent)"
                 fontFamily="monospace"
                 onClick={
                   pin
@@ -709,7 +714,7 @@ export function DeviceNetworkDiagram({
                       }
                     : undefined
                 }
-                style={{ cursor: pin ? 'pointer' : 'default' }}
+                className={pin ? dStyles.devAddrPin : dStyles.devAddrNoPin}
               >
                 {dev.individual_address}
               </text>
@@ -718,7 +723,7 @@ export function DeviceNetworkDiagram({
                 y={devY + 8}
                 textAnchor="middle"
                 fontSize={8}
-                fill={C.muted}
+                fill="var(--muted)"
               >
                 {trunc(dev.name)}
               </text>
@@ -745,16 +750,16 @@ export function DeviceNetworkDiagram({
           const nOp = gaOp(ga.address);
           const isSelected = sel?.type === 'ga' && sel.addr === ga.address;
           return (
-            <g key={ga.address} style={{ transition: TRANS }}>
+            <g key={ga.address} className={dStyles.nodeTransition}>
               {transmit && receive ? (
                 <>
                   <path
                     d={`M${devRight},${devY} C${mx},${devY} ${mx},${y} ${curveEnd},${y}${lineToGA}`}
                     fill="none"
-                    stroke={C.green}
+                    stroke="var(--green)"
                     strokeWidth={1.2}
                     opacity={eOp * 0.85}
-                    style={{ transition: TRANS }}
+                    className={dStyles.nodeTransition}
                   />
                 </>
               ) : transmit ? (
@@ -762,10 +767,10 @@ export function DeviceNetworkDiagram({
                   <path
                     d={`M${devRight},${devY} C${mx},${devY} ${mx},${y} ${curveEnd},${y}${lineToGA}`}
                     fill="none"
-                    stroke={C.accent}
+                    stroke="var(--accent)"
                     strokeWidth={1.2}
                     opacity={eOp * 0.85}
-                    style={{ transition: TRANS }}
+                    className={dStyles.nodeTransition}
                   />
                   <MidArrow
                     x0={devRight}
@@ -776,7 +781,7 @@ export function DeviceNetworkDiagram({
                     cy2={y}
                     x1={curveEnd}
                     y1={y}
-                    color={C.accent}
+                    color="var(--accent)"
                     op={eOp * 0.85}
                   />
                 </>
@@ -785,10 +790,10 @@ export function DeviceNetworkDiagram({
                   <path
                     d={`${lineFromGA} M${curveEnd},${y} C${mx},${y} ${mx},${devY} ${devRight},${devY}`}
                     fill="none"
-                    stroke={C.amber}
+                    stroke="var(--amber)"
                     strokeWidth={1.2}
                     opacity={eOp * 0.85}
-                    style={{ transition: TRANS }}
+                    className={dStyles.nodeTransition}
                   />
                   <MidArrow
                     x0={curveEnd}
@@ -799,7 +804,7 @@ export function DeviceNetworkDiagram({
                     cy2={devY}
                     x1={devRight}
                     y1={devY}
-                    color={C.amber}
+                    color="var(--amber)"
                     op={eOp * 0.85}
                   />
                 </>
@@ -808,17 +813,18 @@ export function DeviceNetworkDiagram({
                   <path
                     d={`M${devRight},${devY} C${mx},${devY} ${mx},${y} ${curveEnd},${y}${lineToGA}`}
                     fill="none"
-                    stroke={C.dim}
+                    stroke="var(--dim)"
                     strokeWidth={1}
                     strokeDasharray="4,3"
                     opacity={eOp * 0.35}
-                    style={{ transition: TRANS }}
+                    className={dStyles.nodeTransition}
                   />
                 </>
               )}
               <g
                 onClick={() => toggle('ga', ga.address)}
-                style={{ cursor: 'pointer', transition: TRANS, opacity: nOp }}
+                className={`${dStyles.clickableNode} ${dStyles.nodeTransition}`}
+                style={{ opacity: nOp }}
               >
                 <title>
                   {ga.address}
@@ -835,14 +841,14 @@ export function DeviceNetworkDiagram({
                       rx={3}
                       fill={
                         lit
-                          ? `${C.purple}45`
+                          ? 'var(--purple-45)'
                           : isSelected
-                            ? `${C.purple}38`
-                            : `${C.purple}18`
+                            ? 'var(--purple-38)'
+                            : 'var(--purple-18)'
                       }
-                      stroke={C.purple}
+                      stroke="var(--purple)"
                       strokeWidth={lit ? 2.5 : isSelected ? 1.8 : 1}
-                      style={{ transition: 'fill 0.15s, stroke-width 0.15s' }}
+                      className={dStyles.fillTransition}
                     />
                   );
                 })()}
@@ -851,12 +857,9 @@ export function DeviceNetworkDiagram({
                   y={y - 3}
                   textAnchor="middle"
                   fontSize={9}
-                  fill={C.purple}
+                  fill="var(--purple)"
                   fontFamily="monospace"
-                  style={{
-                    textDecoration: pin ? 'underline' : 'none',
-                    cursor: pin ? 'pointer' : 'default',
-                  }}
+                  className={pin ? dStyles.gaAddrPin : dStyles.gaAddrNoPin}
                   onClick={
                     pin
                       ? (e: React.MouseEvent) => {
@@ -874,7 +877,7 @@ export function DeviceNetworkDiagram({
                   y={y + 8}
                   textAnchor="middle"
                   fontSize={7.5}
-                  fill={C.muted}
+                  fill="var(--muted)"
                 >
                   {trunc(ga.name, 12)}
                 </text>
@@ -916,13 +919,13 @@ export function DeviceNetworkDiagram({
                   : '';
                 const lineToGA = isLeftCol ? ` L${gaRight},${gn.y}` : '';
                 return (
-                  <g key={gn.ga.address} style={{ transition: TRANS }}>
+                  <g key={gn.ga.address} className={dStyles.nodeTransition}>
                     {pTx && pRx ? (
                       <>
                         <path
                           d={`${lineFromGA}M${curveStart},${gn.y} C${mx},${gn.y} ${mx},${py} ${peerLeft},${py}`}
                           fill="none"
-                          stroke={C.green}
+                          stroke="var(--green)"
                           strokeWidth={1.2}
                           opacity={eOp * 0.85}
                         />
@@ -932,7 +935,7 @@ export function DeviceNetworkDiagram({
                         <path
                           d={`M${peerLeft},${py} C${mx},${py} ${mx},${gn.y} ${curveStart},${gn.y}${lineToGA}`}
                           fill="none"
-                          stroke={C.accent}
+                          stroke="var(--accent)"
                           strokeWidth={1.2}
                           opacity={eOp * 0.85}
                         />
@@ -945,7 +948,7 @@ export function DeviceNetworkDiagram({
                           cy2={gn.y}
                           x1={curveStart}
                           y1={gn.y}
-                          color={C.accent}
+                          color="var(--accent)"
                           op={eOp * 0.85}
                         />
                       </>
@@ -954,7 +957,7 @@ export function DeviceNetworkDiagram({
                         <path
                           d={`${lineFromGA}M${curveStart},${gn.y} C${mx},${gn.y} ${mx},${py} ${peerLeft},${py}`}
                           fill="none"
-                          stroke={C.amber}
+                          stroke="var(--amber)"
                           strokeWidth={1.2}
                           opacity={eOp * 0.85}
                         />
@@ -967,7 +970,7 @@ export function DeviceNetworkDiagram({
                           cy2={py}
                           x1={peerLeft}
                           y1={py}
-                          color={C.amber}
+                          color="var(--amber)"
                           op={eOp * 0.85}
                         />
                       </>
@@ -976,7 +979,7 @@ export function DeviceNetworkDiagram({
                         <path
                           d={`${lineFromGA}M${curveStart},${gn.y} C${mx},${gn.y} ${mx},${py} ${peerLeft},${py}`}
                           fill="none"
-                          stroke={C.dim}
+                          stroke="var(--dim)"
                           strokeWidth={1}
                           strokeDasharray="4,3"
                           opacity={eOp * 0.35}
@@ -988,7 +991,8 @@ export function DeviceNetworkDiagram({
               })}
               <g
                 onClick={() => toggle('peer', addr)}
-                style={{ cursor: 'pointer', transition: TRANS, opacity: nOp }}
+                className={`${dStyles.clickableNode} ${dStyles.nodeTransition}`}
+                style={{ opacity: nOp }}
               >
                 <title>
                   {addr}
@@ -1005,14 +1009,20 @@ export function DeviceNetworkDiagram({
                       rx={4}
                       fill={
                         lit
-                          ? `${C.muted}30`
+                          ? 'var(--muted-30)'
                           : isSelected
-                            ? `${C.text}18`
-                            : `${C.border}50`
+                            ? 'var(--text-18)'
+                            : 'var(--border-50)'
                       }
-                      stroke={lit ? C.muted : isSelected ? C.muted : C.dim}
+                      stroke={
+                        lit
+                          ? 'var(--muted)'
+                          : isSelected
+                            ? 'var(--muted)'
+                            : 'var(--dim)'
+                      }
                       strokeWidth={lit ? 2.5 : isSelected ? 1.5 : 1}
-                      style={{ transition: 'fill 0.15s, stroke-width 0.15s' }}
+                      className={dStyles.fillTransition}
                     />
                   );
                 })()}
@@ -1021,12 +1031,9 @@ export function DeviceNetworkDiagram({
                   y={py - 4}
                   textAnchor="middle"
                   fontSize={9}
-                  fill={C.muted}
+                  fill="var(--muted)"
                   fontFamily="monospace"
-                  style={{
-                    textDecoration: pin ? 'underline' : 'none',
-                    cursor: pin ? 'pointer' : 'default',
-                  }}
+                  className={pin ? dStyles.gaAddrPin : dStyles.gaAddrNoPin}
                   onClick={
                     pin
                       ? (e: React.MouseEvent) => {
@@ -1044,7 +1051,7 @@ export function DeviceNetworkDiagram({
                   y={py + 8}
                   textAnchor="middle"
                   fontSize={8}
-                  fill={C.dim}
+                  fill="var(--dim)"
                 >
                   {trunc(peer?.name)}
                 </text>
@@ -1082,8 +1089,7 @@ export function DeviceNetworkDiagram({
           <span className={dStyles.legendBoth}>───</span> both
         </span>
         <span>
-          <span className={dStyles.legendUnknown}>- - -</span> direction
-          unknown
+          <span className={dStyles.legendUnknown}>- - -</span> direction unknown
         </span>
       </div>
     </div>
@@ -1094,7 +1100,6 @@ interface GANetworkDiagramProps {
   ga: any;
   linkedDevices: any[];
   allCOs: any[];
-  C: ThemeColors;
   gaTelegrams: any[];
 }
 
@@ -1102,7 +1107,6 @@ export function GANetworkDiagram({
   ga,
   linkedDevices,
   allCOs,
-  C,
   gaTelegrams,
 }: GANetworkDiagramProps) {
   const W = 460,
@@ -1259,7 +1263,7 @@ export function GANetworkDiagram({
       cy2: gaY,
       x1: gaRight,
       y1: gaY,
-      color: C.accent,
+      color: 'var(--accent)',
       delayMs: 0,
     };
     flashDev(srcNode.dev.individual_address, 0);
@@ -1286,7 +1290,6 @@ export function GANetworkDiagram({
 
   const toggle = (addr: string) => setSel((s) => (s === addr ? null : addr));
   const devOp = (addr: string) => (!sel || sel === addr ? 1 : DIM);
-  const TRANS = 'opacity 0.15s ease';
 
   return (
     <div className={dStyles.diagramWrap}>
@@ -1315,17 +1318,17 @@ export function GANetworkDiagram({
                 width={GA_W}
                 height={GA_H}
                 rx={3}
-                fill={lit ? `${C.purple}45` : `${C.purple}18`}
-                stroke={C.purple}
+                fill={lit ? 'var(--purple-45)' : 'var(--purple-18)'}
+                stroke="var(--purple)"
                 strokeWidth={lit ? 2.5 : 1}
-                style={{ transition: 'fill 0.15s, stroke-width 0.15s' }}
+                className={dStyles.fillTransition}
               />
               <text
                 x={COL_GA}
                 y={gaY - 3}
                 textAnchor="middle"
                 fontSize={9}
-                fill={C.purple}
+                fill="var(--purple)"
                 fontFamily="monospace"
               >
                 {ga.address}
@@ -1335,7 +1338,7 @@ export function GANetworkDiagram({
                 y={gaY + 8}
                 textAnchor="middle"
                 fontSize={7.5}
-                fill={C.muted}
+                fill="var(--muted)"
               >
                 {trunc(ga.name, 12)}
               </text>
@@ -1351,26 +1354,26 @@ export function GANetworkDiagram({
           const op = devOp(dev.individual_address);
           const isSelected = sel === dev.individual_address;
           return (
-            <g key={dev.individual_address} style={{ transition: TRANS }}>
+            <g key={dev.individual_address} className={dStyles.nodeTransition}>
               {/* Edge */}
               {transmit && receive ? (
                 <path
                   d={`M${gaRight},${gaY} C${mx},${gaY} ${mx},${y} ${devLeft},${y}`}
                   fill="none"
-                  stroke={C.green}
+                  stroke="var(--green)"
                   strokeWidth={1.2}
                   opacity={op * 0.85}
-                  style={{ transition: TRANS }}
+                  className={dStyles.nodeTransition}
                 />
               ) : transmit ? (
                 <>
                   <path
                     d={`M${devLeft},${y} C${mx},${y} ${mx},${gaY} ${gaRight},${gaY}`}
                     fill="none"
-                    stroke={C.accent}
+                    stroke="var(--accent)"
                     strokeWidth={1.2}
                     opacity={op * 0.85}
-                    style={{ transition: TRANS }}
+                    className={dStyles.nodeTransition}
                   />
                   <MidArrow
                     x0={devLeft}
@@ -1381,7 +1384,7 @@ export function GANetworkDiagram({
                     cy2={gaY}
                     x1={gaRight}
                     y1={gaY}
-                    color={C.accent}
+                    color="var(--accent)"
                     op={op * 0.85}
                   />
                 </>
@@ -1390,10 +1393,10 @@ export function GANetworkDiagram({
                   <path
                     d={`M${gaRight},${gaY} C${mx},${gaY} ${mx},${y} ${devLeft},${y}`}
                     fill="none"
-                    stroke={C.amber}
+                    stroke="var(--amber)"
                     strokeWidth={1.2}
                     opacity={op * 0.85}
-                    style={{ transition: TRANS }}
+                    className={dStyles.nodeTransition}
                   />
                   <MidArrow
                     x0={gaRight}
@@ -1404,7 +1407,7 @@ export function GANetworkDiagram({
                     cy2={y}
                     x1={devLeft}
                     y1={y}
-                    color={C.amber}
+                    color="var(--amber)"
                     op={op * 0.85}
                   />
                 </>
@@ -1412,17 +1415,18 @@ export function GANetworkDiagram({
                 <path
                   d={`M${gaRight},${gaY} C${mx},${gaY} ${mx},${y} ${devLeft},${y}`}
                   fill="none"
-                  stroke={C.dim}
+                  stroke="var(--dim)"
                   strokeWidth={1}
                   strokeDasharray="4,3"
                   opacity={op * 0.35}
-                  style={{ transition: TRANS }}
+                  className={dStyles.nodeTransition}
                 />
               )}
               {/* Device node */}
               <g
                 onClick={() => toggle(dev.individual_address)}
-                style={{ cursor: 'pointer', transition: TRANS, opacity: op }}
+                className={`${dStyles.clickableNode} ${dStyles.nodeTransition}`}
+                style={{ opacity: op }}
               >
                 <title>
                   {dev.individual_address}
@@ -1439,14 +1443,14 @@ export function GANetworkDiagram({
                       rx={4}
                       fill={
                         lit
-                          ? `${C.accent}40`
+                          ? 'var(--accent-40)'
                           : isSelected
-                            ? `${C.accent}30`
-                            : `${C.accent}18`
+                            ? 'var(--accent-30)'
+                            : 'var(--accent-18)'
                       }
-                      stroke={C.accent}
+                      stroke="var(--accent)"
                       strokeWidth={lit ? 2.5 : isSelected ? 1.8 : 1.5}
-                      style={{ transition: 'fill 0.15s, stroke-width 0.15s' }}
+                      className={dStyles.fillTransition}
                     />
                   );
                 })()}
@@ -1455,12 +1459,9 @@ export function GANetworkDiagram({
                   y={y - 4}
                   textAnchor="middle"
                   fontSize={9}
-                  fill={C.accent}
+                  fill="var(--accent)"
                   fontFamily="monospace"
-                  style={{
-                    textDecoration: pin ? 'underline' : 'none',
-                    cursor: pin ? 'pointer' : 'default',
-                  }}
+                  className={pin ? dStyles.gaAddrPin : dStyles.gaAddrNoPin}
                   onClick={
                     pin
                       ? (e: React.MouseEvent) => {
@@ -1477,7 +1478,7 @@ export function GANetworkDiagram({
                   y={y + 8}
                   textAnchor="middle"
                   fontSize={8}
-                  fill={C.muted}
+                  fill="var(--muted)"
                 >
                   {trunc(dev.name)}
                 </text>

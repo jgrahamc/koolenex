@@ -6,7 +6,6 @@ import {
   useMemo,
   useCallback,
 } from 'react';
-import { useC } from '../theme.ts';
 import { PinContext } from '../contexts.ts';
 import { DeviceTypeIcon } from '../icons.tsx';
 import { Btn, Empty } from '../primitives.tsx';
@@ -20,6 +19,7 @@ const COLMAP: Record<string, string> = {
 };
 
 import { AddDeviceModal } from '../AddDeviceModal.tsx';
+import styles from './FloorPlanView.module.css';
 
 interface FloorPlanViewProps {
   data: any;
@@ -36,7 +36,6 @@ export function FloorPlanView({
   jumpTo,
   onAddDevice,
 }: FloorPlanViewProps) {
-  const C = useC();
   const pin = useContext(PinContext);
   const { spaces = [], devices = [] } = data || {};
 
@@ -100,28 +99,14 @@ export function FloorPlanView({
 
   if (!spaces.length)
     return (
-      <div
-        style={{
-          flex: 1,
-          display: 'flex',
-          flexDirection: 'column',
-          overflow: 'hidden',
-        }}
-      >
+      <div className={styles.emptyWrap}>
         <Empty icon="◻" msg="No location data in this project" />
       </div>
     );
 
   if (!floors.length)
     return (
-      <div
-        style={{
-          flex: 1,
-          display: 'flex',
-          flexDirection: 'column',
-          overflow: 'hidden',
-        }}
-      >
+      <div className={styles.emptyWrap}>
         <Empty icon="◻" msg="No floors found in the location hierarchy" />
       </div>
     );
@@ -130,39 +115,14 @@ export function FloorPlanView({
   const devs = floorDevices[activeFloor!] || [];
 
   return (
-    <div
-      style={{
-        flex: 1,
-        display: 'flex',
-        flexDirection: 'column',
-        overflow: 'hidden',
-      }}
-    >
+    <div className={styles.root}>
       {/* Tab bar */}
-      <div
-        style={{
-          display: 'flex',
-          borderBottom: `1px solid ${C.border}`,
-          flexShrink: 0,
-          overflow: 'auto',
-        }}
-      >
+      <div className={styles.tabBar}>
         {floors.map((f: any) => (
           <div
             key={f.id}
             onClick={() => setActiveFloor(f.id)}
-            style={{
-              padding: '8px 16px',
-              fontSize: 11,
-              cursor: 'pointer',
-              borderBottom:
-                f.id === activeFloor
-                  ? `2px solid ${C.accent}`
-                  : '2px solid transparent',
-              color: f.id === activeFloor ? C.text : C.muted,
-              fontWeight: f.id === activeFloor ? 600 : 400,
-              whiteSpace: 'nowrap',
-            }}
+            className={f.id === activeFloor ? styles.tabActive : styles.tab}
           >
             {f.name}
           </div>
@@ -180,7 +140,6 @@ export function FloorPlanView({
           onAddDevice={onAddDevice}
           data={data}
           pin={pin}
-          C={C}
         />
       )}
     </div>
@@ -196,7 +155,6 @@ interface FloorPlanCanvasProps {
   onAddDevice?: ((body: any) => Promise<any>) | null;
   data: any;
   pin: any;
-  C: any;
 }
 
 function FloorPlanCanvas({
@@ -208,7 +166,6 @@ function FloorPlanCanvas({
   onAddDevice,
   data,
   pin: _pin,
-  C,
 }: FloorPlanCanvasProps) {
   const [imgUrl, setImgUrl] = useState<string | null>(null);
   const [dragging, setDragging] = useState<any>(null); // deviceId being dragged
@@ -355,17 +312,8 @@ function FloorPlanCanvas({
 
   if (!imgUrl) {
     return (
-      <div
-        style={{
-          flex: 1,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          flexDirection: 'column',
-          gap: 12,
-        }}
-      >
-        <div style={{ fontSize: 11, color: C.muted }}>
+      <div className={styles.noImgWrap}>
+        <div className={styles.noImgText}>
           No floor plan image for {floor.name}
         </div>
         <input
@@ -373,7 +321,7 @@ function FloorPlanCanvas({
           type="file"
           accept="image/*"
           onChange={handleUpload}
-          style={{ display: 'none' }}
+          className={styles.hidden}
         />
         <Btn onClick={() => fileRef.current?.click()}>Upload floor plan</Btn>
       </div>
@@ -381,32 +329,16 @@ function FloorPlanCanvas({
   }
 
   return (
-    <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
+    <div className={styles.canvasWrap}>
       {/* Main canvas area */}
-      <div
-        style={{
-          flex: 1,
-          overflow: 'auto',
-          position: 'relative',
-          background: C.bg,
-          zoom: 1 / appZoom,
-        }}
-      >
-        <div
-          ref={wrapRef}
-          style={{ position: 'relative', display: 'inline-block' }}
-        >
+      <div className={styles.canvasArea} style={{ zoom: 1 / appZoom }}>
+        <div ref={wrapRef} className={styles.imgWrap}>
           <img
             ref={imgRef}
             src={imgUrl}
             alt={floor.name}
             onLoad={onImgLoad}
-            style={{
-              display: 'block',
-              maxWidth: '100%',
-              userSelect: 'none',
-              pointerEvents: 'none',
-            }}
+            className={styles.floorImg}
             draggable={false}
           />
           {/* Full-screen drag overlay */}
@@ -414,12 +346,7 @@ function FloorPlanCanvas({
             <div
               onMouseMove={onDragOverlayMove}
               onMouseUp={onDragOverlayUp}
-              style={{
-                position: 'fixed',
-                inset: 0,
-                zIndex: 9999,
-                cursor: 'grabbing',
-              }}
+              className={styles.dragOverlay}
             />
           )}
           {/* Placed devices */}
@@ -432,37 +359,27 @@ function FloorPlanCanvas({
                 key={d.id}
                 onMouseDown={(e) => startDrag(e, d.id)}
                 title={`${d.individual_address} — ${d.name}\n${roomMap[d.space_id] || ''}`}
+                className={styles.placedDev}
                 style={{
-                  position: 'absolute',
                   left: `${x * 100}%`,
                   top: `${y * 100}%`,
-                  transform: 'translate(-50%, -50%)',
                   cursor: isDragging ? 'grabbing' : 'grab',
                   zIndex: isDragging ? 100 : 1,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 3,
-                  background: isDragging ? `${C.accent}40` : `${C.bg}cc`,
-                  border: `1px solid ${COLMAP[d.device_type] || C.muted}`,
+                  background: isDragging ? 'var(--accent-40)' : 'var(--bg-cc)',
+                  border: `1px solid ${COLMAP[d.device_type] || 'var(--muted)'}`,
                   borderRadius: 4 * appZoom,
                   padding: `${2 * appZoom}px ${6 * appZoom}px`,
                   fontSize: 9 * appZoom,
-                  color: C.text,
-                  whiteSpace: 'nowrap',
-                  userSelect: 'none',
                 }}
               >
                 <DeviceTypeIcon
                   type={d.device_type}
                   size={10 * appZoom}
-                  style={{ color: COLMAP[d.device_type] || C.muted }}
+                  style={{ color: COLMAP[d.device_type] || 'var(--muted)' }}
                 />
                 <span
-                  style={{
-                    maxWidth: 80 * appZoom,
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                  }}
+                  className={styles.devNameClip}
+                  style={{ maxWidth: 80 * appZoom }}
                 >
                   {d.name}
                 </span>
@@ -473,13 +390,8 @@ function FloorPlanCanvas({
                     onUpdateDevice?.(d.id, { floor_x: -1, floor_y: -1 });
                   }}
                   title="Remove from floor plan"
-                  style={{
-                    marginLeft: 2,
-                    cursor: 'pointer',
-                    color: C.dim,
-                    fontSize: 8 * appZoom,
-                    lineHeight: 1,
-                  }}
+                  className={styles.removePin}
+                  style={{ fontSize: 8 * appZoom }}
                 >
                   ✕
                 </span>
@@ -488,43 +400,30 @@ function FloorPlanCanvas({
           })}
         </div>
         {/* Controls */}
-        <div
-          style={{
-            position: 'absolute',
-            top: 8,
-            right: 8,
-            display: 'flex',
-            gap: 6,
-            zIndex: 300,
-            zoom: appZoom,
-          }}
-        >
+        <div className={styles.controls} style={{ zoom: appZoom }}>
           <input
             ref={fileRef}
             type="file"
             accept="image/*"
             onChange={handleUpload}
-            style={{ display: 'none' }}
+            className={styles.hidden}
           />
           {onAddDevice && (
             <Btn
               onClick={() => setShowAdd(true)}
-              style={{ fontSize: 9, padding: '3px 8px' }}
-              color={C.green}
+              className={styles.btnSmall}
+              color="var(--green)"
             >
               + Add Device
             </Btn>
           )}
           <Btn
             onClick={() => fileRef.current?.click()}
-            style={{ fontSize: 9, padding: '3px 8px' }}
+            className={styles.btnSmall}
           >
             Replace image
           </Btn>
-          <Btn
-            onClick={handleDelete}
-            style={{ fontSize: 9, padding: '3px 8px' }}
-          >
+          <Btn onClick={handleDelete} className={styles.btnSmall}>
             Remove
           </Btn>
         </div>
@@ -540,23 +439,8 @@ function FloorPlanCanvas({
 
       {/* Unplaced devices sidebar */}
       {unplaced.length > 0 && (
-        <div
-          style={{
-            width: 180,
-            borderLeft: `1px solid ${C.border}`,
-            overflow: 'auto',
-            flexShrink: 0,
-            padding: 8,
-          }}
-        >
-          <div
-            style={{
-              fontSize: 9,
-              color: C.dim,
-              letterSpacing: '0.08em',
-              marginBottom: 8,
-            }}
-          >
+        <div className={styles.unplacedSidebar}>
+          <div className={styles.unplacedLabel}>
             UNPLACED ({unplaced.length})
           </div>
           {Object.entries(devicesByRoom).map(([room, roomDevs]) => {
@@ -565,44 +449,21 @@ function FloorPlanCanvas({
             );
             if (!unplacedInRoom.length) return null;
             return (
-              <div key={room} style={{ marginBottom: 10 }}>
-                <div style={{ fontSize: 9, color: C.muted, marginBottom: 4 }}>
-                  {room}
-                </div>
+              <div key={room} className={styles.roomGroup}>
+                <div className={styles.roomName}>{room}</div>
                 {unplacedInRoom.map((d: any) => (
                   <div
                     key={d.id}
                     onMouseDown={(e) => startDrag(e, d.id)}
                     title={d.individual_address}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 4,
-                      padding: '3px 6px',
-                      marginBottom: 2,
-                      borderRadius: 3,
-                      background: C.surface,
-                      border: `1px solid ${C.border}`,
-                      fontSize: 9,
-                      color: C.text,
-                      cursor: 'grab',
-                      userSelect: 'none',
-                    }}
+                    className={styles.unplacedDev}
                   >
                     <DeviceTypeIcon
                       type={d.device_type}
                       size={10}
-                      style={{ color: COLMAP[d.device_type] || C.muted }}
+                      style={{ color: COLMAP[d.device_type] || 'var(--muted)' }}
                     />
-                    <span
-                      style={{
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                      }}
-                    >
-                      {d.name}
-                    </span>
+                    <span className={styles.devNameClip}>{d.name}</span>
                   </div>
                 ))}
               </div>

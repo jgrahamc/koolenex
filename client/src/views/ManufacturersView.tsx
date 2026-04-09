@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { useC, STATUS_COLOR } from '../theme.ts';
+import { STATUS_COLOR } from '../theme.ts';
 import {
   Badge,
   Btn,
@@ -14,6 +14,7 @@ import { DeviceTypeIcon } from '../icons.tsx';
 import { dlCSV } from '../columns.tsx';
 
 import { AddDeviceModal } from '../AddDeviceModal.tsx';
+import styles from './ManufacturersView.module.css';
 
 interface ManufacturersViewProps {
   data: any;
@@ -26,7 +27,6 @@ export function ManufacturersView({
   onAddDevice,
   dispatch,
 }: ManufacturersViewProps) {
-  const C = useC();
   const { devices, spaces = [], deviceGAMap = {} } = data;
   const [addDefaults, setAddDefaults] = useState<any>(null);
   const [expanded, setExpanded] = useState<Record<string, boolean>>(() => {
@@ -103,63 +103,43 @@ export function ManufacturersView({
     );
 
   return (
-    <div
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        flex: 1,
-        overflow: 'hidden',
-      }}
-    >
+    <div className={styles.root}>
       <SectionHeader
         title="Manufacturers"
         count={tree.length}
         actions={[
-          <Btn key="csv" onClick={exportCSV} color={C.muted} bg={C.surface}>
+          <Btn
+            key="csv"
+            onClick={exportCSV}
+            color="var(--muted)"
+            bg="var(--surface)"
+          >
             ↓ CSV
           </Btn>,
         ]}
       />
-      <div style={{ overflow: 'auto', flex: 1 }}>
+      <div className={styles.scrollArea}>
         {tree.length === 0 && <Empty icon="⊞" msg="No devices" />}
         {tree.map((mfr) => {
           const mfrKey = `m:${mfr.name}`;
           const mfrTotal = mfr.models.reduce((s, m) => s + m.devices.length, 0);
           return (
             <div key={mfr.name}>
-              {/* Manufacturer header */}
               <div
                 onClick={() => toggle(mfrKey)}
-                className="rh"
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 6,
-                  padding: '6px 14px',
-                  borderBottom: `1px solid ${C.border}`,
-                  background: C.surface,
-                  cursor: 'pointer',
-                }}
+                className={`rh ${styles.mfrHeader}`}
               >
-                <span
-                  style={{
-                    fontSize: 9,
-                    color: C.dim,
-                    width: 14,
-                    userSelect: 'none',
-                    flexShrink: 0,
-                  }}
-                >
+                <span className={styles.chevron}>
                   {isOpen(mfrKey) ? '▾' : '▸'}
                 </span>
                 <PinAddr
                   address={mfr.name}
                   wtype="manufacturer"
-                  style={{ color: C.amber, fontSize: 11, fontWeight: 600 }}
+                  className={styles.mfrPinAddr}
                 >
                   {mfr.name}
                 </PinAddr>
-                <span style={{ color: C.dim, fontSize: 10 }}>
+                <span className={styles.mfrCount}>
                   · {mfrTotal} devices · {mfr.models.length} models
                 </span>
                 {dispatch && (
@@ -172,14 +152,7 @@ export function ManufacturersView({
                       });
                     }}
                     title="View in catalog"
-                    style={{
-                      color: C.accent,
-                      fontSize: 9,
-                      marginLeft: 4,
-                      cursor: 'pointer',
-                      opacity: 0.7,
-                    }}
-                    className="bg"
+                    className={`bg ${styles.catalogLink}`}
                   >
                     catalog
                   </span>
@@ -190,43 +163,21 @@ export function ManufacturersView({
                   const mdlKey = `m:${mfr.name}:${mdl.name}`;
                   return (
                     <div key={mdl.name}>
-                      {/* Model header */}
                       <div
                         onClick={() => toggle(mdlKey)}
-                        className="rh"
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 6,
-                          padding: '5px 14px 5px 28px',
-                          borderBottom: `1px solid ${C.border}`,
-                          background: C.hover,
-                          cursor: 'pointer',
-                        }}
+                        className={`rh ${styles.mdlHeader}`}
                       >
-                        <span
-                          style={{
-                            fontSize: 9,
-                            color: C.dim,
-                            width: 14,
-                            userSelect: 'none',
-                            flexShrink: 0,
-                          }}
-                        >
+                        <span className={styles.chevron}>
                           {isOpen(mdlKey) ? '▾' : '▸'}
                         </span>
                         <PinAddr
                           address={mdl.name}
                           wtype="model"
-                          style={{
-                            color: C.text,
-                            fontSize: 10,
-                            fontFamily: 'monospace',
-                          }}
+                          className={styles.mdlPinAddr}
                         >
                           {mdl.name}
                         </PinAddr>
-                        <span style={{ color: C.dim, fontSize: 10 }}>
+                        <span className={styles.mfrCount}>
                           · {mdl.devices.length}
                         </span>
                         {onAddDevice && (
@@ -239,25 +190,17 @@ export function ManufacturersView({
                               });
                             }}
                             title="Add another device of this type"
-                            style={{
-                              color: C.green,
-                              fontSize: 9,
-                              cursor: 'pointer',
-                              opacity: 0.7,
-                            }}
+                            className={styles.addBtn}
                           >
                             +
                           </span>
                         )}
                       </div>
-                      {/* Device table */}
                       {isOpen(mdlKey) && (
-                        <table
-                          style={{ width: '100%', borderCollapse: 'collapse' }}
-                        >
+                        <table className={styles.table}>
                           <thead>
                             <tr>
-                              <TH style={{ paddingLeft: 42 }}>ADDRESS</TH>
+                              <TH className={styles.thAddrIndented}>ADDRESS</TH>
                               <TH>NAME</TH>
                               <TH>TYPE</TH>
                               <TH>STATUS</TH>
@@ -269,35 +212,26 @@ export function ManufacturersView({
                           <tbody>
                             {mdl.devices.map((d: any) => (
                               <tr key={d.id} className="rh">
-                                <TD style={{ paddingLeft: 42 }}>
+                                <TD className={styles.tdAddrIndented}>
                                   <PinAddr
                                     address={d.individual_address}
                                     wtype="device"
-                                    style={{
-                                      color: C.accent,
-                                      fontFamily: 'monospace',
-                                    }}
+                                    className={styles.accentMono}
                                   />
                                 </TD>
                                 <TD>
-                                  <span style={{ color: C.text }}>
+                                  <span className={styles.textMuted}>
                                     {d.name}
                                   </span>
                                 </TD>
                                 <TD>
-                                  <span
-                                    style={{
-                                      display: 'flex',
-                                      alignItems: 'center',
-                                      gap: 5,
-                                    }}
-                                  >
+                                  <span className={styles.devType}>
                                     <DeviceTypeIcon
                                       type={d.device_type}
                                       size={12}
-                                      style={{ color: C.muted }}
+                                      style={{ color: 'var(--muted)' }}
                                     />
-                                    <span style={{ color: C.muted }}>
+                                    <span className={styles.textMuted}>
                                       {d.device_type}
                                     </span>
                                   </span>
@@ -306,7 +240,8 @@ export function ManufacturersView({
                                   <Badge
                                     label={d.status.toUpperCase()}
                                     color={
-                                      (STATUS_COLOR as any)[d.status] || C.dim
+                                      (STATUS_COLOR as any)[d.status] ||
+                                      'var(--dim)'
                                     }
                                   />
                                 </TD>
@@ -315,7 +250,7 @@ export function ManufacturersView({
                                     <SpacePath
                                       spaceId={d.space_id}
                                       spaces={spaces}
-                                      style={{ color: C.dim, fontSize: 10 }}
+                                      className={styles.dimLocPath}
                                     />
                                   </TD>
                                 )}
@@ -324,20 +259,16 @@ export function ManufacturersView({
                                     <PinAddr
                                       address={d.order_number}
                                       wtype="order_number"
-                                      style={{
-                                        color: C.dim,
-                                        fontFamily: 'monospace',
-                                        fontSize: 10,
-                                      }}
+                                      className={styles.orderPinAddr}
                                     >
                                       {d.order_number}
                                     </PinAddr>
                                   ) : (
-                                    <span style={{ color: C.dim }}>—</span>
+                                    <span className={styles.textDim}>—</span>
                                   )}
                                 </TD>
                                 <TD>
-                                  <span style={{ color: C.dim }}>
+                                  <span className={styles.textDim}>
                                     {(deviceGAMap[d.individual_address] || [])
                                       .length || '—'}
                                   </span>

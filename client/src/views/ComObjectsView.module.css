@@ -1,0 +1,140 @@
+/* ComObjectsView */
+.root {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  overflow: hidden;
+}
+.filterSelect {
+  background: var(--surface);
+  border: 1px solid var(--border2);
+  border-radius: 4px;
+  padding: 5px 8px;
+  color: var(--text);
+  font-size: 11px;
+  font-family: inherit;
+}
+.scrollArea {
+  overflow: auto;
+  flex: 1;
+}
+.devGroupHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 14px 5px 28px;
+  background: var(--hover);
+  border-bottom: 1px solid var(--border);
+}
+.chevron {
+  font-size: 9px;
+  color: var(--dim);
+  width: 14px;
+  cursor: pointer;
+  user-select: none;
+}
+.devName {
+  color: var(--text);
+  font-size: 10px;
+}
+.count {
+  color: var(--dim);
+  font-size: 10px;
+}
+.table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.textDim {
+  color: var(--dim);
+}
+.channelMono {
+  color: var(--accent);
+  font-size: 10px;
+  font-family: monospace;
+}
+.dptMono {
+  color: var(--muted);
+  font-size: 10px;
+  font-family: monospace;
+}
+.sizeSmall {
+  color: var(--dim);
+  font-size: 10px;
+  white-space: nowrap;
+}
+.gaCol {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.flagsMono {
+  font-family: monospace;
+  font-size: 11px;
+  letter-spacing: 0.05em;
+}
+.dimSmall {
+  color: var(--dim);
+  font-size: 10px;
+}
+.footer {
+  padding: 5px 14px;
+  border-top: 1px solid var(--border);
+  font-size: 10px;
+  color: var(--dim);
+}
+.footerMuted {
+  color: var(--muted);
+}
+.accentPinAddr {
+  color: var(--accent);
+  font-family: monospace;
+  font-size: 10px;
+}
+.amberPinAddr {
+  color: var(--amber);
+  font-size: 10px;
+}
+.modelPinAddr {
+  color: var(--amber);
+  font-family: monospace;
+  font-size: 10px;
+}
+.gaPinAddr {
+  color: var(--purple);
+  font-family: monospace;
+}
+.thObjNum {
+  width: 40px;
+}
+.thChannel {
+  width: 70px;
+}
+.thDpt {
+  width: 130px;
+}
+.thSizeNoWrap {
+  width: 70px;
+  white-space: nowrap;
+}
+.thGaAddr {
+  width: 90px;
+}
+.thFlags {
+  width: 70px;
+}
+.thDirection {
+  width: 70px;
+}
+.dirOutput {
+  color: var(--green);
+  font-size: 10px;
+}
+.dirInput {
+  color: var(--amber);
+  font-size: 10px;
+}
+.dirBoth {
+  color: var(--muted);
+  font-size: 10px;
+}

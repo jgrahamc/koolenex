@@ -1,5 +1,4 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { useC } from '../theme.ts';
 import {
   Btn,
   Spinner,
@@ -9,6 +8,7 @@ import {
 } from '../primitives.tsx';
 import { api } from '../api.ts';
 import { AddDeviceModal } from '../AddDeviceModal.tsx';
+import styles from './CatalogView.module.css';
 
 interface CatalogViewProps {
   activeProjectId: any;
@@ -25,7 +25,6 @@ export function CatalogView({
   onPin,
   jumpTo,
 }: CatalogViewProps) {
-  const C = useC();
   const [catalog, setCatalog] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
@@ -50,12 +49,10 @@ export function CatalogView({
     load();
   }, [activeProjectId]);
 
-  // Handle jumpTo -- expand the target manufacturer's first-level sections, collapse all others
   useEffect(() => {
     if (!jumpTo?.manufacturer || !catalog) return;
     const { sections = [] } = catalog;
     const newExpanded: Record<string, boolean> = {};
-    // Find root sections belonging to this manufacturer and expand them
     for (const sec of sections) {
       if (!sec.parent_id && sec.manufacturer === jumpTo.manufacturer) {
         newExpanded[sec.id] = true;
@@ -100,13 +97,11 @@ export function CatalogView({
 
   const sq = search.toLowerCase();
 
-  // Build tree from flat sections/items
   const { mfrGroups, filteredItemCount } = useMemo(() => {
     if (!catalog)
       return { mfrGroups: [] as [string, any[]][], filteredItemCount: 0 };
     const { sections = [], items = [] } = catalog;
 
-    // Filter items by search
     const filteredItems = sq
       ? items.filter(
           (i: any) =>
@@ -117,18 +112,15 @@ export function CatalogView({
         )
       : items;
 
-    // Build section map
     const sectionMap: Record<string, any> = {};
     for (const s of sections)
       sectionMap[s.id] = { ...s, children: [], items: [] };
 
-    // Assign items to sections
     for (const item of filteredItems) {
       if (sectionMap[item.section_id])
         sectionMap[item.section_id].items.push(item);
     }
 
-    // Build parent-child relationships
     const roots: any[] = [];
     for (const s of sections) {
       if (s.parent_id && sectionMap[s.parent_id]) {
@@ -138,7 +130,6 @@ export function CatalogView({
       }
     }
 
-    // Count items recursively for each section
     const countItems = (node: any): number => {
       let c = node.items.length;
       for (const child of node.children) c += countItems(child);
@@ -147,14 +138,12 @@ export function CatalogView({
     };
     roots.forEach(countItems);
 
-    // Filter out empty sections when searching
     const prune = (nodes: any[]): any[] =>
       nodes
         .filter((n) => n.totalItems > 0)
         .map((n) => ({ ...n, children: prune(n.children) }));
     const prunedRoots = sq ? prune(roots) : roots;
 
-    // Group roots by manufacturer
     const byMfr: Record<string, any[]> = {};
     for (const r of prunedRoots) {
       const mfr = r.manufacturer || 'Unknown';
@@ -168,8 +157,7 @@ export function CatalogView({
     return { mfrGroups, filteredItemCount: filteredItems.length };
   }, [catalog, sq]);
 
-  if (!activeProjectId)
-    return <Empty icon="◈" msg="No project selected" />;
+  if (!activeProjectId) return <Empty icon="◈" msg="No project selected" />;
 
   const renderSection = (node: any, depth: number): React.ReactNode => {
     const isOpen = sq || expandedSections[node.id];
@@ -178,36 +166,28 @@ export function CatalogView({
       <div key={node.id}>
         <div
           onClick={() => hasContent && toggleSection(node.id)}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8,
-            padding: `4px 14px 4px ${14 + depth * 16}px`,
-            background: depth === 0 ? C.surface : 'transparent',
-            borderBottom: `1px solid ${C.border}`,
-            cursor: hasContent ? 'pointer' : 'default',
-            userSelect: 'none',
-          }}
+          className={`${styles.sectionRow} ${depth === 0 ? styles.sectionRowRoot : ''} ${hasContent ? styles.sectionRowClickable : ''}`}
+          data-depth={depth}
+          style={{ paddingLeft: 14 + depth * 16 }}
         >
           {hasContent ? (
-            <span style={{ fontSize: 9, color: C.dim, width: 10 }}>
-              {isOpen ? '▾' : '▸'}
-            </span>
+            <span className={styles.chevron}>{isOpen ? '▾' : '▸'}</span>
           ) : (
-            <span style={{ width: 10 }} />
+            <span className={styles.spacer} />
           )}
           <span
-            style={{
-              fontSize: depth === 0 ? 11 : 10,
-              fontWeight: depth <= 1 ? 600 : 400,
-              color: depth === 0 ? C.accent : C.text,
-              flex: 1,
-            }}
+            className={
+              depth === 0
+                ? styles.sectionNameRoot
+                : depth === 1
+                  ? styles.sectionNameChild
+                  : styles.sectionNameDeep
+            }
           >
             {node.number ? `${node.number} ` : ''}
             {node.name}
           </span>
-          <span style={{ fontSize: 9, color: C.dim }}>{node.totalItems}</span>
+          <span className={styles.sectionCount}>{node.totalItems}</span>
         </div>
         {isOpen && (
           <>
@@ -216,14 +196,8 @@ export function CatalogView({
                 {node.items.map((item: any) => (
                   <div
                     key={item.id}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 10,
-                      padding: `5px 14px 5px ${14 + (depth + 1) * 16}px`,
-                      borderBottom: `1px solid ${C.border}11`,
-                      fontSize: 10,
-                    }}
+                    className={styles.itemRow}
+                    style={{ paddingLeft: 14 + (depth + 1) * 16 }}
                   >
                     {item.in_use ? (
                       <span
@@ -232,29 +206,13 @@ export function CatalogView({
                             ? () => onPin('model', item.model || item.name)
                             : undefined
                         }
-                        style={{
-                          color: C.green,
-                          fontSize: 10,
-                          flexShrink: 0,
-                          cursor: onPin ? 'pointer' : 'default',
-                          padding: '0 2px',
-                        }}
+                        className={`bg ${onPin ? styles.dotInUseClickable : styles.dotInUse}`}
                         title="View devices of this type"
-                        className="bg"
                       >
                         ●
                       </span>
                     ) : (
-                      <span
-                        style={{
-                          color: C.dim,
-                          fontSize: 10,
-                          flexShrink: 0,
-                          padding: '0 2px',
-                        }}
-                      >
-                        ○
-                      </span>
+                      <span className={styles.dotUnused}>○</span>
                     )}
                     <span
                       onClick={
@@ -262,12 +220,7 @@ export function CatalogView({
                           ? () => onPin('model', item.model || item.name)
                           : undefined
                       }
-                      style={{
-                        color: C.text,
-                        flex: 1,
-                        cursor: item.in_use && onPin ? 'pointer' : 'default',
-                      }}
-                      className={item.in_use && onPin ? 'bg' : undefined}
+                      className={`${item.in_use && onPin ? styles.itemNameClickable : styles.itemName} ${item.in_use && onPin ? 'bg' : ''}`}
                     >
                       {item.name}
                     </span>
@@ -278,14 +231,7 @@ export function CatalogView({
                             ? () => onPin('order_number', item.order_number)
                             : undefined
                         }
-                        style={{
-                          color: C.dim,
-                          fontFamily: 'monospace',
-                          fontSize: 9,
-                          flexShrink: 0,
-                          cursor: onPin ? 'pointer' : 'default',
-                        }}
-                        className={onPin ? 'bg' : undefined}
+                        className={`${onPin ? styles.orderNumClickable : styles.orderNum} ${onPin ? 'bg' : ''}`}
                       >
                         {item.order_number}
                       </span>
@@ -293,17 +239,7 @@ export function CatalogView({
                     {onAddDevice && (
                       <span
                         onClick={() => handleAddFromCatalog(item)}
-                        style={{
-                          fontSize: 9,
-                          padding: '1px 6px',
-                          borderRadius: 10,
-                          background: `${C.green}18`,
-                          color: C.green,
-                          border: `1px solid ${C.green}30`,
-                          cursor: 'pointer',
-                          flexShrink: 0,
-                        }}
-                        className="bg"
+                        className={`bg ${styles.addBadge}`}
                       >
                         + Add
                       </span>
@@ -320,14 +256,7 @@ export function CatalogView({
   };
 
   return (
-    <div
-      style={{
-        flex: 1,
-        display: 'flex',
-        flexDirection: 'column',
-        overflow: 'hidden',
-      }}
-    >
+    <div className={styles.root}>
       <SectionHeader
         title="Product Catalog"
         count={filteredItemCount}
@@ -341,8 +270,8 @@ export function CatalogView({
           <Btn
             key="imp"
             onClick={() => fileRef.current?.click()}
-            color={C.accent}
-            bg={C.surface}
+            color="var(--accent)"
+            bg="var(--surface)"
             disabled={importing}
           >
             {importing ? (
@@ -360,12 +289,12 @@ export function CatalogView({
         type="file"
         accept=".knxprod"
         onChange={handleImportKnxprod}
-        style={{ display: 'none' }}
+        className={styles.hidden}
       />
 
-      <div style={{ flex: 1, overflow: 'auto' }}>
+      <div className={styles.scrollArea}>
         {loading && (
-          <div style={{ padding: 20, textAlign: 'center' }}>
+          <div className={styles.loadingWrap}>
             <Spinner /> Loading catalog…
           </div>
         )}
@@ -383,29 +312,14 @@ export function CatalogView({
           catalog &&
           mfrGroups.map(([mfr, sections]) => (
             <div key={mfr}>
-              <div
-                style={{
-                  padding: '8px 14px',
-                  background: C.surface,
-                  borderBottom: `1px solid ${C.border}`,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 8,
-                }}
-              >
+              <div className={styles.mfrHeader}>
                 <span
                   onClick={onPin ? () => onPin('manufacturer', mfr) : undefined}
-                  style={{
-                    color: C.amber,
-                    fontSize: 11,
-                    fontWeight: 700,
-                    cursor: onPin ? 'pointer' : 'default',
-                  }}
-                  className={onPin ? 'bg' : undefined}
+                  className={`${onPin ? styles.mfrNameClickable : styles.mfrName} ${onPin ? 'bg' : ''}`}
                 >
                   {mfr}
                 </span>
-                <span style={{ color: C.dim, fontSize: 10 }}>
+                <span className={styles.mfrCount}>
                   ·{' '}
                   {sections.reduce((s: number, n: any) => s + n.totalItems, 0)}{' '}
                   products

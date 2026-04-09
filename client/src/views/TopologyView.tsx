@@ -1,5 +1,5 @@
 import { useState, useEffect, useContext, useMemo } from 'react';
-import { useC, MediumCtx, STATUS_COLOR } from '../theme.ts';
+import { MediumCtx, STATUS_COLOR } from '../theme.ts';
 import { localizedModel } from '../dpt.ts';
 import {
   Badge,
@@ -15,6 +15,7 @@ import { useColumns, ColumnPicker, dlCSV } from '../columns.tsx';
 import { api } from '../api.ts';
 
 import { AddDeviceModal } from '../AddDeviceModal.tsx';
+import styles from './TopologyView.module.css';
 
 interface TopologyViewProps {
   data: any;
@@ -39,7 +40,6 @@ export function TopologyView({
   onCreateTopology,
   onDeleteTopology,
 }: TopologyViewProps) {
-  const C = useC();
   const mediumTypes = useContext(MediumCtx);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>(() => {
     try {
@@ -97,12 +97,10 @@ export function TopologyView({
     return parts.join(' › ');
   };
 
-  // Build topology structure from the topology table
   const areaRows = topology
     .filter((t: any) => t.line === null)
     .sort((a: any, b: any) => a.area - b.area);
   const lineRows = topology.filter((t: any) => t.line !== null);
-  // Also discover areas/lines from devices that might not have topology rows yet
   const allAreas: any[] = [
     ...new Set([
       ...areaRows.map((t: any) => t.area),
@@ -138,25 +136,18 @@ export function TopologyView({
   };
 
   return (
-    <div
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        flex: 1,
-        overflow: 'hidden',
-      }}
-    >
+    <div className={styles.root}>
       <SectionHeader
         title="Topology"
         count={devices.length}
         actions={[
-          <ColumnPicker
-            key="cp"
-            cols={topoCols}
-            onChange={saveTopoCols}
-            C={C}
-          />,
-          <Btn key="csv" onClick={exportTopoCSV} color={C.muted} bg={C.surface}>
+          <ColumnPicker key="cp" cols={topoCols} onChange={saveTopoCols} />,
+          <Btn
+            key="csv"
+            onClick={exportTopoCSV}
+            color="var(--muted)"
+            bg="var(--surface)"
+          >
             ↓ CSV
           </Btn>,
           ...(onCreateTopology
@@ -172,8 +163,8 @@ export function TopologyView({
                       name: `Area ${nextArea}`,
                     });
                   }}
-                  color={C.green}
-                  bg={C.surface}
+                  color="var(--green)"
+                  bg="var(--surface)"
                 >
                   + Area
                 </Btn>,
@@ -181,7 +172,7 @@ export function TopologyView({
             : []),
         ]}
       />
-      <div style={{ overflow: 'auto', flex: 1 }}>
+      <div className={styles.scrollArea}>
         {allAreas.map((area: any) => {
           const areaRow = areaRows.find((t: any) => t.area === area);
           const areaName = areaRow?.name || '';
@@ -202,16 +193,7 @@ export function TopologyView({
           );
           return (
             <div key={`area-${area}`}>
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 8,
-                  padding: '6px 14px',
-                  background: C.surface,
-                  borderBottom: `1px solid ${C.border}`,
-                }}
-              >
+              <div className={styles.areaHeader}>
                 {editTopoId === areaRow?.id ? (
                   <InlineEdit
                     initial={areaName}
@@ -221,25 +203,12 @@ export function TopologyView({
                       setEditTopoId(null);
                     }}
                     onCancel={() => setEditTopoId(null)}
-                    C={C}
                   />
                 ) : (
                   <>
-                    <span
-                      style={{ color: C.accent, fontSize: 11, fontWeight: 600 }}
-                    >
-                      AREA {area}
-                    </span>
+                    <span className={styles.areaTitle}>AREA {area}</span>
                     {areaName && (
-                      <span
-                        style={{
-                          color: C.accent,
-                          fontSize: 11,
-                          fontWeight: 600,
-                        }}
-                      >
-                        — {areaName}
-                      </span>
+                      <span className={styles.areaTitle}>— {areaName}</span>
                     )}
                     {!areaName && onUpdateTopology && areaRow && (
                       <span
@@ -247,12 +216,7 @@ export function TopologyView({
                           e.stopPropagation();
                           setEditTopoId(areaRow.id);
                         }}
-                        style={{
-                          color: C.dim,
-                          fontSize: 9,
-                          cursor: 'pointer',
-                          fontStyle: 'italic',
-                        }}
+                        className={styles.nameAddLink}
                       >
                         + name
                       </span>
@@ -264,20 +228,14 @@ export function TopologyView({
                           setEditTopoId(areaRow.id);
                         }}
                         title="Rename"
-                        style={{
-                          color: C.dim,
-                          fontSize: 9,
-                          cursor: 'pointer',
-                          opacity: 0.5,
-                        }}
-                        className="bg"
+                        className={`bg ${styles.editLink}`}
                       >
                         edit
                       </span>
                     )}
                   </>
                 )}
-                <span style={{ color: C.dim, fontSize: 10 }}>
+                <span className={styles.countLabel}>
                   · {areaDevs.length} devices · {lines.length} lines
                 </span>
                 {onCreateTopology && (
@@ -289,13 +247,7 @@ export function TopologyView({
                       onCreateTopology({ area, line: nextLine, name: '' });
                     }}
                     title="Add a new line to this area"
-                    style={{
-                      color: C.green,
-                      fontSize: 13,
-                      cursor: 'pointer',
-                      opacity: 0.7,
-                      lineHeight: 1,
-                    }}
+                    className={styles.addIcon}
                   >
                     +
                   </span>
@@ -304,13 +256,7 @@ export function TopologyView({
                   <span
                     onClick={() => onDeleteTopology(areaRow.id)}
                     title={`Delete Area ${area}`}
-                    style={{
-                      color: C.red,
-                      fontSize: 13,
-                      cursor: 'pointer',
-                      opacity: 0.5,
-                      lineHeight: 1,
-                    }}
+                    className={styles.deleteIcon}
                   >
                     −
                   </span>
@@ -336,33 +282,18 @@ export function TopologyView({
                 const mediumColor =
                   (
                     {
-                      TP: C.green,
-                      RF: C.amber,
-                      IP: C.accent,
-                      PL: C.purple,
+                      TP: 'var(--green)',
+                      RF: 'var(--amber)',
+                      IP: 'var(--accent)',
+                      PL: 'var(--purple)',
                     } as Record<string, any>
-                  )[medium] || C.dim;
+                  )[medium] || 'var(--dim)';
                 return (
                   <div key={`line-${area}-${line}`}>
-                    <div
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 8,
-                        padding: '5px 14px 5px 28px',
-                        background: C.hover,
-                        borderBottom: `1px solid ${C.border}`,
-                      }}
-                    >
+                    <div className={styles.lineHeader}>
                       <span
                         onClick={() => toggleLine(area, line)}
-                        style={{
-                          fontSize: 9,
-                          color: C.dim,
-                          width: 14,
-                          cursor: 'pointer',
-                          userSelect: 'none',
-                        }}
+                        className={styles.chevron}
                       >
                         {isCollapsed ? '▸' : '▾'}
                       </span>
@@ -375,21 +306,14 @@ export function TopologyView({
                             setEditTopoId(null);
                           }}
                           onCancel={() => setEditTopoId(null)}
-                          C={C}
                         />
                       ) : (
                         <>
-                          <span
-                            style={{
-                              color: C.text,
-                              fontSize: 10,
-                              fontWeight: 500,
-                            }}
-                          >
+                          <span className={styles.lineTitle}>
                             Line {area}.{line}
                           </span>
                           {lineName && (
-                            <span style={{ color: C.text, fontSize: 10 }}>
+                            <span className={styles.lineName}>
                               — {lineName}
                             </span>
                           )}
@@ -399,12 +323,7 @@ export function TopologyView({
                                 e.stopPropagation();
                                 setEditTopoId(lineRow.id);
                               }}
-                              style={{
-                                color: C.dim,
-                                fontSize: 9,
-                                cursor: 'pointer',
-                                fontStyle: 'italic',
-                              }}
+                              className={styles.nameAddLink}
                             >
                               + name
                             </span>
@@ -416,13 +335,7 @@ export function TopologyView({
                                 setEditTopoId(lineRow.id);
                               }}
                               title="Rename"
-                              style={{
-                                color: C.dim,
-                                fontSize: 9,
-                                cursor: 'pointer',
-                                opacity: 0.5,
-                              }}
-                              className="bg"
+                              className={`bg ${styles.editLink}`}
                             >
                               edit
                             </span>
@@ -434,18 +347,14 @@ export function TopologyView({
                         color={mediumColor}
                         title={mediumTypes[medium] || medium}
                       />
-                      <span style={{ color: C.dim, fontSize: 10 }}>
-                        · {devs.length}
-                      </span>
+                      <span className={styles.countLabel}>· {devs.length}</span>
                       {(() => {
                         const mA = devs.reduce(
                           (s: any, d: any) => s + (d.bus_current || 0),
                           0,
                         );
                         return mA > 0 ? (
-                          <span style={{ color: C.dim, fontSize: 10 }}>
-                            · {mA} mA
-                          </span>
+                          <span className={styles.countLabel}>· {mA} mA</span>
                         ) : null;
                       })()}
                       {onAddDevice && (
@@ -455,13 +364,7 @@ export function TopologyView({
                             setAddDefaults({ area, line, medium });
                           }}
                           title="Add device to this line"
-                          style={{
-                            color: C.green,
-                            fontSize: 13,
-                            cursor: 'pointer',
-                            opacity: 0.7,
-                            lineHeight: 1,
-                          }}
+                          className={styles.addIcon}
                         >
                           +
                         </span>
@@ -470,13 +373,7 @@ export function TopologyView({
                         <span
                           onClick={() => onDeleteTopology(lineRow.id)}
                           title={`Delete Line ${area}.${line}`}
-                          style={{
-                            color: C.red,
-                            fontSize: 13,
-                            cursor: 'pointer',
-                            opacity: 0.5,
-                            lineHeight: 1,
-                          }}
+                          className={styles.deleteIcon}
                         >
                           −
                         </span>
@@ -489,49 +386,37 @@ export function TopologyView({
                             dispatch({ type: 'SET_VIEW', view: 'scan' });
                             api.busScan(area, line, 200);
                           }}
-                          style={{
-                            fontSize: 9,
-                            padding: '1px 7px',
-                            borderRadius: 10,
-                            background: `${C.accent}15`,
-                            color: C.accent,
-                            border: `1px solid ${C.accent}30`,
-                            cursor: 'pointer',
-                            letterSpacing: '0.06em',
-                          }}
-                          className="bg"
+                          className={`bg ${styles.scanBadge}`}
                         >
                           ⊙ SCAN
                         </span>
                       )}
                     </div>
                     {!isCollapsed && devs.length > 0 && (
-                      <table
-                        style={{ width: '100%', borderCollapse: 'collapse' }}
-                      >
+                      <table className={styles.table}>
                         <thead>
                           <tr>
                             {visibleTopoCols.map((col: any) => (
                               <TH
                                 key={col.id}
-                                style={
+                                className={
                                   col.id === 'individual_address'
-                                    ? { width: 100, paddingLeft: 42 }
+                                    ? styles.colAddr
                                     : col.id === 'device_type'
-                                      ? { width: 90 }
+                                      ? styles.colType
                                       : col.id === 'manufacturer'
-                                        ? { width: 120 }
+                                        ? styles.colMfr
                                         : col.id === 'model'
-                                          ? { width: 110 }
+                                          ? styles.colModel
                                           : col.id === 'order_number'
-                                            ? { width: 110 }
+                                            ? styles.colOrder
                                             : col.id === 'serial_number'
-                                              ? { width: 130 }
+                                              ? styles.colSerial
                                               : col.id === 'status'
-                                                ? { width: 110 }
+                                                ? styles.colStatus
                                                 : col.id === 'gas'
-                                                  ? { width: 50 }
-                                                  : {}
+                                                  ? styles.colGas
+                                                  : undefined
                                 }
                               >
                                 {col.label.toUpperCase().replace('GAS', 'GAs')}
@@ -543,25 +428,21 @@ export function TopologyView({
                           {devs.map((d: any) => (
                             <tr
                               key={d.id}
-                              className="rh"
-                              style={{ borderLeft: '2px solid transparent' }}
+                              className={`rh ${styles.rowTransparentBorder}`}
                             >
                               {tcv('individual_address') && (
-                                <TD style={{ paddingLeft: 42 }}>
+                                <TD className={styles.tdAddr}>
                                   <PinAddr
                                     address={d.individual_address}
                                     wtype="device"
-                                    style={{
-                                      color: C.accent,
-                                      fontFamily: 'monospace',
-                                    }}
+                                    className={styles.accentMono}
                                   />
                                 </TD>
                               )}
                               {tcv('name') && <TD>{d.name}</TD>}
                               {tcv('device_type') && (
                                 <TD>
-                                  <span style={{ color: C.muted }}>
+                                  <span className={styles.textMuted}>
                                     {d.device_type}
                                   </span>
                                 </TD>
@@ -571,7 +452,7 @@ export function TopologyView({
                                   <SpacePath
                                     spaceId={d.space_id}
                                     spaces={spaces}
-                                    style={{ color: C.dim, fontSize: 10 }}
+                                    className={styles.dimLocPath}
                                   />
                                 </TD>
                               )}
@@ -580,7 +461,7 @@ export function TopologyView({
                                   <PinAddr
                                     address={d.manufacturer}
                                     wtype="manufacturer"
-                                    style={{ color: C.amber }}
+                                    className={styles.amberPinAddr}
                                   >
                                     {d.manufacturer || '—'}
                                   </PinAddr>
@@ -591,11 +472,7 @@ export function TopologyView({
                                   <PinAddr
                                     address={d.model}
                                     wtype="model"
-                                    style={{
-                                      color: C.amber,
-                                      fontFamily: 'monospace',
-                                      fontSize: 10,
-                                    }}
+                                    className={styles.amberModelPinAddr}
                                   >
                                     {localizedModel(d) || '—'}
                                   </PinAddr>
@@ -603,26 +480,14 @@ export function TopologyView({
                               )}
                               {tcv('order_number') && (
                                 <TD>
-                                  <span
-                                    style={{
-                                      color: C.dim,
-                                      fontFamily: 'monospace',
-                                      fontSize: 10,
-                                    }}
-                                  >
+                                  <span className={styles.monoSmall}>
                                     {d.order_number || '—'}
                                   </span>
                                 </TD>
                               )}
                               {tcv('serial_number') && (
                                 <TD>
-                                  <span
-                                    style={{
-                                      color: C.dim,
-                                      fontFamily: 'monospace',
-                                      fontSize: 10,
-                                    }}
-                                  >
+                                  <span className={styles.monoSmall}>
                                     {d.serial_number || '—'}
                                   </span>
                                 </TD>
@@ -632,14 +497,15 @@ export function TopologyView({
                                   <Badge
                                     label={d.status.toUpperCase()}
                                     color={
-                                      (STATUS_COLOR as any)[d.status] || C.dim
+                                      (STATUS_COLOR as any)[d.status] ||
+                                      'var(--dim)'
                                     }
                                   />
                                 </TD>
                               )}
                               {tcv('gas') && (
                                 <TD>
-                                  <span style={{ color: C.dim }}>
+                                  <span className={styles.textDim}>
                                     {
                                       (deviceGAMap[d.individual_address] || [])
                                         .length
@@ -662,24 +528,14 @@ export function TopologyView({
           <Empty icon="⬡" msg="No devices or topology" />
         )}
       </div>
-      <div
-        style={{
-          padding: '5px 14px',
-          borderTop: `1px solid ${C.border}`,
-          fontSize: 10,
-          color: C.dim,
-          display: 'flex',
-          gap: 14,
-        }}
-      >
+      <div className={styles.statusBar}>
         {Object.entries(STATUS_COLOR).map(([s, c]) => (
           <span
             key={s}
-            className="rh"
+            className={`rh ${styles.statusItem}`}
             onClick={() => setStatusFilter((p) => (p === s ? 'all' : s))}
             style={{
-              cursor: 'pointer',
-              color: statusFilter === s ? c : C.dim,
+              color: statusFilter === s ? c : 'var(--dim)',
               fontWeight: statusFilter === s ? 600 : 400,
             }}
           >
@@ -705,13 +561,11 @@ function InlineEdit({
   fontSize = 11,
   onSave,
   onCancel,
-  C,
 }: {
   initial: string;
   fontSize?: number;
   onSave: (v: string) => Promise<void>;
   onCancel: () => void;
-  C: any;
 }) {
   const [value, setValue] = useState(initial);
   const [saving, setSaving] = useState(false);
@@ -724,10 +578,7 @@ function InlineEdit({
     setSaving(false);
   };
   return (
-    <div
-      onClick={(e) => e.stopPropagation()}
-      style={{ display: 'flex', gap: 4, alignItems: 'center', flex: 1 }}
-    >
+    <div onClick={(e) => e.stopPropagation()} className={styles.inlineEditWrap}>
       <input
         value={value}
         onChange={(e) => setValue(e.target.value)}
@@ -736,22 +587,17 @@ function InlineEdit({
           if (e.key === 'Enter') save();
           if (e.key === 'Escape') onCancel();
         }}
-        style={{
-          background: C.inputBg,
-          border: `1px solid ${C.accent}`,
-          borderRadius: 3,
-          padding: '2px 6px',
-          color: C.text,
-          fontSize,
-          fontFamily: 'inherit',
-          flex: 1,
-          minWidth: 80,
-        }}
+        className={styles.inlineEditInput}
+        style={{ fontSize }}
       />
-      <Btn onClick={save} disabled={saving || !value.trim()} color={C.green}>
+      <Btn
+        onClick={save}
+        disabled={saving || !value.trim()}
+        color="var(--green)"
+      >
         {saving ? 'Saving' : 'Save'}
       </Btn>
-      <Btn onClick={onCancel} color={C.dim}>
+      <Btn onClick={onCancel} color="var(--dim)">
         Cancel
       </Btn>
     </div>

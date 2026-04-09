@@ -2,6 +2,7 @@
   "name": "koolenex",
   "version": "0.1.0",
   "description": "KNX Tool",
+  "type": "module",
   "main": "server/index.ts",
   "scripts": {
     "server": "node server/index.ts",

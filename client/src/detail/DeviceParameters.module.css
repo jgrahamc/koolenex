@@ -260,3 +260,50 @@
   padding: 3px 8px;
   vertical-align: middle;
 }
+
+.sideGroupArrowCollapsed {
+  composes: sideGroupArrow;
+  transform: translateY(-50%) rotate(-90deg);
+}
+
+.sideGroupArrowExpanded {
+  composes: sideGroupArrow;
+  transform: translateY(-50%) rotate(0deg);
+}
+
+.sideItemActive {
+  composes: sideItem;
+  color: var(--accent);
+  border-left: 2px solid var(--accent);
+  background: var(--selected);
+}
+
+.sideItemInactive {
+  composes: sideItem;
+  color: var(--muted);
+  border-left: 2px solid transparent;
+  background: transparent;
+}
+
+.sepHrPad {
+  padding: 0;
+}
+
+.sepInfoPad {
+  padding: 6px 8px;
+}
+.tableLayoutBorder {
+  border: 1px solid var(--border);
+}
+.tableLayoutThBorder {
+  composes: tableLayoutTh;
+  border: 1px solid var(--border);
+}
+.tableLayoutRowLabelBorder {
+  composes: tableLayoutRowLabel;
+  border: 1px solid var(--border);
+}
+.tableLayoutCellBorder {
+  composes: tableLayoutCell;
+  border: 1px solid var(--border);
+}

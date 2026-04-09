@@ -1,0 +1,105 @@
+/* ManufacturersView */
+.root {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  overflow: hidden;
+}
+.scrollArea {
+  overflow: auto;
+  flex: 1;
+}
+.mfrHeader {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  cursor: pointer;
+}
+.chevron {
+  font-size: 9px;
+  color: var(--dim);
+  width: 14px;
+  user-select: none;
+  flex-shrink: 0;
+}
+.mfrCount {
+  color: var(--dim);
+  font-size: 10px;
+}
+.catalogLink {
+  color: var(--accent);
+  font-size: 9px;
+  margin-left: 4px;
+  cursor: pointer;
+  opacity: 0.7;
+}
+.mdlHeader {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 14px 5px 28px;
+  border-bottom: 1px solid var(--border);
+  background: var(--hover);
+  cursor: pointer;
+}
+.addBtn {
+  color: var(--green);
+  font-size: 9px;
+  cursor: pointer;
+  opacity: 0.7;
+}
+.table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.devType {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.textMuted {
+  color: var(--muted);
+}
+.textDim {
+  color: var(--dim);
+}
+.monoSmall {
+  color: var(--dim);
+  font-family: monospace;
+  font-size: 10px;
+}
+.mfrPinAddr {
+  color: var(--amber);
+  font-size: 11px;
+  font-weight: 600;
+}
+.mdlPinAddr {
+  color: var(--text);
+  font-size: 10px;
+  font-family: monospace;
+}
+.accentMono {
+  color: var(--accent);
+  font-family: monospace;
+}
+.thAddrIndented {
+  padding-left: 42px;
+}
+.tdAddrIndented {
+  padding-left: 42px;
+}
+.amberPinAddr {
+  color: var(--amber);
+}
+.orderPinAddr {
+  color: var(--dim);
+  font-family: monospace;
+  font-size: 10px;
+}
+.dimLocPath {
+  color: var(--dim);
+  font-size: 10px;
+}

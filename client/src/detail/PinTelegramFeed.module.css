@@ -66,3 +66,45 @@
   color: var(--dim);
   font-size: 10px;
 }
+
+.decodedNormal {
+  color: var(--text);
+  font-weight: 400;
+}
+
+.decodedGa {
+  color: var(--text);
+  font-weight: 500;
+}
+.thTimestamp {
+  width: 155px;
+}
+.thDelta {
+  width: 65px;
+}
+.thSource {
+  width: 75px;
+}
+.thDestGA {
+  width: 75px;
+}
+.thType {
+  width: 170px;
+}
+.thRaw {
+  width: 80px;
+}
+.thDecoded {
+  width: 100px;
+}
+.thDpt {
+  width: 55px;
+}
+.thSizeNoWrap {
+  width: 90px;
+  white-space: nowrap;
+}
+.spacePathCell {
+  color: var(--dim);
+  font-size: 10px;
+}

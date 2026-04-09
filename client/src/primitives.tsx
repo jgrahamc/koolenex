@@ -1,5 +1,4 @@
 import { useEffect, useContext, Fragment } from 'react';
-import { useC } from './theme.ts';
 import { PinContext } from './contexts.ts';
 import styles from './primitives.module.css';
 
@@ -14,9 +13,9 @@ export const Badge = ({ label, color, title }: BadgeProps) => (
     title={title}
     className={styles.badge}
     style={{
-      background: `${color}18`,
+      background: `color-mix(in srgb, ${color} 9%, transparent)`,
       color,
-      border: `1px solid ${color}30`,
+      border: `1px solid color-mix(in srgb, ${color} 19%, transparent)`,
     }}
   >
     {label}
@@ -29,30 +28,26 @@ interface ChipProps {
   onClick?: () => void;
 }
 
-export const Chip = ({ children, active, onClick }: ChipProps) => {
-  const C = useC();
-  return (
-    <button
-      onClick={onClick}
-      className={styles.chip}
-      style={{
-        background: active ? C.selected : C.surface,
-        border: `1px solid ${active ? C.accent + '66' : C.border}`,
-        color: active ? C.accent : C.muted,
-      }}
-    >
-      {children}
-    </button>
-  );
-};
+export const Chip = ({ children, active, onClick }: ChipProps) => (
+  <button
+    onClick={onClick}
+    className={`${styles.chip} ${active ? styles.chipActive : styles.chipInactive}`}
+  >
+    {children}
+  </button>
+);
 
 interface THProps {
   children?: React.ReactNode;
   style?: React.CSSProperties;
+  className?: string;
 }
 
-export const TH = ({ children, style = {} }: THProps) => (
-  <th className={styles.th} style={style}>
+export const TH = ({ children, style = {}, className }: THProps) => (
+  <th
+    className={[styles.th, className].filter(Boolean).join(' ')}
+    style={style}
+  >
     {children}
   </th>
 );
@@ -60,10 +55,14 @@ export const TH = ({ children, style = {} }: THProps) => (
 interface TDProps {
   children?: React.ReactNode;
   style?: React.CSSProperties;
+  className?: string;
 }
 
-export const TD = ({ children, style = {} }: TDProps) => (
-  <td className={styles.td} style={style}>
+export const TD = ({ children, style = {}, className }: TDProps) => (
+  <td
+    className={[styles.td, className].filter(Boolean).join(' ')}
+    style={style}
+  >
     {children}
   </td>
 );
@@ -113,6 +112,7 @@ interface BtnProps {
   disabled?: boolean;
   style?: React.CSSProperties;
   title?: string;
+  className?: string;
 }
 
 export const Btn = ({
@@ -123,20 +123,20 @@ export const Btn = ({
   disabled = false,
   style = {},
   title,
+  className,
 }: BtnProps) => {
-  const C = useC();
-  const btnColor = color ?? C.accent;
-  const btnBg = bg ?? C.selected;
+  const btnColor = color ?? 'var(--accent)';
+  const btnBg = bg ?? 'var(--selected)';
   return (
     <button
       onClick={onClick}
       disabled={disabled}
-      className={`${styles.btn} bg`}
+      className={`${styles.btn} bg${className ? ` ${className}` : ''}`}
       title={title}
       style={{
-        background: disabled ? C.surface : btnBg,
-        border: `1px solid ${btnColor}44`,
-        color: disabled ? C.dim : btnColor,
+        background: disabled ? 'var(--surface)' : btnBg,
+        border: `1px solid color-mix(in srgb, ${btnColor} 27%, transparent)`,
+        color: disabled ? 'var(--dim)' : btnColor,
         cursor: disabled ? 'not-allowed' : 'pointer',
         ...style,
       }}
@@ -159,24 +159,16 @@ interface TabBarProps {
   tabs: TabItem[];
   active: string;
   onChange: (id: string) => void;
-  C: any;
+  C?: any;
 }
 
-export const TabBar = ({ tabs, active, onChange, C }: TabBarProps) => (
-  <div
-    className={styles.tabBar}
-    style={{ borderBottom: `1px solid ${C.border}` }}
-  >
+export const TabBar = ({ tabs, active, onChange }: TabBarProps) => (
+  <div className={`${styles.tabBar} ${styles.tabBarBorder}`}>
     {tabs.map((t) => (
       <button
         key={t.id}
         onClick={() => onChange(t.id)}
-        className={styles.tabBtn}
-        style={{
-          borderBottom:
-            active === t.id ? `2px solid ${C.accent}` : '2px solid transparent',
-          color: active === t.id ? C.accent : C.muted,
-        }}
+        className={`${styles.tabBtn} ${active === t.id ? styles.tabBtnActive : styles.tabBtnInactive}`}
       >
         {t.label}
       </button>
@@ -212,25 +204,22 @@ export const ConfirmModal = ({
   onCancel,
   confirmLabel = 'Delete',
   confirmColor,
-}: ConfirmModalProps) => {
-  const C = useC();
-  return (
-    <div className={styles.modalOverlay}>
-      <div className={styles.modalBox}>
-        <div className={styles.modalTitle}>{title}</div>
-        <div className={styles.modalBody}>{children}</div>
-        <div className={styles.modalActions}>
-          <Btn onClick={onCancel} color={C.dim}>
-            No
-          </Btn>
-          <Btn onClick={onConfirm} color={confirmColor ?? C.red}>
-            {confirmLabel}
-          </Btn>
-        </div>
+}: ConfirmModalProps) => (
+  <div className={styles.modalOverlay}>
+    <div className={styles.modalBox}>
+      <div className={styles.modalTitle}>{title}</div>
+      <div className={styles.modalBody}>{children}</div>
+      <div className={styles.modalActions}>
+        <Btn onClick={onCancel} color="var(--dim)">
+          No
+        </Btn>
+        <Btn onClick={onConfirm} color={confirmColor ?? 'var(--red)'}>
+          {confirmLabel}
+        </Btn>
       </div>
     </div>
-  );
-};
+  </div>
+);
 
 interface ToastProps {
   msg: string;
@@ -277,12 +266,11 @@ export function PinAddr({
   const canPin = !!(address && wtype && pin);
   return (
     <span
-      className={[className, canPin ? 'pa' : ''].filter(Boolean).join(' ')}
+      className={[className, canPin ? `pa ${styles.pinAddrClickable}` : '']
+        .filter(Boolean)
+        .join(' ')}
       data-pin={canPin ? '1' : undefined}
-      style={{
-        ...style,
-        cursor: canPin ? 'pointer' : (style?.cursor ?? 'default'),
-      }}
+      style={style}
       title={title ?? (canPin ? `Pin ${address}` : undefined)}
       onClick={
         canPin
@@ -309,15 +297,25 @@ interface SpacePathProps {
   spaceId?: string | number;
   spaces?: Space[];
   style?: React.CSSProperties;
+  className?: string;
 }
 
 // Renders a space breadcrumb path with each segment clickable to pin that space
-export function SpacePath({ spaceId, spaces, style }: SpacePathProps) {
-  const C = useC();
+export function SpacePath({
+  spaceId,
+  spaces,
+  style,
+  className,
+}: SpacePathProps) {
   const pin = useContext(PinContext) as
     | ((wtype: string, address: string) => void)
     | null;
-  if (!spaceId || !spaces?.length) return <span style={style}>—</span>;
+  if (!spaceId || !spaces?.length)
+    return (
+      <span style={style} className={className}>
+        —
+      </span>
+    );
   const spaceMap = Object.fromEntries(spaces.map((s) => [s.id, s])) as Record<
     string | number,
     Space
@@ -328,9 +326,14 @@ export function SpacePath({ spaceId, spaces, style }: SpacePathProps) {
     if (cur.type !== 'Building') parts.unshift({ id: cur.id, name: cur.name });
     cur = cur.parent_id ? spaceMap[cur.parent_id] : undefined;
   }
-  if (!parts.length) return <span style={style}>—</span>;
+  if (!parts.length)
+    return (
+      <span style={style} className={className}>
+        —
+      </span>
+    );
   return (
-    <span style={style}>
+    <span style={style} className={className}>
       {parts.map((p, i) => (
         <Fragment key={String(p.id)}>
           {i > 0 && <span className={styles.spacePathSep}> › </span>}
@@ -343,12 +346,12 @@ export function SpacePath({ spaceId, spaces, style }: SpacePathProps) {
                   }
                 : undefined
             }
-            className={pin ? 'pa' : undefined}
+            className={
+              pin
+                ? `pa ${styles.spacePathSegClickable}`
+                : styles.spacePathSegDefault
+            }
             data-pin={pin ? '1' : undefined}
-            style={{
-              color: pin ? C.amber : 'inherit',
-              cursor: pin ? 'pointer' : 'default',
-            }}
           >
             {p.name}
           </span>

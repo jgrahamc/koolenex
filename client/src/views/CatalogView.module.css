@@ -1,0 +1,147 @@
+/* CatalogView */
+.root {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.scrollArea {
+  flex: 1;
+  overflow: auto;
+}
+.loadingWrap {
+  padding: 20px;
+  text-align: center;
+}
+.mfrHeader {
+  padding: 8px 14px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.mfrName {
+  color: var(--amber);
+  font-size: 11px;
+  font-weight: 700;
+}
+.mfrCount {
+  color: var(--dim);
+  font-size: 10px;
+}
+.sectionRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-bottom: 1px solid var(--border);
+  user-select: none;
+  cursor: default;
+}
+.sectionRowRoot {
+  background: var(--surface);
+}
+.sectionRowClickable {
+  cursor: pointer;
+}
+.chevron {
+  font-size: 9px;
+  color: var(--dim);
+  width: 10px;
+}
+.spacer {
+  width: 10px;
+}
+.sectionName {
+  flex: 1;
+}
+.sectionName[data-depth='0'] {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+}
+.sectionName[data-depth='1'] {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text);
+}
+.sectionCount {
+  font-size: 9px;
+  color: var(--dim);
+}
+.itemRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-bottom: 1px solid rgba(var(--border), 0.07);
+  font-size: 10px;
+}
+.dotInUse {
+  color: var(--green);
+  font-size: 10px;
+  flex-shrink: 0;
+  padding: 0 2px;
+}
+.dotUnused {
+  color: var(--dim);
+  font-size: 10px;
+  flex-shrink: 0;
+  padding: 0 2px;
+}
+.itemName {
+  color: var(--text);
+  flex: 1;
+}
+.orderNum {
+  color: var(--dim);
+  font-family: monospace;
+  font-size: 9px;
+  flex-shrink: 0;
+}
+.addBadge {
+  font-size: 9px;
+  padding: 1px 6px;
+  border-radius: 10px;
+  cursor: pointer;
+  flex-shrink: 0;
+  background: color-mix(in srgb, var(--green) 9%, transparent);
+  color: var(--green);
+  border: 1px solid color-mix(in srgb, var(--green) 19%, transparent);
+}
+.hidden {
+  display: none;
+}
+.sectionNameRoot {
+  composes: sectionName;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+}
+.sectionNameChild {
+  composes: sectionName;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text);
+}
+.sectionNameDeep {
+  composes: sectionName;
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--text);
+}
+.dotInUseClickable {
+  composes: dotInUse;
+  cursor: pointer;
+}
+.itemNameClickable {
+  composes: itemName;
+  cursor: pointer;
+}
+.orderNumClickable {
+  composes: orderNum;
+  cursor: pointer;
+}
+.mfrNameClickable {
+  composes: mfrName;
+  cursor: pointer;
+}

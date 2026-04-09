@@ -1,0 +1,178 @@
+/* ProjectsView */
+.root {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+}
+.inner {
+  width: 560px;
+}
+.brand {
+  text-align: center;
+  margin-bottom: 40px;
+}
+.logo {
+  width: 64px;
+  height: 64px;
+  margin-bottom: 10px;
+}
+.title {
+  font-family: 'Syne', sans-serif;
+  font-weight: 800;
+  font-size: 28px;
+  color: var(--text);
+  letter-spacing: 0.06em;
+}
+.importCard {
+  background: var(--surface);
+  border: 1px dashed var(--border2);
+  border-radius: 8px;
+  padding: 20px;
+  margin-bottom: 20px;
+  text-align: center;
+}
+.importHint {
+  font-size: 11px;
+  color: var(--muted);
+  margin-bottom: 12px;
+}
+.importResult {
+  margin-top: 12px;
+  padding: 10px 14px;
+  border-radius: 6px;
+  font-size: 11px;
+  text-align: left;
+}
+.importSuccess {
+  font-weight: 600;
+  color: var(--green);
+  margin-bottom: 5px;
+}
+.importSummary {
+  color: var(--muted);
+}
+.importError {
+  font-weight: 600;
+  color: var(--red);
+}
+.importErrorDetail {
+  color: var(--muted);
+  margin-top: 3px;
+}
+.passwordTitle {
+  font-weight: 600;
+  color: var(--amber);
+  margin-bottom: 6px;
+}
+.passwordError {
+  color: var(--red);
+  margin-bottom: 8px;
+  font-size: 10px;
+}
+.passwordRow {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.passwordInput {
+  flex: 1;
+  background: var(--input-bg);
+  border: 1px solid var(--border2);
+  border-radius: 4px;
+  padding: 6px 10px;
+  color: var(--text);
+  font-size: 11px;
+  font-family: inherit;
+}
+.newRow {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 24px;
+}
+.newInput {
+  flex: 1;
+  background: var(--input-bg);
+  border: 1px solid var(--border2);
+  border-radius: 4px;
+  padding: 6px 10px;
+  color: var(--text);
+  font-size: 12px;
+  font-family: inherit;
+}
+.listLabel {
+  font-size: 9px;
+  color: var(--dim);
+  letter-spacing: 0.1em;
+  margin-bottom: 8px;
+}
+.projectCard {
+  display: flex;
+  align-items: center;
+  padding: 12px 16px;
+  border-radius: 8px;
+  margin-bottom: 6px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  gap: 14px;
+}
+.thumbnail {
+  width: 64px;
+  height: 48px;
+  object-fit: cover;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+.projectInfo {
+  flex: 1;
+  min-width: 0;
+}
+.projectName {
+  font-size: 13px;
+  color: var(--text);
+  font-weight: 500;
+}
+.projectMeta {
+  font-size: 10px;
+  color: var(--dim);
+  margin-top: 2px;
+}
+.projectFileName {
+  color: var(--muted);
+}
+.deleteBtn {
+  background: transparent;
+  border: none;
+  color: var(--dim);
+  font-size: 14px;
+  cursor: pointer;
+  padding: 4px 8px;
+}
+.emptyMsg {
+  text-align: center;
+  color: var(--dim);
+  font-size: 12px;
+}
+.hidden {
+  display: none;
+}
+.openBtn {
+  margin-top: 8px;
+}
+.importResultOk {
+  composes: importResult;
+  background: #0a1a0e;
+  border: 1px solid color-mix(in srgb, var(--green) 20%, transparent);
+}
+.importResultPassword {
+  composes: importResult;
+  background: #0e0e00;
+  border: 1px solid color-mix(in srgb, var(--amber) 20%, transparent);
+}
+.importResultError {
+  composes: importResult;
+  background: #1a0a0a;
+  border: 1px solid color-mix(in srgb, var(--red) 20%, transparent);
+}
