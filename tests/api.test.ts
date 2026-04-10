@@ -310,6 +310,188 @@ describe('Devices', () => {
   });
 });
 
+// ── Device validation & additional coverage ──────────────────────────────────
+
+describe('Device validation', () => {
+  let pid: number;
+  let did: number;
+
+  before(async () => {
+    const { data } = await req('POST', '/projects', {
+      name: 'Device Validation Tests',
+    });
+    pid = data.id;
+    const { data: dev } = await req('POST', `/projects/${pid}/devices`, {
+      individual_address: '1.1.1',
+      name: 'Test Device',
+      area: 1,
+      line: 1,
+    });
+    did = dev.id;
+  });
+
+  after(async () => {
+    await req('DELETE', `/projects/${pid}`);
+  });
+
+  it('POST rejects invalid address format', async () => {
+    const { status } = await req('POST', `/projects/${pid}/devices`, {
+      individual_address: 'not-valid',
+      name: 'Bad',
+      area: 1,
+      line: 1,
+    });
+    assert.equal(status, 400);
+  });
+
+  it('POST rejects missing address', async () => {
+    const { status } = await req('POST', `/projects/${pid}/devices`, {
+      name: 'No Address',
+      area: 1,
+      line: 1,
+    });
+    assert.equal(status, 400);
+  });
+
+  it('POST rejects area > 15', async () => {
+    const { status } = await req('POST', `/projects/${pid}/devices`, {
+      individual_address: '1.1.2',
+      name: 'Bad Area',
+      area: 16,
+      line: 1,
+    });
+    assert.equal(status, 400);
+  });
+
+  it('PUT updates floor_x and floor_y', async () => {
+    const { status, data } = await req(
+      'PUT',
+      `/projects/${pid}/devices/${did}`,
+      { floor_x: 0.5, floor_y: 0.75 },
+    );
+    assert.equal(status, 200);
+    assert.equal(data.floor_x, 0.5);
+    assert.equal(data.floor_y, 0.75);
+  });
+
+  it('PUT updates description and installation_hints', async () => {
+    const { status, data } = await req(
+      'PUT',
+      `/projects/${pid}/devices/${did}`,
+      {
+        description: 'A test device',
+        installation_hints: 'Mount on DIN rail',
+      },
+    );
+    assert.equal(status, 200);
+    assert.equal(data.description, 'A test device');
+    assert.equal(data.installation_hints, 'Mount on DIN rail');
+  });
+
+  it('PATCH status returns the updated device', async () => {
+    const { status, data } = await req(
+      'PATCH',
+      `/projects/${pid}/devices/${did}/status`,
+      { status: 'modified' },
+    );
+    assert.equal(status, 200);
+    assert.equal(data.status, 'modified');
+    assert.equal(data.id, did);
+  });
+
+  it('DELETE returns ok for nonexistent device (idempotent)', async () => {
+    const { status, data } = await req(
+      'DELETE',
+      `/projects/${pid}/devices/99999`,
+    );
+    assert.equal(status, 200);
+    assert.equal(data.ok, true);
+  });
+
+  it('GET param-model returns 404 for nonexistent device', async () => {
+    const { status } = await req(
+      'GET',
+      `/projects/${pid}/devices/99999/param-model`,
+    );
+    assert.equal(status, 404);
+  });
+
+  it('GET param-model returns 404 for device with no app_ref', async () => {
+    const { status, data } = await req(
+      'GET',
+      `/projects/${pid}/devices/${did}/param-model`,
+    );
+    assert.equal(status, 404);
+    assert.equal(data.error, 'no_model');
+  });
+});
+
+// ── Floor plan routes ────────────────────────────────────────────────────────
+
+describe('Floor plans', () => {
+  let pid: number;
+
+  before(async () => {
+    const { data } = await req('POST', '/projects', {
+      name: 'Floor Plan Tests',
+    });
+    pid = data.id;
+  });
+
+  after(async () => {
+    await req('DELETE', `/projects/${pid}`);
+  });
+
+  it('POST upload returns ok with fileName', async () => {
+    const form = new FormData();
+    form.append('file', new Blob([Buffer.from('fake png')]), 'plan.png');
+    const res = await fetch(`${baseUrl}/projects/${pid}/floor-plan/1`, {
+      method: 'POST',
+      body: form,
+    });
+    const data = await res.json();
+    assert.equal(res.status, 200);
+    assert(data.fileName);
+    assert(data.fileName.includes(`${pid}_1`));
+  });
+
+  it('GET download returns the uploaded file', async () => {
+    const res = await fetch(`${baseUrl}/projects/${pid}/floor-plan/1`);
+    assert.equal(res.status, 200);
+    const body = await res.text();
+    assert.equal(body, 'fake png');
+  });
+
+  it('GET returns 404 for nonexistent floor plan', async () => {
+    const { status } = await req('GET', `/projects/${pid}/floor-plan/999`);
+    assert.equal(status, 404);
+  });
+
+  it('POST upload with no file returns 400', async () => {
+    const form = new FormData();
+    const res = await fetch(`${baseUrl}/projects/${pid}/floor-plan/1`, {
+      method: 'POST',
+      body: form,
+    });
+    assert.equal(res.status, 400);
+  });
+
+  it('DELETE removes the floor plan', async () => {
+    const { status } = await req('DELETE', `/projects/${pid}/floor-plan/1`);
+    assert.equal(status, 200);
+    const { status: getStatus } = await req(
+      'GET',
+      `/projects/${pid}/floor-plan/1`,
+    );
+    assert.equal(getStatus, 404);
+  });
+
+  it('DELETE is idempotent (no error if already deleted)', async () => {
+    const { status } = await req('DELETE', `/projects/${pid}/floor-plan/1`);
+    assert.equal(status, 200);
+  });
+});
+
 // ── Group Addresses ──────────────────────────────────────────────────────────
 
 describe('Group Addresses', () => {
