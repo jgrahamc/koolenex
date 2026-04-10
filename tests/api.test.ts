@@ -1880,3 +1880,149 @@ describe('Health', () => {
     assert(data.ts, 'should include timestamp');
   });
 });
+
+// ── Master XML lookup routes ────────────────────────────────────────────────
+
+describe('Master XML lookups', () => {
+  it('GET /dpt-info returns an object (empty without project)', async () => {
+    const { status, data } = await req('GET', '/dpt-info');
+    assert.equal(status, 200);
+    assert(typeof data === 'object');
+  });
+
+  it('GET /dpt-info?projectId=999 returns empty for nonexistent project', async () => {
+    const { status, data } = await req('GET', '/dpt-info?projectId=999');
+    assert.equal(status, 200);
+    assert(typeof data === 'object');
+  });
+
+  it('GET /space-usages returns an array', async () => {
+    const { status, data } = await req('GET', '/space-usages');
+    assert.equal(status, 200);
+    assert(Array.isArray(data));
+  });
+
+  it('GET /translations returns languages and translations', async () => {
+    const { status, data } = await req('GET', '/translations');
+    assert.equal(status, 200);
+    assert(Array.isArray(data.languages));
+    assert(typeof data.translations === 'object');
+  });
+
+  it('GET /medium-types returns an object', async () => {
+    const { status, data } = await req('GET', '/medium-types');
+    assert.equal(status, 200);
+    assert(typeof data === 'object');
+  });
+
+  it('GET /mask-versions returns an object', async () => {
+    const { status, data } = await req('GET', '/mask-versions');
+    assert.equal(status, 200);
+    assert(typeof data === 'object');
+  });
+});
+
+// ── RTF to HTML ─────────────────────────────────────────────────────────────
+
+describe('RTF to HTML', () => {
+  it('POST /rtf-to-html returns 200 with html field', async () => {
+    const rtf =
+      '{\\rtf1\\ansi{\\fonttbl{\\f0 Times New Roman;}}\\pard Hello World}';
+    const res = await fetch(`${baseUrl}/rtf-to-html`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body: rtf,
+    });
+    const data = await res.json();
+    assert.equal(res.status, 200);
+    assert(typeof data.html === 'string');
+  });
+
+  it('POST /rtf-to-html returns 400 for empty body', async () => {
+    const res = await fetch(`${baseUrl}/rtf-to-html`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body: '',
+    });
+    assert.equal(res.status, 400);
+  });
+});
+
+// ── Topology/Space validation edge cases ────────────────────────────────────
+
+describe('Topology validation', () => {
+  let pid: number;
+
+  before(async () => {
+    const { data } = await req('POST', '/projects', {
+      name: 'Topo Validation',
+    });
+    pid = data.id;
+  });
+
+  after(async () => {
+    await req('DELETE', `/projects/${pid}`);
+  });
+
+  it('POST rejects area > 15', async () => {
+    const { status } = await req('POST', `/projects/${pid}/topology`, {
+      area: 16,
+    });
+    assert.equal(status, 400);
+  });
+
+  it('POST rejects negative area', async () => {
+    const { status } = await req('POST', `/projects/${pid}/topology`, {
+      area: -1,
+    });
+    assert.equal(status, 400);
+  });
+
+  it('POST rejects line > 15', async () => {
+    const { status } = await req('POST', `/projects/${pid}/topology`, {
+      area: 1,
+      line: 16,
+    });
+    assert.equal(status, 400);
+  });
+
+  it('PUT returns 400 with no valid fields', async () => {
+    const { data: topo } = await req('POST', `/projects/${pid}/topology`, {
+      area: 1,
+      name: 'Test',
+    });
+    const { status } = await req(
+      'PUT',
+      `/projects/${pid}/topology/${topo.id}`,
+      {},
+    );
+    assert.equal(status, 400);
+  });
+});
+
+describe('Space validation', () => {
+  let pid: number;
+
+  before(async () => {
+    const { data } = await req('POST', '/projects', {
+      name: 'Space Validation',
+    });
+    pid = data.id;
+  });
+
+  after(async () => {
+    await req('DELETE', `/projects/${pid}`);
+  });
+
+  it('PUT returns 400 with no valid fields', async () => {
+    const { data: space } = await req('POST', `/projects/${pid}/spaces`, {
+      name: 'Test Room',
+    });
+    const { status } = await req(
+      'PUT',
+      `/projects/${pid}/spaces/${space.id}`,
+      {},
+    );
+    assert.equal(status, 400);
+  });
+});
