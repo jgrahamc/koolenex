@@ -402,6 +402,82 @@ function assertParserOutput(
         'GH Q631 0074 R0111',
       ]);
     });
+
+    it('each catalog item has correct name and product_ref', () => {
+      const items = getParsed().catalogItems;
+      const byOrder: Record<string, (typeof items)[0]> = {};
+      for (const i of items) byOrder[i.order_number] = i;
+
+      const psu = byOrder['2CDG 110 144 R0011'];
+      assert(psu, 'power supply item missing');
+      assert.equal(psu.name, 'SV/S30.160.1.1 Power Supply,160mA,MDRC');
+      assert(psu.product_ref, 'should have product_ref');
+
+      const usb = byOrder['2CDG 110 243 R0011'];
+      assert(usb, 'USB interface item missing');
+      assert.equal(usb.name, 'USB/S1.2 USB Interface, MDRC');
+
+      const shutter = byOrder['2CDG 110 244 R0011'];
+      assert(shutter, 'shutter actuator item missing');
+      assert.equal(
+        shutter.name,
+        'SAH/S8.6.7.1 Switch/Shutter Act, 8-f, 6A, MDRC',
+      );
+
+      const dimmer = byOrder['2CKA006197A0047'];
+      assert(dimmer, 'dimmer item missing');
+      assert.equal(dimmer.name, 'UD/S4.210.2.1 LED Dimmer 4x210W');
+
+      const uif = byOrder['GH Q631 0074 R0111'];
+      assert(uif, 'universal interface item missing');
+      assert.equal(uif.name, 'US/U2.2 Universal Interface,2-fold,FM');
+
+      const pushbutton = byOrder['6108/07-500'];
+      assert(pushbutton, 'push-button item missing');
+      assert.equal(
+        pushbutton.name,
+        '6108/07-500 Push-button coupling unit 4gang, FM',
+      );
+    });
+
+    it('catalog items are assigned to correct sections', () => {
+      const items = getParsed().catalogItems;
+      const sections = getParsed().catalogSections;
+      const secById: Record<string, (typeof sections)[0]> = {};
+      for (const s of sections) secById[s.id] = s;
+
+      for (const item of items) {
+        assert(item.section_id, `item ${item.name} should have section_id`);
+        const sec = secById[item.section_id];
+        assert(
+          sec,
+          `section ${item.section_id} for item ${item.name} not found`,
+        );
+      }
+    });
+
+    it('catalog sections include expected categories', () => {
+      const numbers = getParsed().catalogSections.map((s) => s.number);
+      assert(numbers.includes('POSU'), 'should have Power Supply section');
+      assert(numbers.includes('STOU'), 'should have Standard Outputs section');
+      assert(numbers.includes('LICO'), 'should have Lighting Control section');
+      assert(numbers.includes('STIN'), 'should have Standard Inputs section');
+      assert(numbers.includes('CEPB'), 'should have Push Button section');
+    });
+
+    it('catalog sections form a tree (root sections have no parent)', () => {
+      const sections = getParsed().catalogSections;
+      const roots = sections.filter((s) => !s.parent_id);
+      assert(roots.length >= 1, 'should have at least one root section');
+      const children = sections.filter((s) => s.parent_id);
+      for (const child of children) {
+        const parent = sections.find((s) => s.id === child.parent_id);
+        assert(
+          parent,
+          `section "${child.name}" has parent_id ${child.parent_id} but parent not found`,
+        );
+      }
+    });
   });
 
   describe(`${label}: param models`, () => {

@@ -1872,6 +1872,222 @@ describe('Parameter Model', () => {
 
 // ── Health ───────────────────────────────────────────────────────────────────
 
+// ── Catalog ─────────────────────────────────────────────────────────────────
+
+describe('Catalog', () => {
+  let pid: number;
+
+  before(async () => {
+    const { data } = await req('POST', '/projects', { name: 'Catalog Tests' });
+    pid = data.id;
+    // Insert test catalog data directly
+    db.run(
+      'INSERT INTO catalog_sections (id, project_id, name, number, parent_id, mfr_id, manufacturer) VALUES (?,?,?,?,?,?,?)',
+      ['SEC-1', pid, 'Actuators', 'ACT', null, 'M-0001', 'Test Mfr'],
+    );
+    db.run(
+      'INSERT INTO catalog_sections (id, project_id, name, number, parent_id, mfr_id, manufacturer) VALUES (?,?,?,?,?,?,?)',
+      [
+        'SEC-2',
+        pid,
+        'Switch Actuators',
+        'SWACT',
+        'SEC-1',
+        'M-0001',
+        'Test Mfr',
+      ],
+    );
+    db.run(
+      'INSERT INTO catalog_items (id, project_id, name, number, section_id, product_ref, order_number, manufacturer, mfr_id) VALUES (?,?,?,?,?,?,?,?,?)',
+      [
+        'ITEM-1',
+        pid,
+        'Switch 4x',
+        'SW4',
+        'SEC-2',
+        'PROD-1',
+        'ORD-001',
+        'Test Mfr',
+        'M-0001',
+      ],
+    );
+    db.run(
+      'INSERT INTO catalog_items (id, project_id, name, number, section_id, product_ref, order_number, manufacturer, mfr_id) VALUES (?,?,?,?,?,?,?,?,?)',
+      [
+        'ITEM-2',
+        pid,
+        'Switch 8x',
+        'SW8',
+        'SEC-2',
+        'PROD-2',
+        'ORD-002',
+        'Test Mfr',
+        'M-0001',
+      ],
+    );
+  });
+
+  after(async () => {
+    await req('DELETE', `/projects/${pid}`);
+  });
+
+  it('GET /catalog returns sections and items', async () => {
+    const { status, data } = await req('GET', `/projects/${pid}/catalog`);
+    assert.equal(status, 200);
+    assert(Array.isArray(data.sections));
+    assert(Array.isArray(data.items));
+    assert.equal(data.sections.length, 2);
+    assert.equal(data.items.length, 2);
+  });
+
+  it('GET /catalog items have in_use flag', async () => {
+    const { data } = await req('GET', `/projects/${pid}/catalog`);
+    for (const item of data.items) {
+      assert('in_use' in item, `item ${item.name} should have in_use flag`);
+    }
+  });
+
+  it('GET /catalog marks items as in_use when device has matching product_ref', async () => {
+    // Create a device with PROD-1
+    await req('POST', `/projects/${pid}/devices`, {
+      individual_address: '1.1.1',
+      name: 'Test Dev',
+      area: 1,
+      line: 1,
+    });
+    // Set product_ref directly (not exposed via API)
+    const dev = db.get(
+      "SELECT id FROM devices WHERE project_id=? AND individual_address='1.1.1'",
+      [pid],
+    );
+    db.run('UPDATE devices SET product_ref=? WHERE id=?', ['PROD-1', dev.id]);
+
+    const { data } = await req('GET', `/projects/${pid}/catalog`);
+    const sw4 = data.items.find(
+      (i: Record<string, unknown>) => i.name === 'Switch 4x',
+    );
+    const sw8 = data.items.find(
+      (i: Record<string, unknown>) => i.name === 'Switch 8x',
+    );
+    assert.equal(sw4.in_use, true, 'Switch 4x should be in_use');
+    assert.equal(sw8.in_use, false, 'Switch 8x should not be in_use');
+  });
+
+  it('POST /catalog/import returns 400 with no file', async () => {
+    const form = new FormData();
+    const res = await fetch(`${baseUrl}/projects/${pid}/catalog/import`, {
+      method: 'POST',
+      body: form,
+    });
+    assert.equal(res.status, 400);
+  });
+
+  it('POST /catalog/import returns 400 with wrong extension', async () => {
+    const form = new FormData();
+    form.append('file', new Blob(['test']), 'readme.txt');
+    const res = await fetch(`${baseUrl}/projects/${pid}/catalog/import`, {
+      method: 'POST',
+      body: form,
+    });
+    assert.equal(res.status, 400);
+  });
+
+  it('POST /catalog/import returns 404 for nonexistent project', async () => {
+    const form = new FormData();
+    form.append('file', new Blob(['test']), 'test.knxprod');
+    const res = await fetch(`${baseUrl}/projects/99999/catalog/import`, {
+      method: 'POST',
+      body: form,
+    });
+    assert.equal(res.status, 404);
+  });
+});
+
+// ── Catalog .knxprod import ─────────────────────────────────────────────────
+
+describe('Catalog .knxprod import', () => {
+  const KNXPROD = path.join(import.meta.dirname, '4295-LS-Touch-v5.1.knxprod');
+  let pid: number;
+
+  before(async () => {
+    const { data } = await req('POST', '/projects', {
+      name: 'Knxprod Import Test',
+    });
+    pid = data.id;
+  });
+
+  after(async () => {
+    await req('DELETE', `/projects/${pid}`);
+  });
+
+  if (!fs.existsSync(KNXPROD)) {
+    it('skipped — 4295-LS-Touch-v5.1.knxprod not found', () => {});
+  } else {
+    it('imports a .knxprod and returns sections + items', async () => {
+      const buf = fs.readFileSync(KNXPROD);
+      const form = new FormData();
+      form.append('file', new Blob([buf]), '4295-LS-Touch-v5.1.knxprod');
+      const res = await fetch(`${baseUrl}/projects/${pid}/catalog/import`, {
+        method: 'POST',
+        body: form,
+      });
+      const data = await res.json();
+      assert.equal(res.status, 200);
+      assert.equal(data.ok, true);
+      assert(Array.isArray(data.sections));
+      assert(Array.isArray(data.items));
+      assert.equal(data.sections.length, 1);
+      assert.equal(data.items.length, 1);
+    });
+
+    it('imported section has correct data', async () => {
+      const { data } = await req('GET', `/projects/${pid}/catalog`);
+      const sec = data.sections.find(
+        (s: Record<string, unknown>) => s.number === 'DI',
+      );
+      assert(sec, 'Display device section should exist');
+      assert.equal(sec.name, 'Display device');
+      assert.equal(sec.manufacturer, 'Albrecht Jung');
+      assert.equal(sec.mfr_id, 'M-0004');
+    });
+
+    it('imported item has correct name, manufacturer, and bus current', async () => {
+      const { data } = await req('GET', `/projects/${pid}/catalog`);
+      assert.equal(data.items.length, 1);
+      const item = data.items[0];
+      assert.equal(item.name, 'LS-Touch');
+      assert.equal(item.manufacturer, 'Albrecht Jung');
+      assert.equal(item.order_number, '..459D1S..');
+      assert.equal(item.bus_current, 60);
+    });
+
+    it('imported item has correct product_ref and h2p_ref', async () => {
+      const { data } = await req('GET', `/projects/${pid}/catalog`);
+      const item = data.items[0];
+      assert(item.product_ref, 'should have product_ref');
+      assert(
+        item.product_ref.includes('M-0004'),
+        'product_ref should contain manufacturer ID',
+      );
+    });
+
+    it('importing again replaces existing catalog data (idempotent)', async () => {
+      const buf = fs.readFileSync(KNXPROD);
+      const form = new FormData();
+      form.append('file', new Blob([buf]), '4295-LS-Touch-v5.1.knxprod');
+      const res = await fetch(`${baseUrl}/projects/${pid}/catalog/import`, {
+        method: 'POST',
+        body: form,
+      });
+      assert.equal(res.status, 200);
+      // Should still be 1 section and 1 item, not doubled
+      const { data } = await req('GET', `/projects/${pid}/catalog`);
+      assert.equal(data.sections.length, 1);
+      assert.equal(data.items.length, 1);
+    });
+  }
+});
+
 describe('Health', () => {
   it('GET /health returns ok with timestamp', async () => {
     const { status, data } = await req('GET', '/health');
