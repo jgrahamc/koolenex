@@ -485,11 +485,11 @@ function assertParserOutput(
       assert.equal(Object.keys(getParsed().paramModels).length, 7);
     });
 
-    it('SAH/S8.6.7.1 model has 3285 params and 14 load procedures', () => {
+    it('SAH/S8.6.7.1 model has 3285 params and 15 load procedures', () => {
       const m = parsed.paramModels['M-0002_A-A0C9-13-84CD'];
       assert(m, 'model not found');
       assert.equal(Object.keys(m.params).length, 3285);
-      assert.equal(m.loadProcedures.length, 14);
+      assert.equal(m.loadProcedures.length, 15);
     });
 
     it('UD/S4.210.2.1 model has 893 params and 14 load procedures', () => {

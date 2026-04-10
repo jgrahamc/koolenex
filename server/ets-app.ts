@@ -203,13 +203,46 @@ interface LpAbsSegment {
   address: number;
   size: number;
 }
+interface LpConnect {
+  type: 'Connect';
+}
+interface LpDisconnect {
+  type: 'Disconnect';
+}
+interface LpRestart {
+  type: 'Restart';
+}
+interface LpUnload {
+  type: 'Unload';
+  lsmIdx: number;
+}
+interface LpLoad {
+  type: 'Load';
+  lsmIdx: number;
+}
+interface LpTaskSegment {
+  type: 'TaskSegment';
+  lsmIdx: number;
+  address: number;
+}
+interface LpLoadCompleted {
+  type: 'LoadCompleted';
+  lsmIdx: number;
+}
 export type LoadProcedureStep =
   | LpRelSegment
   | LpWriteProp
   | LpCompareProp
   | LpWriteRelMem
   | LpLoadImageProp
-  | LpAbsSegment;
+  | LpAbsSegment
+  | LpConnect
+  | LpDisconnect
+  | LpRestart
+  | LpUnload
+  | LpLoad
+  | LpTaskSegment
+  | LpLoadCompleted;
 
 // ─── Parameter model types ───────────────────────────────────────────────────
 export interface ParamModelEntry {
@@ -1431,66 +1464,105 @@ export function buildAppIndex(buf: Buffer): AppIndex | null {
 
   // ── LoadProcedures ────────────────────────────────────────────────────────
   // Parse the download steps from Static/LoadProcedures.
+  // Iterate LdCtrl* children in document order (JavaScript objects preserve
+  // insertion order) to support both DefaultProcedure and ProductProcedure
+  // style load sequences.
   const loadProcedures: LoadProcedureStep[] = [];
   for (const lp of toArr(ap.Static?.LoadProcedures?.LoadProcedure)) {
-    for (const el of toArr(lp.LdCtrlRelSegment)) {
-      const lsmIdx = parseInt(attr(el, 'LsmIdx'), 10) || 4;
-      const size = parseInt(attr(el, 'Size'), 10) || 0;
-      const mode = attr(el, 'AppliesTo') || 'full';
-      loadProcedures.push({
-        type: 'RelSegment',
-        lsmIdx,
-        size,
-        mode,
-        fill: parseInt(attr(el, 'Fill'), 10) || 0,
-      });
-    }
-    for (const el of toArr(lp.LdCtrlWriteProp)) {
-      const raw = attr(el, 'InlineData');
-      const data = raw ? Buffer.from(raw.replace(/\s/g, ''), 'hex') : null;
-      if (data && data.length) {
-        loadProcedures.push({
-          type: 'WriteProp',
-          objIdx: parseInt(attr(el, 'ObjIdx'), 10) || 0,
-          propId: parseInt(attr(el, 'PropId'), 10) || 0,
-          data: data.toString('hex'),
-        });
+    for (const key of Object.keys(lp as XmlNode)) {
+      if (!key.startsWith('LdCtrl')) continue;
+      for (const el of toArr((lp as XmlNode)[key])) {
+        switch (key) {
+          case 'LdCtrlRelSegment':
+            loadProcedures.push({
+              type: 'RelSegment',
+              lsmIdx: parseInt(attr(el, 'LsmIdx'), 10) || 4,
+              size: parseInt(attr(el, 'Size'), 10) || 0,
+              mode: attr(el, 'AppliesTo') || 'full',
+              fill: parseInt(attr(el, 'Fill'), 10) || 0,
+            });
+            break;
+          case 'LdCtrlWriteProp': {
+            const raw = attr(el, 'InlineData');
+            const data = raw
+              ? Buffer.from(raw.replace(/\s/g, ''), 'hex').toString('hex')
+              : '';
+            loadProcedures.push({
+              type: 'WriteProp',
+              objIdx: parseInt(attr(el, 'ObjIdx'), 10) || 0,
+              propId: parseInt(attr(el, 'PropId'), 10) || 0,
+              data,
+            });
+            break;
+          }
+          case 'LdCtrlCompareProp':
+            loadProcedures.push({
+              type: 'CompareProp',
+              objIdx: parseInt(attr(el, 'ObjIdx'), 10) || 0,
+              propId: parseInt(attr(el, 'PropId'), 10) || 0,
+              data: attr(el, 'InlineData').replace(/\s/g, ''),
+            });
+            break;
+          case 'LdCtrlWriteRelMem':
+            loadProcedures.push({
+              type: 'WriteRelMem',
+              objIdx: parseInt(attr(el, 'ObjIdx'), 10) || 4,
+              offset: parseInt(attr(el, 'Offset'), 10) || 0,
+              size: parseInt(attr(el, 'Size'), 10) || 0,
+              mode: attr(el, 'AppliesTo') || 'full',
+            });
+            break;
+          case 'LdCtrlLoadImageProp':
+            loadProcedures.push({
+              type: 'LoadImageProp',
+              objIdx: parseInt(attr(el, 'ObjIdx'), 10) || 0,
+              propId: parseInt(attr(el, 'PropId'), 10) || 27,
+            });
+            break;
+          case 'LdCtrlAbsSegment':
+            loadProcedures.push({
+              type: 'AbsSegment',
+              lsmIdx: parseInt(attr(el, 'LsmIdx'), 10) || 0,
+              address: parseInt(attr(el, 'Address'), 10) || 0,
+              size: parseInt(attr(el, 'Size'), 10) || 0,
+            });
+            break;
+          case 'LdCtrlConnect':
+            loadProcedures.push({ type: 'Connect' });
+            break;
+          case 'LdCtrlDisconnect':
+            loadProcedures.push({ type: 'Disconnect' });
+            break;
+          case 'LdCtrlRestart':
+            loadProcedures.push({ type: 'Restart' });
+            break;
+          case 'LdCtrlUnload':
+            loadProcedures.push({
+              type: 'Unload',
+              lsmIdx: parseInt(attr(el, 'LsmIdx'), 10) || 0,
+            });
+            break;
+          case 'LdCtrlLoad':
+            loadProcedures.push({
+              type: 'Load',
+              lsmIdx: parseInt(attr(el, 'LsmIdx'), 10) || 0,
+            });
+            break;
+          case 'LdCtrlTaskSegment':
+            loadProcedures.push({
+              type: 'TaskSegment',
+              lsmIdx: parseInt(attr(el, 'LsmIdx'), 10) || 0,
+              address: parseInt(attr(el, 'Address'), 10) || 0,
+            });
+            break;
+          case 'LdCtrlLoadCompleted':
+            loadProcedures.push({
+              type: 'LoadCompleted',
+              lsmIdx: parseInt(attr(el, 'LsmIdx'), 10) || 0,
+            });
+            break;
+        }
       }
-    }
-    for (const el of toArr(lp.LdCtrlCompareProp)) {
-      const raw = attr(el, 'InlineData');
-      const data = raw ? raw.replace(/\s/g, '') : '';
-      loadProcedures.push({
-        type: 'CompareProp',
-        objIdx: parseInt(attr(el, 'ObjIdx'), 10) || 0,
-        propId: parseInt(attr(el, 'PropId'), 10) || 0,
-        data,
-      });
-    }
-    for (const el of toArr(lp.LdCtrlWriteRelMem)) {
-      const mode = attr(el, 'AppliesTo') || 'full';
-      loadProcedures.push({
-        type: 'WriteRelMem',
-        objIdx: parseInt(attr(el, 'ObjIdx'), 10) || 4,
-        offset: parseInt(attr(el, 'Offset'), 10) || 0,
-        size: parseInt(attr(el, 'Size'), 10) || 0,
-        mode,
-      });
-    }
-    for (const el of toArr(lp.LdCtrlLoadImageProp)) {
-      loadProcedures.push({
-        type: 'LoadImageProp',
-        objIdx: parseInt(attr(el, 'ObjIdx'), 10) || 0,
-        propId: parseInt(attr(el, 'PropId'), 10) || 27,
-      });
-    }
-    for (const el of toArr(lp.LdCtrlAbsSegment)) {
-      loadProcedures.push({
-        type: 'AbsSegment',
-        lsmIdx: parseInt(attr(el, 'LsmIdx'), 10) || 0,
-        address: parseInt(attr(el, 'Address'), 10) || 0,
-        size: parseInt(attr(el, 'Size'), 10) || 0,
-      });
     }
   }
 

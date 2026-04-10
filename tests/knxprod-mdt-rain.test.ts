@@ -234,40 +234,51 @@ describe('MDT Rain Sensor: exhaustive param check', () => {
 // ── Load procedures (AbsoluteSegment device) ────────────────────────────────
 
 describe('MDT Rain Sensor: load procedures', () => {
-  it('has 6 load procedures', () => {
-    assert.equal(model.loadProcedures.length, 6);
+  it('has 21 load procedures (full ProductProcedure sequence)', () => {
+    assert.equal(model.loadProcedures.length, 21);
   });
 
-  it('uses CompareProp and AbsSegment (not RelSegment)', () => {
+  it('uses ProductProcedure-style steps in correct order', () => {
     const types = model.loadProcedures.map(
       (lp: Record<string, unknown>) => lp.type,
     );
-    assert(types.includes('CompareProp'));
-    assert(types.includes('AbsSegment'));
+    assert.deepEqual(types, [
+      'Connect',
+      'CompareProp',
+      'Unload', 'Unload', 'Unload',
+      'Load', 'Load', 'Load',
+      'AbsSegment', 'AbsSegment', 'AbsSegment', 'AbsSegment', 'AbsSegment',
+      'TaskSegment', 'TaskSegment', 'TaskSegment',
+      'LoadCompleted', 'LoadCompleted', 'LoadCompleted',
+      'Restart',
+      'Disconnect',
+    ]);
+  });
+
+  it('does NOT use RelSegment or WriteRelMem', () => {
+    const types = model.loadProcedures.map(
+      (lp: Record<string, unknown>) => lp.type,
+    );
     assert(!types.includes('RelSegment'), 'should NOT have RelSegment');
     assert(!types.includes('WriteRelMem'), 'should NOT have WriteRelMem');
   });
 
-  it('extracts CompareProp and AbsSegment steps from raw XML', () => {
-    // This device uses ProductProcedure-style load procedures with
-    // Connect/Unload/Load/TaskSegment/LoadCompleted/Restart/Disconnect
-    // steps that our parser doesn't handle yet (TODO: AbsoluteSegment
-    // devices). We only extract the CompareProp and AbsSegment steps.
+  it('all steps match raw XML in document order', () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const lps = (st.LoadProcedures?.LoadProcedure || []) as any[];
-    const rawSupported: string[] = [];
+    const rawSteps: string[] = [];
     for (const lp of lps) {
-      for (const key of ['LdCtrlCompareProp', 'LdCtrlAbsSegment']) {
-        if (!lp[key]) continue;
+      for (const key of Object.keys(lp)) {
+        if (!key.startsWith('LdCtrl')) continue;
         const items = Array.isArray(lp[key]) ? lp[key] : [lp[key]];
-        for (const _item of items) rawSupported.push(key.replace('LdCtrl', ''));
+        for (const _item of items) rawSteps.push(key.replace('LdCtrl', ''));
       }
     }
-    assert.equal(model.loadProcedures.length, rawSupported.length);
-    for (let i = 0; i < rawSupported.length; i++) {
+    assert.equal(model.loadProcedures.length, rawSteps.length);
+    for (let i = 0; i < rawSteps.length; i++) {
       assert(
-        model.loadProcedures[i].type.includes(rawSupported[i]!),
-        `step ${i}: ours="${model.loadProcedures[i].type}" xml="${rawSupported[i]}"`,
+        model.loadProcedures[i].type.includes(rawSteps[i]!),
+        `step ${i}: ours="${model.loadProcedures[i].type}" xml="${rawSteps[i]}"`,
       );
     }
   });
