@@ -459,7 +459,19 @@ export function parseKnxproj(
   // Encrypted project files are binary (not XML). Detect early and validate
   // the password before attempting full parsing.
   for (const entry of installEntries) {
-    const raw = entry.getData();
+    let raw: Buffer;
+    try {
+      raw = entry.getData();
+    } catch (_) {
+      // getData() failed — the outer ZIP entry itself is password-protected
+      if (!password)
+        throw Object.assign(new Error('Project is password-protected'), {
+          code: 'PASSWORD_REQUIRED',
+        });
+      throw Object.assign(new Error('Incorrect password'), {
+        code: 'PASSWORD_INCORRECT',
+      });
+    }
     if (!looksEncrypted(raw)) break; // plaintext — no password needed
     if (!password)
       throw Object.assign(new Error('Project is password-protected'), {

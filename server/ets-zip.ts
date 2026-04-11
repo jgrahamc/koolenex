@@ -34,8 +34,14 @@ export function openZip(buffer: Buffer, password?: string): ZipEntry[] {
   const mz = new Minizip(buffer);
   const opts = password ? { password } : undefined;
   return mz.list().map((f) => {
-    const data = Buffer.from(mz.extract(f.filepath, opts));
-    return { entryName: f.filepath, getData: () => data };
+    let cached: Buffer | null = null;
+    return {
+      entryName: f.filepath,
+      getData: () => {
+        if (!cached) cached = Buffer.from(mz.extract(f.filepath, opts));
+        return cached;
+      },
+    };
   });
 }
 
