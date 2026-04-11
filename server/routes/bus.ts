@@ -27,6 +27,29 @@ import type { DownloadStep, DownloadProgress } from '../knx-connection.ts';
 let bus: KnxBusManager | null = null;
 export const router = express.Router();
 
+// ── GA→DPT cache (avoids per-telegram DB queries) ──────────────────────────
+let _gaDptCache: Record<string, string> | null = null;
+let _gaDptCacheProjectId: number | null = null;
+
+function getGaDpt(projectId: number, gaAddress: string): string | null {
+  if (_gaDptCacheProjectId !== projectId) {
+    // Rebuild cache for the new project
+    const rows = db.all<{ address: string; dpt: string }>(
+      "SELECT address, dpt FROM group_addresses WHERE project_id=? AND dpt IS NOT NULL AND dpt != ''",
+      [projectId],
+    );
+    _gaDptCache = Object.fromEntries(rows.map((r) => [r.address, r.dpt]));
+    _gaDptCacheProjectId = projectId;
+  }
+  return _gaDptCache![gaAddress] ?? null;
+}
+
+/** Invalidate the GA→DPT cache (call after project import/update). */
+export function invalidateGaDptCache(): void {
+  _gaDptCache = null;
+  _gaDptCacheProjectId = null;
+}
+
 /** Return the bus instance or send a 503 and return null. */
 function requireBus(res: Response): KnxBusManager | null {
   if (!bus) {
@@ -275,13 +298,10 @@ function decodeTelegram(telegram: Telegram): Telegram {
   )
     return telegram;
 
-  const ga = db.get<{ dpt: string }>(
-    'SELECT dpt FROM group_addresses WHERE project_id=? AND address=?',
-    [telegram.projectId, telegram.dst],
-  );
-  if (!ga?.dpt) return telegram;
+  const dpt = getGaDpt(telegram.projectId as number, telegram.dst);
+  if (!dpt) return telegram;
 
-  const key = normalizeDptKey(ga.dpt);
+  const key = normalizeDptKey(dpt);
   if (!key) return telegram;
   const dptInfo = getDptInfo(telegram.projectId as number);
   const info = dptInfo[key];

@@ -1,4 +1,4 @@
-import { useState, useEffect, useContext, useMemo } from 'react';
+import { useState, useContext, useMemo } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { MediumCtx, STATUS_COLOR } from '../theme.ts';
 import { localizedModel } from '../dpt.ts';
@@ -16,6 +16,8 @@ import { useColumns, ColumnPicker, dlCSV } from '../columns.tsx';
 import { api } from '../api.ts';
 
 import { AddDeviceModal } from '../AddDeviceModal.tsx';
+import { useSpacePath } from '../hooks/spaces.ts';
+import { usePersistedState } from '../hooks/usePersistedState.ts';
 import styles from './TopologyView.module.css';
 
 interface TopologyViewProps {
@@ -42,18 +44,10 @@ export function TopologyView({
   const navigate = useNavigate();
   const { id: projectId } = useParams();
   const mediumTypes = useContext(MediumCtx);
-  const [collapsed, setCollapsed] = useState<Record<string, boolean>>(() => {
-    try {
-      return JSON.parse(localStorage.getItem('knx-topo-collapsed') || '{}');
-    } catch {
-      return {};
-    }
-  });
-  useEffect(() => {
-    try {
-      localStorage.setItem('knx-topo-collapsed', JSON.stringify(collapsed));
-    } catch {}
-  }, [collapsed]);
+  const [collapsed, setCollapsed] = usePersistedState<Record<string, boolean>>(
+    'knx-topo-collapsed',
+    {},
+  );
   const [statusFilter, setStatusFilter] = useState('all');
   const [addDefaults, setAddDefaults] = useState<any>(null);
   const [editTopoId, setEditTopoId] = useState<any>(null);
@@ -84,19 +78,7 @@ export function TopologyView({
     topoCols.find((c: any) => c.id === id)?.visible !== false;
   const visibleTopoCols = topoCols.filter((c: any) => c.visible !== false);
 
-  const spaceMap = useMemo(
-    () => Object.fromEntries(spaces.map((s: any) => [s.id, s])),
-    [spaces],
-  );
-  const spacePath = (spaceId: any) => {
-    const parts = [];
-    let cur = spaceMap[spaceId];
-    while (cur) {
-      if (cur.type !== 'Building') parts.unshift(cur.name);
-      cur = cur.parent_id ? spaceMap[cur.parent_id] : null;
-    }
-    return parts.join(' › ');
-  };
+  const { spacePath } = useSpacePath(spaces);
 
   const areaRows = topology
     .filter((t: any) => t.line === null)

@@ -1,6 +1,7 @@
-import { useState, useMemo } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Btn, Chip, SectionHeader } from '../primitives.tsx';
+import { useSpacePath } from '../hooks/spaces.ts';
 import styles from './PrintLabelsView.module.css';
 
 // Label sheet definitions (all dimensions in mm)
@@ -136,19 +137,7 @@ export function PrintLabelsView({ data, projectId }: PrintLabelsViewProps) {
     () => new Set(devices.map((d: any) => d.individual_address)),
   );
   const [filterArea, setFilterArea] = useState('all');
-  const spaceMap = useMemo(
-    () => Object.fromEntries(spaces.map((s: any) => [s.id, s])),
-    [spaces],
-  );
-  const spacePath = (spaceId: any) => {
-    const parts: string[] = [];
-    let cur = spaceMap[spaceId];
-    while (cur) {
-      if (cur.type !== 'Building') parts.unshift(cur.name);
-      cur = cur.parent_id ? spaceMap[cur.parent_id] : null;
-    }
-    return parts.join(' > ');
-  };
+  const { spacePath } = useSpacePath(spaces, ' > ');
 
   const areas = [
     ...new Set(devices.map((d: any) => `${d.area}.${d.line}`)),

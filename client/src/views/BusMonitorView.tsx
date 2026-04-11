@@ -16,6 +16,7 @@ import {
 } from '../primitives.tsx';
 import { useColumns, ColumnPicker, dlCSV } from '../columns.tsx';
 import { dptInfo } from '../dpt.ts';
+import { useSpacePath } from '../hooks/spaces.ts';
 import styles from './BusMonitorView.module.css';
 
 function TelegramFlowPanel({
@@ -241,19 +242,7 @@ export function BusMonitorView({
     return m;
   }, [data]);
 
-  const spaceMap = useMemo(
-    () => Object.fromEntries((data?.spaces || []).map((s: any) => [s.id, s])),
-    [data],
-  );
-  const spacePath = (spaceId: any) => {
-    const parts = [];
-    let cur = spaceMap[spaceId];
-    while (cur) {
-      if (cur.type !== 'Building') parts.unshift(cur.name);
-      cur = cur.parent_id ? spaceMap[cur.parent_id] : null;
-    }
-    return parts.join(' › ');
-  };
+  const { spacePath } = useSpacePath(data?.spaces || []);
 
   // Auto-scroll to top when new telegrams arrive and not paused
   useEffect(() => {

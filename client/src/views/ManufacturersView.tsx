@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { STATUS_COLOR } from '../theme.ts';
 import {
@@ -15,6 +15,7 @@ import { DeviceTypeIcon } from '../icons.tsx';
 import { dlCSV } from '../columns.tsx';
 import type { Device } from '../../../shared/types.ts';
 import { AddDeviceModal } from '../AddDeviceModal.tsx';
+import { usePersistedState } from '../hooks/usePersistedState.ts';
 import styles from './ManufacturersView.module.css';
 
 interface ManufacturersViewProps {
@@ -31,18 +32,10 @@ export function ManufacturersView({
   const navigate = useNavigate();
   const { devices, spaces = [], deviceGAMap = {} } = data;
   const [addDefaults, setAddDefaults] = useState<any>(null);
-  const [expanded, setExpanded] = useState<Record<string, boolean>>(() => {
-    try {
-      return JSON.parse(localStorage.getItem('knx-mfr-expanded') || '{}');
-    } catch {
-      return {};
-    }
-  });
-  useEffect(() => {
-    try {
-      localStorage.setItem('knx-mfr-expanded', JSON.stringify(expanded));
-    } catch {}
-  }, [expanded]);
+  const [expanded, setExpanded] = usePersistedState<Record<string, boolean>>(
+    'knx-mfr-expanded',
+    {},
+  );
 
   const tree = useMemo(() => {
     const mfrs: Record<string, Record<string, any[]>> = {};

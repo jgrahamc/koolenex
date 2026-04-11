@@ -592,7 +592,10 @@ export function audit(
       'INSERT INTO audit_log (project_id, action, entity, entity_id, detail) VALUES (?,?,?,?,?)',
       [projectId, action, entity, entityId ?? '', detail ?? ''],
     );
-  } catch (_) {
+  } catch (e) {
     /* never let audit logging break the main operation */
+    logger.warn('db', 'audit insert failed', {
+      error: (e as Error).message,
+    });
   }
 }

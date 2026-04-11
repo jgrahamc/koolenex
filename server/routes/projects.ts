@@ -6,6 +6,7 @@ import * as db from '../db.ts';
 import { parseKnxproj } from '../ets-parser.ts';
 import type { ParsedProject } from '../ets-parser.ts';
 import { saveModelsAndMasterXml, MAX_UPLOAD_BYTES } from './shared.ts';
+import { invalidateGaDptCache } from './bus.ts';
 import { safeError } from '../log.ts';
 import { validateBody, paramId } from '../validate.ts';
 import type { Project, RunResult } from '../../shared/types.ts';
@@ -289,6 +290,7 @@ router.delete('/projects/:id', (req: Request, res: Response) => {
     run('DELETE FROM spaces WHERE project_id=?', [pid]);
     run('DELETE FROM projects WHERE id=?', [pid]);
   });
+  invalidateGaDptCache();
   res.json({ ok: true });
 });
 
@@ -363,6 +365,7 @@ router.post(
         `Imported ${devices.length} devices, ${groupAddresses.length} group addresses, ${comObjects.length} com objects`,
       );
 
+      invalidateGaDptCache();
       res.json({
         ok: true,
         projectId,
@@ -463,6 +466,7 @@ router.post(
         `Reimported ${devices.length} devices, ${groupAddresses.length} group addresses, ${comObjects.length} com objects`,
       );
 
+      invalidateGaDptCache();
       res.json({
         ok: true,
         projectId: pid,

@@ -18,6 +18,7 @@ import { useColumns, ColumnPicker, dlCSV } from '../columns.tsx';
 import { spaceUsageMap, localizedModel } from '../dpt.ts';
 import type { Space, Device } from '../../../shared/types.ts';
 import { AddDeviceModal } from '../AddDeviceModal.tsx';
+import { usePersistedSet } from '../hooks/usePersistedState.ts';
 import styles from './LocationsView.module.css';
 
 interface LocationsViewProps {
@@ -58,26 +59,18 @@ export function LocationsView({
   const [editSpaceId, setEditSpaceId] = useState<any>(null);
   const [editDevId, setEditDevId] = useState<any>(null);
   const [addSpaceParent, setAddSpaceParent] = useState<any>(null); // null = not adding, { parentId, defaultType }
-  const [collapsed, setCollapsed] = useState<Set<string>>(() => {
-    try {
-      const stored = localStorage.getItem('knx-loc-collapsed');
-      if (stored) return new Set(JSON.parse(stored));
-    } catch {}
-    return new Set(
-      spaces.filter((s: any) => s.parent_id).map((s: any) => s.id),
-    );
-  });
+  const [collapsed, setCollapsed] = usePersistedSet(
+    'knx-loc-collapsed',
+    () =>
+      new Set(
+        spaces.filter((s: any) => s.parent_id).map((s: any) => String(s.id)),
+      ),
+  );
   const toggleCollapse = (id: string) =>
     setCollapsed((prev) => {
       const n = new Set(prev);
-      if (n.has(id)) {
-        n.delete(id);
-      } else {
-        n.add(id);
-      }
-      try {
-        localStorage.setItem('knx-loc-collapsed', JSON.stringify([...n]));
-      } catch {}
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
       return n;
     });
 

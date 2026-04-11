@@ -16,6 +16,11 @@ import {
   _mediumTypeCache,
   _maskVersionCache,
 } from './shared.ts';
+import type {
+  SpaceUsageEntry,
+  TranslationResult,
+  MaskVersionEntry,
+} from './shared.ts';
 
 // @iarna/rtf-to-html has no type declarations — use createRequire for CJS interop
 const require_ = createRequire(import.meta.url);
@@ -74,14 +79,8 @@ router.get('/dpt-info', (req: Request, res: Response): void => {
 });
 
 // ── SpaceUsage info ───────────────────────────────────────────────────────────
-interface SpaceUsageEntry {
-  id: string;
-  number: number;
-  text: string;
-}
-
 function getSpaceUsages(projectId: string | number): SpaceUsageEntry[] {
-  const cache = _spaceUsageCache as Record<string | number, SpaceUsageEntry[]>;
+  const cache = _spaceUsageCache;
   if (cache[projectId]) return cache[projectId]!;
   const xml = readMasterXml(projectId);
   if (!xml) return (cache[projectId] = []);
@@ -131,13 +130,8 @@ const LANG_NAMES: Record<string, string> = {
   'uk-UA': 'Українська',
 };
 
-interface TranslationResult {
-  languages: Array<{ id: string; name: string }>;
-  translations: Record<string, Record<string, string>>;
-}
-
 function getTranslations(projectId: string | number): TranslationResult {
-  const cache = _translationCache as Record<string | number, TranslationResult>;
+  const cache = _translationCache;
   if (cache[projectId]) return cache[projectId]!;
   const xml = readMasterXml(projectId);
   if (!xml) return (cache[projectId] = { languages: [], translations: {} });
@@ -239,10 +233,7 @@ router.get('/translations', (req: Request, res: Response): void => {
 
 // ── MediumType info ──────────────────────────────────────────────────────────
 function getMediumTypes(projectId: string | number): Record<string, string> {
-  const cache = _mediumTypeCache as Record<
-    string | number,
-    Record<string, string>
-  >;
+  const cache = _mediumTypeCache;
   if (cache[projectId]) return cache[projectId]!;
   const xml = readMasterXml(projectId);
   if (!xml) return (cache[projectId] = {});
@@ -269,19 +260,10 @@ router.get('/medium-types', (req: Request, res: Response): void => {
 });
 
 // ── Mask version info ────────────────────────────────────────────────────────
-interface MaskVersionEntry {
-  name: string;
-  managementModel: string;
-  medium: string;
-}
-
 function getMaskVersions(
   projectId: string | number,
 ): Record<string, MaskVersionEntry> {
-  const cache = _maskVersionCache as Record<
-    string | number,
-    Record<string, MaskVersionEntry>
-  >;
+  const cache = _maskVersionCache;
   if (cache[projectId]) return cache[projectId]!;
   const xml = readMasterXml(projectId);
   if (!xml) return (cache[projectId] = {});

@@ -5,6 +5,7 @@ import * as db from '../db.ts';
 import { buildGAMaps } from '../../shared/ga-maps.ts';
 import { validateBody, paramId } from '../validate.ts';
 import { makeUpdateBuilder } from './shared.ts';
+import { invalidateGaDptCache } from './bus.ts';
 import type {
   GroupAddress,
   GaGroupName,
@@ -123,6 +124,7 @@ router.put('/projects/:pid/gas/:gid', (req: Request, res: Response): void => {
   }
   vals.push(gid);
   db.run(`UPDATE group_addresses SET ${sets.join(', ')} WHERE id=?`, vals);
+  invalidateGaDptCache();
   db.audit(
     pid,
     'update',
@@ -182,6 +184,7 @@ router.delete(
       [gid],
     );
     db.run('DELETE FROM group_addresses WHERE id=?', [gid]);
+    invalidateGaDptCache();
     db.audit(
       pid,
       'delete',

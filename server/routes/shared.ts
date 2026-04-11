@@ -33,12 +33,36 @@ export function readMasterXml(
   return null;
 }
 
+// ── Cache value types ─────────────────────────────────────────────────────────
+export interface SpaceUsageEntry {
+  id: string;
+  number: number;
+  text: string;
+}
+
+export interface TranslationResult {
+  languages: Array<{ id: string; name: string }>;
+  translations: Record<string, Record<string, string>>;
+}
+
+export interface MaskVersionEntry {
+  name: string;
+  managementModel: string;
+  medium: string;
+}
+
 // Caches keyed by projectId
 const _dptInfoCache: Record<string | number, Record<string, DptInfoEntry>> = {};
-export const _spaceUsageCache: Record<string | number, unknown> = {};
-export const _translationCache: Record<string | number, unknown> = {};
-export const _mediumTypeCache: Record<string | number, unknown> = {};
-export const _maskVersionCache: Record<string | number, unknown> = {};
+export const _spaceUsageCache: Record<string | number, SpaceUsageEntry[]> = {};
+export const _translationCache: Record<string | number, TranslationResult> = {};
+export const _mediumTypeCache: Record<
+  string | number,
+  Record<string, string>
+> = {};
+export const _maskVersionCache: Record<
+  string | number,
+  Record<string, MaskVersionEntry>
+> = {};
 
 export const toArr = <T>(v: T | T[] | null | undefined): T[] =>
   v == null ? [] : Array.isArray(v) ? v : [v];

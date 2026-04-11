@@ -17,6 +17,8 @@ import {
 import { useColumns, ColumnPicker, dlCSV } from '../columns.tsx';
 import { RtfText } from '../rtf.tsx';
 import { AddDeviceModal } from '../AddDeviceModal.tsx';
+import { useSpacePath } from '../hooks/spaces.ts';
+import { usePersistedState } from '../hooks/usePersistedState.ts';
 import styles from './DevicesView.module.css';
 
 interface DevicesViewProps {
@@ -39,23 +41,10 @@ export function DevicesView({
   const { id: projectId } = useParams();
   const jumpTo = location.state?.jumpTo;
   const [search, setSearch] = useState('');
-  const [sort, setSort] = useState(() => {
-    try {
-      return (
-        JSON.parse(localStorage.getItem('knx-devices-sort') || 'null') || {
-          col: 'individual_address',
-          dir: 1,
-        }
-      );
-    } catch {
-      return { col: 'individual_address', dir: 1 };
-    }
+  const [sort, setSort] = usePersistedState('knx-devices-sort', {
+    col: 'individual_address',
+    dir: 1,
   });
-  useEffect(() => {
-    try {
-      localStorage.setItem('knx-devices-sort', JSON.stringify(sort));
-    } catch {}
-  }, [sort]);
   const [filterStatus, setFilterStatus] = useState('all');
   const [showAdd, setShowAdd] = useState(false);
   const [editDevId, setEditDevId] = useState(null);
@@ -90,19 +79,7 @@ export function DevicesView({
   const cv = (id: string) =>
     cols.find((c: any) => c.id === id)?.visible !== false;
 
-  const spaceMap = useMemo(
-    () => Object.fromEntries(spaces.map((s: any) => [s.id, s])),
-    [spaces],
-  );
-  const spacePath = (spaceId: any) => {
-    const parts = [];
-    let cur = spaceMap[spaceId];
-    while (cur) {
-      if (cur.type !== 'Building') parts.unshift(cur.name);
-      cur = cur.parent_id ? spaceMap[cur.parent_id] : null;
-    }
-    return parts.join(' › ');
-  };
+  const { spacePath } = useSpacePath(spaces);
 
   useEffect(() => {
     if (!jumpTo) return;

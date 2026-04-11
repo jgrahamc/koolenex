@@ -12,6 +12,7 @@ import {
   coGAs,
 } from '../primitives.tsx';
 import { SpaceTypeIcon } from '../icons.tsx';
+import { buildSpaceMap, spacePath as spacePathFn } from '../hooks/spaces.ts';
 import { GROUP_WTYPES } from '../state.ts';
 import { AddDeviceModal } from '../AddDeviceModal.tsx';
 import { ComparePanel } from './ComparePanel.tsx';
@@ -850,16 +851,8 @@ export function PinDetailView({
     gaDeviceMap = {},
     spaces = [],
   } = data;
-  const spaceMap = Object.fromEntries(spaces.map((s: any) => [s.id, s]));
-  const spacePath = (id: number) => {
-    const p: string[] = [];
-    let c = spaceMap[id];
-    while (c) {
-      if (c.type !== 'Building') p.unshift(c.name);
-      c = c.parent_id ? spaceMap[c.parent_id] : null;
-    }
-    return p.join(' › ');
-  };
+  const spaceMap = buildSpaceMap(spaces);
+  const spacePath = (id: number) => spacePathFn(id, spaceMap);
   const gaMap: Record<string, any> = Object.fromEntries(
     gas.map((g: any) => [g.address, g]),
   );

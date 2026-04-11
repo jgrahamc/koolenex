@@ -15,6 +15,7 @@ import {
 } from '../primitives.tsx';
 import { useColumns, ColumnPicker, dlCSV } from '../columns.tsx';
 import { RtfText } from '../rtf.tsx';
+import { usePersistedState } from '../hooks/usePersistedState.ts';
 import styles from './GroupAddressesView.module.css';
 
 interface GroupAddressesViewProps {
@@ -63,13 +64,10 @@ export function GroupAddressesView({
   useEffect(() => {
     localStorage.setItem('knx-ga-mode', viewMode);
   }, [viewMode]);
-  const [expand, setExpand] = useState(() => {
-    try {
-      return JSON.parse(localStorage.getItem('knx-ga-expand') || '{}');
-    } catch {
-      return {};
-    }
-  });
+  const [expand, setExpand] = usePersistedState<Record<string, boolean>>(
+    'knx-ga-expand',
+    {},
+  );
   const [creating, setCreating] = useState(false);
   const [newAddr, setNewAddr] = useState('');
   const [newName, setNewName] = useState('');

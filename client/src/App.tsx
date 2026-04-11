@@ -72,81 +72,55 @@ export default function App() {
     return { lang: i18nLang, languages: i18nData.languages, t };
   }, [i18nLang, i18nData]);
 
-  // Persist active project, notify server, reload master data
-  useEffect(() => {
-    if (state.activeProjectId) {
-      localStorage.setItem('knx-active-project', String(state.activeProjectId));
-      api.busSetProject(state.activeProjectId).catch(() => {});
-      // Reload per-project master data
-      const pid = state.activeProjectId;
-      api
-        .getDptInfo(pid)
-        .then((data: any) => {
-          if (data && Object.keys(data).length > 0) {
-            setDptInfo(data);
-            dispatch({ type: 'DPT_LOADED' });
-          }
-        })
-        .catch((e) => console.warn('[app] getDptInfo failed', e.message));
-      api
-        .getSpaceUsages(pid)
-        .then((data: any) => {
-          if (data?.length) setSpaceUsages(data);
-        })
-        .catch((e) => console.warn('[app] getSpaceUsages failed', e.message));
-      api
-        .getMediumTypes(pid)
-        .then((d) => setMediumTypes(d as Record<string, any>))
-        .catch((e) => console.warn('[app] getMediumTypes failed', e.message));
-      api
-        .getMaskVersions(pid)
-        .then((d) => setMaskVersions(d as Record<string, any>))
-        .catch((e) => console.warn('[app] getMaskVersions failed', e.message));
-      api
-        .getTranslations(pid)
-        .then((d) =>
-          setI18nData(
-            d as { languages: any[]; translations: Record<string, any> },
-          ),
-        )
-        .catch((e) => console.warn('[app] getTranslations failed', e.message));
-    }
-  }, [state.activeProjectId]);
-
-  // Boot: load projects + bus status, then auto-restore last session
-  useEffect(() => {
-    // Load DPT info from knx_master.xml (replaces hardcoded DPT_INFO table)
+  /** Load DPT info, space usages, medium types, mask versions, and translations. */
+  function loadMasterData(pid?: number) {
+    const warn = (label: string) => (e: Error) =>
+      console.warn(`[app] ${label} failed`, e.message);
     api
-      .getDptInfo()
+      .getDptInfo(pid)
       .then((data: any) => {
         if (data && Object.keys(data).length > 0) {
           setDptInfo(data);
-          dispatch({ type: 'DPT_LOADED' }); // trigger re-render
+          dispatch({ type: 'DPT_LOADED' });
         }
       })
-      .catch((e) => console.warn('[app] getDptInfo failed', e.message));
+      .catch(warn('getDptInfo'));
     api
-      .getSpaceUsages()
+      .getSpaceUsages(pid)
       .then((data: any) => {
         if (data?.length) setSpaceUsages(data);
       })
-      .catch((e) => console.warn('[app] getSpaceUsages failed', e.message));
+      .catch(warn('getSpaceUsages'));
     api
-      .getMediumTypes()
+      .getMediumTypes(pid)
       .then((d) => setMediumTypes(d as Record<string, any>))
-      .catch((e) => console.warn('[app] getMediumTypes failed', e.message));
+      .catch(warn('getMediumTypes'));
     api
-      .getMaskVersions()
+      .getMaskVersions(pid)
       .then((d) => setMaskVersions(d as Record<string, any>))
-      .catch((e) => console.warn('[app] getMaskVersions failed', e.message));
+      .catch(warn('getMaskVersions'));
     api
-      .getTranslations()
+      .getTranslations(pid)
       .then((d) =>
         setI18nData(
           d as { languages: any[]; translations: Record<string, any> },
         ),
       )
-      .catch((e) => console.warn('[app] getTranslations failed', e.message));
+      .catch(warn('getTranslations'));
+  }
+
+  // Persist active project, notify server, reload master data
+  useEffect(() => {
+    if (state.activeProjectId) {
+      localStorage.setItem('knx-active-project', String(state.activeProjectId));
+      api.busSetProject(state.activeProjectId).catch(() => {});
+      loadMasterData(state.activeProjectId);
+    }
+  }, [state.activeProjectId]);
+
+  // Boot: load projects + bus status, then auto-restore last session
+  useEffect(() => {
+    loadMasterData();
 
     (async () => {
       try {

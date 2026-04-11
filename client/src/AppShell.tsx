@@ -18,6 +18,7 @@ import {
   IconCatalog,
 } from './icons.tsx';
 import { Spinner, Toast } from './primitives.tsx';
+import { buildSpaceMap, spacePath as spacePathFn } from './hooks/spaces.ts';
 import { GlobalSearch } from './search.tsx';
 
 import { ProjectsView } from './views/ProjectsView.tsx';
@@ -503,20 +504,11 @@ export function AppShell(props: AppShellProps) {
                             : 0,
                       );
                       if (!group.length) return null;
-                      const spaceMap = Object.fromEntries(
-                        (state.projectData?.spaces || []).map((s) => [s.id, s]),
+                      const spaceMap = buildSpaceMap(
+                        state.projectData?.spaces || [],
                       );
-                      const spacePath = (spaceId: number): string => {
-                        const parts: string[] = [];
-                        let cur = spaceMap[spaceId];
-                        while (cur) {
-                          if (cur.type !== 'Building') parts.unshift(cur.name);
-                          cur = cur.parent_id
-                            ? spaceMap[cur.parent_id]
-                            : undefined;
-                        }
-                        return parts.join(' › ');
-                      };
+                      const spacePath = (spaceId: number) =>
+                        spacePathFn(spaceId, spaceMap);
                       return (
                         <div key={wtype}>
                           <div className={appStyles.pinGroupLabel}>{label}</div>
