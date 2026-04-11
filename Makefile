@@ -4,10 +4,13 @@ CLIENT_PID := .client.pid
 kill-pid = [ -f $($(1)_PID) ] && { kill -0 $$(cat $($(1)_PID)) 2>/dev/null && pkill -P $$(cat $($(1)_PID)); kill $$(cat $($(1)_PID)); rm $($(1)_PID); } || true
 save-pid = echo $$! > $($(1)_PID)
 
-.PHONY: server stop-server client stop-client start stop test lint format
+.PHONY: server server-open stop-server client stop-client start stop test lint format
 
 server: stop-server
 	@node server/index.ts & $(call save-pid,SERVER)
+
+server-open: stop-server
+	@node server/index.ts --cors-open & $(call save-pid,SERVER)
 
 stop-server:
 	@$(call kill-pid,SERVER)

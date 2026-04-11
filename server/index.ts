@@ -11,6 +11,7 @@ import { ValidationError } from './validate.ts';
 
 const bus = new KnxBusManager();
 const PORT = process.env.PORT || 4000;
+const CORS_OPEN = process.argv.includes('--cors-open');
 
 async function start(): Promise<void> {
   // Must init DB before routes can use it
@@ -22,17 +23,20 @@ async function start(): Promise<void> {
 
   const app = express();
   app.use(
-    cors({
-      origin: (origin, callback) => {
-        // Allow requests with no origin (same-origin, curl, etc.)
-        if (!origin) return callback(null, true);
-        // Allow localhost on any port (dev server, prod server)
-        if (/^https?:\/\/localhost(:\d+)?$/.test(origin))
-          return callback(null, true);
-        callback(new Error('CORS not allowed'));
-      },
-    }),
+    CORS_OPEN
+      ? cors({ origin: '*' })
+      : cors({
+          origin: (origin, callback) => {
+            // Allow requests with no origin (same-origin, curl, etc.)
+            if (!origin) return callback(null, true);
+            // Allow localhost on any port (dev server, prod server)
+            if (/^https?:\/\/localhost(:\d+)?$/.test(origin))
+              return callback(null, true);
+            callback(new Error('CORS not allowed'));
+          },
+        }),
   );
+  if (CORS_OPEN) logger.warn('api', 'CORS open to all origins (--cors-open)');
   app.use(express.json());
   app.use('/api', routes);
 
