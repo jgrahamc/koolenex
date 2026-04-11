@@ -3,13 +3,21 @@ import { Btn, Spinner } from '../primitives.tsx';
 import { api } from '../api.ts';
 import styles from './ProjectInfoView.module.css';
 
+import type { Project, ProjectFull } from '../../../shared/types.ts';
+
 interface ProjectInfoViewProps {
-  project: any;
-  data: any;
+  project: Project | undefined;
+  data: ProjectFull | null;
   lang: string;
   onLangChange: (lang: string) => void;
-  languages: any[] | null;
-  busStatus: any;
+  languages: Array<{ id: string; name: string }> | null;
+  busStatus: {
+    connected: boolean;
+    host?: string | null;
+    type?: string;
+    hasLib?: boolean;
+    port?: number;
+  };
   onConnect: (host: string, port: number) => Promise<unknown>;
   onConnectUsb: (path: string) => Promise<unknown>;
   onDisconnect: () => void;

@@ -50,7 +50,7 @@ interface ScanResult {
   descriptor: string;
 }
 
-interface ScanState {
+export interface ScanState {
   results: ScanResult[];
   running: boolean;
   progress: ScanProgress | null;

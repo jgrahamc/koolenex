@@ -117,8 +117,10 @@ const FIELD_OPTIONS = [
   { id: 'status', label: 'Status', default: false },
 ];
 
+import type { ProjectFull } from '../../../shared/types.ts';
+
 interface PrintLabelsViewProps {
-  data: any;
+  data: ProjectFull | null;
   projectId?: number | null;
 }
 

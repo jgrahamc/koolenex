@@ -18,9 +18,11 @@ import { AddDeviceModal } from '../AddDeviceModal.tsx';
 import { usePersistedState } from '../hooks/usePersistedState.ts';
 import styles from './ManufacturersView.module.css';
 
+import type { ProjectFull } from '../../../shared/types.ts';
+
 interface ManufacturersViewProps {
-  data: any;
-  onAddDevice?: ((body: any) => Promise<any>) | null;
+  data: ProjectFull | null;
+  onAddDevice?: ((body: Record<string, unknown>) => Promise<unknown>) | null;
   projectId?: number | null;
 }
 
@@ -30,7 +32,7 @@ export function ManufacturersView({
   projectId,
 }: ManufacturersViewProps) {
   const navigate = useNavigate();
-  const { devices, spaces = [], deviceGAMap = {} } = data;
+  const { devices = [], spaces = [], deviceGAMap = {} } = data || {};
   const [addDefaults, setAddDefaults] = useState<any>(null);
   const [expanded, setExpanded] = usePersistedState<Record<string, boolean>>(
     'knx-mfr-expanded',

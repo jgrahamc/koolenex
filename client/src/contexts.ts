@@ -1,5 +1,6 @@
 import { createContext, useContext } from 'react';
 import { normalizeDpt, dptInfo, dptToRefId, _i18nT } from './dpt.ts';
+import type { DeviceStatus } from '../../shared/types.ts';
 
 export type DptMode = 'numeric' | 'formal' | 'friendly';
 
@@ -51,4 +52,83 @@ export function useDpt(): {
       return parts.filter(Boolean).join(' — ') || undefined;
     },
   };
+}
+
+// ── Project actions context ──────────────────────────────────────────────────
+export interface ProjectActions {
+  updateGA: (gaId: number, patch: Record<string, unknown>) => Promise<void>;
+  renameGAGroup: (
+    main: number,
+    middle: number | null | undefined,
+    name: string,
+  ) => Promise<void>;
+  updateDevice: (
+    deviceId: number,
+    patch: Record<string, unknown>,
+  ) => Promise<void>;
+  updateSpace: (
+    spaceId: number,
+    patch: Record<string, unknown>,
+  ) => Promise<void>;
+  createTopology: (body: Record<string, unknown>) => Promise<unknown>;
+  updateTopology: (
+    topoId: number,
+    patch: Record<string, unknown>,
+  ) => Promise<void>;
+  deleteTopology: (topoId: number) => Promise<void>;
+  createSpace: (body: Record<string, unknown>) => Promise<unknown>;
+  deleteSpace: (spaceId: number) => Promise<void>;
+  createGA: (body: Record<string, unknown>) => Promise<unknown>;
+  deleteGA: (gaId: number) => Promise<void>;
+  addDevice: (body: Record<string, unknown>) => Promise<unknown>;
+  updateComObjectGAs: (coId: number, body: unknown) => Promise<void>;
+  addScannedDevice: (address: string) => Promise<void>;
+}
+
+export const ProjectActionsCtx = createContext<ProjectActions | null>(null);
+
+export function useProjectActions(): ProjectActions {
+  const ctx = useContext(ProjectActionsCtx);
+  if (!ctx)
+    throw new Error('useProjectActions must be used within ProjectActionsCtx');
+  return ctx;
+}
+
+// ── Bus actions context ──────────────────────────────────────────────────────
+export interface BusActions {
+  connect: (host: string, port: number) => Promise<unknown>;
+  connectUsb: (devicePath: string) => Promise<unknown>;
+  disconnect: () => Promise<void>;
+  deviceStatus: (deviceId: number, status: DeviceStatus) => Promise<void>;
+  write: (ga: string, value: unknown, dpt: unknown) => Promise<void>;
+  clearTelegrams: () => Promise<void>;
+}
+
+export const BusActionsCtx = createContext<BusActions | null>(null);
+
+export function useBusActions(): BusActions {
+  const ctx = useContext(BusActionsCtx);
+  if (!ctx) throw new Error('useBusActions must be used within BusActionsCtx');
+  return ctx;
+}
+
+// ── Undo context ─────────────────────────────────────────────────────────────
+export interface UndoActions {
+  undoStackRef: React.MutableRefObject<
+    { desc: string; detail: string; undo: () => Promise<void> }[]
+  >;
+  undoCount: number;
+  undoOpen: boolean;
+  setUndoOpen: (v: boolean | ((p: boolean) => boolean)) => void;
+  performUndo: (count?: number) => Promise<void>;
+  toast: string | null;
+  setToast: (v: string | null) => void;
+}
+
+export const UndoCtx = createContext<UndoActions | null>(null);
+
+export function useUndo(): UndoActions {
+  const ctx = useContext(UndoCtx);
+  if (!ctx) throw new Error('useUndo must be used within UndoCtx');
+  return ctx;
 }

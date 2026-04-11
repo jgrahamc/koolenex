@@ -10,12 +10,15 @@ function decodeMask(descriptor: string | undefined, maskVersions: any) {
   return maskVersions[key] || null;
 }
 
+import type { ProjectFull } from '../../../shared/types.ts';
+import type { Action, ScanState } from '../state.ts';
+
 interface BusScanViewProps {
-  scan: any;
+  scan: ScanState;
   busConnected: boolean;
-  projectData: any;
-  activeProjectId: any;
-  dispatch: (action: any) => void;
+  projectData: ProjectFull | null;
+  activeProjectId: number | null;
+  dispatch: React.Dispatch<Action>;
   onAddDevice: (address: string) => void;
 }
 
@@ -60,7 +63,7 @@ export function BusScanView({
 
   const progress = scan.progress;
   const pct = progress
-    ? Math.round((progress.done / progress.total) * 100)
+    ? Math.round(((progress.done ?? 0) / (progress.total || 1)) * 100)
     : scan.results.length > 0
       ? 100
       : 0;
@@ -69,8 +72,8 @@ export function BusScanView({
   useEffect(() => {
     if (!scan.running || !progress?.address) return;
     const parts = progress.address.split('.');
-    if (parts[0] !== area) setArea(parts[0]);
-    if (parts[1] !== line) setLine(parts[1]);
+    if (parts[0] && parts[0] !== area) setArea(parts[0]);
+    if (parts[1] && parts[1] !== line) setLine(parts[1]);
   }, [scan.running, progress?.address]);
 
   return (

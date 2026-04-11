@@ -2,7 +2,12 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import type { AppState, Action } from './state.ts';
 import type { DptMode } from './contexts.ts';
-import { PinContext } from './contexts.ts';
+import {
+  PinContext,
+  useProjectActions,
+  useBusActions,
+  useUndo,
+} from './contexts.ts';
 import {
   IconLocations,
   IconTopology,
@@ -117,54 +122,6 @@ export interface AppShellProps {
   i18nLang: string;
   onLangChange: (l: string) => void;
   i18nLanguages: any[];
-  // Bus handlers
-  handleConnect: (host: string, port: number) => Promise<any>;
-  handleConnectUsb: (devicePath: string) => Promise<any>;
-  handleDisconnect: () => Promise<void>;
-  handleDeviceStatus: (deviceId: number, status: any) => Promise<void>;
-  handleWrite: (ga: string, value: any, dpt: any) => Promise<void>;
-  handleClearTelegrams: () => Promise<void>;
-  // Project handlers
-  handleUpdateGA: (
-    gaId: number,
-    patch: Record<string, unknown>,
-  ) => Promise<void>;
-  handleRenameGAGroup: (
-    main: number,
-    middle: number | null | undefined,
-    name: string,
-  ) => Promise<void>;
-  handleUpdateDevice: (
-    deviceId: number,
-    patch: Record<string, unknown>,
-  ) => Promise<void>;
-  handleUpdateSpace: (
-    spaceId: number,
-    patch: Record<string, unknown>,
-  ) => Promise<void>;
-  handleCreateTopology: (body: Record<string, unknown>) => Promise<any>;
-  handleUpdateTopology: (
-    topoId: number,
-    patch: Record<string, unknown>,
-  ) => Promise<void>;
-  handleDeleteTopology: (topoId: number) => Promise<void>;
-  handleCreateSpace: (body: Record<string, unknown>) => Promise<any>;
-  handleDeleteSpace: (spaceId: number) => Promise<void>;
-  handleCreateGA: (body: any) => Promise<any>;
-  handleDeleteGA: (gaId: number) => Promise<void>;
-  handleAddDevice: (body: any) => Promise<any>;
-  handleUpdateComObjectGAs: (coId: number, body: any) => Promise<void>;
-  handleAddScannedDevice: (address: string) => Promise<void>;
-  // Undo
-  undoStackRef: React.MutableRefObject<
-    { desc: string; detail: string; undo: () => Promise<void> }[]
-  >;
-  undoCount: number;
-  undoOpen: boolean;
-  setUndoOpen: (v: boolean | ((p: boolean) => boolean)) => void;
-  performUndo: (count?: number) => Promise<void>;
-  toast: string | null;
-  setToast: (v: string | null) => void;
 }
 
 export function AppShell(props: AppShellProps) {
@@ -178,26 +135,11 @@ export function AppShell(props: AppShellProps) {
     i18nLang,
     onLangChange,
     i18nLanguages,
-    handleConnect,
-    handleConnectUsb,
-    handleDisconnect,
-    handleDeviceStatus,
-    handleWrite,
-    handleClearTelegrams,
-    handleUpdateGA,
-    handleRenameGAGroup,
-    handleUpdateDevice,
-    handleUpdateSpace,
-    handleCreateTopology,
-    handleUpdateTopology,
-    handleDeleteTopology,
-    handleCreateSpace,
-    handleDeleteSpace,
-    handleCreateGA,
-    handleDeleteGA,
-    handleAddDevice,
-    handleUpdateComObjectGAs,
-    handleAddScannedDevice,
+  } = props;
+
+  const pa = useProjectActions();
+  const ba = useBusActions();
+  const {
     undoStackRef,
     undoCount,
     undoOpen,
@@ -205,7 +147,7 @@ export function AppShell(props: AppShellProps) {
     performUndo,
     toast,
     setToast,
-  } = props;
+  } = useUndo();
 
   const navigate = useNavigate();
   const activeView = useActiveView();
@@ -647,9 +589,9 @@ export function AppShell(props: AppShellProps) {
                 onLangChange={onLangChange}
                 languages={i18nLanguages}
                 busStatus={state.busStatus}
-                onConnect={handleConnect}
-                onConnectUsb={handleConnectUsb}
-                onDisconnect={handleDisconnect}
+                onConnect={ba.connect}
+                onConnectUsb={ba.connectUsb}
+                onDisconnect={ba.disconnect}
               />
             )}
             {activeView === 'topology' && hasProject && (
@@ -658,19 +600,19 @@ export function AppShell(props: AppShellProps) {
                 onPin={handlePin}
                 busConnected={state.busStatus.connected}
                 activeProjectId={state.activeProjectId}
-                onAddDevice={handleAddDevice}
-                onCreateTopology={handleCreateTopology}
-                onUpdateTopology={handleUpdateTopology}
-                onDeleteTopology={handleDeleteTopology}
+                onAddDevice={pa.addDevice}
+                onCreateTopology={pa.createTopology}
+                onUpdateTopology={pa.updateTopology}
+                onDeleteTopology={pa.deleteTopology}
               />
             )}
             {activeView === 'devices' && hasProject && (
               <DevicesView
                 data={state.projectData}
-                onDeviceStatus={handleDeviceStatus}
+                onDeviceStatus={ba.deviceStatus}
                 onPin={handlePin}
-                onAddDevice={handleAddDevice}
-                onUpdateDevice={handleUpdateDevice}
+                onAddDevice={pa.addDevice}
+                onUpdateDevice={pa.updateDevice}
               />
             )}
             {activeView === 'groups' && hasProject && (
@@ -678,13 +620,13 @@ export function AppShell(props: AppShellProps) {
                 data={state.projectData}
                 busConnected={state.busStatus.connected}
                 activeProjectId={state.activeProjectId}
-                onWrite={handleWrite}
+                onWrite={ba.write}
                 onDeviceJump={handleDeviceJump}
                 onPin={handlePin}
-                onCreateGA={handleCreateGA}
-                onDeleteGA={handleDeleteGA}
-                onUpdateGA={handleUpdateGA}
-                onRenameGAGroup={handleRenameGAGroup}
+                onCreateGA={pa.createGA}
+                onDeleteGA={pa.deleteGA}
+                onUpdateGA={pa.updateGA}
+                onRenameGAGroup={pa.renameGAGroup}
               />
             )}
             {activeView === 'comobjects' && hasProject && (
@@ -693,7 +635,7 @@ export function AppShell(props: AppShellProps) {
             {activeView === 'manufacturers' && hasProject && (
               <ManufacturersView
                 data={state.projectData}
-                onAddDevice={handleAddDevice}
+                onAddDevice={pa.addDevice}
                 projectId={projectId}
               />
             )}
@@ -701,19 +643,19 @@ export function AppShell(props: AppShellProps) {
               <LocationsView
                 data={state.projectData}
                 projectId={projectId}
-                onAddDevice={handleAddDevice}
-                onUpdateDevice={handleUpdateDevice}
-                onUpdateSpace={handleUpdateSpace}
-                onCreateSpace={handleCreateSpace}
-                onDeleteSpace={handleDeleteSpace}
+                onAddDevice={pa.addDevice}
+                onUpdateDevice={pa.updateDevice}
+                onUpdateSpace={pa.updateSpace}
+                onCreateSpace={pa.createSpace}
+                onDeleteSpace={pa.deleteSpace}
               />
             )}
             {activeView === 'floorplan' && hasProject && (
               <FloorPlanView
                 data={state.projectData}
                 activeProjectId={state.activeProjectId}
-                onUpdateDevice={handleUpdateDevice}
-                onAddDevice={handleAddDevice}
+                onUpdateDevice={pa.updateDevice}
+                onAddDevice={pa.addDevice}
               />
             )}
             {activeView === 'monitor' && (
@@ -721,8 +663,8 @@ export function AppShell(props: AppShellProps) {
                 telegrams={state.telegrams}
                 busConnected={state.busStatus.connected}
                 activeProjectId={state.activeProjectId}
-                onClear={handleClearTelegrams}
-                onWrite={handleWrite}
+                onClear={ba.clearTelegrams}
+                onWrite={ba.write}
                 data={state.projectData}
               />
             )}
@@ -733,14 +675,14 @@ export function AppShell(props: AppShellProps) {
                 projectData={state.projectData}
                 activeProjectId={state.activeProjectId}
                 dispatch={dispatch}
-                onAddDevice={handleAddScannedDevice}
+                onAddDevice={pa.addScannedDevice}
               />
             )}
             {activeView === 'catalog' && hasProject && (
               <CatalogView
                 activeProjectId={state.activeProjectId}
                 data={state.projectData}
-                onAddDevice={handleAddDevice}
+                onAddDevice={pa.addDevice}
                 onPin={handlePin}
               />
             )}
@@ -750,7 +692,7 @@ export function AppShell(props: AppShellProps) {
             {activeView === 'programming' && hasProject && (
               <ProgrammingView
                 data={state.projectData}
-                onDeviceStatus={handleDeviceStatus}
+                onDeviceStatus={ba.deviceStatus}
               />
             )}
             {activeView === 'pin' && hasProject && activePinKey && (
@@ -759,14 +701,14 @@ export function AppShell(props: AppShellProps) {
                 data={state.projectData}
                 busStatus={state.busStatus}
                 telegrams={state.telegrams}
-                onWrite={handleWrite}
+                onWrite={ba.write}
                 activeProjectId={state.activeProjectId}
-                onUpdateGA={handleUpdateGA}
-                onUpdateDevice={handleUpdateDevice}
-                onUpdateSpace={handleUpdateSpace}
+                onUpdateGA={pa.updateGA}
+                onUpdateDevice={pa.updateDevice}
+                onUpdateSpace={pa.updateSpace}
                 onGroupJump={handleGAGroupJump}
-                onAddDevice={handleAddDevice}
-                onUpdateComObjectGAs={handleUpdateComObjectGAs}
+                onAddDevice={pa.addDevice}
+                onUpdateComObjectGAs={pa.updateComObjectGAs}
                 projectId={projectId}
               />
             )}

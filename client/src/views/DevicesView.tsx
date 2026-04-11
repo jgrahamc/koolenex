@@ -19,14 +19,17 @@ import { RtfText } from '../rtf.tsx';
 import { AddDeviceModal } from '../AddDeviceModal.tsx';
 import { useSpacePath } from '../hooks/spaces.ts';
 import { usePersistedState } from '../hooks/usePersistedState.ts';
+import type { ProjectFull, DeviceStatus } from '../../../shared/types.ts';
 import styles from './DevicesView.module.css';
 
 interface DevicesViewProps {
-  data: any;
-  onDeviceStatus?: any;
+  data: ProjectFull | null;
+  onDeviceStatus?: (deviceId: number, status: DeviceStatus) => Promise<void>;
   onPin?: ((type: string, addr: string) => void) | null;
-  onAddDevice?: ((body: any) => Promise<any>) | null;
-  onUpdateDevice?: ((id: any, updates: any) => Promise<any>) | null;
+  onAddDevice?: ((body: Record<string, unknown>) => Promise<unknown>) | null;
+  onUpdateDevice?:
+    | ((id: number, updates: Record<string, unknown>) => Promise<void>)
+    | null;
 }
 
 export function DevicesView({
@@ -47,7 +50,7 @@ export function DevicesView({
   });
   const [filterStatus, setFilterStatus] = useState('all');
   const [showAdd, setShowAdd] = useState(false);
-  const [editDevId, setEditDevId] = useState(null);
+  const [editDevId, setEditDevId] = useState<number | null>(null);
   const {
     devices = [],
     gas: _gas = [],

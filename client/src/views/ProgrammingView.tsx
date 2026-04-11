@@ -14,8 +14,10 @@ import { api } from '../api.ts';
 import type { DeviceStatus } from '../../../shared/types.ts';
 import styles from './ProgrammingView.module.css';
 
+import type { ProjectFull } from '../../../shared/types.ts';
+
 interface ProgrammingViewProps {
-  data: any;
+  data: ProjectFull | null;
   onDeviceStatus: (deviceId: number, status: DeviceStatus) => void;
 }
 
@@ -48,7 +50,7 @@ export function ProgrammingView({
     }, 300);
     try {
       const pid = data?.project?.id;
-      await api.busProgramDevice(devAddr, pid, deviceId);
+      await api.busProgramDevice(devAddr, pid!, deviceId);
       clearInterval(iv);
       setProgress((p) => ({ ...p, [deviceId]: { state: 'done', pct: 100 } }));
       setLog((l) => [

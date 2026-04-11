@@ -9,8 +9,18 @@ import {
 import './global.css';
 import { api, createWS } from './api.ts';
 import { MediumCtx, MaskCtx, I18nCtx } from './theme.ts';
-import type { DptMode } from './contexts.ts';
-import { DptCtx } from './contexts.ts';
+import type {
+  DptMode,
+  ProjectActions,
+  BusActions,
+  UndoActions,
+} from './contexts.ts';
+import {
+  DptCtx,
+  ProjectActionsCtx,
+  BusActionsCtx,
+  UndoCtx,
+} from './contexts.ts';
 import {
   setI18nT,
   setI18nLang as setI18nLangGlobal,
@@ -22,6 +32,7 @@ import type { BusTelegram } from '../../shared/types.ts';
 import { useProjectHandlers } from './hooks/useProjectHandlers.ts';
 import { useBusHandlers } from './hooks/useBusHandlers.ts';
 import { AppShell } from './AppShell.tsx';
+import type { AppShellProps } from './AppShell.tsx';
 
 // ── Main App ──────────────────────────────────────────────────────────────────
 export default function App() {
@@ -186,6 +197,51 @@ export default function App() {
   const projectHandlers = useProjectHandlers(state, dispatch);
   const busHandlers = useBusHandlers(state, dispatch);
 
+  const projectActions: ProjectActions = useMemo(
+    () => ({
+      updateGA: projectHandlers.handleUpdateGA,
+      renameGAGroup: projectHandlers.handleRenameGAGroup,
+      updateDevice: projectHandlers.handleUpdateDevice,
+      updateSpace: projectHandlers.handleUpdateSpace,
+      createTopology: projectHandlers.handleCreateTopology,
+      updateTopology: projectHandlers.handleUpdateTopology,
+      deleteTopology: projectHandlers.handleDeleteTopology,
+      createSpace: projectHandlers.handleCreateSpace,
+      deleteSpace: projectHandlers.handleDeleteSpace,
+      createGA: projectHandlers.handleCreateGA,
+      deleteGA: projectHandlers.handleDeleteGA,
+      addDevice: projectHandlers.handleAddDevice,
+      updateComObjectGAs: projectHandlers.handleUpdateComObjectGAs,
+      addScannedDevice: projectHandlers.handleAddScannedDevice,
+    }),
+    [projectHandlers],
+  );
+
+  const busActions: BusActions = useMemo(
+    () => ({
+      connect: busHandlers.handleConnect,
+      connectUsb: busHandlers.handleConnectUsb,
+      disconnect: busHandlers.handleDisconnect,
+      deviceStatus: busHandlers.handleDeviceStatus,
+      write: busHandlers.handleWrite,
+      clearTelegrams: busHandlers.handleClearTelegrams,
+    }),
+    [busHandlers],
+  );
+
+  const undoActions: UndoActions = useMemo(
+    () => ({
+      undoStackRef: projectHandlers.undoStackRef,
+      undoCount: projectHandlers.undoCount,
+      undoOpen: projectHandlers.undoOpen,
+      setUndoOpen: projectHandlers.setUndoOpen,
+      performUndo: projectHandlers.performUndo,
+      toast: projectHandlers.toast,
+      setToast: projectHandlers.setToast,
+    }),
+    [projectHandlers],
+  );
+
   const shellProps = {
     state,
     dispatch,
@@ -196,8 +252,6 @@ export default function App() {
     i18nLang,
     onLangChange: handleLangChange,
     i18nLanguages: i18nData.languages,
-    ...busHandlers,
-    ...projectHandlers,
   };
 
   return (
@@ -205,15 +259,24 @@ export default function App() {
       <MediumCtx.Provider value={mediumTypes}>
         <MaskCtx.Provider value={maskVersions}>
           <I18nCtx.Provider value={i18n}>
-            <Routes>
-              <Route path="/" element={<AppShell {...shellProps} />} />
-              <Route path="/settings" element={<AppShell {...shellProps} />} />
-              <Route
-                path="/projects/:id/*"
-                element={<ProjectLoader {...shellProps} />}
-              />
-              <Route path="*" element={<Navigate to="/" replace />} />
-            </Routes>
+            <ProjectActionsCtx.Provider value={projectActions}>
+              <BusActionsCtx.Provider value={busActions}>
+                <UndoCtx.Provider value={undoActions}>
+                  <Routes>
+                    <Route path="/" element={<AppShell {...shellProps} />} />
+                    <Route
+                      path="/settings"
+                      element={<AppShell {...shellProps} />}
+                    />
+                    <Route
+                      path="/projects/:id/*"
+                      element={<ProjectLoader {...shellProps} />}
+                    />
+                    <Route path="*" element={<Navigate to="/" replace />} />
+                  </Routes>
+                </UndoCtx.Provider>
+              </BusActionsCtx.Provider>
+            </ProjectActionsCtx.Provider>
           </I18nCtx.Provider>
         </MaskCtx.Provider>
       </MediumCtx.Provider>
@@ -222,7 +285,7 @@ export default function App() {
 }
 
 /** Loads project data when the URL contains a project ID, then renders AppShell */
-function ProjectLoader(props: any) {
+function ProjectLoader(props: AppShellProps) {
   const { id } = useParams();
   const navigate = useNavigate();
   const { state, dispatch } = props;

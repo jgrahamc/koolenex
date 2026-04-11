@@ -21,14 +21,20 @@ import { AddDeviceModal } from '../AddDeviceModal.tsx';
 import { usePersistedSet } from '../hooks/usePersistedState.ts';
 import styles from './LocationsView.module.css';
 
+import type { ProjectFull } from '../../../shared/types.ts';
+
 interface LocationsViewProps {
-  data: any;
+  data: ProjectFull | null;
   projectId?: number | null;
-  onAddDevice?: ((body: any) => Promise<any>) | null;
-  onUpdateDevice?: ((id: any, updates: any) => Promise<any>) | null;
-  onUpdateSpace?: ((id: any, updates: any) => Promise<any>) | null;
-  onCreateSpace?: ((body: any) => Promise<any>) | null;
-  onDeleteSpace?: ((id: any) => Promise<any>) | null;
+  onAddDevice?: ((body: Record<string, unknown>) => Promise<unknown>) | null;
+  onUpdateDevice?:
+    | ((id: number, updates: Record<string, unknown>) => Promise<void>)
+    | null;
+  onUpdateSpace?:
+    | ((id: number, updates: Record<string, unknown>) => Promise<void>)
+    | null;
+  onCreateSpace?: ((body: Record<string, unknown>) => Promise<unknown>) | null;
+  onDeleteSpace?: ((id: number) => Promise<void>) | null;
 }
 
 export function LocationsView({

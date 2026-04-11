@@ -16,8 +16,10 @@ import { DeviceTypeIcon } from '../icons.tsx';
 import type { ComObjectWithDevice } from '../../../shared/types.ts';
 import styles from './ComObjectsView.module.css';
 
+import type { ProjectFull } from '../../../shared/types.ts';
+
 interface ComObjectsViewProps {
-  data: any;
+  data: ProjectFull | null;
 }
 
 export function ComObjectsView({ data }: ComObjectsViewProps) {

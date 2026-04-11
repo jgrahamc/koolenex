@@ -294,7 +294,7 @@ interface Space {
 }
 
 interface SpacePathProps {
-  spaceId?: string | number;
+  spaceId?: string | number | null;
   spaces?: Space[];
   style?: React.CSSProperties;
   className?: string;

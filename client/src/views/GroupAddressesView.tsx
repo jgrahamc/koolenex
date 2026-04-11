@@ -18,18 +18,22 @@ import { RtfText } from '../rtf.tsx';
 import { usePersistedState } from '../hooks/usePersistedState.ts';
 import styles from './GroupAddressesView.module.css';
 
+import type { ProjectFull } from '../../../shared/types.ts';
+
 interface GroupAddressesViewProps {
-  data: any;
+  data: ProjectFull | null;
   busConnected?: boolean;
-  activeProjectId?: any;
-  onWrite?: any;
-  onDeviceJump?: any;
+  activeProjectId?: number | null;
+  onWrite?: (ga: string, value: unknown, dpt: unknown) => Promise<void>;
+  onDeviceJump?: (address: string) => void;
   onPin?: ((type: string, addr: string) => void) | null;
-  onCreateGA?: ((body: any) => Promise<any>) | null;
-  onDeleteGA?: ((id: any) => Promise<any>) | null;
-  onUpdateGA?: ((id: any, updates: any) => Promise<any>) | null;
+  onCreateGA?: ((body: Record<string, unknown>) => Promise<unknown>) | null;
+  onDeleteGA?: ((id: number) => Promise<void>) | null;
+  onUpdateGA?:
+    | ((id: number, updates: Record<string, unknown>) => Promise<void>)
+    | null;
   onRenameGAGroup?:
-    | ((main: number, mid: number | null, name: string) => Promise<any>)
+    | ((main: number, mid: number | null, name: string) => Promise<void>)
     | null;
 }
 

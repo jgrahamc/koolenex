@@ -22,11 +22,15 @@ const COLMAP: Record<string, string> = {
 import { AddDeviceModal } from '../AddDeviceModal.tsx';
 import styles from './FloorPlanView.module.css';
 
+import type { ProjectFull } from '../../../shared/types.ts';
+
 interface FloorPlanViewProps {
-  data: any;
-  activeProjectId: any;
-  onUpdateDevice?: ((id: any, updates: any) => void) | null;
-  onAddDevice?: ((body: any) => Promise<any>) | null;
+  data: ProjectFull | null;
+  activeProjectId: number | null;
+  onUpdateDevice?:
+    | ((id: number, updates: Record<string, unknown>) => void)
+    | null;
+  onAddDevice?: ((body: Record<string, unknown>) => Promise<unknown>) | null;
 }
 
 export function FloorPlanView({

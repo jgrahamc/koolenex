@@ -179,13 +179,15 @@ function TelegramFlowPanel({
   );
 }
 
+import type { BusTelegram, ProjectFull } from '../../../shared/types.ts';
+
 interface BusMonitorViewProps {
-  telegrams: any[];
+  telegrams: BusTelegram[];
   busConnected: boolean;
-  activeProjectId: any;
+  activeProjectId: number | null;
   onClear: () => void;
   onWrite?: ((ga: string, val: string, dpt: string) => Promise<void>) | null;
-  data: any;
+  data: ProjectFull | null;
 }
 
 export function BusMonitorView({
@@ -557,11 +559,11 @@ export function BusMonitorView({
                       />
                     </TD>
                   )}
-                  {mcv('location') && data?.spaces?.length > 0 && (
+                  {mcv('location') && (data?.spaces?.length ?? 0) > 0 && (
                     <TD>
                       <SpacePath
                         spaceId={devMap[tg.src]?.space_id}
-                        spaces={data.spaces}
+                        spaces={data!.spaces}
                         className={styles.monoSmall}
                       />
                     </TD>
@@ -645,7 +647,7 @@ export function BusMonitorView({
           telegrams={paused ? snapshot || telegrams : telegrams}
           gaMap={gaMap}
           devMap={devMap}
-          comObjects={data?.comObjects}
+          comObjects={data?.comObjects || []}
         />
       )}
     </div>

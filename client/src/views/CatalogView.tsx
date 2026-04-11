@@ -11,10 +11,12 @@ import { api } from '../api.ts';
 import { AddDeviceModal } from '../AddDeviceModal.tsx';
 import styles from './CatalogView.module.css';
 
+import type { ProjectFull } from '../../../shared/types.ts';
+
 interface CatalogViewProps {
-  activeProjectId: any;
-  data: any;
-  onAddDevice?: ((body: any) => Promise<any>) | null;
+  activeProjectId: number | null;
+  data: ProjectFull | null;
+  onAddDevice?: ((body: Record<string, unknown>) => Promise<unknown>) | null;
   onPin?: ((type: string, value: string) => void) | null;
 }
 

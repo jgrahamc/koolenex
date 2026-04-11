@@ -20,15 +20,21 @@ import { useSpacePath } from '../hooks/spaces.ts';
 import { usePersistedState } from '../hooks/usePersistedState.ts';
 import styles from './TopologyView.module.css';
 
+import type { ProjectFull } from '../../../shared/types.ts';
+
 interface TopologyViewProps {
-  data: any;
-  onPin?: any;
+  data: ProjectFull | null;
+  onPin?: ((type: string, addr: string) => void) | null;
   busConnected: boolean;
-  onAddDevice?: ((body: any) => Promise<any>) | null;
-  activeProjectId?: any;
-  onUpdateTopology?: ((id: any, updates: any) => Promise<any>) | null;
-  onCreateTopology?: ((body: any) => Promise<any>) | null;
-  onDeleteTopology?: ((id: any) => Promise<any>) | null;
+  onAddDevice?: ((body: Record<string, unknown>) => Promise<unknown>) | null;
+  activeProjectId?: number | null;
+  onUpdateTopology?:
+    | ((id: number, updates: Record<string, unknown>) => Promise<void>)
+    | null;
+  onCreateTopology?:
+    | ((body: Record<string, unknown>) => Promise<unknown>)
+    | null;
+  onDeleteTopology?: ((id: number) => Promise<void>) | null;
 }
 
 export function TopologyView({
@@ -182,7 +188,7 @@ export function TopologyView({
                     initial={areaName}
                     fontSize={11}
                     onSave={async (v) => {
-                      await onUpdateTopology!(areaRow.id, { name: v });
+                      await onUpdateTopology!(areaRow!.id, { name: v });
                       setEditTopoId(null);
                     }}
                     onCancel={() => setEditTopoId(null)}
@@ -285,7 +291,7 @@ export function TopologyView({
                           initial={lineName}
                           fontSize={10}
                           onSave={async (v) => {
-                            await onUpdateTopology!(lineRow.id, { name: v });
+                            await onUpdateTopology!(lineRow!.id, { name: v });
                             setEditTopoId(null);
                           }}
                           onCancel={() => setEditTopoId(null)}
