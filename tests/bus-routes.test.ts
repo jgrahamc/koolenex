@@ -239,6 +239,11 @@ describe('POST /bus/connect', () => {
     assert.equal(port!.value, '3675');
   });
 
+  it('rejects missing host', async () => {
+    const r = await req(ts.baseUrl, 'POST', '/bus/connect', {});
+    assert.equal(r.status, 400);
+  });
+
   it('returns 502 on connection failure', async () => {
     const origConnect = mockBus.connect.bind(mockBus);
     mockBus.connect = () => Promise.reject(new Error('Connection refused'));
@@ -264,8 +269,10 @@ describe('POST /bus/connect-usb', () => {
     assert.equal(mockBus.calls[0].method, 'connectUsb');
   });
 
-  // Note: validation tests for async routes omitted — Express 4 doesn't
-  // catch throws from async handlers, so validateBody errors hang.
+  it('rejects missing devicePath', async () => {
+    const r = await req(ts.baseUrl, 'POST', '/bus/connect-usb', {});
+    assert.equal(r.status, 400);
+  });
 });
 
 // ── POST /bus/disconnect ────────────────────────────────────────────────────
@@ -325,6 +332,11 @@ describe('POST /bus/write', () => {
     assert.equal(r.status, 502);
   });
 
+  it('rejects missing ga', async () => {
+    const r = await req(ts.baseUrl, 'POST', '/bus/write', { value: true });
+    assert.equal(r.status, 400);
+  });
+
   it('logs telegram to bus_telegrams when projectId provided', async () => {
     mockBus.connected = true;
 
@@ -368,6 +380,11 @@ describe('POST /bus/read', () => {
     mockBus.connected = false;
     const r = await req(ts.baseUrl, 'POST', '/bus/read', { ga: '1/0/0' });
     assert.equal(r.status, 502);
+  });
+
+  it('rejects missing ga', async () => {
+    const r = await req(ts.baseUrl, 'POST', '/bus/read', {});
+    assert.equal(r.status, 400);
   });
 });
 
@@ -414,6 +431,11 @@ describe('POST /bus/identify', () => {
       deviceAddress: '1.1.1',
     });
     assert.equal(r.status, 409);
+  });
+
+  it('rejects missing deviceAddress', async () => {
+    const r = await req(ts.baseUrl, 'POST', '/bus/identify', {});
+    assert.equal(r.status, 400);
   });
 });
 
@@ -501,6 +523,11 @@ describe('POST /bus/program-ia', () => {
     });
     assert.equal(r.status, 409);
   });
+
+  it('rejects missing newAddr', async () => {
+    const r = await req(ts.baseUrl, 'POST', '/bus/program-ia', {});
+    assert.equal(r.status, 400);
+  });
 });
 
 // ── GET /bus/usb-devices ────────────────────────────────────────────────────
@@ -541,5 +568,10 @@ describe('POST /bus/program-device', () => {
       projectId: 999,
     });
     assert.equal(r.status, 404);
+  });
+
+  it('rejects missing deviceAddress', async () => {
+    const r = await req(ts.baseUrl, 'POST', '/bus/program-device', {});
+    assert.equal(r.status, 400);
   });
 });
