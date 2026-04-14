@@ -7,7 +7,7 @@ import {
   useCallback,
 } from 'react';
 import { useLocation } from 'react-router-dom';
-import { PinContext } from '../contexts.ts';
+import { PinContext, useAppData, useProjectActions } from '../contexts.ts';
 import { DeviceTypeIcon } from '../icons.tsx';
 import { Btn, Empty } from '../primitives.tsx';
 import { api } from '../api.ts';
@@ -22,23 +22,10 @@ const COLMAP: Record<string, string> = {
 import { AddDeviceModal } from '../AddDeviceModal.tsx';
 import styles from './FloorPlanView.module.css';
 
-import type { ProjectFull } from '../../../shared/types.ts';
-
-interface FloorPlanViewProps {
-  data: ProjectFull | null;
-  activeProjectId: number | null;
-  onUpdateDevice?:
-    | ((id: number, updates: Record<string, unknown>) => void)
-    | null;
-  onAddDevice?: ((body: Record<string, unknown>) => Promise<unknown>) | null;
-}
-
-export function FloorPlanView({
-  data,
-  activeProjectId,
-  onUpdateDevice,
-  onAddDevice,
-}: FloorPlanViewProps) {
+export function FloorPlanView() {
+  const { projectData: data, activeProjectId } = useAppData();
+  const { updateDevice: onUpdateDevice, addDevice: onAddDevice } =
+    useProjectActions();
   const location = useLocation();
   const locState = location.state as { jumpTo?: number } | null;
   const jumpTo =

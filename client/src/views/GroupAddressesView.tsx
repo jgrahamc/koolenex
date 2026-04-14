@@ -1,6 +1,11 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useContext } from 'react';
 import { useLocation } from 'react-router-dom';
-import { useDpt } from '../contexts.ts';
+import {
+  useDpt,
+  useProjectActions,
+  useAppData,
+  PinContext,
+} from '../contexts.ts';
 import {
   Btn,
   Chip,
@@ -18,37 +23,15 @@ import { RtfText } from '../rtf.tsx';
 import { usePersistedState } from '../hooks/usePersistedState.ts';
 import styles from './GroupAddressesView.module.css';
 
-import type { ProjectFull } from '../../../shared/types.ts';
-
-interface GroupAddressesViewProps {
-  data: ProjectFull | null;
-  busConnected?: boolean;
-  activeProjectId?: number | null;
-  onWrite?: (ga: string, value: unknown, dpt: unknown) => Promise<void>;
-  onDeviceJump?: (address: string) => void;
-  onPin?: ((type: string, addr: string) => void) | null;
-  onCreateGA?: ((body: Record<string, unknown>) => Promise<unknown>) | null;
-  onDeleteGA?: ((id: number) => Promise<void>) | null;
-  onUpdateGA?:
-    | ((id: number, updates: Record<string, unknown>) => Promise<void>)
-    | null;
-  onRenameGAGroup?:
-    | ((main: number, mid: number | null, name: string) => Promise<void>)
-    | null;
-}
-
-export function GroupAddressesView({
-  data,
-  busConnected: _busConnected,
-  activeProjectId: _activeProjectId,
-  onWrite: _onWrite,
-  onDeviceJump: _onDeviceJump,
-  onPin,
-  onCreateGA,
-  onDeleteGA,
-  onUpdateGA,
-  onRenameGAGroup,
-}: GroupAddressesViewProps) {
+export function GroupAddressesView() {
+  const { projectData: data } = useAppData();
+  const {
+    createGA: onCreateGA,
+    deleteGA: onDeleteGA,
+    updateGA: onUpdateGA,
+    renameGAGroup: onRenameGAGroup,
+  } = useProjectActions();
+  const onPin = useContext(PinContext);
   const location = useLocation();
   const locState = location.state as {
     jumpTo?: { main_g: number; middle_g: number | null };
@@ -260,19 +243,17 @@ export function GroupAddressesView({
                 wtype="ga"
                 className={styles.pinAddr}
               />
-              {onDeleteGA && (
-                <span
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setDeleteConfirm(g);
-                  }}
-                  title="Delete GA"
-                  className={styles.deleteX}
-                  style={{ opacity: hovered ? 0.7 : 0 }}
-                >
-                  ✕
-                </span>
-              )}
+              <span
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setDeleteConfirm(g);
+                }}
+                title="Delete GA"
+                className={styles.deleteX}
+                style={{ opacity: hovered ? 0.7 : 0 }}
+              >
+                ✕
+              </span>
             </div>
           </TD>
         )}
@@ -290,9 +271,9 @@ export function GroupAddressesView({
               />
             ) : (
               <span
-                onClick={onUpdateGA ? (e) => startEditGA(e, g) : undefined}
-                className={onUpdateGA ? styles.cursorText : undefined}
-                title={onUpdateGA ? 'Click to rename' : undefined}
+                onClick={(e) => startEditGA(e, g)}
+                className={styles.cursorText}
+                title="Click to rename"
               >
                 {g.name}
               </span>
@@ -421,15 +402,13 @@ export function GroupAddressesView({
             >
               Flat
             </Chip>,
-            onCreateGA && (
-              <Btn
-                key="new"
-                onClick={() => setCreating((p) => !p)}
-                color="var(--green)"
-              >
-                + New GA
-              </Btn>
-            ),
+            <Btn
+              key="new"
+              onClick={() => setCreating((p) => !p)}
+              color="var(--green)"
+            >
+              + New GA
+            </Btn>,
             <ColumnPicker key="cp" cols={gaCols} onChange={saveGaCols} />,
             <Btn
               key="csv"
@@ -537,42 +516,32 @@ export function GroupAddressesView({
                         <span className={styles.mainGroupLabel}>{main}</span>
                         {mainName ? (
                           <span
-                            onClick={
-                              onRenameGAGroup
-                                ? (e) => startEditGroup(e, main, null)
-                                : undefined
-                            }
-                            className={`${styles.mainGroupLabel} ${onRenameGAGroup ? styles.cursorText : ''}`}
-                            title={
-                              onRenameGAGroup ? 'Click to rename' : undefined
-                            }
+                            onClick={(e) => startEditGroup(e, main, null)}
+                            className={`${styles.mainGroupLabel} ${styles.cursorText}`}
+                            title="Click to rename"
                           >
                             — {mainName}
                           </span>
                         ) : (
-                          onRenameGAGroup && (
-                            <span
-                              onClick={(e) => startEditGroup(e, main, null)}
-                              className={styles.nameAddLink}
-                            >
-                              + name
-                            </span>
-                          )
+                          <span
+                            onClick={(e) => startEditGroup(e, main, null)}
+                            className={styles.nameAddLink}
+                          >
+                            + name
+                          </span>
                         )}
                       </>
                     )}
                     <span className={styles.countLabel}>
                       · {mainGAs.length}
                     </span>
-                    {onCreateGA && (
-                      <span
-                        onClick={(e) => openInlineCreate(e, main, null)}
-                        title="Add GA under this group"
-                        className={styles.addIcon}
-                      >
-                        +
-                      </span>
-                    )}
+                    <span
+                      onClick={(e) => openInlineCreate(e, main, null)}
+                      title="Add GA under this group"
+                      className={styles.addIcon}
+                    >
+                      +
+                    </span>
                   </div>
                   {inlineCreate?.main === main && inlineCreate.mid === null && (
                     <div className={styles.inlineCreateBar}>
@@ -656,46 +625,36 @@ export function GroupAddressesView({
                                 </span>
                                 {midName ? (
                                   <span
-                                    onClick={
-                                      onRenameGAGroup
-                                        ? (e) => startEditGroup(e, main, mid)
-                                        : undefined
+                                    onClick={(e) =>
+                                      startEditGroup(e, main, mid)
                                     }
-                                    className={`${styles.midGroupLabel} ${onRenameGAGroup ? styles.cursorText : ''}`}
-                                    title={
-                                      onRenameGAGroup
-                                        ? 'Click to rename'
-                                        : undefined
-                                    }
+                                    className={`${styles.midGroupLabel} ${styles.cursorText}`}
+                                    title="Click to rename"
                                   >
                                     — {midName}
                                   </span>
                                 ) : (
-                                  onRenameGAGroup && (
-                                    <span
-                                      onClick={(e) =>
-                                        startEditGroup(e, main, mid)
-                                      }
-                                      className={styles.nameAddLinkSmall}
-                                    >
-                                      + name
-                                    </span>
-                                  )
+                                  <span
+                                    onClick={(e) =>
+                                      startEditGroup(e, main, mid)
+                                    }
+                                    className={styles.nameAddLinkSmall}
+                                  >
+                                    + name
+                                  </span>
                                 )}
                               </>
                             )}
                             <span className={styles.countLabel}>
                               · {subs.length}
                             </span>
-                            {onCreateGA && (
-                              <span
-                                onClick={(e) => openInlineCreate(e, main, mid)}
-                                title="Add GA under this group"
-                                className={styles.addIcon}
-                              >
-                                +
-                              </span>
-                            )}
+                            <span
+                              onClick={(e) => openInlineCreate(e, main, mid)}
+                              title="Add GA under this group"
+                              className={styles.addIcon}
+                            >
+                              +
+                            </span>
                           </div>
                           {inlineCreate?.main === main &&
                             inlineCreate.mid === mid && (

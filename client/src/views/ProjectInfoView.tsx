@@ -1,39 +1,27 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Btn, Spinner } from '../primitives.tsx';
 import { api } from '../api.ts';
+import { useAppData, useBusActions } from '../contexts.ts';
 import styles from './ProjectInfoView.module.css';
 
-import type { Project, ProjectFull } from '../../../shared/types.ts';
-
 interface ProjectInfoViewProps {
-  project: Project | undefined;
-  data: ProjectFull | null;
   lang: string;
   onLangChange: (lang: string) => void;
   languages: Array<{ id: string; name: string }> | null;
-  busStatus: {
-    connected: boolean;
-    host?: string | null;
-    type?: string;
-    hasLib?: boolean;
-    port?: number;
-  };
-  onConnect: (host: string, port: number) => Promise<unknown>;
-  onConnectUsb: (path: string) => Promise<unknown>;
-  onDisconnect: () => void;
 }
 
 export function ProjectInfoView({
-  project,
-  data,
   lang,
   onLangChange,
   languages,
-  busStatus,
-  onConnect,
-  onConnectUsb,
-  onDisconnect,
 }: ProjectInfoViewProps) {
+  const { projectData: data, busStatus } = useAppData();
+  const {
+    connect: onConnect,
+    connectUsb: onConnectUsb,
+    disconnect: onDisconnect,
+  } = useBusActions();
+  const project = data?.project;
   const info = (() => {
     try {
       return JSON.parse(project?.project_info || '{}');

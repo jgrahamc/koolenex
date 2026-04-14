@@ -1,7 +1,7 @@
 import { useState, useContext, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { STATUS_COLOR, I18nCtx } from '../theme.ts';
-import { PinContext } from '../contexts.ts';
+import { PinContext, useAppData, useProjectActions } from '../contexts.ts';
 import {
   Badge,
   Btn,
@@ -21,31 +21,15 @@ import { AddDeviceModal } from '../AddDeviceModal.tsx';
 import { usePersistedSet } from '../hooks/usePersistedState.ts';
 import styles from './LocationsView.module.css';
 
-import type { ProjectFull } from '../../../shared/types.ts';
-
-interface LocationsViewProps {
-  data: ProjectFull | null;
-  projectId?: number | null;
-  onAddDevice?: ((body: Record<string, unknown>) => Promise<unknown>) | null;
-  onUpdateDevice?:
-    | ((id: number, updates: Record<string, unknown>) => Promise<void>)
-    | null;
-  onUpdateSpace?:
-    | ((id: number, updates: Record<string, unknown>) => Promise<void>)
-    | null;
-  onCreateSpace?: ((body: Record<string, unknown>) => Promise<unknown>) | null;
-  onDeleteSpace?: ((id: number) => Promise<void>) | null;
-}
-
-export function LocationsView({
-  data,
-  projectId,
-  onAddDevice,
-  onUpdateDevice,
-  onUpdateSpace,
-  onCreateSpace,
-  onDeleteSpace,
-}: LocationsViewProps) {
+export function LocationsView() {
+  const { projectData: data, activeProjectId: projectId } = useAppData();
+  const {
+    addDevice: onAddDevice,
+    updateDevice: onUpdateDevice,
+    updateSpace: onUpdateSpace,
+    createSpace: onCreateSpace,
+    deleteSpace: onDeleteSpace,
+  } = useProjectActions();
   const navigate = useNavigate();
   const pin = useContext(PinContext);
   const { t: i18t } = useContext(I18nCtx);
@@ -260,7 +244,7 @@ export function LocationsView({
               {node.name}
             </span>
           )}
-          {onUpdateSpace && editSpaceId !== node.id && (
+          {editSpaceId !== node.id && (
             <span
               onClick={(e) => {
                 e.stopPropagation();
@@ -295,25 +279,19 @@ export function LocationsView({
             nodeId={node.id}
             nodeType={node.type}
             nodeName={node.name}
-            onAddDevice={
-              onAddDevice ? () => setAddDefaults({ space_id: node.id }) : null
-            }
-            onAddSpace={
-              onCreateSpace
-                ? () => {
-                    const childType =
-                      node.type === 'Building'
-                        ? 'Floor'
-                        : node.type === 'Floor'
-                          ? 'Room'
-                          : 'Room';
-                    setAddSpaceParent({
-                      parentId: node.id,
-                      defaultType: childType,
-                    });
-                  }
-                : null
-            }
+            onAddDevice={() => setAddDefaults({ space_id: node.id })}
+            onAddSpace={() => {
+              const childType =
+                node.type === 'Building'
+                  ? 'Floor'
+                  : node.type === 'Floor'
+                    ? 'Room'
+                    : 'Room';
+              setAddSpaceParent({
+                parentId: node.id,
+                defaultType: childType,
+              });
+            }}
           />
           {onDeleteSpace && node.devs.length === 0 && (
             <span
@@ -409,20 +387,14 @@ export function LocationsView({
                                 }}
                               />
                               <span
-                                onClick={
-                                  onUpdateDevice
-                                    ? (e) => {
-                                        e.stopPropagation();
-                                        setEditDevId(d.id);
-                                      }
-                                    : undefined
-                                }
-                                style={{
-                                  cursor: onUpdateDevice ? 'text' : 'default',
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setEditDevId(d.id);
                                 }}
-                                title={
-                                  onUpdateDevice ? 'Click to rename' : undefined
-                                }
+                                style={{
+                                  cursor: 'text',
+                                }}
+                                title="Click to rename"
                               >
                                 {d.name}
                               </span>
@@ -544,23 +516,19 @@ export function LocationsView({
           >
             ↓ CSV
           </Btn>,
-          ...(onCreateSpace
-            ? [
-                <Btn
-                  key="add"
-                  onClick={() =>
-                    setAddSpaceParent({
-                      parentId: null,
-                      defaultType: 'Building',
-                    })
-                  }
-                  color="var(--green)"
-                  bg="var(--surface)"
-                >
-                  + Building
-                </Btn>,
-              ]
-            : []),
+          <Btn
+            key="add"
+            onClick={() =>
+              setAddSpaceParent({
+                parentId: null,
+                defaultType: 'Building',
+              })
+            }
+            color="var(--green)"
+            bg="var(--surface)"
+          >
+            + Building
+          </Btn>,
         ]}
       />
       <div className={styles.scrollArea}>
@@ -637,20 +605,12 @@ export function LocationsView({
                               }}
                             />
                             <span
-                              onClick={
-                                onUpdateDevice
-                                  ? (e) => {
-                                      e.stopPropagation();
-                                      setEditDevId(d.id);
-                                    }
-                                  : undefined
-                              }
-                              className={
-                                onUpdateDevice ? styles.renameable : undefined
-                              }
-                              title={
-                                onUpdateDevice ? 'Click to rename' : undefined
-                              }
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setEditDevId(d.id);
+                              }}
+                              className={styles.renameable}
+                              title="Click to rename"
                             >
                               {d.name}
                             </span>

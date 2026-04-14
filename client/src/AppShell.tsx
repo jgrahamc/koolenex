@@ -2,12 +2,7 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import type { AppState, Action } from './state.ts';
 import type { DptMode } from './contexts.ts';
-import {
-  PinContext,
-  useProjectActions,
-  useBusActions,
-  useUndo,
-} from './contexts.ts';
+import { PinContext, useUndo } from './contexts.ts';
 import {
   IconLocations,
   IconTopology,
@@ -137,8 +132,6 @@ export function AppShell(props: AppShellProps) {
     i18nLanguages,
   } = props;
 
-  const pa = useProjectActions();
-  const ba = useBusActions();
   const {
     undoStackRef,
     undoCount,
@@ -179,26 +172,6 @@ export function AppShell(props: AppShellProps) {
     setReimporting(false);
     e.target.value = '';
   };
-
-  const handleDeviceJump = useCallback(
-    (address: string) => {
-      if (projectId)
-        navigate(`/projects/${projectId}/devices`, {
-          state: { jumpTo: address },
-        });
-    },
-    [projectId, navigate],
-  );
-
-  const handleGAGroupJump = useCallback(
-    (main_g: number, middle_g: number | null) => {
-      if (projectId)
-        navigate(`/projects/${projectId}/gas`, {
-          state: { jumpTo: { main_g, middle_g } },
-        });
-    },
-    [projectId, navigate],
-  );
 
   const handlePin = useCallback(
     (wtype: string, address: string) => {
@@ -581,136 +554,31 @@ export function AppShell(props: AppShellProps) {
             )}
             {activeView === 'project' && hasProject && (
               <ProjectInfoView
-                project={state.projects.find(
-                  (p: any) => p.id === state.activeProjectId,
-                )}
-                data={state.projectData}
                 lang={i18nLang}
                 onLangChange={onLangChange}
                 languages={i18nLanguages}
-                busStatus={state.busStatus}
-                onConnect={ba.connect}
-                onConnectUsb={ba.connectUsb}
-                onDisconnect={ba.disconnect}
               />
             )}
-            {activeView === 'topology' && hasProject && (
-              <TopologyView
-                data={state.projectData}
-                onPin={handlePin}
-                busConnected={state.busStatus.connected}
-                activeProjectId={state.activeProjectId}
-                onAddDevice={pa.addDevice}
-                onCreateTopology={pa.createTopology}
-                onUpdateTopology={pa.updateTopology}
-                onDeleteTopology={pa.deleteTopology}
-              />
-            )}
-            {activeView === 'devices' && hasProject && (
-              <DevicesView
-                data={state.projectData}
-                onDeviceStatus={ba.deviceStatus}
-                onPin={handlePin}
-                onAddDevice={pa.addDevice}
-                onUpdateDevice={pa.updateDevice}
-              />
-            )}
-            {activeView === 'groups' && hasProject && (
-              <GroupAddressesView
-                data={state.projectData}
-                busConnected={state.busStatus.connected}
-                activeProjectId={state.activeProjectId}
-                onWrite={ba.write}
-                onDeviceJump={handleDeviceJump}
-                onPin={handlePin}
-                onCreateGA={pa.createGA}
-                onDeleteGA={pa.deleteGA}
-                onUpdateGA={pa.updateGA}
-                onRenameGAGroup={pa.renameGAGroup}
-              />
-            )}
+            {activeView === 'topology' && hasProject && <TopologyView />}
+            {activeView === 'devices' && hasProject && <DevicesView />}
+            {activeView === 'groups' && hasProject && <GroupAddressesView />}
             {activeView === 'comobjects' && hasProject && (
               <ComObjectsView data={state.projectData} />
             )}
             {activeView === 'manufacturers' && hasProject && (
-              <ManufacturersView
-                data={state.projectData}
-                onAddDevice={pa.addDevice}
-                projectId={projectId}
-              />
+              <ManufacturersView />
             )}
-            {activeView === 'locations' && hasProject && (
-              <LocationsView
-                data={state.projectData}
-                projectId={projectId}
-                onAddDevice={pa.addDevice}
-                onUpdateDevice={pa.updateDevice}
-                onUpdateSpace={pa.updateSpace}
-                onCreateSpace={pa.createSpace}
-                onDeleteSpace={pa.deleteSpace}
-              />
-            )}
-            {activeView === 'floorplan' && hasProject && (
-              <FloorPlanView
-                data={state.projectData}
-                activeProjectId={state.activeProjectId}
-                onUpdateDevice={pa.updateDevice}
-                onAddDevice={pa.addDevice}
-              />
-            )}
-            {activeView === 'monitor' && (
-              <BusMonitorView
-                telegrams={state.telegrams}
-                busConnected={state.busStatus.connected}
-                activeProjectId={state.activeProjectId}
-                onClear={ba.clearTelegrams}
-                onWrite={ba.write}
-                data={state.projectData}
-              />
-            )}
+            {activeView === 'locations' && hasProject && <LocationsView />}
+            {activeView === 'floorplan' && hasProject && <FloorPlanView />}
+            {activeView === 'monitor' && <BusMonitorView />}
             {activeView === 'scan' && (
-              <BusScanView
-                scan={state.scan}
-                busConnected={state.busStatus.connected}
-                projectData={state.projectData}
-                activeProjectId={state.activeProjectId}
-                dispatch={dispatch}
-                onAddDevice={pa.addScannedDevice}
-              />
+              <BusScanView scan={state.scan} dispatch={dispatch} />
             )}
-            {activeView === 'catalog' && hasProject && (
-              <CatalogView
-                activeProjectId={state.activeProjectId}
-                data={state.projectData}
-                onAddDevice={pa.addDevice}
-                onPin={handlePin}
-              />
-            )}
-            {activeView === 'printlabels' && hasProject && (
-              <PrintLabelsView data={state.projectData} projectId={projectId} />
-            )}
-            {activeView === 'programming' && hasProject && (
-              <ProgrammingView
-                data={state.projectData}
-                onDeviceStatus={ba.deviceStatus}
-              />
-            )}
+            {activeView === 'catalog' && hasProject && <CatalogView />}
+            {activeView === 'printlabels' && hasProject && <PrintLabelsView />}
+            {activeView === 'programming' && hasProject && <ProgrammingView />}
             {activeView === 'pin' && hasProject && activePinKey && (
-              <PinDetailView
-                pinKey={activePinKey}
-                data={state.projectData}
-                busStatus={state.busStatus}
-                telegrams={state.telegrams}
-                onWrite={ba.write}
-                activeProjectId={state.activeProjectId}
-                onUpdateGA={pa.updateGA}
-                onUpdateDevice={pa.updateDevice}
-                onUpdateSpace={pa.updateSpace}
-                onGroupJump={handleGAGroupJump}
-                onAddDevice={pa.addDevice}
-                onUpdateComObjectGAs={pa.updateComObjectGAs}
-                projectId={projectId}
-              />
+              <PinDetailView pinKey={activePinKey} />
             )}
           </div>
         </PinContext.Provider>

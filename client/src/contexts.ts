@@ -1,6 +1,10 @@
 import { createContext, useContext } from 'react';
 import { normalizeDpt, dptInfo, dptToRefId, _i18nT } from './dpt.ts';
-import type { DeviceStatus } from '../../shared/types.ts';
+import type {
+  DeviceStatus,
+  ProjectFull,
+  BusTelegram,
+} from '../../shared/types.ts';
 
 export type DptMode = 'numeric' | 'formal' | 'friendly';
 
@@ -130,5 +134,30 @@ export const UndoCtx = createContext<UndoActions | null>(null);
 export function useUndo(): UndoActions {
   const ctx = useContext(UndoCtx);
   if (!ctx) throw new Error('useUndo must be used within UndoCtx');
+  return ctx;
+}
+
+// ── App data context (shared read-only state) ──────────────────────────────
+export interface BusStatus {
+  connected: boolean;
+  host: string | null;
+  hasLib: boolean;
+  type?: string;
+  port?: number;
+  path?: string;
+}
+
+export interface AppData {
+  projectData: ProjectFull | null;
+  busStatus: BusStatus;
+  activeProjectId: number | null;
+  telegrams: BusTelegram[];
+}
+
+export const AppDataCtx = createContext<AppData | null>(null);
+
+export function useAppData(): AppData {
+  const ctx = useContext(AppDataCtx);
+  if (!ctx) throw new Error('useAppData must be used within AppDataCtx');
   return ctx;
 }

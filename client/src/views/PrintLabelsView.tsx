@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Btn, Chip, SectionHeader } from '../primitives.tsx';
 import { useSpacePath } from '../hooks/spaces.ts';
+import { useAppData } from '../contexts.ts';
 import styles from './PrintLabelsView.module.css';
 
 // Label sheet definitions (all dimensions in mm)
@@ -117,14 +118,8 @@ const FIELD_OPTIONS = [
   { id: 'status', label: 'Status', default: false },
 ];
 
-import type { ProjectFull } from '../../../shared/types.ts';
-
-interface PrintLabelsViewProps {
-  data: ProjectFull | null;
-  projectId?: number | null;
-}
-
-export function PrintLabelsView({ data, projectId }: PrintLabelsViewProps) {
+export function PrintLabelsView() {
+  const { projectData: data, activeProjectId: projectId } = useAppData();
   const navigate = useNavigate();
   const {
     devices = [],

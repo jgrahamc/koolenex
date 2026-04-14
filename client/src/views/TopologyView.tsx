@@ -14,39 +14,22 @@ import {
 } from '../primitives.tsx';
 import { useColumns, ColumnPicker, dlCSV } from '../columns.tsx';
 import { api } from '../api.ts';
+import { useAppData, useProjectActions } from '../contexts.ts';
 
 import { AddDeviceModal } from '../AddDeviceModal.tsx';
 import { useSpacePath } from '../hooks/spaces.ts';
 import { usePersistedState } from '../hooks/usePersistedState.ts';
 import styles from './TopologyView.module.css';
 
-import type { ProjectFull } from '../../../shared/types.ts';
-
-interface TopologyViewProps {
-  data: ProjectFull | null;
-  onPin?: ((type: string, addr: string) => void) | null;
-  busConnected: boolean;
-  onAddDevice?: ((body: Record<string, unknown>) => Promise<unknown>) | null;
-  activeProjectId?: number | null;
-  onUpdateTopology?:
-    | ((id: number, updates: Record<string, unknown>) => Promise<void>)
-    | null;
-  onCreateTopology?:
-    | ((body: Record<string, unknown>) => Promise<unknown>)
-    | null;
-  onDeleteTopology?: ((id: number) => Promise<void>) | null;
-}
-
-export function TopologyView({
-  data,
-  onPin: _onPin,
-  busConnected,
-  onAddDevice,
-  activeProjectId: _activeProjectId,
-  onUpdateTopology,
-  onCreateTopology,
-  onDeleteTopology,
-}: TopologyViewProps) {
+export function TopologyView() {
+  const { projectData: data, busStatus } = useAppData();
+  const busConnected = busStatus.connected;
+  const {
+    addDevice: onAddDevice,
+    createTopology: onCreateTopology,
+    updateTopology: onUpdateTopology,
+    deleteTopology: onDeleteTopology,
+  } = useProjectActions();
   const navigate = useNavigate();
   const { id: projectId } = useParams();
   const mediumTypes = useContext(MediumCtx);
@@ -199,7 +182,7 @@ export function TopologyView({
                     {areaName && (
                       <span className={styles.areaTitle}>— {areaName}</span>
                     )}
-                    {!areaName && onUpdateTopology && areaRow && (
+                    {!areaName && areaRow && (
                       <span
                         onClick={(e) => {
                           e.stopPropagation();
@@ -210,7 +193,7 @@ export function TopologyView({
                         + name
                       </span>
                     )}
-                    {areaName && onUpdateTopology && areaRow && (
+                    {areaName && areaRow && (
                       <span
                         onClick={(e) => {
                           e.stopPropagation();
@@ -306,7 +289,7 @@ export function TopologyView({
                               — {lineName}
                             </span>
                           )}
-                          {!lineName && onUpdateTopology && lineRow && (
+                          {!lineName && lineRow && (
                             <span
                               onClick={(e) => {
                                 e.stopPropagation();
@@ -317,7 +300,7 @@ export function TopologyView({
                               + name
                             </span>
                           )}
-                          {lineName && onUpdateTopology && lineRow && (
+                          {lineName && lineRow && (
                             <span
                               onClick={(e) => {
                                 e.stopPropagation();
@@ -346,18 +329,16 @@ export function TopologyView({
                           <span className={styles.countLabel}>· {mA} mA</span>
                         ) : null;
                       })()}
-                      {onAddDevice && (
-                        <span
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setAddDefaults({ area, line, medium });
-                          }}
-                          title="Add device to this line"
-                          className={styles.addIcon}
-                        >
-                          +
-                        </span>
-                      )}
+                      <span
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setAddDefaults({ area, line, medium });
+                        }}
+                        title="Add device to this line"
+                        className={styles.addIcon}
+                      >
+                        +
+                      </span>
                       {onDeleteTopology && lineRow && devs.length === 0 && (
                         <span
                           onClick={() => onDeleteTopology(lineRow.id)}

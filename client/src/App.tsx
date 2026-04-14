@@ -14,12 +14,14 @@ import type {
   ProjectActions,
   BusActions,
   UndoActions,
+  AppData,
 } from './contexts.ts';
 import {
   DptCtx,
   ProjectActionsCtx,
   BusActionsCtx,
   UndoCtx,
+  AppDataCtx,
 } from './contexts.ts';
 import {
   setI18nT,
@@ -242,6 +244,21 @@ export default function App() {
     [projectHandlers],
   );
 
+  const appData: AppData = useMemo(
+    () => ({
+      projectData: state.projectData,
+      busStatus: state.busStatus,
+      activeProjectId: state.activeProjectId,
+      telegrams: state.telegrams,
+    }),
+    [
+      state.projectData,
+      state.busStatus,
+      state.activeProjectId,
+      state.telegrams,
+    ],
+  );
+
   const shellProps = {
     state,
     dispatch,
@@ -259,24 +276,26 @@ export default function App() {
       <MediumCtx.Provider value={mediumTypes}>
         <MaskCtx.Provider value={maskVersions}>
           <I18nCtx.Provider value={i18n}>
-            <ProjectActionsCtx.Provider value={projectActions}>
-              <BusActionsCtx.Provider value={busActions}>
-                <UndoCtx.Provider value={undoActions}>
-                  <Routes>
-                    <Route path="/" element={<AppShell {...shellProps} />} />
-                    <Route
-                      path="/settings"
-                      element={<AppShell {...shellProps} />}
-                    />
-                    <Route
-                      path="/projects/:id/*"
-                      element={<ProjectLoader {...shellProps} />}
-                    />
-                    <Route path="*" element={<Navigate to="/" replace />} />
-                  </Routes>
-                </UndoCtx.Provider>
-              </BusActionsCtx.Provider>
-            </ProjectActionsCtx.Provider>
+            <AppDataCtx.Provider value={appData}>
+              <ProjectActionsCtx.Provider value={projectActions}>
+                <BusActionsCtx.Provider value={busActions}>
+                  <UndoCtx.Provider value={undoActions}>
+                    <Routes>
+                      <Route path="/" element={<AppShell {...shellProps} />} />
+                      <Route
+                        path="/settings"
+                        element={<AppShell {...shellProps} />}
+                      />
+                      <Route
+                        path="/projects/:id/*"
+                        element={<ProjectLoader {...shellProps} />}
+                      />
+                      <Route path="*" element={<Navigate to="/" replace />} />
+                    </Routes>
+                  </UndoCtx.Provider>
+                </BusActionsCtx.Provider>
+              </ProjectActionsCtx.Provider>
+            </AppDataCtx.Provider>
           </I18nCtx.Provider>
         </MaskCtx.Provider>
       </MediumCtx.Provider>

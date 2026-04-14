@@ -11,20 +11,12 @@ import {
 } from '../primitives.tsx';
 import { DeviceTypeIcon } from '../icons.tsx';
 import { api } from '../api.ts';
-import type { DeviceStatus } from '../../../shared/types.ts';
+import { useAppData, useBusActions } from '../contexts.ts';
 import styles from './ProgrammingView.module.css';
 
-import type { ProjectFull } from '../../../shared/types.ts';
-
-interface ProgrammingViewProps {
-  data: ProjectFull | null;
-  onDeviceStatus: (deviceId: number, status: DeviceStatus) => void;
-}
-
-export function ProgrammingView({
-  data,
-  onDeviceStatus,
-}: ProgrammingViewProps) {
+export function ProgrammingView() {
+  const { projectData: data } = useAppData();
+  const { deviceStatus: onDeviceStatus } = useBusActions();
   const COLMAP: Record<string, string> = {
     actuator: 'var(--actuator)',
     sensor: 'var(--sensor)',

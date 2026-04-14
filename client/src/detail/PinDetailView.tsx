@@ -1,7 +1,13 @@
 import { useState, useRef, useCallback, useEffect, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { localizedModel } from '../dpt.ts';
-import { PinContext, useDpt } from '../contexts.ts';
+import {
+  PinContext,
+  useDpt,
+  useAppData,
+  useProjectActions,
+  useBusActions,
+} from '../contexts.ts';
 import {
   Empty,
   Btn,
@@ -789,35 +795,33 @@ function MultiComparePanel({ addrs, data }: MultiComparePanelProps) {
 
 interface PinDetailViewProps {
   pinKey: string;
-  data: any;
-  busStatus: any;
-  telegrams?: any[];
-  onWrite: any;
-  activeProjectId: any;
-  onUpdateGA: any;
-  onUpdateDevice: any;
-  onUpdateSpace: any;
-  onGroupJump: any;
-  onAddDevice: any;
-  onUpdateComObjectGAs: any;
-  projectId?: number | null;
 }
 
-export function PinDetailView({
-  pinKey,
-  data,
-  busStatus,
-  telegrams = [],
-  onWrite,
-  activeProjectId,
-  onUpdateGA,
-  onUpdateDevice,
-  onUpdateSpace,
-  onGroupJump,
-  onAddDevice,
-  onUpdateComObjectGAs,
-  projectId,
-}: PinDetailViewProps) {
+export function PinDetailView({ pinKey }: PinDetailViewProps) {
+  const {
+    projectData: data,
+    busStatus,
+    telegrams,
+    activeProjectId,
+  } = useAppData();
+  const {
+    updateGA: onUpdateGA,
+    updateDevice: onUpdateDevice,
+    updateSpace: onUpdateSpace,
+    addDevice: onAddDevice,
+    updateComObjectGAs: onUpdateComObjectGAs,
+  } = useProjectActions();
+  const { write: onWrite } = useBusActions();
+  const navigate = useNavigate();
+  const onGroupJump = useCallback(
+    (main_g: number, middle_g: number | null) => {
+      if (activeProjectId)
+        navigate(`/projects/${activeProjectId}/gas`, {
+          state: { jumpTo: { main_g, middle_g } },
+        });
+    },
+    [activeProjectId, navigate],
+  );
   const COLMAP: Record<string, string> = {
     actuator: 'var(--actuator)',
     sensor: 'var(--sensor)',
@@ -878,7 +882,7 @@ export function PinDetailView({
         value={address!}
         data={data}
         onAddDevice={onAddDevice}
-        projectId={projectId}
+        projectId={activeProjectId}
       />
     );
   } else if (wtype === 'multicompare') {

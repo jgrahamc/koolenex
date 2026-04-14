@@ -16,21 +16,12 @@ import { dlCSV } from '../columns.tsx';
 import type { Device } from '../../../shared/types.ts';
 import { AddDeviceModal } from '../AddDeviceModal.tsx';
 import { usePersistedState } from '../hooks/usePersistedState.ts';
+import { useAppData, useProjectActions } from '../contexts.ts';
 import styles from './ManufacturersView.module.css';
 
-import type { ProjectFull } from '../../../shared/types.ts';
-
-interface ManufacturersViewProps {
-  data: ProjectFull | null;
-  onAddDevice?: ((body: Record<string, unknown>) => Promise<unknown>) | null;
-  projectId?: number | null;
-}
-
-export function ManufacturersView({
-  data,
-  onAddDevice,
-  projectId,
-}: ManufacturersViewProps) {
+export function ManufacturersView() {
+  const { projectData: data, activeProjectId: projectId } = useAppData();
+  const { addDevice: onAddDevice } = useProjectActions();
   const navigate = useNavigate();
   const { devices = [], spaces = [], deviceGAMap = {} } = data || {};
   const [addDefaults, setAddDefaults] = useState<any>(null);
@@ -176,21 +167,19 @@ export function ManufacturersView({
                         <span className={styles.mfrCount}>
                           · {mdl.devices.length}
                         </span>
-                        {onAddDevice && (
-                          <span
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setAddDefaults({
-                                manufacturer: mfr.name,
-                                model: mdl.name,
-                              });
-                            }}
-                            title="Add another device of this type"
-                            className={styles.addBtn}
-                          >
-                            +
-                          </span>
-                        )}
+                        <span
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setAddDefaults({
+                              manufacturer: mfr.name,
+                              model: mdl.name,
+                            });
+                          }}
+                          title="Add another device of this type"
+                          className={styles.addBtn}
+                        >
+                          +
+                        </span>
                       </div>
                       {isOpen(mdlKey) && (
                         <table className={styles.table}>

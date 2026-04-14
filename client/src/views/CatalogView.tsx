@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, useContext } from 'react';
 import { useLocation } from 'react-router-dom';
 import {
   Btn,
@@ -9,23 +9,13 @@ import {
 } from '../primitives.tsx';
 import { api } from '../api.ts';
 import { AddDeviceModal } from '../AddDeviceModal.tsx';
+import { useAppData, useProjectActions, PinContext } from '../contexts.ts';
 import styles from './CatalogView.module.css';
 
-import type { ProjectFull } from '../../../shared/types.ts';
-
-interface CatalogViewProps {
-  activeProjectId: number | null;
-  data: ProjectFull | null;
-  onAddDevice?: ((body: Record<string, unknown>) => Promise<unknown>) | null;
-  onPin?: ((type: string, value: string) => void) | null;
-}
-
-export function CatalogView({
-  activeProjectId,
-  data,
-  onAddDevice,
-  onPin,
-}: CatalogViewProps) {
+export function CatalogView() {
+  const { activeProjectId, projectData: data } = useAppData();
+  const { addDevice: onAddDevice } = useProjectActions();
+  const onPin = useContext(PinContext);
   const location = useLocation();
   const locState = location.state as { jumpTo?: string } | null;
   const jumpTo = locState?.jumpTo
@@ -242,14 +232,12 @@ export function CatalogView({
                         {item.order_number}
                       </span>
                     )}
-                    {onAddDevice && (
-                      <span
-                        onClick={() => handleAddFromCatalog(item)}
-                        className={`bg ${styles.addBadge}`}
-                      >
-                        + Add
-                      </span>
-                    )}
+                    <span
+                      onClick={() => handleAddFromCatalog(item)}
+                      className={`bg ${styles.addBadge}`}
+                    >
+                      + Add
+                    </span>
                   </div>
                 ))}
               </div>

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useContext, useMemo } from 'react';
-import { useDpt, PinContext } from '../contexts.ts';
+import { useDpt, PinContext, useAppData, useBusActions } from '../contexts.ts';
 import {
   Badge,
   Btn,
@@ -179,25 +179,10 @@ function TelegramFlowPanel({
   );
 }
 
-import type { BusTelegram, ProjectFull } from '../../../shared/types.ts';
-
-interface BusMonitorViewProps {
-  telegrams: BusTelegram[];
-  busConnected: boolean;
-  activeProjectId: number | null;
-  onClear: () => void;
-  onWrite?: ((ga: string, val: string, dpt: string) => Promise<void>) | null;
-  data: ProjectFull | null;
-}
-
-export function BusMonitorView({
-  telegrams,
-  busConnected,
-  activeProjectId: _activeProjectId,
-  onClear,
-  onWrite,
-  data,
-}: BusMonitorViewProps) {
+export function BusMonitorView() {
+  const { projectData: data, busStatus, telegrams } = useAppData();
+  const busConnected = busStatus.connected;
+  const { clearTelegrams: onClear, write: onWrite } = useBusActions();
   const dpt = useDpt();
   const [filter, setFilter] = useState('');
   const [filterType, setFilterType] = useState('all');

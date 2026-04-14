@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useContext } from 'react';
 import { useNavigate, useLocation, useParams } from 'react-router-dom';
 import { STATUS_COLOR } from '../theme.ts';
 import { localizedModel } from '../dpt.ts';
@@ -19,26 +19,14 @@ import { RtfText } from '../rtf.tsx';
 import { AddDeviceModal } from '../AddDeviceModal.tsx';
 import { useSpacePath } from '../hooks/spaces.ts';
 import { usePersistedState } from '../hooks/usePersistedState.ts';
-import type { ProjectFull, DeviceStatus } from '../../../shared/types.ts';
+import { useAppData, useProjectActions, PinContext } from '../contexts.ts';
 import styles from './DevicesView.module.css';
 
-interface DevicesViewProps {
-  data: ProjectFull | null;
-  onDeviceStatus?: (deviceId: number, status: DeviceStatus) => Promise<void>;
-  onPin?: ((type: string, addr: string) => void) | null;
-  onAddDevice?: ((body: Record<string, unknown>) => Promise<unknown>) | null;
-  onUpdateDevice?:
-    | ((id: number, updates: Record<string, unknown>) => Promise<void>)
-    | null;
-}
-
-export function DevicesView({
-  data,
-  onDeviceStatus: _onDeviceStatus,
-  onPin,
-  onAddDevice,
-  onUpdateDevice,
-}: DevicesViewProps) {
+export function DevicesView() {
+  const { projectData: data } = useAppData();
+  const { addDevice: onAddDevice, updateDevice: onUpdateDevice } =
+    useProjectActions();
+  const onPin = useContext(PinContext);
   const navigate = useNavigate();
   const location = useLocation();
   const { id: projectId } = useParams();
@@ -256,18 +244,14 @@ export function DevicesView({
             >
               ⎙ Labels
             </Btn>,
-            ...(onAddDevice
-              ? [
-                  <Btn
-                    key="add"
-                    onClick={() => setShowAdd(true)}
-                    color="var(--green)"
-                    bg="var(--surface)"
-                  >
-                    + Add
-                  </Btn>,
-                ]
-              : []),
+            <Btn
+              key="add"
+              onClick={() => setShowAdd(true)}
+              color="var(--green)"
+              bg="var(--surface)"
+            >
+              + Add
+            </Btn>,
           ]}
         />
         <div className={styles.scrollArea}>
@@ -402,24 +386,14 @@ export function DevicesView({
                                               />
                                             ) : (
                                               <span
-                                                onClick={
-                                                  onUpdateDevice
-                                                    ? (e) => {
-                                                        e.stopPropagation();
-                                                        setEditDevId(d.id);
-                                                      }
-                                                    : undefined
-                                                }
-                                                style={{
-                                                  cursor: onUpdateDevice
-                                                    ? 'text'
-                                                    : 'default',
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  setEditDevId(d.id);
                                                 }}
-                                                title={
-                                                  onUpdateDevice
-                                                    ? 'Click to rename'
-                                                    : undefined
-                                                }
+                                                style={{
+                                                  cursor: 'text',
+                                                }}
+                                                title="Click to rename"
                                               >
                                                 {d.name}
                                               </span>
@@ -632,20 +606,12 @@ export function DevicesView({
                           />
                         ) : (
                           <span
-                            onClick={
-                              onUpdateDevice
-                                ? (e) => {
-                                    e.stopPropagation();
-                                    setEditDevId(d.id);
-                                  }
-                                : undefined
-                            }
-                            className={
-                              onUpdateDevice ? styles.renameable : undefined
-                            }
-                            title={
-                              onUpdateDevice ? 'Click to rename' : undefined
-                            }
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setEditDevId(d.id);
+                            }}
+                            className={styles.renameable}
+                            title="Click to rename"
                           >
                             {d.name}
                           </span>
