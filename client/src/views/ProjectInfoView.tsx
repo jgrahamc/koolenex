@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Btn, Spinner } from '../primitives.tsx';
 import { api } from '../api.ts';
-import { useAppData, useBusActions } from '../contexts.ts';
+import { useAppData, useLiveData, useBusActions } from '../contexts.ts';
 import styles from './ProjectInfoView.module.css';
 
 interface ProjectInfoViewProps {
@@ -15,7 +15,8 @@ export function ProjectInfoView({
   onLangChange,
   languages,
 }: ProjectInfoViewProps) {
-  const { projectData: data, busStatus } = useAppData();
+  const { projectData: data } = useAppData();
+  const { busStatus } = useLiveData();
   const {
     connect: onConnect,
     connectUsb: onConnectUsb,

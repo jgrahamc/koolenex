@@ -2,7 +2,7 @@ import { useState, useEffect, useContext } from 'react';
 import { MaskCtx } from '../theme.ts';
 import { Btn, TH, TD, SectionHeader, PinAddr } from '../primitives.tsx';
 import { api } from '../api.ts';
-import { useAppData, useProjectActions } from '../contexts.ts';
+import { useAppData, useLiveData, useProjectActions } from '../contexts.ts';
 import styles from './BusScanView.module.css';
 
 function decodeMask(descriptor: string | undefined, maskVersions: any) {
@@ -19,7 +19,8 @@ interface BusScanViewProps {
 }
 
 export function BusScanView({ scan, dispatch }: BusScanViewProps) {
-  const { projectData, busStatus, activeProjectId } = useAppData();
+  const { projectData, activeProjectId } = useAppData();
+  const { busStatus } = useLiveData();
   const busConnected = busStatus.connected;
   const { addScannedDevice: onAddDevice } = useProjectActions();
   const maskVersions = useContext(MaskCtx);

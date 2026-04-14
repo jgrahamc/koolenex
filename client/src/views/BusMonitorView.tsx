@@ -1,5 +1,11 @@
 import { useState, useEffect, useRef, useContext, useMemo } from 'react';
-import { useDpt, PinContext, useAppData, useBusActions } from '../contexts.ts';
+import {
+  useDpt,
+  PinContext,
+  useAppData,
+  useLiveData,
+  useBusActions,
+} from '../contexts.ts';
 import {
   Badge,
   Btn,
@@ -180,7 +186,8 @@ function TelegramFlowPanel({
 }
 
 export function BusMonitorView() {
-  const { projectData: data, busStatus, telegrams } = useAppData();
+  const { projectData: data } = useAppData();
+  const { busStatus, telegrams } = useLiveData();
   const busConnected = busStatus.connected;
   const { clearTelegrams: onClear, write: onWrite } = useBusActions();
   const dpt = useDpt();

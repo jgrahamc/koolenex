@@ -137,7 +137,12 @@ export function useUndo(): UndoActions {
   return ctx;
 }
 
-// ── App data context (shared read-only state) ──────────────────────────────
+// ── App data contexts (split to avoid re-renders) ──────────────────────────
+// ProjectData changes on project load/edit — relatively infrequent.
+// LiveData changes on every telegram/bus event — high frequency on active bus.
+// Views that only need project data subscribe to AppDataCtx and won't
+// re-render when telegrams arrive.
+
 export interface BusStatus {
   connected: boolean;
   host: string | null;
@@ -149,9 +154,7 @@ export interface BusStatus {
 
 export interface AppData {
   projectData: ProjectFull | null;
-  busStatus: BusStatus;
   activeProjectId: number | null;
-  telegrams: BusTelegram[];
 }
 
 export const AppDataCtx = createContext<AppData | null>(null);
@@ -159,5 +162,18 @@ export const AppDataCtx = createContext<AppData | null>(null);
 export function useAppData(): AppData {
   const ctx = useContext(AppDataCtx);
   if (!ctx) throw new Error('useAppData must be used within AppDataCtx');
+  return ctx;
+}
+
+export interface LiveData {
+  busStatus: BusStatus;
+  telegrams: BusTelegram[];
+}
+
+export const LiveDataCtx = createContext<LiveData | null>(null);
+
+export function useLiveData(): LiveData {
+  const ctx = useContext(LiveDataCtx);
+  if (!ctx) throw new Error('useLiveData must be used within LiveDataCtx');
   return ctx;
 }

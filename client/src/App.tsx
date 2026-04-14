@@ -15,6 +15,7 @@ import type {
   BusActions,
   UndoActions,
   AppData,
+  LiveData,
 } from './contexts.ts';
 import {
   DptCtx,
@@ -22,6 +23,7 @@ import {
   BusActionsCtx,
   UndoCtx,
   AppDataCtx,
+  LiveDataCtx,
 } from './contexts.ts';
 import {
   setI18nT,
@@ -247,16 +249,17 @@ export default function App() {
   const appData: AppData = useMemo(
     () => ({
       projectData: state.projectData,
-      busStatus: state.busStatus,
       activeProjectId: state.activeProjectId,
+    }),
+    [state.projectData, state.activeProjectId],
+  );
+
+  const liveData: LiveData = useMemo(
+    () => ({
+      busStatus: state.busStatus,
       telegrams: state.telegrams,
     }),
-    [
-      state.projectData,
-      state.busStatus,
-      state.activeProjectId,
-      state.telegrams,
-    ],
+    [state.busStatus, state.telegrams],
   );
 
   const shellProps = {
@@ -277,24 +280,29 @@ export default function App() {
         <MaskCtx.Provider value={maskVersions}>
           <I18nCtx.Provider value={i18n}>
             <AppDataCtx.Provider value={appData}>
-              <ProjectActionsCtx.Provider value={projectActions}>
-                <BusActionsCtx.Provider value={busActions}>
-                  <UndoCtx.Provider value={undoActions}>
-                    <Routes>
-                      <Route path="/" element={<AppShell {...shellProps} />} />
-                      <Route
-                        path="/settings"
-                        element={<AppShell {...shellProps} />}
-                      />
-                      <Route
-                        path="/projects/:id/*"
-                        element={<ProjectLoader {...shellProps} />}
-                      />
-                      <Route path="*" element={<Navigate to="/" replace />} />
-                    </Routes>
-                  </UndoCtx.Provider>
-                </BusActionsCtx.Provider>
-              </ProjectActionsCtx.Provider>
+              <LiveDataCtx.Provider value={liveData}>
+                <ProjectActionsCtx.Provider value={projectActions}>
+                  <BusActionsCtx.Provider value={busActions}>
+                    <UndoCtx.Provider value={undoActions}>
+                      <Routes>
+                        <Route
+                          path="/"
+                          element={<AppShell {...shellProps} />}
+                        />
+                        <Route
+                          path="/settings"
+                          element={<AppShell {...shellProps} />}
+                        />
+                        <Route
+                          path="/projects/:id/*"
+                          element={<ProjectLoader {...shellProps} />}
+                        />
+                        <Route path="*" element={<Navigate to="/" replace />} />
+                      </Routes>
+                    </UndoCtx.Provider>
+                  </BusActionsCtx.Provider>
+                </ProjectActionsCtx.Provider>
+              </LiveDataCtx.Provider>
             </AppDataCtx.Provider>
           </I18nCtx.Provider>
         </MaskCtx.Provider>

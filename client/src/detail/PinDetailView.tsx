@@ -5,6 +5,7 @@ import {
   PinContext,
   useDpt,
   useAppData,
+  useLiveData,
   useProjectActions,
   useBusActions,
 } from '../contexts.ts';
@@ -798,12 +799,8 @@ interface PinDetailViewProps {
 }
 
 export function PinDetailView({ pinKey }: PinDetailViewProps) {
-  const {
-    projectData: data,
-    busStatus,
-    telegrams,
-    activeProjectId,
-  } = useAppData();
+  const { projectData: data, activeProjectId } = useAppData();
+  const { busStatus, telegrams } = useLiveData();
   const {
     updateGA: onUpdateGA,
     updateDevice: onUpdateDevice,

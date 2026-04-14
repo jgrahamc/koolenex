@@ -14,7 +14,7 @@ import {
 } from '../primitives.tsx';
 import { useColumns, ColumnPicker, dlCSV } from '../columns.tsx';
 import { api } from '../api.ts';
-import { useAppData, useProjectActions } from '../contexts.ts';
+import { useAppData, useLiveData, useProjectActions } from '../contexts.ts';
 
 import { AddDeviceModal } from '../AddDeviceModal.tsx';
 import { useSpacePath } from '../hooks/spaces.ts';
@@ -22,7 +22,8 @@ import { usePersistedState } from '../hooks/usePersistedState.ts';
 import styles from './TopologyView.module.css';
 
 export function TopologyView() {
-  const { projectData: data, busStatus } = useAppData();
+  const { projectData: data } = useAppData();
+  const { busStatus } = useLiveData();
   const busConnected = busStatus.connected;
   const {
     addDevice: onAddDevice,
