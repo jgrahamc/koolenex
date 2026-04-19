@@ -61,7 +61,7 @@ async function start(): Promise<void> {
   const frontendDist = path.join(process.cwd(), 'client', 'dist');
   if (fs.existsSync(frontendDist)) {
     app.use(express.static(frontendDist));
-    app.get('*', (_req, res) =>
+    app.get('*path', (_req, res) =>
       res.sendFile(path.join(frontendDist, 'index.html')),
     );
   }
