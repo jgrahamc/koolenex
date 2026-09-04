@@ -1,48 +1,49 @@
 /**
- * KNXnet/IP transport — UDP tunneling to a KNXnet/IP gateway.
- * Extends KnxConnection (shared protocol logic) with UDP-specific transport.
+ * KNXnet/IP transport — Tunneling (UDP and TCP) to a KNXnet/IP gateway,
+ * plus a secondary Routing (multicast) channel (knx-protocol-routing.ts).
+ * Extends KnxConnection (shared protocol logic) with IP-specific
+ * transport. See docs/knx-device-write-protocol.md §9.
+ *
+ * TCP support: a real capture confirmed ETS uses TCP tunneling against
+ * this project's testbed router, while this class had only ever spoken
+ * UDP - see docs/follow-ups/2026-08-27-relmem-write-scope-investigation.md
+ * and docs/knx-device-write-protocol.md §9. Wire-level facts (HPAI
+ * protocol-code byte, the TCP placeholder HPAI, stream frame-reassembly)
+ * cross-checked against Calimero's real implementation
+ * (StreamConnection.java, HPAI.java).
  */
 
 import dgram from 'dgram';
-import os from 'os';
+import net from 'net';
 import { KnxConnection, parseCEMI } from './knx-connection.ts';
-
-// ── KNXnet/IP service types ────────────────────────────────────────────────────
-const SVC = {
-  CONNECT_REQ: 0x0205,
-  CONNECT_RES: 0x0206,
-  CONNSTATE_REQ: 0x0207,
-  CONNSTATE_RES: 0x0208,
-  DISCONNECT_REQ: 0x0209,
-  DISCONNECT_RES: 0x020a,
-  TUNNELING_REQ: 0x0420,
-  TUNNELING_ACK: 0x0421,
-} as const;
+import {
+  hdr,
+  hpai,
+  decodePhysicalRaw,
+  getLocalIp,
+  SVC,
+  HOST_PROTOCOL,
+} from './knx-ip-common.ts';
+import { KnxRoutingSocket } from './knx-protocol-routing.ts';
+import { logger } from './log.ts';
 
 // ── KNXnet/IP packet builders ──────────────────────────────────────────────────
 
-function hdr(svc: number, totalLen: number): Buffer {
-  const b = Buffer.alloc(6);
-  b[0] = 0x06;
-  b[1] = 0x10;
-  b.writeUInt16BE(svc, 2);
-  b.writeUInt16BE(totalLen, 4);
-  return b;
-}
-
-function hpai(ip: string, port: number): Buffer {
-  const b = Buffer.alloc(8);
-  b[0] = 0x08;
-  b[1] = 0x01;
-  ip.split('.').forEach((o, i) => {
-    b[2 + i] = parseInt(o, 10);
-  });
-  b.writeUInt16BE(port, 6);
-  return b;
-}
-
-function pktConnect(localIp: string, localPort: number): Buffer {
-  const h = hpai(localIp, localPort);
+/**
+ * `hostProtocol` selects which HPAI shape to build: UDP embeds the real
+ * local IP/port (unchanged from before); TCP uses the spec's placeholder
+ * HPAI (protocol code TCP, address 0.0.0.0, port 0 - Calimero's `HPAI.Tcp`)
+ * since the TCP socket itself already defines the real endpoint.
+ */
+function pktConnect(
+  localIp: string,
+  localPort: number,
+  hostProtocol: number = HOST_PROTOCOL.UDP,
+): Buffer {
+  const h =
+    hostProtocol === HOST_PROTOCOL.TCP
+      ? hpai('0.0.0.0', 0, HOST_PROTOCOL.TCP)
+      : hpai(localIp, localPort, HOST_PROTOCOL.UDP);
   const cri = Buffer.from([0x04, 0x04, 0x02, 0x00]);
   return Buffer.concat([hdr(SVC.CONNECT_REQ, 26), h, h, cri]);
 }
@@ -51,11 +52,16 @@ function pktConnState(
   channelId: number,
   localIp: string,
   localPort: number,
+  hostProtocol: number = HOST_PROTOCOL.UDP,
 ): Buffer {
+  const h =
+    hostProtocol === HOST_PROTOCOL.TCP
+      ? hpai('0.0.0.0', 0, HOST_PROTOCOL.TCP)
+      : hpai(localIp, localPort, HOST_PROTOCOL.UDP);
   return Buffer.concat([
     hdr(SVC.CONNSTATE_REQ, 16),
     Buffer.from([channelId, 0x00]),
-    hpai(localIp, localPort),
+    h,
   ]);
 }
 
@@ -63,11 +69,12 @@ function pktDisconnect(
   channelId: number,
   localIp: string,
   localPort: number,
+  hostProtocol: number = HOST_PROTOCOL.UDP,
 ): Buffer {
   return Buffer.concat([
     hdr(SVC.DISCONNECT_REQ, 16),
     Buffer.from([channelId, 0x00]),
-    hpai(localIp, localPort),
+    hpai(localIp, localPort, hostProtocol),
   ]);
 }
 
@@ -97,27 +104,6 @@ function pktTunnelingAck(
   ]);
 }
 
-function decodePhysicalRaw(buf: Buffer, off: number): string {
-  const b0 = buf[off]!;
-  const b1 = buf[off + 1]!;
-  return `${b0 >> 4}.${b0 & 0xf}.${b1}`;
-}
-
-// ── Local IP detection ─────────────────────────────────────────────────────────
-
-function getLocalIp(): string {
-  // Override for NAT/VPN: set KNX_LOCAL_IP=0.0.0.0 so the gateway replies to the
-  // UDP source address instead of an auto-detected (and possibly wrong) interface.
-  if (process.env.KNX_LOCAL_IP) return process.env.KNX_LOCAL_IP;
-  const ifaces = os.networkInterfaces();
-  for (const name of Object.keys(ifaces)) {
-    for (const iface of ifaces[name]!) {
-      if (iface.family === 'IPv4' && !iface.internal) return iface.address;
-    }
-  }
-  return '0.0.0.0';
-}
-
 // ── Pending ACK state ──────────────────────────────────────────────────────────
 
 interface PendingAck {
@@ -127,12 +113,19 @@ interface PendingAck {
   timer: ReturnType<typeof setTimeout>;
 }
 
+export type IpTransportProtocol = 'udp' | 'tcp' | 'auto';
+
 // ── KnxIpConnection ────────────────────────────────────────────────────────────
 
 class KnxIpConnection extends (KnxConnection as new () => InstanceType<
   typeof KnxConnection
 >) {
-  socket: dgram.Socket | null;
+  // Exactly one of these is set once connected, depending on which
+  // transport `connect()` ended up using.
+  udpSocket: dgram.Socket | null;
+  tcpSocket: net.Socket | null;
+  _tcpRecvBuf: Buffer;
+  transport: 'udp' | 'tcp' | null;
   host: string | null;
   port: number;
   localIp: string;
@@ -144,10 +137,17 @@ class KnxIpConnection extends (KnxConnection as new () => InstanceType<
   _pendingAck: PendingAck | null;
   _sending: boolean;
   _sendQueue: Array<() => void>;
+  // Secondary Routing (multicast) channel - independent of Tunneling,
+  // best-effort (its own failure never fails the main connect()). See
+  // knx-protocol-routing.ts.
+  _routing: KnxRoutingSocket | null;
 
   constructor() {
     super();
-    this.socket = null;
+    this.udpSocket = null;
+    this.tcpSocket = null;
+    this._tcpRecvBuf = Buffer.alloc(0);
+    this.transport = null;
     this.host = null;
     this.port = 3671;
     this.localIp = '0.0.0.0';
@@ -159,33 +159,80 @@ class KnxIpConnection extends (KnxConnection as new () => InstanceType<
     this._pendingAck = null;
     this._sending = false;
     this._sendQueue = [];
+    this._routing = null;
   }
 
   // ── Connect ─────────────────────────────────────────────────────────────────
 
-  connect(
+  async connect(
     host: string,
     port: number = 3671,
     timeoutMs: number = 8000,
+    protocol: IpTransportProtocol = 'auto',
   ): Promise<void> {
-    return new Promise((resolve, reject) => {
-      this.host = host;
-      this.port = port;
-      this.socket = dgram.createSocket({ type: 'udp4', reuseAddr: true });
+    this.host = host;
+    this.port = port;
 
-      this.socket.on('error', (err: Error) => {
+    if (protocol === 'udp') {
+      await this._connectUdp(host, port, timeoutMs);
+    } else if (protocol === 'tcp') {
+      await this._connectTcp(host, port, timeoutMs);
+    } else {
+      // 'auto': try TCP first (a real, independently confirmed capture
+      // shows real ETS uses TCP against this project's own testbed router
+      // - see this file's doc comment), falling back to UDP if the TCP
+      // socket itself can't even be established. Deliberately does NOT
+      // fall back to UDP if the TCP *socket* connects but the KNXnet/IP
+      // CONNECT_REQ/RES handshake over it fails/times out - a device that
+      // accepts a TCP connection on 3671 at all is expected to support
+      // Tunnelling v2 properly; that narrower case is a known, accepted
+      // gap, not silently masked by an unconditional fallback.
+      const tcpProbeMs = Math.min(2000, timeoutMs);
+      try {
+        await this._connectTcp(host, port, tcpProbeMs);
+      } catch (_) {
+        await this._connectUdp(host, port, timeoutMs);
+      }
+    }
+
+    // Routing is independent of which Tunneling transport was used, and
+    // its own failure (e.g. no multicast route on this network) must never
+    // fail the overall connect() - System Broadcast services simply won't
+    // work, surfaced only if/when they're actually called.
+    try {
+      const routing = new KnxRoutingSocket();
+      await routing.start(
+        (cemi) => {
+          const frame = parseCEMI(cemi);
+          if (frame) this._onCEMI(frame);
+        },
+        (msg) => logger.info('knx', msg),
+      );
+      this._routing = routing;
+    } catch (err) {
+      logger.warn('knx', 'KNXnet/IP Routing unavailable, continuing without it', {
+        error: (err as Error).message,
+      });
+    }
+  }
+
+  _connectUdp(host: string, port: number, timeoutMs: number): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const socket = dgram.createSocket({ type: 'udp4', reuseAddr: true });
+      this.udpSocket = socket;
+      this.transport = 'udp';
+
+      socket.on('error', (err: Error) => {
         if (!this.connected) reject(err);
         else {
           this.connected = false;
           this.emit('error', err);
         }
       });
-      this.socket.on('message', (msg: Buffer, rinfo: dgram.RemoteInfo) =>
-        this._onMsg(msg, rinfo),
-      );
+      socket.on('message', (msg: Buffer) => this._onMsg(msg));
 
-      this.socket.bind(0, () => {
-        this.localPort = this.socket!.address().port;
+      socket.bind(0, () => {
+        this.localPort = socket.address().port;
         this.localIp = getLocalIp();
 
         const timer = setTimeout(
@@ -201,19 +248,130 @@ class KnxIpConnection extends (KnxConnection as new () => InstanceType<
           reject(err);
         });
 
-        this._sendRaw(pktConnect(this.localIp, this.localPort));
+        this._sendRaw(pktConnect(this.localIp, this.localPort, HOST_PROTOCOL.UDP));
       });
     });
   }
 
-  _sendRaw(buf: Buffer): void {
-    if (this.socket && this.host)
-      this.socket.send(buf, 0, buf.length, this.port, this.host);
+  _connectTcp(host: string, port: number, timeoutMs: number): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const socket = new net.Socket();
+      let settled = false;
+      const fail = (err: Error): void => {
+        if (settled) return;
+        settled = true;
+        try {
+          socket.destroy();
+        } catch (_) {}
+        reject(err);
+      };
+
+      const connectTimer = setTimeout(
+        () => fail(new Error(`TCP connect timeout to ${host}:${port}`)),
+        timeoutMs,
+      );
+
+      socket.on('error', (err: Error) => {
+        logger.warn('knx', 'TCP socket error', {
+          message: err.message,
+          code: (err as NodeJS.ErrnoException).code,
+        });
+        if (!this.connected) fail(err);
+        else {
+          this.connected = false;
+          this.emit('error', err);
+        }
+      });
+
+      socket.on('close', (hadError: boolean) => {
+        logger.info('knx', 'TCP socket closed', { hadError });
+        if (this.connected) {
+          this.connected = false;
+          this._clearHeartbeat();
+          this.emit('disconnected');
+        }
+      });
+
+      socket.on('end', () => {
+        logger.info('knx', 'TCP socket received FIN from remote');
+      });
+
+      socket.on('data', (chunk: Buffer) => this._onTcpData(chunk));
+
+      socket.connect(port, host, () => {
+        clearTimeout(connectTimer);
+        this.tcpSocket = socket;
+        this.transport = 'tcp';
+        // Node's plain net.Socket does not enable OS-level TCP keepalive by
+        // default; enabling it guards against a network path silently
+        // dropping the connection with no signal on either side. This does
+        // not prevent a KNXnet/IP gateway from applying its own idle
+        // timeout to a TCP tunneling connection and closing it (a clean
+        // FIN) after a period with no application traffic - TCP keepalive
+        // probes are transport-level and do not count as traffic against
+        // that timer. The connection manager (KnxBusManager) handles this
+        // by reconnecting on demand before the next bus operation rather
+        // than by holding the connection open with a periodic heartbeat -
+        // see _ensureConnected() in knx-bus.ts.
+        socket.setKeepAlive(true, 30000);
+        // TCP's CONNECT_REQ uses the placeholder HPAI (0.0.0.0:0, protocol
+        // TCP) - the socket itself is the real endpoint. localIp/localPort
+        // are kept at their defaults; CONNSTATE/DISCONNECT over TCP reuse
+        // the same placeholder (see their call sites below).
+        this.localIp = '0.0.0.0';
+        this.localPort = 0;
+
+        const handshakeTimer = setTimeout(
+          () => fail(new Error(`Connect timeout to ${host}:${port}`)),
+          timeoutMs,
+        );
+        this.once('_connected', () => {
+          clearTimeout(handshakeTimer);
+          settled = true;
+          resolve();
+        });
+        this.once('_connectFailed', (err: Error) => {
+          clearTimeout(handshakeTimer);
+          fail(err);
+        });
+
+        this._sendRaw(pktConnect(this.localIp, this.localPort, HOST_PROTOCOL.TCP));
+      });
+    });
   }
 
-  // ── Incoming message dispatcher ──────────────────────────────────────────────
+  /**
+   * Real KNXnet/IP-over-TCP messages arrive as an arbitrary byte stream,
+   * not one-message-per-event the way UDP datagrams do - reassemble using
+   * the 6-byte header's own declared total length, exactly matching
+   * Calimero's real StreamConnection.runReceiveLoop() logic (verified
+   * against its source, not guessed): buffer bytes, once >=6 are buffered
+   * read the header, once the full declared length is buffered process one
+   * message and shift any leftover bytes to the front for the next pass.
+   */
+  _onTcpData(chunk: Buffer): void {
+    this._tcpRecvBuf = Buffer.concat([this._tcpRecvBuf, chunk]);
+    for (;;) {
+      if (this._tcpRecvBuf.length < 6) return;
+      const totalLen = this._tcpRecvBuf.readUInt16BE(4);
+      if (totalLen < 6 || this._tcpRecvBuf.length < totalLen) return;
+      const msg = this._tcpRecvBuf.subarray(0, totalLen);
+      this._tcpRecvBuf = this._tcpRecvBuf.subarray(totalLen);
+      this._onMsg(Buffer.from(msg));
+    }
+  }
 
-  _onMsg(msg: Buffer, _rinfo: dgram.RemoteInfo): void {
+  _sendRaw(buf: Buffer): void {
+    if (this.transport === 'tcp') {
+      this.tcpSocket?.write(buf);
+    } else if (this.udpSocket && this.host) {
+      this.udpSocket.send(buf, 0, buf.length, this.port, this.host);
+    }
+  }
+
+  // ── Incoming message dispatcher (shared by UDP and TCP) ───────────────────────
+
+  _onMsg(msg: Buffer): void {
     if (msg.length < 6) return;
     const svc = msg.readUInt16BE(2);
     switch (svc) {
@@ -253,9 +411,21 @@ class KnxIpConnection extends (KnxConnection as new () => InstanceType<
     if (msg.length >= 20) this.localAddr = decodePhysicalRaw(msg, 18);
 
     this.connected = true;
-    this._hbTimer = setInterval(() => {
-      this._sendRaw(pktConnState(this.channelId, this.localIp, this.localPort));
-    }, 60000);
+    // The CONNECTIONSTATE_REQUEST heartbeat is UDP-only - confirmed
+    // against Calimero's own client (ClientConnection.java: the heartbeat
+    // monitor is never started for a stream/TCP connection). TCP's own
+    // connection liveness ('close'/'error' on the socket, see
+    // _connectTcp() above) covers what the heartbeat exists for over UDP.
+    // A KNXnet/IP gateway may still close an idle TCP tunneling connection
+    // on its own after a period with no application traffic; rather than
+    // holding the connection open indefinitely against a gateway-specific
+    // idle timeout, the caller (KnxBusManager) reconnects on demand before
+    // the next bus operation - see _ensureConnected() in knx-bus.ts.
+    if (this.transport !== 'tcp') {
+      this._hbTimer = setInterval(() => {
+        this._sendRaw(pktConnState(this.channelId, this.localIp, this.localPort));
+      }, 60000);
+    }
 
     this.emit('connected');
     this.emit('_connected');
@@ -322,6 +492,23 @@ class KnxIpConnection extends (KnxConnection as new () => InstanceType<
     });
   }
 
+  /**
+   * Send a cEMI frame via KNXnet/IP Routing (multicast) instead of the
+   * Tunneling connection above - see KnxConnection.sendCEMIViaRouting()'s
+   * doc comment for why this exists. No ACK, no sequencing - Routing is
+   * connectionless. Throws if Routing didn't come up during connect()
+   * (e.g. no multicast route on this network - logged there, not fatal to
+   * the overall connection).
+   */
+  sendCEMIViaRouting(cemi: Buffer): Promise<void> {
+    if (!this._routing?.active) {
+      return Promise.reject(
+        new Error('KNXnet/IP Routing is not active on this connection'),
+      );
+    }
+    return this._routing.send(cemi);
+  }
+
   _startSend(cemi: Buffer, timeoutMs: number): Promise<void> {
     const result = this._sendCEMIOnce(cemi, timeoutMs);
 
@@ -359,11 +546,25 @@ class KnxIpConnection extends (KnxConnection as new () => InstanceType<
   }
 
   _sendCEMIOnce(cemi: Buffer, timeoutMs: number): Promise<void> {
-    return new Promise((resolve, reject) => {
-      const seq = this.seqOut;
-      this.seqOut = (this.seqOut + 1) & 0xff;
-      const pkt = pktTunnelingReq(this.channelId, seq, cemi);
+    const seq = this.seqOut;
+    this.seqOut = (this.seqOut + 1) & 0xff;
+    const pkt = pktTunnelingReq(this.channelId, seq, cemi);
 
+    // Real, confirmed 2026-08-30: over TCP, KNXnet/IP servers don't send a
+    // TUNNELING_ACK at all - TCP's own delivery guarantee makes the ack
+    // redundant, and real ETS traffic against this project's own testbed
+    // router never carries one either. Confirmed against Calimero's real
+    // client (ClientConnection.java): "with tcp, service acks are not
+    // required and just ignored". Waiting for one over TCP (as this
+    // function still does for UDP, where the ack is real and required)
+    // caused every TCP-tunneled call after the first to hang until
+    // timeout - found via real-hardware testing, not by inspection.
+    if (this.transport === 'tcp') {
+      this._sendRaw(pkt);
+      return Promise.resolve();
+    }
+
+    return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this._pendingAck = null;
         reject(new Error('Tunneling ACK timeout'));
@@ -377,21 +578,30 @@ class KnxIpConnection extends (KnxConnection as new () => InstanceType<
   // ── Disconnect ────────────────────────────────────────────────────────────────
 
   disconnect(): void {
-    if (!this.socket) return;
+    this._routing?.stop();
+    this._routing = null;
+
+    if (!this.udpSocket && !this.tcpSocket) return;
     this._clearHeartbeat();
     if (this.connected) {
       try {
         this._sendRaw(
-          pktDisconnect(this.channelId, this.localIp, this.localPort),
+          this.transport === 'tcp'
+            ? pktDisconnect(this.channelId, '0.0.0.0', 0, HOST_PROTOCOL.TCP)
+            : pktDisconnect(this.channelId, this.localIp, this.localPort),
         );
       } catch (_) {}
     }
     this.connected = false;
     setTimeout(() => {
       try {
-        this.socket?.close();
+        this.udpSocket?.close();
       } catch (_) {}
-      this.socket = null;
+      try {
+        this.tcpSocket?.destroy();
+      } catch (_) {}
+      this.udpSocket = null;
+      this.tcpSocket = null;
     }, 500);
   }
 
@@ -407,12 +617,16 @@ class KnxIpConnection extends (KnxConnection as new () => InstanceType<
     host: string | null;
     port: number;
     hasLib: boolean;
+    transport: 'udp' | 'tcp' | null;
+    routingActive: boolean;
   } {
     return {
       connected: this.connected,
       host: this.host,
       port: this.port,
       hasLib: true,
+      transport: this.transport,
+      routingActive: this._routing?.active ?? false,
     };
   }
 }
@@ -428,3 +642,4 @@ export { pktDisconnect as _pktDisconnect };
 export { pktDisconnectRes as _pktDisconnectRes };
 export { pktTunnelingReq as _pktTunnelingReq };
 export { SVC as _SVC };
+export { HOST_PROTOCOL as _HOST_PROTOCOL };
