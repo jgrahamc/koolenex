@@ -307,3 +307,45 @@
   composes: tableLayoutCell;
   border: 1px solid var(--border);
 }
+
+/* Related communication objects panel */
+.coRelated {
+  margin-top: 16px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.coRelatedLabel {
+  font-size: 9px;
+  color: var(--dim);
+  letter-spacing: 0.08em;
+  margin-bottom: 6px;
+}
+
+.coRelatedTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 10px;
+}
+
+.coRelatedThNum {
+  width: 30px;
+}
+
+.coRelatedThDpt {
+  width: 70px;
+}
+
+.coRelatedDim {
+  color: var(--dim);
+}
+
+.coRelatedName {
+  color: var(--text);
+}
+
+.coRelatedGa {
+  display: inline-block;
+  font-family: monospace;
+  margin-right: 8px;
+}

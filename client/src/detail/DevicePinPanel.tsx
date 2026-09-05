@@ -38,6 +38,7 @@ interface DevicePinPanelProps {
   onUpdateDevice: any;
   onAddDevice: any;
   onUpdateComObjectGAs: any;
+  onUpdateComObjectFlags?: any;
   activeProjectId: any;
 }
 
@@ -58,6 +59,7 @@ export function DevicePinPanel({
   onUpdateDevice,
   onAddDevice,
   onUpdateComObjectGAs,
+  onUpdateComObjectFlags,
   activeProjectId,
 }: DevicePinPanelProps) {
   const pin = useContext(PinContext);
@@ -161,11 +163,23 @@ export function DevicePinPanel({
           <div className={styles.headerFlex}>
             <div
               onClick={
-                pin ? () => pin('device', dev.individual_address) : undefined
+                dev.has_address && pin
+                  ? () => pin('device', dev.individual_address)
+                  : undefined
               }
-              className={pin ? styles.devAddressClickable : styles.devAddress}
+              className={
+                dev.has_address && pin
+                  ? styles.devAddressClickable
+                  : styles.devAddress
+              }
+              style={!dev.has_address ? { color: 'var(--amber)' } : undefined}
+              title={
+                !dev.has_address
+                  ? 'No individual address assigned in the project yet'
+                  : undefined
+              }
             >
-              {dev.individual_address}
+              {dev.has_address ? dev.individual_address : '-.-.-'}
             </div>
             {editing ? (
               <div className={styles.editRow}>
@@ -622,7 +636,10 @@ export function DevicePinPanel({
                         </span>
                       </TD>
                       <TD>
-                        <span className={styles.dimMono}>{co.flags}</span>
+                        <ComObjectFlagsCell
+                          co={co}
+                          onUpdateComObjectFlags={onUpdateComObjectFlags}
+                        />
                       </TD>
                       <TD>
                         <span className={styles.gaCellWrap}>
@@ -801,6 +818,124 @@ function ComObjectGAAdder({ co, gaMap, onAdd }: ComObjectGAAdderProps) {
   );
 }
 
+// Object 3 (Group Object Table) flags/priority editing - a click on the
+// FLAGS cell opens the checkboxes + priority editor. Every change saves
+// immediately (no separate Save button), matching this panel's existing
+// GA-link editing convention (ComObjectGAAdder above). These are the same
+// raw columns bus.ts's buildDeviceProgramming() reads when constructing a
+// real Object 3 write - see server/routes/gas.ts's flags-route comment -
+// so an edit here takes effect on the device on the next Program/Verify,
+// same as a parameter or GA-link edit.
+const CO_FLAG_FIELDS: { key: 'comm' | 'read' | 'write' | 'tx' | 'upd'; label: string }[] = [
+  { key: 'comm', label: 'Communication' },
+  { key: 'read', label: 'Read' },
+  { key: 'write', label: 'Write' },
+  { key: 'tx', label: 'Transmit' },
+  { key: 'upd', label: 'Update' },
+];
+const CO_PRIORITIES = ['low', 'alarm', 'high', 'system'] as const;
+
+interface ComObjectFlagsCellProps {
+  co: any;
+  onUpdateComObjectFlags?: (coId: number, body: Record<string, unknown>) => void;
+}
+
+// The composite `flags` string (buildFlags(), ets-parser.ts) only ever
+// encodes the 5 boolean C/R/W/T/U flags - it never carried Read-On-Init or
+// Priority, so a cell showing just `co.flags` gave no visible sign that
+// either had changed, even though the popover's own checkboxes updated
+// correctly the instant you clicked. Real user report, 2026-08-31, with a
+// screenshot of exactly this: Read-On-Init checked in the popover, closed
+// popover, cell still just said "CRT" - not a stale-data bug, a missing
+// display. Appends a compact "·RI" when Read-On-Init is on and "·<initial>"
+// for a non-default Priority (ETS's own default is Low, so that one stays
+// silent) - same abbreviations DeviceCompareResults.tsx's FlagChips uses,
+// just condensed for this column's narrow width instead of one chip each.
+function flagsCellDisplay(co: any): string {
+  let s = co.flags || '';
+  if (co.read_on_init) s += '·RI';
+  if (co.priority && co.priority !== 'low') {
+    s += '·' + co.priority[0]!.toUpperCase();
+  }
+  return s;
+}
+
+function ComObjectFlagsCell({ co, onUpdateComObjectFlags }: ComObjectFlagsCellProps) {
+  const [open, setOpen] = useState(false);
+
+  if (!onUpdateComObjectFlags) {
+    return <span className={styles.dimMono}>{flagsCellDisplay(co)}</span>;
+  }
+
+  return (
+    <span className={styles.flagsCellWrap}>
+      <span
+        onClick={() => setOpen((o) => !o)}
+        className={styles.flagsCellClickable}
+        title="Click to edit flags, priority and Read-On-Init"
+      >
+        {flagsCellDisplay(co)}
+      </span>
+      {open && (
+        <>
+          <div
+            className={styles.flagsPopoverOverlay}
+            onClick={() => setOpen(false)}
+          />
+          <div className={styles.flagsPopover}>
+            <div className={styles.flagsPopoverLabel}>FLAGS</div>
+            <div className={styles.flagsPopoverGrid}>
+              {CO_FLAG_FIELDS.map(({ key, label }) => (
+                <label key={key} className={styles.flagsCheckRow}>
+                  <input
+                    type="checkbox"
+                    checked={!!co[key]}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                      onUpdateComObjectFlags(co.id, {
+                        [key]: e.target.checked,
+                      })
+                    }
+                    className={styles.flagsCheckbox}
+                  />
+                  {label}
+                </label>
+              ))}
+            </div>
+            <label className={styles.flagsCheckRow}>
+              <input
+                type="checkbox"
+                checked={!!co.read_on_init}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                  onUpdateComObjectFlags(co.id, {
+                    read_on_init: e.target.checked,
+                  })
+                }
+                className={styles.flagsCheckbox}
+              />
+              Read On Init
+            </label>
+            <div className={styles.flagsPopoverDivider} />
+            <div className={styles.flagsPopoverLabel}>PRIORITY</div>
+            <select
+              value={co.priority || 'low'}
+              onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
+                onUpdateComObjectFlags(co.id, { priority: e.target.value })
+              }
+              className={styles.flagsPrioritySelect}
+            >
+              {CO_PRIORITIES.map((p) => (
+                <option key={p} value={p}>
+                  {p[0]!.toUpperCase() + p.slice(1)}
+                </option>
+              ))}
+            </select>
+          </div>
+        </>
+      )}
+    </span>
+  );
+}
+
 interface DuplicateDeviceModalProps {
   dev: any;
   data: any;
@@ -923,7 +1058,8 @@ function DuplicateDeviceModal({
       >
         <div className={styles.modalTitle}>Duplicate Device</div>
         <div className={styles.modalSubtitle}>
-          Copy {dev.individual_address} ({dev.manufacturer} {dev.model}) with
+          Copy {dev.has_address ? dev.individual_address : '-.-.-'} (
+          {dev.manufacturer} {dev.model}) with
           parameters. Group addresses and channel assignments are not copied.
         </div>
 

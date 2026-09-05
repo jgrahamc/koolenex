@@ -807,6 +807,7 @@ export function PinDetailView({ pinKey }: PinDetailViewProps) {
     updateSpace: onUpdateSpace,
     addDevice: onAddDevice,
     updateComObjectGAs: onUpdateComObjectGAs,
+    updateComObjectFlags: onUpdateComObjectFlags,
   } = useProjectActions();
   const { write: onWrite } = useBusActions();
   const navigate = useNavigate();
@@ -923,6 +924,7 @@ export function PinDetailView({ pinKey }: PinDetailViewProps) {
           onUpdateDevice={onUpdateDevice}
           onAddDevice={onAddDevice}
           onUpdateComObjectGAs={onUpdateComObjectGAs}
+          onUpdateComObjectFlags={onUpdateComObjectFlags}
           activeProjectId={activeProjectId}
         />
       );

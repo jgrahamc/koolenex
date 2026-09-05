@@ -1,0 +1,424 @@
+/* DeviceComparisonView — single full-width column: fixed toolbar on top
+   (device selector + a "Sections" popover for navigation), then a
+   scrollable, dense data body. No side panel. */
+.root {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* ── Toolbar: device selector + run button on row 1, result summary +
+   filters on row 2 (once there's a result) - both pinned above the
+   scrolling body, never scroll themselves. ── */
+.toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.toolbarRow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.toolbarTitle {
+  font-family: 'Syne', sans-serif;
+  font-weight: 700;
+  font-size: 14px;
+  margin-right: 4px;
+}
+.select {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--fg);
+  padding: 6px 10px;
+  font-size: 12px;
+  min-width: 240px;
+  max-width: 360px;
+}
+.devLabel {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.cacheNote {
+  font-size: 10px;
+  color: var(--dim);
+  white-space: nowrap;
+}
+/* Summary chips ("N match" / "N differ") double as row filters - click one
+   to filter the table to that outcome, click again to return to all rows.
+   filterChipBtnActive adds a visible ring so the active filter is obvious
+   at a glance (the badge's own color alone doesn't change on click). */
+.filterChipBtn {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font-family: inherit;
+  border-radius: 999px;
+}
+.filterChipBtn:hover {
+  filter: brightness(1.25);
+}
+.filterChipBtnActive {
+  border-radius: 999px;
+  box-shadow: 0 0 0 2px var(--chip-ring, var(--fg));
+}
+/* Groups a chip cluster with a small visible scope label ("raw memory" /
+   "named parameters") - without it, "8448/10433 bytes match" next to
+   "5201 match / 2 differ" reads as contradictory unless you already know
+   one is raw memory and the other is named parameters only. */
+.summaryGroup {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.summaryBadges {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* ── Sections nav: a single trigger button in the toolbar opens a popover
+   listing every section (still colour-coded, still one click to jump) -
+   costs zero permanent screen space, unlike the wrapping/scrolling chip
+   strip this replaced. ── */
+.sectionsNav {
+  position: relative;
+}
+.sectionsPopover {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 10;
+  width: 420px;
+  max-height: 360px;
+  overflow-y: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  padding: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-content: flex-start;
+}
+.jumpChip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid hsl(var(--chip-hue) 65% 55% / 0.35);
+  background: hsl(var(--chip-hue) 65% 55% / 0.12);
+  color: hsl(var(--chip-hue) 75% 78%);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 10.5px;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  font-family: inherit;
+  transition: background 0.12s;
+}
+.jumpChip:hover {
+  background: hsl(var(--chip-hue) 65% 55% / 0.22);
+}
+.jumpChipCount {
+  background: hsl(var(--chip-hue) 65% 55% / 0.25);
+  border-radius: 999px;
+  padding: 0 6px;
+  font-size: 9px;
+}
+
+/* ── Body: the only scrolling region ── */
+.body {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 16px 20px 40px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.warnBanner {
+  background: color-mix(in srgb, var(--amber) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--amber) 25%, transparent);
+  color: var(--amber);
+  border-radius: 6px;
+  padding: 10px 14px;
+  font-size: 12px;
+}
+.loadingBanner {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 12px;
+  padding: 10px 14px;
+}
+.loadingText {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.progressRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.progressTrack {
+  flex: 1;
+  height: 6px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.progressFill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 999px;
+  transition: width 0.15s ease-out;
+}
+.progressPct {
+  font-size: 11px;
+  color: var(--fg);
+  width: 36px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.errorBanner {
+  background: color-mix(in srgb, var(--red) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--red) 25%, transparent);
+  color: var(--red);
+  border-radius: 6px;
+  padding: 10px 14px;
+  font-size: 12px;
+}
+
+.filterBar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  font-size: 11px;
+}
+.checkToggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  color: var(--muted);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+/* ── Section + table — each section gets a subtle tinted background/border
+   from its own hue (--section-hue), set inline per block, so adjacent
+   sections are visually distinguishable at a glance. Headers are NOT
+   sticky (deliberately - per-section sticky headers overlapped adjacent
+   rows at section boundaries; navigation is via the Sections popover
+   instead, so there's no need to fight that). ── */
+.sectionBlock {
+  border: 1px solid hsl(var(--section-hue) 55% 55% / 0.4);
+  border-radius: 6px;
+  min-width: 0;
+  background: hsl(var(--section-hue) 55% 50% / 0.14);
+  scroll-margin-top: 8px;
+}
+.sectionTitle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: hsl(var(--section-hue) 55% 50% / 0.28);
+  padding: 6px 12px;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  color: hsl(var(--section-hue) 60% 82%);
+  text-transform: uppercase;
+  border-bottom: 1px solid hsl(var(--section-hue) 55% 55% / 0.4);
+  border-radius: 6px 6px 0 0;
+}
+.sectionCount {
+  color: var(--muted);
+  font-size: 9px;
+  background: var(--bg);
+  border-radius: 999px;
+  padding: 1px 7px;
+}
+
+/* Group Addresses section - deliberately stronger than the usual per-section
+   hash tint (still using --section-hue, but a fixed one set at the call
+   site - see DeviceCompareResults.tsx) so this section reads as a clearly
+   different kind of thing from a params section on sight, not just
+   "happens to be a different color today". Thicker/more saturated border,
+   a left accent bar, and a stronger title background - same hue variable,
+   just turned up. */
+.sectionBlockGA {
+  border: 2px solid hsl(var(--section-hue) 70% 60% / 0.6);
+  border-left-width: 4px;
+  background: hsl(var(--section-hue) 60% 50% / 0.1);
+}
+.sectionTitleGA {
+  background: hsl(var(--section-hue) 65% 50% / 0.32);
+  color: hsl(var(--section-hue) 75% 85%);
+  font-weight: 600;
+}
+
+.table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+}
+.th {
+  background: hsl(var(--section-hue) 55% 50% / 0.2);
+  text-align: left;
+  font-size: 7.5px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--dim);
+  padding: 4px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.td {
+  padding: 3px 10px;
+  border-bottom: 1px solid var(--border);
+  font-size: 9px;
+  max-width: 0; /* combined with table-layout:fixed, forces the cell to
+    respect its column width instead of growing for content - required for
+    the .tip child's own ellipsis to actually kick in */
+  vertical-align: middle;
+}
+.row {
+  background: hsl(var(--section-hue) 55% 50% / 0.07);
+}
+.rowDiffer {
+  background: color-mix(
+    in srgb,
+    var(--red) 12%,
+    hsl(var(--section-hue) 55% 50% / 0.07)
+  );
+}
+.groupCell {
+  color: var(--muted);
+  font-size: 9px;
+}
+.mono {
+  font-family: monospace;
+  font-size: 9px;
+}
+/* Match/differ glyph replacing the old MATCH/DIFFERS text badge in the
+   narrow MATCH column - a fixed small size that never needs to shrink, so
+   it can't overflow its cell the way a padded text badge did once the
+   column's percentage width dropped below the badge's own minimum width. */
+.matchIcon {
+  display: block;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+/* Custom hover tooltip for truncated cell text - deliberately NOT relying
+   on the native `title` attribute, which proved unreliable in practice.
+   Two SEPARATE nested elements, not one - a pseudo-element is generated
+   inside its own host's box, so a single element combining
+   overflow:hidden (for the ellipsis) with the ::after tooltip clips its
+   own tooltip (confirmed empirically: the ::after computed correctly on
+   hover, but was invisible - it was clipped by the very overflow:hidden
+   it needed for truncation). .tip (outer, no overflow) hosts the ::after;
+   .tipText (inner) does the actual ellipsis truncation. */
+.tip {
+  display: block;
+  position: relative;
+}
+.tipText {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Object 3 rows' per-flag chip display - one small letter box per boolean
+   flag, ETS's own checkbox order (Communication, Read, Write, Transmit,
+   Update, Read On Init - matches real ETS's parameter UI, not the
+   underlying bit order), green when set / muted when clear, so every flag
+   is visible at a glance without hovering. Priority/Size sit alongside as
+   plain compact text (not booleans, so not chips). Deliberately plain
+   `<span>`s, not buttons yet - structured this way so a future
+   click-to-edit pass can wire an onClick straight onto each chip without
+   restructuring the display first. */
+.flagChips {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  flex-wrap: wrap;
+}
+.flagChip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 3px;
+  border-radius: 3px;
+  font-family: monospace;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+}
+.flagChipOn {
+  background: color-mix(in srgb, var(--green) 30%, transparent);
+  color: var(--green);
+  border: 1px solid color-mix(in srgb, var(--green) 55%, transparent);
+}
+.flagChipOff {
+  background: var(--bg);
+  color: var(--dim);
+  border: 1px solid var(--border);
+}
+/* A single flag where project and device genuinely disagree - a red ring on
+   just that chip, so a one-bit difference is visible without having to
+   compare the two whole chip rows letter by letter. */
+.flagChipDiffer {
+  box-shadow: 0 0 0 1px var(--red);
+}
+.flagMeta {
+  color: var(--muted);
+  font-size: 9px;
+  margin-left: 4px;
+  white-space: nowrap;
+}
+
+.tip[data-tip]:hover::after {
+  content: attr(data-tip);
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 5px);
+  z-index: 30;
+  width: max-content;
+  max-width: 380px;
+  white-space: normal;
+  word-break: break-word;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 6px 9px;
+  font-size: 11px;
+  font-family: inherit;
+  color: var(--fg);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+}

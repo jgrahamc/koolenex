@@ -16,11 +16,14 @@ import {
   IconProject,
   IconFloorPlan,
   IconCatalog,
+  IconOffline,
+  IconAttention,
 } from './icons.tsx';
 import { Spinner, Toast, Btn } from './primitives.tsx';
 import primStyles from './primitives.module.css';
 import { buildSpaceMap, spacePath as spacePathFn } from './hooks/spaces.ts';
 import { GlobalSearch } from './search.tsx';
+import { BusConnectionPanel } from './BusConnectionPanel.tsx';
 
 import { ProjectsView } from './views/ProjectsView.tsx';
 import { TopologyView } from './views/TopologyView.tsx';
@@ -91,11 +94,14 @@ const VIEWS: ViewEntry[] = [
   { id: 'monitor', slug: 'monitor', Icon: IconMonitor, label: 'Monitor' },
   { id: 'scan', slug: 'scan', Icon: IconScan, label: 'Scan' },
   {
+    // wip: true removed 2026-08-31 - stale from when this page genuinely
+    // was a work-in-progress placeholder; it's had extensive real work
+    // since (device addressing, download modes, log panel, etc.) and no
+    // longer belongs dimmed out next to the other, fully real nav items.
     id: 'programming',
     slug: 'programming',
     Icon: IconProgramming,
     label: 'Programming',
-    wip: true,
   },
 ];
 
@@ -151,6 +157,25 @@ export function AppShell(props: AppShellProps) {
   const reimportRef = useRef<HTMLInputElement | null>(null);
   const [reimportPassword, setReimportPassword] = useState('');
   const lastHandledReimportRef = useRef<string | null>(null);
+
+  // Quick-connect popover on the top-bar bus status badge (2026-08-29, per
+  // explicit request) - clicking the badge (which now also actually reflects
+  // disconnection, see the busStatus render below and the WS onOpen re-sync
+  // in App.tsx) opens the same real connect UI ProjectInfoView already had,
+  // extracted into BusConnectionPanel so both places share one
+  // implementation instead of a second, thinner one.
+  const [connectPopoverOpen, setConnectPopoverOpen] = useState(false);
+  const connectPopoverRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!connectPopoverOpen) return;
+    const onDocClick = (e: MouseEvent) => {
+      if (!connectPopoverRef.current?.contains(e.target as Node)) {
+        setConnectPopoverOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, [connectPopoverOpen]);
 
   const reimportInFlight =
     state.import.mode === 'reimport' &&
@@ -386,17 +411,47 @@ export function AppShell(props: AppShellProps) {
           <GlobalSearch projectData={state.projectData} onPin={handlePin} />
         )}
         <div className={appStyles.rightArea}>
-          <div
-            className={`${appStyles.busStatus} ${state.busStatus.connected ? appStyles.busConnected : appStyles.busDisconnected}`}
-          >
-            <span
-              className={`${appStyles.busDot} ${state.busStatus.connected ? `pulse ${appStyles.busDotConnected}` : appStyles.busDotDisconnected}`}
-            />
-            {state.busStatus.connected
-              ? state.busStatus.type === 'usb'
-                ? 'USB'
-                : `${state.busStatus.host}`
-              : 'No bus'}
+          <div className={appStyles.busStatusWrap} ref={connectPopoverRef}>
+            <button
+              type="button"
+              onClick={() => setConnectPopoverOpen((o) => !o)}
+              className={`${appStyles.busStatus} ${
+                state.busStatus.connected
+                  ? appStyles.busConnected
+                  : state.busStatus.needsAttention
+                    ? appStyles.busNeedsAttention
+                    : appStyles.busIdle
+              }`}
+              title={
+                state.busStatus.connected
+                  ? 'Click to manage the bus connection'
+                  : state.busStatus.needsAttention
+                    ? 'A reconnect attempt failed - check the connection settings (address, etc.) and reconnect manually'
+                    : 'Not connected to the bus — most work here doesn’t need it. Click to connect.'
+              }
+            >
+              {state.busStatus.connected ? (
+                <span className={`${appStyles.busDot} pulse ${appStyles.busDotConnected}`} />
+              ) : state.busStatus.needsAttention ? (
+                <IconAttention size={11} />
+              ) : (
+                <IconOffline size={11} />
+              )}
+              {state.busStatus.connected
+                ? state.busStatus.type === 'usb'
+                  ? 'USB'
+                  : `${state.busStatus.host}`
+                : state.busStatus.needsAttention
+                  ? 'Disconnected'
+                  : 'Idle'}
+            </button>
+            {connectPopoverOpen && (
+              <div className={appStyles.busStatusPopover}>
+                <BusConnectionPanel
+                  onConnected={() => setConnectPopoverOpen(false)}
+                />
+              </div>
+            )}
           </div>
           <button
             onClick={() => navigate('/settings')}
@@ -536,6 +591,14 @@ export function AppShell(props: AppShellProps) {
                               const dev = state.projectData?.devices?.find(
                                 (d) => d.individual_address === w.address,
                               );
+                              // A device with no real project address at all
+                              // (has_address=0, a synthetic placeholder -
+                              // see ets-parser.ts) should never surface its
+                              // synthetic individual_address anywhere a
+                              // person reads it - matches DeviceAddr's
+                              // "-.-.-" convention (primitives.tsx).
+                              if (wtype === 'device' && dev && !dev.has_address)
+                                displayAddr = '-.-.-';
                               displayLabel = dev?.name ?? null;
                               const location = dev?.space_id
                                 ? spacePath(dev.space_id)
@@ -545,7 +608,7 @@ export function AppShell(props: AppShellProps) {
                                   ? `${displayLabel} — ${location}`
                                   : location;
                             }
-                            const tooltip = [w.address, displayLabel]
+                            const tooltip = [displayAddr, displayLabel]
                               .filter(Boolean)
                               .join(' — ');
                             return (

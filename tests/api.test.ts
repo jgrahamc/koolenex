@@ -238,17 +238,22 @@ describe('Devices', () => {
     assert.equal(vals['ref-2'], 'hello');
   });
 
-  it('PATCH param-values overwrites previous values', async () => {
+  it('PATCH param-values merges into previous values, not a full replace', async () => {
+    // Real change 2026-08-31: replace-only semantics made any future
+    // single-key caller (e.g. a compare-page inline edit) unsafe by
+    // construction - it would silently wipe every other parameter's
+    // value. DeviceParameters.tsx (the only caller so far) always sends
+    // its complete current value set, so this is a no-op change for it.
     await req('PATCH', `/projects/${pid}/devices/${did}/param-values`, {
       'ref-1': 99,
     });
     const row = db.get('SELECT param_values FROM devices WHERE id=?', [did]);
     const vals = JSON.parse(row.param_values);
-    assert.equal(vals['ref-1'], 99);
+    assert.equal(vals['ref-1'], 99, 'the sent key is updated');
     assert.equal(
       vals['ref-2'],
-      undefined,
-      'previous keys should be gone (full replace)',
+      'hello',
+      'a key not present in this PATCH is preserved (merge, not replace)',
     );
   });
 
@@ -386,6 +391,188 @@ describe('Device validation', () => {
     assert.equal(status, 200);
     assert.equal(data.description, 'A test device');
     assert.equal(data.installation_hints, 'Mount on DIN rail');
+  });
+
+  it('PUT individual_address assigns a real address and sets has_address', async () => {
+    // has_address defaults to 1 for a device created via the manual POST
+    // route (always a real, human-entered address - see db.ts's column
+    // DEFAULT) - force it to 0 first to exercise the real "assign a
+    // project address to a previously-unaddressed device" path
+    // (AssignProjectAddressModal, added 2026-08-30).
+    db.run('UPDATE devices SET has_address=0 WHERE id=?', [did]);
+    const { status, data } = await req(
+      'PUT',
+      `/projects/${pid}/devices/${did}`,
+      { individual_address: '1.1.5' },
+    );
+    assert.equal(status, 200);
+    assert.equal(data.individual_address, '1.1.5');
+    assert.equal(data.has_address, 1);
+  });
+
+  it('PUT individual_address rejects an address already used by another device', async () => {
+    const { data: other } = await req('POST', `/projects/${pid}/devices`, {
+      individual_address: '1.1.9',
+      name: 'Other Device',
+      area: 1,
+      line: 1,
+    });
+    const { status, data } = await req(
+      'PUT',
+      `/projects/${pid}/devices/${did}`,
+      { individual_address: '1.1.9' },
+    );
+    assert.equal(status, 409);
+    assert.equal(data.error, 'address_in_use');
+    await req('DELETE', `/projects/${pid}/devices/${other.id}`);
+  });
+
+  it('PUT individual_address rejects a malformed address', async () => {
+    const { status } = await req(
+      'PUT',
+      `/projects/${pid}/devices/${did}`,
+      { individual_address: 'not-an-address' },
+    );
+    assert.equal(status, 400);
+  });
+
+  // Real bug found live, 2026-08-31: a stale serial_number left over from
+  // an unrelated earlier address (e.g. carried through a project
+  // reimport) survived a genuine address change and misleadingly counted
+  // as "physically confirmed" for the NEW address - the address badge
+  // went straight to its "confirmed" color the moment a project address
+  // was assigned, even though nothing had been written to hardware yet.
+  it('PUT individual_address clears a stale serial_number when the address genuinely changes', async () => {
+    db.run('UPDATE devices SET serial_number=? WHERE id=?', [
+      '00a625401d94',
+      did,
+    ]);
+    const { status, data } = await req(
+      'PUT',
+      `/projects/${pid}/devices/${did}`,
+      { individual_address: '1.1.6' },
+    );
+    assert.equal(status, 200);
+    assert.equal(data.individual_address, '1.1.6');
+    assert.equal(data.serial_number, '');
+  });
+
+  it('PUT individual_address does NOT clear serial_number when the address is unchanged', async () => {
+    const { data: before } = await req(
+      'PUT',
+      `/projects/${pid}/devices/${did}`,
+      { individual_address: '1.1.7' },
+    );
+    db.run('UPDATE devices SET serial_number=? WHERE id=?', [
+      '00a625401d94',
+      did,
+    ]);
+    // Real behavior, 2026-08-31: individual_address handling was gated to
+    // only fire when the value genuinely changes (see the test above -
+    // this is exactly what makes THAT test's clear-on-change guarantee
+    // correct: a same-address resend must not count as "a change" either).
+    // A request whose only field is an unchanged individual_address is now
+    // a genuine no-op, so it correctly falls through to the route's
+    // pre-existing "No fields to update" 400 guard instead of silently
+    // succeeding - the real thing this test guards against (a same-address
+    // resend wiping the recorded serial) is verified directly against the
+    // DB below, independent of the response status.
+    const { status } = await req(
+      'PUT',
+      `/projects/${pid}/devices/${did}`,
+      { individual_address: before.individual_address },
+    );
+    assert.equal(status, 400);
+    const row = db.get('SELECT serial_number FROM devices WHERE id=?', [did]);
+    assert.equal(row.serial_number, '00a625401d94');
+  });
+
+  it('PUT individual_address does not clobber a serial_number sent in the same request', async () => {
+    const { status, data } = await req(
+      'PUT',
+      `/projects/${pid}/devices/${did}`,
+      { individual_address: '1.1.8', serial_number: '00a625401d95' },
+    );
+    assert.equal(status, 200);
+    assert.equal(data.individual_address, '1.1.8');
+    assert.equal(data.serial_number, '00a625401d95');
+  });
+
+  // Real user request, 2026-08-31: "we need to be able to unassign to a
+  // device whose address has not yet been written" - PUT could only ever
+  // set has_address=1, never back to 0.
+  describe('PATCH .../unassign', () => {
+    it('reverts has_address to 0 with a synthetic placeholder address, when no serial is recorded', async () => {
+      db.run(
+        'UPDATE devices SET has_address=1, individual_address=?, serial_number=? WHERE id=?',
+        ['1.1.30', '', did],
+      );
+      const { status, data } = await req(
+        'PATCH',
+        `/projects/${pid}/devices/${did}/unassign`,
+      );
+      assert.equal(status, 200);
+      assert.equal(data.has_address, 0);
+      assert.equal(data.status, 'unassigned');
+      // did's area/line are 1/1 (set at creation, PUT never changes them) -
+      // the synthetic placeholder reuses them, at the first free
+      // 256+ device number.
+      assert.match(data.individual_address, /^1\.1\.\d+$/);
+      assert.ok(Number(data.individual_address.split('.')[2]) >= 256);
+    });
+
+    it('picks a placeholder number that does not collide with another device', async () => {
+      db.run(
+        'UPDATE devices SET has_address=1, individual_address=?, serial_number=? WHERE id=?',
+        ['1.1.31', '', did],
+      );
+      const { data: other } = await req('POST', `/projects/${pid}/devices`, {
+        individual_address: '1.1.256',
+        name: 'Occupies the first synthetic slot',
+        area: 1,
+        line: 1,
+      });
+      const { status, data } = await req(
+        'PATCH',
+        `/projects/${pid}/devices/${did}/unassign`,
+      );
+      assert.equal(status, 200);
+      assert.notEqual(data.individual_address, '1.1.256');
+      await req('DELETE', `/projects/${pid}/devices/${other.id}`);
+    });
+
+    it('refuses (409) when the device has a physically-confirmed serial', async () => {
+      db.run(
+        'UPDATE devices SET has_address=1, individual_address=?, serial_number=? WHERE id=?',
+        ['1.1.32', '00a625401d94', did],
+      );
+      const { status, data } = await req(
+        'PATCH',
+        `/projects/${pid}/devices/${did}/unassign`,
+      );
+      assert.equal(status, 409);
+      assert.equal(data.error, 'already_written');
+      const row = db.get('SELECT has_address FROM devices WHERE id=?', [did]);
+      assert.equal(row.has_address, 1);
+    });
+
+    it('refuses (400) when the device has no address to unassign', async () => {
+      db.run('UPDATE devices SET has_address=0 WHERE id=?', [did]);
+      const { status, data } = await req(
+        'PATCH',
+        `/projects/${pid}/devices/${did}/unassign`,
+      );
+      assert.equal(status, 400);
+      assert.equal(data.error, 'not_assigned');
+    });
+
+    it('returns 404 for a non-existent device', async () => {
+      const { status } = await req(
+        'PATCH',
+        `/projects/${pid}/devices/999999/unassign`,
+      );
+      assert.equal(status, 404);
+    });
   });
 
   it('PATCH status returns the updated device', async () => {
@@ -1672,6 +1859,97 @@ describe('Com Objects Listing', () => {
     assert(co);
     assert.equal(co.device_address, '1.1.1');
     assert.equal(co.device_name, 'Test Actuator');
+  });
+});
+
+// ── Com Object Flags/Priority (Object 3) ────────────────────────────────────
+
+describe('Com Object Flags', () => {
+  let pid, devId, coId;
+
+  before(async () => {
+    const { data: proj } = await req('POST', '/projects', {
+      name: 'CO Flags Tests',
+    });
+    pid = proj.id;
+    const { data: dev } = await req('POST', `/projects/${pid}/devices`, {
+      individual_address: '1.1.1',
+      name: 'Test Actuator',
+      area: 1,
+      line: 1,
+    });
+    devId = dev.id;
+    coId = db.run(
+      'INSERT INTO com_objects (project_id, device_id, object_number, name, read, write, comm, tx, upd, read_on_init, priority, flags) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
+      [pid, devId, 0, 'Switch Output 1', 0, 1, 1, 1, 0, 0, 'low', 'CWT'],
+    ).lastInsertRowid;
+  });
+
+  after(async () => {
+    await req('DELETE', `/projects/${pid}`);
+  });
+
+  it('PATCH flips a single flag and recomputes the composite flags string', async () => {
+    const { status, data } = await req(
+      'PATCH',
+      `/projects/${pid}/comobjects/${coId}/flags`,
+      { read: true },
+    );
+    assert.equal(status, 200);
+    assert.equal(data.read, true);
+    assert.equal(data.flags, 'CRWT');
+
+    const row = db.get(
+      'SELECT read, write, comm, tx, upd, flags FROM com_objects WHERE id=?',
+      [coId],
+    );
+    assert.equal(row.read, 1);
+    assert.equal(row.flags, 'CRWT');
+  });
+
+  it('PATCH updates priority independently of the flag bits', async () => {
+    const { status, data } = await req(
+      'PATCH',
+      `/projects/${pid}/comobjects/${coId}/flags`,
+      { priority: 'alarm' },
+    );
+    assert.equal(status, 200);
+    assert.equal(data.priority, 'alarm');
+    const row = db.get('SELECT priority FROM com_objects WHERE id=?', [coId]);
+    assert.equal(row.priority, 'alarm');
+  });
+
+  it('PATCH toggles read_on_init', async () => {
+    const { status, data } = await req(
+      'PATCH',
+      `/projects/${pid}/comobjects/${coId}/flags`,
+      { read_on_init: true },
+    );
+    assert.equal(status, 200);
+    assert.equal(data.read_on_init, true);
+    const row = db.get(
+      'SELECT read_on_init FROM com_objects WHERE id=?',
+      [coId],
+    );
+    assert.equal(row.read_on_init, 1);
+  });
+
+  it('rejects an unknown priority value', async () => {
+    const { status } = await req(
+      'PATCH',
+      `/projects/${pid}/comobjects/${coId}/flags`,
+      { priority: 'urgent' },
+    );
+    assert.equal(status, 400);
+  });
+
+  it('404s for a com object that does not belong to the project', async () => {
+    const { status } = await req(
+      'PATCH',
+      `/projects/${pid}/comobjects/99999/flags`,
+      { read: true },
+    );
+    assert.equal(status, 404);
   });
 });
 

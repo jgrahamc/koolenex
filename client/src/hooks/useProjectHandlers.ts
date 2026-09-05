@@ -152,23 +152,57 @@ export function useProjectHandlers(
       if (!prev) return;
       const prevPatch = prevSnapshot(prev, patch);
       const detail = diffDetail(prev, patch);
-      await api.updateDevice(state.activeProjectId, deviceId, patch);
+      // Dispatch the server's actual returned row, not the raw local
+      // `patch` we sent - real bug, found live 2026-08-31: PUT
+      // /devices/:id has a real server-side side effect
+      // (individual_address set => has_address forced to 1, see
+      // server/routes/devices.ts) the caller never explicitly asked for
+      // in its own patch object. Dispatching the stale local `patch`
+      // (which never mentions has_address at all) left the client's own
+      // devices array believing has_address was still 0 even though the
+      // DB genuinely had it as 1 - reproduced via
+      // AssignProjectAddressModal: address saved correctly server-side
+      // (confirmed via the DB/audit log), but the UI kept showing an
+      // empty address badge and a disabled Program button.
+      const updated = await api.updateDevice(
+        state.activeProjectId,
+        deviceId,
+        patch,
+      );
       dispatch({
         type: 'PATCH_DEVICE',
         id: deviceId,
-        patch: patch as Partial<Device>,
+        patch: updated as Partial<Device>,
       });
       const pid = state.activeProjectId;
       pushUndo(`Edit device ${prev.individual_address}`, detail, async () => {
-        await api.updateDevice(pid, deviceId, prevPatch);
+        const reverted = await api.updateDevice(pid, deviceId, prevPatch);
         dispatch({
           type: 'PATCH_DEVICE',
           id: deviceId,
-          patch: prevPatch as Partial<Device>,
+          patch: reverted as Partial<Device>,
         });
       });
     },
     [state.activeProjectId, state.projectData, pushUndo],
+  );
+
+  // Reverts a device's project address back to "unassigned" - real user
+  // request, 2026-08-31, after live testing surfaced the gap: an address
+  // could be assigned but there was no way back short of manually typing
+  // over it. Server refuses (409) if the device already has a physically-
+  // confirmed serial at that address - see the route's own doc comment.
+  const handleUnassignDevice = useCallback(
+    async (deviceId: number) => {
+      if (!state.activeProjectId) return;
+      const updated = await api.unassignDevice(state.activeProjectId, deviceId);
+      dispatch({
+        type: 'PATCH_DEVICE',
+        id: deviceId,
+        patch: updated as Partial<Device>,
+      });
+    },
+    [state.activeProjectId],
   );
 
   const handleUpdateSpace = useCallback(
@@ -368,6 +402,34 @@ export function useProjectHandlers(
     [state.activeProjectId, pushUndo],
   );
 
+  // Re-runs a cached verify comparison's PROJECT/expected side against
+  // fresh DB state, reusing the already-cached DEVICE/actual side - no bus
+  // access. No-ops (matching the old CLEAR_VERIFY_RESULT behavior it
+  // replaces) when there's no cache entry for this device to recompute
+  // against - nothing stale to fix in that case. Real user feedback,
+  // 2026-08-31: "If we have previously verified the device and have its
+  // data in cache, why make it stale when DB items are modified? ... no
+  // real gain in forcing a re-read of device memory. Better we just re-run
+  // the comparison of our modified DB values against the previously cached
+  // device values." Swallows its own errors (logged, not thrown) - a
+  // failed recompute shouldn't surface as if the edit itself (which
+  // already succeeded and was already dispatched) had failed; worst case
+  // the compare view is left showing the pre-edit cached comparison, same
+  // as before this feature existed.
+  const refreshVerifyCache = useCallback(
+    async (deviceId: number) => {
+      const prior = state.verifyCache[deviceId];
+      if (!prior) return;
+      try {
+        const result = await api.busRecomputeVerify(deviceId, prior.result);
+        dispatch({ type: 'RECOMPUTE_VERIFY_RESULT', deviceId, result });
+      } catch (e) {
+        console.error('Failed to recompute cached verify result', e);
+      }
+    },
+    [state.verifyCache],
+  );
+
   const handleUpdateComObjectGAs = useCallback(
     async (coId: number, body: any) => {
       if (!state.activeProjectId) return;
@@ -375,7 +437,15 @@ export function useProjectHandlers(
         state.activeProjectId,
         coId,
         body,
-      )) as { ga_address: string; ga_send: string; ga_receive: string };
+      )) as {
+        ga_address: string;
+        ga_send: string;
+        ga_receive: string;
+        device_id: number;
+        device_status?: string;
+        last_verify_match?: null;
+        last_verify_at?: null;
+      };
       dispatch({
         type: 'PATCH_COMOBJECT',
         id: coId,
@@ -385,13 +455,170 @@ export function useProjectHandlers(
           ga_receive: updated.ga_receive,
         },
       });
+      // Server flips devices.status 'programmed' -> 'modified' when a GA
+      // link genuinely changed on an already-programmed device - see
+      // markDeviceModifiedIfProgrammed() (server/routes/shared.ts). Applied
+      // here as a local dispatch (not another api.setDeviceStatus round
+      // trip - the server already wrote and audited it) so the
+      // Programming page's badge reflects the edit immediately, not only
+      // after the next Verify. Real user feedback, 2026-08-31: "If we make
+      // a change, we need to indicate this somehow."
+      // Extended 2026-09-01: same reasoning for the persisted verify
+      // indicator - markDeviceModifiedIfProgrammed() also clears
+      // last_verify_match/last_verify_at server-side when a prior verify
+      // result exists; only present in the response (as `null`) when it
+      // actually fired, so 'in' rather than a truthiness check.
+      if ('last_verify_match' in updated) {
+        dispatch({
+          type: 'PATCH_DEVICE',
+          id: updated.device_id,
+          patch: { last_verify_match: null, last_verify_at: null },
+        });
+      }
+      if (updated.device_status) {
+        dispatch({
+          type: 'SET_DEVICE_STATUS',
+          deviceId: updated.device_id,
+          status: updated.device_status as any,
+        });
+        // The Compare page (DeviceCompareResults.tsx) and the Programming
+        // slide-over both read the SAME cached verify result
+        // (state.verifyCache[deviceId]) - its "project" column is a
+        // snapshot of what the target looked like at the moment that
+        // Verify ran. Left untouched, a genuine edit silently kept showing
+        // that stale pre-edit target next to the (still perfectly valid)
+        // device reading. Real user feedback, 2026-08-31: "our comparison
+        // page ... is still defaulting to the original unmodified
+        // version" - followed by a direct correction on the fix (an
+        // earlier version of this comment just cleared the cache
+        // entirely): "why make it stale when DB items are modified? ...
+        // Better we just re-run the comparison of our modified DB values
+        // against the previously cached device values." See
+        // refreshVerifyCache's own doc comment above.
+        void refreshVerifyCache(updated.device_id);
+      }
     },
-    [state.activeProjectId],
+    [state.activeProjectId, refreshVerifyCache],
+  );
+
+  const handleUpdateComObjectFlags = useCallback(
+    async (coId: number, body: any) => {
+      if (!state.activeProjectId) return;
+      const updated = (await api.updateComObjectFlags(
+        state.activeProjectId,
+        coId,
+        body,
+      )) as {
+        read: number;
+        write: number;
+        comm: number;
+        tx: number;
+        upd: number;
+        read_on_init: number;
+        priority: string;
+        flags: string;
+        device_id: number;
+        device_status?: string;
+        last_verify_match?: null;
+        last_verify_at?: null;
+      };
+      dispatch({
+        type: 'PATCH_COMOBJECT',
+        id: coId,
+        patch: {
+          read: updated.read,
+          write: updated.write,
+          comm: updated.comm,
+          tx: updated.tx,
+          upd: updated.upd,
+          read_on_init: updated.read_on_init,
+          priority: updated.priority,
+          flags: updated.flags,
+        },
+      });
+      // See the matching comments in handleUpdateComObjectGAs above - same
+      // server-side markDeviceModifiedIfProgrammed() mechanism, and same
+      // local-recompute reasoning for the refreshVerifyCache call.
+      if ('last_verify_match' in updated) {
+        dispatch({
+          type: 'PATCH_DEVICE',
+          id: updated.device_id,
+          patch: { last_verify_match: null, last_verify_at: null },
+        });
+      }
+      if (updated.device_status) {
+        dispatch({
+          type: 'SET_DEVICE_STATUS',
+          deviceId: updated.device_id,
+          status: updated.device_status as any,
+        });
+        void refreshVerifyCache(updated.device_id);
+      }
+    },
+    [state.activeProjectId, refreshVerifyCache],
+  );
+
+  const applyDeviceStatus = useCallback(
+    (deviceId: number, status: string) => {
+      dispatch({ type: 'SET_DEVICE_STATUS', deviceId, status: status as any });
+      // Same local-recompute reasoning as handleUpdateComObjectGAs/Flags
+      // above - every caller of applyDeviceStatus (currently just
+      // DeviceParameters.tsx's save) only calls it when the server
+      // actually persisted a genuine change, so the device's cached
+      // verify result (its "project" column) is stale the moment this
+      // fires.
+      void refreshVerifyCache(deviceId);
+    },
+    [refreshVerifyCache],
+  );
+
+  // Local-only store update (no API call), added 2026-09-01 alongside the
+  // persisted verify indicator - same reasoning as applyDeviceStatus
+  // above: DeviceParameters.tsx's param-value save already gets
+  // last_verify_match/last_verify_at back from the server (see
+  // markDeviceModifiedIfProgrammed(), server/routes/shared.ts) when a
+  // prior verify result existed and this edit invalidated it - this just
+  // reflects that into the client's own devices array immediately,
+  // without a redundant extra round trip.
+  const applyDeviceVerifyCleared = useCallback((deviceId: number) => {
+    dispatch({
+      type: 'PATCH_DEVICE',
+      id: deviceId,
+      patch: { last_verify_match: null, last_verify_at: null },
+    });
+  }, []);
+
+  // The other side of applyDeviceVerifyCleared above - records a REAL
+  // verify outcome (server already persisted this in the same
+  // /bus/verify-device call, see runVerifyDevice()'s own doc comment,
+  // server/routes/bus.ts). Local-only, same reasoning as applyDeviceStatus
+  // - the timestamp is computed here rather than round-tripped from the
+  // server response, which is fine for display purposes (the two are at
+  // most a network round trip apart) without adding a new response field
+  // just for this.
+  const applyDeviceVerifyResult = useCallback(
+    (deviceId: number, match: boolean) => {
+      dispatch({
+        type: 'PATCH_DEVICE',
+        id: deviceId,
+        patch: {
+          last_verify_match: match ? 1 : 0,
+          last_verify_at: new Date().toISOString(),
+        },
+      });
+    },
+    [],
   );
 
   const handleAddScannedDevice = useCallback(
     async (address: string) => {
-      if (!state.activeProjectId) return;
+      // Real request, 2026-08-31 (AddressDeviceModal's "add as if it were
+      // a new unassigned device"): the caller needs the created row back
+      // to chain a serial-number record onto it - throwing here (instead
+      // of the previous silent no-op return) surfaces a genuinely missing
+      // project id as a real error rather than a call that quietly does
+      // nothing.
+      if (!state.activeProjectId) throw new Error('No active project');
       const [a, l] = address.split('.').map(Number);
       const device = await api.createDevice(state.activeProjectId, {
         individual_address: address,
@@ -401,6 +628,7 @@ export function useProjectHandlers(
         device_type: 'generic',
       });
       dispatch({ type: 'ADD_DEVICE', device });
+      return device;
     },
     [state.activeProjectId],
   );
@@ -418,6 +646,7 @@ export function useProjectHandlers(
     handleUpdateGA,
     handleRenameGAGroup,
     handleUpdateDevice,
+    handleUnassignDevice,
     handleUpdateSpace,
     handleCreateTopology,
     handleUpdateTopology,
@@ -428,6 +657,10 @@ export function useProjectHandlers(
     handleDeleteGA,
     handleAddDevice,
     handleUpdateComObjectGAs,
+    handleUpdateComObjectFlags,
     handleAddScannedDevice,
+    applyDeviceStatus,
+    applyDeviceVerifyCleared,
+    applyDeviceVerifyResult,
   };
 }

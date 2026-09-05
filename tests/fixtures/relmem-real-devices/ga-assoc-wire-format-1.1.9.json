@@ -1,0 +1,32 @@
+{
+  "_comment": "Real GA (Address) table and Association table MemExtWrite ops captured via tshark during a genuine ETS Full Download to 1.1.9, AFTER real project GAs were renumbered to non-degenerate values (main/middle both non-zero) specifically to settle Finding 3 of docs/follow-ups/2026-08-27-relmem-write-scope-investigation.md. Source: ga_wire_format_test.pcapng, frames 229/230 (Address table) and 219/220 (Association table).",
+  "deviceAddress": "1.1.9",
+  "gaTable": {
+    "objIdx": 1,
+    "resolvedBase": "0x004000",
+    "byteCount": 6,
+    "hex": "000249014904",
+    "decoded": {
+      "count": 2,
+      "entries": [
+        { "gaHex": "0x4901", "ga": "9/1/1" },
+        { "gaHex": "0x4904", "ga": "9/1/4" }
+      ]
+    },
+    "note": "Real ETS group-address tree confirms these are correct: 9/1/1 and 9/1/4 under '9 System > 9/1 Astro'. Count field is 2 bytes, GA value is the raw 16-bit main/middle/sub encoding, no reordering."
+  },
+  "associationTable": {
+    "objIdx": 2,
+    "resolvedBase": "0x00470A",
+    "byteCount": 10,
+    "hex": "00020001000500020008",
+    "decoded": {
+      "count": 2,
+      "entries": [
+        { "gaIndex": 1, "coNumber": 5 },
+        { "gaIndex": 2, "coNumber": 8 }
+      ]
+    },
+    "note": "Byte-identical to the earlier degenerate-GA capture (same device, old 0/0/1 and 0/0/4 GAs) - expected and confirms the format: association entries reference the GA table by 1-based POSITION, not by raw GA value, so renumbering the same two GA slots produces identical association bytes."
+  }
+}

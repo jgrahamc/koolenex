@@ -24,6 +24,15 @@ import {
   UndoCtx,
   AppDataCtx,
   LiveDataCtx,
+  VerifyCacheCtx,
+  ProgrammingLogCtx,
+  PROGRAMMING_LOG_CAP,
+} from './contexts.ts';
+import type {
+  VerifyCache,
+  VerifyProgress,
+  ProgramProgress,
+  ProgrammingLog,
 } from './contexts.ts';
 import {
   setI18nT,
@@ -31,7 +40,12 @@ import {
   setDptInfo,
   setSpaceUsages,
 } from './dpt.ts';
-import { initialState, reducer } from './state.ts';
+import {
+  initialState,
+  reducer,
+  loadVerifyCache,
+  saveVerifyCache,
+} from './state.ts';
 import type { BusTelegram } from '../../shared/types.ts';
 import { useProjectHandlers } from './hooks/useProjectHandlers.ts';
 import { useBusHandlers } from './hooks/useBusHandlers.ts';
@@ -63,7 +77,61 @@ export default function App() {
   };
 
   const [state, dispatch] = useReducer(reducer, initialState);
-  const wsRef = useRef<{ close: () => void } | null>(null);
+  // Persist verify results across reloads - see loadVerifyCache/saveVerifyCache
+  // in state.ts (IndexedDB, not localStorage - a single device's decoded
+  // result routinely exceeds localStorage's whole quota). Both are async;
+  // load once on mount, save (fire-and-forget) on every change thereafter.
+  useEffect(() => {
+    loadVerifyCache().then((cache) =>
+      dispatch({ type: 'HYDRATE_VERIFY_CACHE', cache }),
+    );
+  }, []);
+  useEffect(() => {
+    saveVerifyCache(state.verifyCache);
+  }, [state.verifyCache]);
+  const wsRef = useRef<{
+    close: () => void;
+    send: (data: Record<string, unknown>) => void;
+  } | null>(null);
+  // Live verify-read progress, keyed by device address. Transient/high-
+  // frequency (one WS message per bus chunk, up to ~900 per relmem verify) -
+  // kept out of the main reducer deliberately so it doesn't churn state
+  // updates that unrelated views would also re-render for.
+  const [verifyProgress, setVerifyProgress] = useState<
+    Record<string, VerifyProgress>
+  >({});
+  // Live Program (write) progress, keyed by device address - see
+  // ProgramProgress's doc comment (contexts.ts) for why this exists.
+  const [programProgress, setProgramProgress] = useState<
+    Record<string, ProgramProgress>
+  >({});
+  // Programming page's operation log - lifted up here (rather than local
+  // state in ProgrammingView) so it survives navigating away and back. See
+  // the comment on ProgrammingLogCtx for the retention policy.
+  const [programmingLogEntries, setProgrammingLogEntries] = useState<
+    string[]
+  >([]);
+  // Whether to include server-tagged debug messages in the programming
+  // log (see ProgrammingLog's own doc comment, contexts.ts). Read via a
+  // ref inside the WebSocket handler below (a `[]`-deps effect - see its
+  // own comment) so a later toggle isn't stuck reading a stale closure
+  // value.
+  const [showDebugLog, setShowDebugLog] = useState<boolean>(
+    () => localStorage.getItem('knx-programming-debug-log') === 'true',
+  );
+  const showDebugLogRef = useRef(showDebugLog);
+  useEffect(() => {
+    showDebugLogRef.current = showDebugLog;
+  }, [showDebugLog]);
+  const toggleShowDebugLog = () => {
+    setShowDebugLog((v) => {
+      const next = !v;
+      try {
+        localStorage.setItem('knx-programming-debug-log', String(next));
+      } catch {}
+      return next;
+    });
+  };
   const [mediumTypes, setMediumTypes] = useState<Record<string, any>>({});
   const [maskVersions, setMaskVersions] = useState<Record<string, any>>({});
   const [i18nLang, setI18nLang] = useState<string>(
@@ -143,10 +211,17 @@ export default function App() {
         dispatch({ type: 'SET_PROJECTS', projects });
       } catch {}
     })();
-    api
-      .busStatus()
-      .then((s) => dispatch({ type: 'SET_BUS', status: s }))
-      .catch(() => {});
+    // Shared by the initial boot fetch AND every WebSocket (re)connect (see
+    // createWS's onOpen below) - a reconnect used to never re-check real bus
+    // status at all, so a connection change that happened while the socket
+    // was down (e.g. the server restarting) left the UI showing stale state
+    // indefinitely. Fixed 2026-08-29.
+    const syncBusStatus = () =>
+      api
+        .busStatus()
+        .then((s) => dispatch({ type: 'SET_BUS', status: s }))
+        .catch(() => {});
+    syncBusStatus();
 
     // WebSocket for live telegrams + bus events
     const ws = createWS((msg: Record<string, unknown>) => {
@@ -160,7 +235,12 @@ export default function App() {
           type: 'SET_BUS',
           status: {
             connected: true,
-            type: msg.connectionType === 'usb' ? 'usb' : 'udp',
+            type:
+              msg.connectionType === 'usb'
+                ? 'usb'
+                : msg.connectionType === 'tcp'
+                  ? 'tcp'
+                  : 'udp',
             host: (msg.host as string | null) ?? null,
             port: msg.port as number | undefined,
             path: msg.path as string | undefined,
@@ -168,10 +248,61 @@ export default function App() {
           },
         });
       } else if (msg.type === 'knx:disconnected') {
+        // needsAttention deliberately absent (defaults falsy) - a fresh
+        // drop reads as calm/idle first; only 'knx:reconnect-failed'
+        // (below), sent once a reconnect attempt genuinely fails, escalates
+        // it. See state.ts's BusStatus.needsAttention doc comment.
         dispatch({
           type: 'SET_BUS',
           status: { connected: false, host: null, hasLib: true },
         });
+      } else if (msg.type === 'knx:reconnect-failed') {
+        dispatch({ type: 'SET_BUS_ATTENTION', needsAttention: true });
+      } else if (msg.type === 'verify:progress') {
+        const deviceAddress = msg.deviceAddress as string;
+        setVerifyProgress((p) => ({
+          ...p,
+          [deviceAddress]: {
+            bytesRead: msg.bytesRead as number,
+            totalBytes: msg.totalBytes as number,
+            pct: msg.pct as number,
+          },
+        }));
+      } else if (msg.type === 'program:progress') {
+        const deviceAddress = msg.deviceAddress as string;
+        setProgramProgress((p) => ({
+          ...p,
+          [deviceAddress]: {
+            msg: msg.msg as string,
+            pct: msg.pct as number | undefined,
+            done: msg.done as boolean | undefined,
+            error: msg.error as boolean | undefined,
+            // Real request, 2026-08-31: a dedicated "press the button"
+            // modal needs a reliable signal distinct from every other
+            // progress message - see /bus/program-device's own pre-
+            // flight (server/routes/bus.ts) and DownloadProgress's own
+            // doc comment (server/knx-connection.ts) for why this is only
+            // ever true on the one message announcing the wait.
+            awaitingButton: msg.awaitingButton as boolean | undefined,
+          },
+        }));
+        // Real request, 2026-08-31: "each step should also show in the
+        // log, with reasonable details" - every program:progress message
+        // previously only ever updated the button's own inline text/
+        // percentage, never the actual log panel. `msg.debug` (see
+        // DownloadProgress's own doc comment, knx-connection.ts) filters
+        // this at the source, not just at render time, when the debug-log
+        // preference is off - `programProgress` above still gets every
+        // message regardless (the live progress bar/awaitingButton modal
+        // must never depend on this display preference).
+        if (!msg.debug || showDebugLogRef.current) {
+          setProgrammingLogEntries((l) =>
+            [
+              `[${new Date().toLocaleTimeString()}] ${deviceAddress}: ${msg.msg as string}`,
+              ...l,
+            ].slice(0, PROGRAMMING_LOG_CAP),
+          );
+        }
       } else if (msg.type === 'scan:progress') {
         dispatch({
           type: 'SCAN_PROGRESS',
@@ -229,7 +360,7 @@ export default function App() {
           code: msg.code as string | undefined,
         });
       }
-    });
+    }, syncBusStatus);
     wsRef.current = ws;
 
     // Re-attach to an in-flight import if the user refreshed mid-parse.
@@ -291,6 +422,7 @@ export default function App() {
       updateGA: projectHandlers.handleUpdateGA,
       renameGAGroup: projectHandlers.handleRenameGAGroup,
       updateDevice: projectHandlers.handleUpdateDevice,
+      unassignDevice: projectHandlers.handleUnassignDevice,
       updateSpace: projectHandlers.handleUpdateSpace,
       createTopology: projectHandlers.handleCreateTopology,
       updateTopology: projectHandlers.handleUpdateTopology,
@@ -301,7 +433,11 @@ export default function App() {
       deleteGA: projectHandlers.handleDeleteGA,
       addDevice: projectHandlers.handleAddDevice,
       updateComObjectGAs: projectHandlers.handleUpdateComObjectGAs,
+      updateComObjectFlags: projectHandlers.handleUpdateComObjectFlags,
       addScannedDevice: projectHandlers.handleAddScannedDevice,
+      applyDeviceStatus: projectHandlers.applyDeviceStatus,
+      applyDeviceVerifyCleared: projectHandlers.applyDeviceVerifyCleared,
+      applyDeviceVerifyResult: projectHandlers.applyDeviceVerifyResult,
     }),
     [projectHandlers],
   );
@@ -314,6 +450,8 @@ export default function App() {
       deviceStatus: busHandlers.handleDeviceStatus,
       write: busHandlers.handleWrite,
       clearTelegrams: busHandlers.handleClearTelegrams,
+      watchStart: () => wsRef.current?.send({ type: 'watch:start' }),
+      watchStop: () => wsRef.current?.send({ type: 'watch:stop' }),
     }),
     [busHandlers],
   );
@@ -347,6 +485,40 @@ export default function App() {
     [state.busStatus, state.telegrams],
   );
 
+  const verifyCache: VerifyCache = useMemo(
+    () => ({
+      cache: state.verifyCache,
+      setResult: (deviceId, result) =>
+        dispatch({ type: 'SET_VERIFY_RESULT', deviceId, result }),
+      clearResult: (deviceId) =>
+        dispatch({ type: 'CLEAR_VERIFY_RESULT', deviceId }),
+      progress: verifyProgress,
+      programProgress,
+      clearProgramProgress: (deviceAddress: string) =>
+        setProgramProgress((p) => {
+          if (!(deviceAddress in p)) return p;
+          const next = { ...p };
+          delete next[deviceAddress];
+          return next;
+        }),
+    }),
+    [state.verifyCache, verifyProgress, programProgress],
+  );
+
+  const programmingLog: ProgrammingLog = useMemo(
+    () => ({
+      entries: programmingLogEntries,
+      add: (line) =>
+        setProgrammingLogEntries((l) =>
+          [line, ...l].slice(0, PROGRAMMING_LOG_CAP),
+        ),
+      clear: () => setProgrammingLogEntries([]),
+      showDebug: showDebugLog,
+      toggleShowDebug: toggleShowDebugLog,
+    }),
+    [programmingLogEntries, showDebugLog],
+  );
+
   const shellProps = {
     state,
     dispatch,
@@ -366,27 +538,34 @@ export default function App() {
           <I18nCtx.Provider value={i18n}>
             <AppDataCtx.Provider value={appData}>
               <LiveDataCtx.Provider value={liveData}>
-                <ProjectActionsCtx.Provider value={projectActions}>
-                  <BusActionsCtx.Provider value={busActions}>
-                    <UndoCtx.Provider value={undoActions}>
-                      <Routes>
-                        <Route
-                          path="/"
-                          element={<AppShell {...shellProps} />}
-                        />
-                        <Route
-                          path="/settings"
-                          element={<AppShell {...shellProps} />}
-                        />
-                        <Route
-                          path="/projects/:id/*"
-                          element={<ProjectLoader {...shellProps} />}
-                        />
-                        <Route path="*" element={<Navigate to="/" replace />} />
-                      </Routes>
-                    </UndoCtx.Provider>
-                  </BusActionsCtx.Provider>
-                </ProjectActionsCtx.Provider>
+                <VerifyCacheCtx.Provider value={verifyCache}>
+                  <ProgrammingLogCtx.Provider value={programmingLog}>
+                    <ProjectActionsCtx.Provider value={projectActions}>
+                      <BusActionsCtx.Provider value={busActions}>
+                        <UndoCtx.Provider value={undoActions}>
+                          <Routes>
+                            <Route
+                              path="/"
+                              element={<AppShell {...shellProps} />}
+                            />
+                            <Route
+                              path="/settings"
+                              element={<AppShell {...shellProps} />}
+                            />
+                            <Route
+                              path="/projects/:id/*"
+                              element={<ProjectLoader {...shellProps} />}
+                            />
+                            <Route
+                              path="*"
+                              element={<Navigate to="/" replace />}
+                            />
+                          </Routes>
+                        </UndoCtx.Provider>
+                      </BusActionsCtx.Provider>
+                    </ProjectActionsCtx.Provider>
+                  </ProgrammingLogCtx.Provider>
+                </VerifyCacheCtx.Provider>
               </LiveDataCtx.Provider>
             </AppDataCtx.Provider>
           </I18nCtx.Provider>

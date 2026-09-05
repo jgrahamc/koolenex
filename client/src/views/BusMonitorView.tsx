@@ -1,4 +1,11 @@
-import { useState, useEffect, useRef, useContext, useMemo } from 'react';
+import {
+  useState,
+  useEffect,
+  useRef,
+  useContext,
+  useMemo,
+  useCallback,
+} from 'react';
 import {
   useDpt,
   PinContext,
@@ -25,16 +32,26 @@ import { dptInfo } from '../dpt.ts';
 import { useSpacePath } from '../hooks/spaces.ts';
 import styles from './BusMonitorView.module.css';
 
+const FLOW_PANEL_ROW_HEIGHT = 27; // .flowRow height (22px) + column gap (5px)
+const FLOW_PANEL_HEADER_HEIGHT = 34; // vertical padding + LIVE FLOW label row
+const FLOW_PANEL_MIN_HEIGHT = 70; // label + at least one row
+const FLOW_PANEL_MAX_HEIGHT = 420;
+const FLOW_PANEL_DEFAULT_HEIGHT = 95; // label + ~2 rows
+
 function TelegramFlowPanel({
   telegrams,
   gaMap,
   devMap,
   comObjects,
+  height,
+  maxRows,
 }: {
   telegrams: any[];
   gaMap: Record<string, any>;
   devMap: Record<string, any>;
   comObjects: any[];
+  height: number;
+  maxRows: number;
 }) {
   const pin = useContext(PinContext);
   // Build GA → [linked device addresses] from comObjects
@@ -49,17 +66,17 @@ function TelegramFlowPanel({
     return m;
   }, [comObjects]);
 
-  const recent = telegrams.slice(0, 6);
+  const recent = telegrams.slice(0, maxRows);
 
   if (recent.length === 0)
     return (
-      <div className={styles.flowEmpty}>
+      <div className={styles.flowEmpty} style={{ height }}>
         <span className={styles.flowEmptyText}>Waiting for live activity…</span>
       </div>
     );
 
   return (
-    <div className={styles.flowPanel}>
+    <div className={styles.flowPanel} style={{ height }}>
       <div className={styles.flowLabel}>LIVE FLOW</div>
       {recent.map((tg: any, i: number) => {
         const opacity =
@@ -189,14 +206,79 @@ export function BusMonitorView() {
   const { projectData: data } = useAppData();
   const { busStatus, telegrams } = useLiveData();
   const busConnected = busStatus.connected;
-  const { clearTelegrams: onClear, write: onWrite } = useBusActions();
+  const {
+    clearTelegrams: onClear,
+    write: onWrite,
+    watchStart,
+    watchStop,
+  } = useBusActions();
   const dpt = useDpt();
   const [filter, setFilter] = useState('');
   const [filterType, setFilterType] = useState('all');
   const [paused, setPaused] = useState(false);
+
+  // Tells the backend to proactively keep the bus connection alive across
+  // a gateway idle-timeout drop while this view is actually watching live
+  // telegrams - watching doesn't otherwise trigger any bus operation of
+  // its own, so nothing else would recover a drop until the user did
+  // something else. Paused is treated the same as not being on this view
+  // at all: no reason to hold the connection open proactively (and against
+  // a gateway's limited tunneling channels) if the user has stepped away
+  // from live monitoring. Re-running on every `paused` change means the
+  // effect's own cleanup releases the ref exactly once per watchStart(),
+  // whether that's on pause or on unmount - never leaked, never double-
+  // released. See KnxBusManager.addKeepAliveRef().
+  useEffect(() => {
+    if (paused) return;
+    watchStart();
+    return () => watchStop();
+  }, [paused]);
   const [snapshot, setSnapshot] = useState<any[] | null>(null);
   const [showSend, setShowSend] = useState(false);
   const [showFlow, setShowFlow] = useState(true);
+
+  // Adjustable Live Flow panel height, drag-resized via a handle above it
+  // (same pattern as the sidebar resize in AppShell.tsx). The number of
+  // rows shown grows/shrinks with the available height instead of the
+  // previous fixed 6.
+  const [flowHeight, setFlowHeight] = useState<number>(
+    () =>
+      Number(localStorage.getItem('knx-monitor-flow-height')) ||
+      FLOW_PANEL_DEFAULT_HEIGHT,
+  );
+  useEffect(() => {
+    localStorage.setItem('knx-monitor-flow-height', String(flowHeight));
+  }, [flowHeight]);
+  const startFlowResize = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      const startY = e.clientY;
+      const startH = flowHeight;
+      const onMove = (ev: MouseEvent) =>
+        // The panel is anchored to the bottom of the view, so dragging the
+        // handle up (negative deltaY) should grow it.
+        setFlowHeight(
+          Math.max(
+            FLOW_PANEL_MIN_HEIGHT,
+            Math.min(FLOW_PANEL_MAX_HEIGHT, startH - (ev.clientY - startY)),
+          ),
+        );
+      const onUp = () => {
+        window.removeEventListener('mousemove', onMove);
+        window.removeEventListener('mouseup', onUp);
+      };
+      window.addEventListener('mousemove', onMove);
+      window.addEventListener('mouseup', onUp);
+    },
+    [flowHeight],
+  );
+  // Mirrors .flowRow's height (22px) + .flowPanel's row gap (5px); the
+  // header allowance covers the panel's own vertical padding plus the
+  // LIVE FLOW label row - see BusMonitorView.module.css.
+  const flowMaxRows = Math.max(
+    1,
+    Math.floor((flowHeight - FLOW_PANEL_HEADER_HEIGHT) / FLOW_PANEL_ROW_HEIGHT),
+  );
   const [sendGa, setSendGa] = useState('');
   const [sendVal, setSendVal] = useState('');
   const [sendDpt, setSendDpt] = useState('1');
@@ -635,12 +717,21 @@ export function BusMonitorView() {
         )}
       </div>
       {showFlow && (
-        <TelegramFlowPanel
-          telegrams={paused ? snapshot || telegrams : telegrams}
-          gaMap={gaMap}
-          devMap={devMap}
-          comObjects={data?.comObjects || []}
-        />
+        <>
+          <div
+            className={styles.flowResizeHandle}
+            onMouseDown={startFlowResize}
+            title="Drag to resize"
+          />
+          <TelegramFlowPanel
+            telegrams={paused ? snapshot || telegrams : telegrams}
+            gaMap={gaMap}
+            devMap={devMap}
+            comObjects={data?.comObjects || []}
+            height={flowHeight}
+            maxRows={flowMaxRows}
+          />
+        </>
       )}
     </div>
   );

@@ -620,7 +620,10 @@
   white-space: nowrap;
 }
 .thCoFlags {
-  width: 60px;
+  /* Widened from 60px, 2026-08-31 - the cell can now show "·RI"/"·<Priority
+     initial>" suffixes alongside the C/R/W/T/U composite (see
+     flagsCellDisplay(), DevicePinPanel.tsx), which didn't fit at 60px. */
+  width: 90px;
 }
 .sameDevRowSelected {
   composes: sameDevRow;
@@ -631,6 +634,75 @@
   composes: sameDevRow;
   background: var(--surface);
   border: 1px solid var(--border);
+}
+/* Object 3 (Group Object Table) flags/priority editing - added 2026-08-31.
+   FLAGS cell becomes a clickable popover trigger when onUpdateComObjectFlags
+   is provided; read-only span (existing .dimMono) otherwise. */
+.flagsCellWrap {
+  position: relative;
+  display: inline-block;
+}
+.flagsCellClickable {
+  composes: dimMono;
+  cursor: pointer;
+  border-bottom: 1px dotted var(--border2);
+}
+.flagsPopoverOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 49;
+}
+.flagsPopover {
+  position: absolute;
+  top: calc(100% + 4px);
+  /* Anchored to the cell's RIGHT edge, opening leftward - not left:0/
+     opening rightward. FLAGS sits second-to-last in a wide table (right
+     before GA), close to the table's own right edge, so a rightward-opening
+     popover clips off the viewport; real bug found 2026-08-31 testing at a
+     narrower width. */
+  right: 0;
+  z-index: 50;
+  width: 180px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  padding: 8px;
+  font-family: 'DM Mono', monospace;
+}
+.flagsPopoverLabel {
+  font-size: 9px;
+  color: var(--dim);
+  letter-spacing: 0.08em;
+  margin-bottom: 4px;
+}
+.flagsPopoverGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 3px;
+  margin-bottom: 8px;
+}
+.flagsCheckRow {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  color: var(--text);
+  cursor: pointer;
+}
+.flagsCheckbox {
+  cursor: pointer;
+  accent-color: var(--accent);
+}
+.flagsPopoverDivider {
+  border-top: 1px solid var(--border);
+  margin: 6px 0;
+}
+.flagsPrioritySelect {
+  composes: inputField;
+  width: 100%;
+  font-size: 10px;
+  padding: 3px 6px;
 }
 .spacePathDim {
   color: var(--dim);

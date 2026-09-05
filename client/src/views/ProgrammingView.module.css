@@ -1,8 +1,25 @@
 /* ProgrammingView */
 .root {
   display: flex;
+  /* Row (the default) lays out [.main, resizer, log panel] side by side -
+     the original, vertical/right-docked log layout. */
   flex: 1;
   overflow: hidden;
+  /* Positioning root for the slide-over/scrim below - keeps both scoped to
+     this page's own content area (to the right of the app's sidebar)
+     instead of the full browser viewport, so resizing the window shrinks
+     them correctly without ever covering the sidebar. */
+  position: relative;
+  min-width: 0;
+}
+/* Horizontal log mode, added 2026-08-31: same three children
+   ([.main, resizer, log panel]), just stacked as a column instead of a
+   row - .main on top, the panel bottom-docked. Everything else about the
+   layout (the resizer's own drag handler, the panel's internal
+   header/body/footer flex-column) stays the same; only this direction
+   flip plus the panel/resizer's own width->height swap (below) differ. */
+.rootHorizontal {
+  flex-direction: column;
 }
 .main {
   flex: 1;
@@ -13,86 +30,325 @@
 .content {
   overflow: auto;
   flex: 1;
-  padding: 20px;
+  padding: 20px 14px 20px 20px;
+  /* A little thicker than the global 4px default so the horizontal
+     scrollbar is clearly visible when the table doesn't fully fit
+     (narrow window, log pane open) instead of easy to miss. */
+  scrollbar-color: var(--border) var(--bg);
 }
-.statGrid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 12px;
-  margin-bottom: 24px;
+.content::-webkit-scrollbar {
+  height: 8px;
 }
-.statCard {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 14px 16px;
+/* Standard small Badge pills (see primitives.tsx's Badge) instead of the
+   giant stat-card grid this replaced 2026-08-29 - just a flex row with the
+   app's usual badge gap. */
+.statBadgeRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
 }
-.statNumber {
-  font-size: 28px;
-  font-weight: 700;
-  font-family: 'Syne', sans-serif;
-}
-.statLabel {
+/* Slightly larger than the app's standard Badge (9px) - a small nod to the
+   huge stat-card numbers this row replaced, per explicit request. Scoped to
+   THIS page only (descendant selector on the badge's own rendered <span>,
+   not a change to primitives.module.css's shared .badge class - Badge
+   doesn't take a className prop, so this is the only way to scope it to
+   just this one row without touching every other badge in the app). */
+.statBadgeRow span {
   font-size: 11px;
-  color: var(--muted);
-  margin-top: 2px;
 }
 .table {
   width: 100%;
+  /* table-layout:fixed sizes an unset column from its OWN header cell's
+     natural content width on the first layout pass, NOT from leftover
+     space - DEVICE's <th> has no width, so without an explicit floor it
+     was locking to roughly "DEVICE"-the-label's own width (~50px), way
+     too narrow for real device names, and everything below it (icon,
+     status badge) visually overflowed into neighboring cells instead of
+     wrapping. thDevice's min-width below fixes that; this min-width is
+     the matching floor so the table (not the DEVICE column) is what
+     shrinks/scrolls once the log pane leaves too little room, rather than
+     squeezing DEVICE toward zero again. */
+  /* other columns' widths (88+300=388, thActions widened again 2026-08-30
+     - see its own comment) + thDevice's own 168px min-width, below -
+     table-layout:fixed derives DEVICE's actual share from (this min-width
+     minus the other columns' widths), not from its own min-width
+     directly, so this has to stay in sync with both. (The PROGRESS column
+     was removed - Program's live percentage now renders inside the
+     Program button itself, as its own fill background, instead of a
+     separate column.) Trimmed as far as still legible (esp. the
+     PROGRAMMED/etc. status badge and the address badge) so the table
+     needs less extra width than it used to before falling back to
+     horizontal scroll, since scroll is otherwise the common case once the
+     log pane is open too. Also .content above got its right padding
+     trimmed 20px -> 14px for the same reason. ADDRESS used to be its own
+     46px column; folded into DEVICE as a small pill instead (see
+     .addrBadge) so thDevice's min-width absorbs it. */
+  min-width: 556px;
   border-collapse: collapse;
+  table-layout: fixed;
 }
 .devName {
   display: flex;
   align-items: center;
   gap: 7px;
 }
+/* Real bug found live 2026-08-31: the device name and manufacturer label
+   used to be two plain flex ITEMS on .devName's single row, alongside the
+   icon/address-pill/serial-icon - a short name (fits one line) left the
+   manufacturer sitting right after it, but a longer name (wraps to 2+
+   lines) pushed the manufacturer down to wherever the wrap happened to
+   end, landing at a different horizontal position per row. Stacking name
+   +manufacturer in their own column (name on top, manufacturer directly
+   under it, both left-aligned) makes the manufacturer's position
+   independent of how many lines the name itself wraps to. */
+.devNameCol {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 0;
+}
+.devNameText {
+  overflow-wrap: break-word;
+}
 .mfrLabel {
   color: var(--dim);
   font-size: 9px;
 }
-.progressWrap {
+/* STATUS cell's own stacked layout (badge on top, last-download date
+   underneath) - same visual language as .devNameCol/.mfrLabel above, real
+   request 2026-08-31: "display last download date on the Programming
+   page... Maybe inside the Status badge, in small text?" */
+.statusCol {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+}
+/* Badge + the "verify recommended" indicator, side by side above the
+   last-download label. */
+.statusBadgeRow {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 5px;
 }
-.progressTrack {
-  flex: 1;
-  height: 3px;
-  background: #1a2030;
-  border-radius: 2px;
-  overflow: hidden;
-}
-.progressBar {
-  height: 100%;
-  transition: width 0.15s;
-  border-radius: 2px;
-}
-.progressPct {
-  font-size: 10px;
-  color: var(--muted);
-  width: 32px;
-}
-.progressErr {
-  font-size: 10px;
-  color: var(--red);
-}
-.progressDash {
+.lastDownloadLabel {
   color: var(--dim);
+  font-size: 9px;
+  white-space: nowrap;
+}
+/* Address pill, folded into the DEVICE cell in place of its own column
+   (see .table's min-width comment). Small/monospace/accent, same visual
+   language as .accentMono used to be, just pill-shaped so it doesn't read
+   as running straight into the device name next to it. */
+.addrBadge {
+  flex-shrink: 0;
+  font-family: monospace;
   font-size: 10px;
+  /* Fixed width (not just padding) - added 2026-08-30, real request: a
+     real address ("1.1.10") and the "-.-.-" placeholder aren't the same
+     length, so without this the device name/manufacturer text after the
+     badge started at a different x per row, reading as misaligned columns
+     even though the table's own grid was fine. Centered within it so
+     shorter values ("1.1.0") don't look lopsided. */
+  width: 46px;
+  text-align: center;
+  /* color defaults here but is overridden inline per-state by DeviceAddr
+     (primitives.tsx) - background/border follow currentColor rather than
+     a hardcoded --accent so the whole pill (not just the text) reflects
+     an overridden color, e.g. the amber "pending, not yet written to
+     hardware" state. */
+  color: var(--accent);
+  background: color-mix(in srgb, currentColor 12%, transparent);
+  border: 1px solid color-mix(in srgb, currentColor 30%, transparent);
+  border-radius: 999px;
+  padding: 1px 7px;
+}
+.serialIcon {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+}
+.resizer {
+  width: 5px;
+  flex-shrink: 0;
+  cursor: col-resize;
+  background: transparent;
+  position: relative;
+}
+.resizer:hover,
+.resizer:active {
+  background: color-mix(in srgb, var(--accent) 35%, transparent);
+}
+/* Horizontal mode's resizer: a full-width horizontal bar (drags height via
+   mouse-Y, see onResizerMouseDown) instead of a narrow vertical bar
+   (drags width via mouse-X) - added 2026-08-31. */
+.resizerHorizontal {
+  height: 5px;
+  width: 100%;
+  flex-shrink: 0;
+  cursor: row-resize;
+  background: transparent;
+  position: relative;
+}
+.resizerHorizontal:hover,
+.resizerHorizontal:active {
+  background: color-mix(in srgb, var(--accent) 35%, transparent);
 }
 .sidebar {
-  width: 220px;
+  flex-shrink: 0;
   border-left: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   overflow: hidden;
 }
+/* Horizontal mode: same panel, full page width instead of a border on the
+   left, a border on top instead (it's now above, not beside, .main) -
+   added 2026-08-31. Its own internal layout (header/body/footer, all
+   already flex-column) needs no change - only the outer dimension the
+   size prop controls flips from width (see the inline style at the call
+   site) to height. */
+.sidebarHorizontal {
+  border-left: none;
+  border-top: 1px solid var(--border);
+  width: 100%;
+}
+.sidebarResizing {
+  user-select: none;
+}
 .logHeader {
   padding: 10px 14px;
   border-bottom: 1px solid var(--border);
+  /* Same token AppShell uses for its own title/nav chrome (global.css's
+     --sidebar) - a real request 2026-08-31: a plain border-bottom alone
+     didn't read as "this is a header bar" against the log body's own
+     background, which was the same color. */
+  background: var(--sidebar);
   font-size: 9px;
   color: var(--dim);
   letter-spacing: 0.1em;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+/* Horizontal mode's header, added 2026-08-31: shorter (a bottom-docked
+   panel is already competing with the device table for vertical space,
+   unlike the vertical panel which only ever competes for width) - same
+   background/border, just less vertical padding. */
+.logHeaderHorizontal {
+  padding: 4px 14px;
+}
+.logHeaderActions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+/* Real request, 2026-09-01: extra space beyond the container's own 6px
+   gap, so the destructive Clear Log icon (leftmost, no confirm) doesn't
+   sit close enough to the debug/collapse icons to be an accidental-click
+   risk. */
+.logClearBtn {
+  margin-right: 10px;
+}
+.logCollapseBtn {
+  background: none;
+  border: none;
+  color: var(--dim);
+  cursor: pointer;
+  font-size: 11px;
+  line-height: 1;
+  padding: 2px;
+}
+.logCollapseBtn:hover {
+  color: var(--fg);
+}
+/* Collapse button specifically, added 2026-08-31: the small triangle
+   (shared size with the other header icons) read as too small/easy to
+   miss on a real screen - bumped up on its own rather than growing every
+   header icon, since it's the one action a person needs to find
+   reliably (the others are secondary/discoverable-on-hover actions).
+   16px (the first attempt) turned out too big on a real screen -
+   settled on 13px, still visibly larger than the 11px siblings. */
+.logCollapseBtnLarge {
+  background: none;
+  border: none;
+  color: var(--dim);
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  padding: 2px;
+}
+.logCollapseBtnLarge:hover {
+  color: var(--fg);
+}
+/* Collapsed state: a slim always-visible strip instead of the full log
+   pane - reclaims the width for the (not yet fully responsive) device
+   table, while staying one click away and showing an at-a-glance count of
+   what's waiting to be seen. */
+.logCollapsedStrip {
+  flex-shrink: 0;
+  width: 28px;
+  border-left: 1px solid var(--border);
+  background: none;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 0;
+  color: var(--dim);
+  font-family: inherit;
+}
+.logCollapsedStrip:hover {
+  color: var(--fg);
+  background: var(--surface);
+}
+.logCollapsedLabel {
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  font-size: 9px;
+  letter-spacing: 0.1em;
+}
+/* Horizontal mode's collapsed state: a thin strip along the bottom edge
+   instead of the right - the label reads normally (no rotation needed,
+   there's no vertical strip to fit it into) - added 2026-08-31. */
+.logCollapsedStripHorizontal {
+  flex-shrink: 0;
+  height: 24px;
+  width: 100%;
+  border-left: none;
+  border-top: 1px solid var(--border);
+  background: none;
+  cursor: pointer;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 12px;
+  color: var(--dim);
+  font-family: inherit;
+}
+.logCollapsedStripHorizontal:hover {
+  color: var(--fg);
+  background: var(--surface);
+}
+.logCollapsedLabelHorizontal {
+  font-size: 9px;
+  letter-spacing: 0.1em;
+}
+.logCollapsedCount {
+  background: var(--accent);
+  color: var(--bg);
+  border-radius: 999px;
+  font-size: 9px;
+  font-weight: 700;
+  min-width: 15px;
+  height: 15px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 3px;
 }
 .logBody {
   flex: 1;
@@ -107,43 +363,443 @@
   color: var(--dim);
 }
 .logEntry {
-  font-size: 10px;
-  line-height: 1.5;
+  /* Reduced from 10px, real request 2026-08-30 - the log read as
+     cluttered/hard to scan, both this and the time/text split below were
+     part of the same fix. */
+  font-size: 9px;
+  line-height: 1.45;
 }
-.logFooter {
-  padding: 10px 12px;
-  border-top: 1px solid var(--border);
+.logEntryTime {
+  color: var(--dim);
+  /* Own line above the message, not inline with it - a wrapped message
+     used to run directly under its own timestamp with no visual break,
+     making consecutive multi-line entries hard to tell apart at a
+     glance. */
+  margin-bottom: 1px;
 }
-.logFooterBtn {
-  width: 100%;
+.logEntryText {
+  color: var(--text);
+  /* Indented under its timestamp, including on any wrapped line beyond
+     the first (not just the first word) - padding+hanging indent via
+     text-indent's negative counterpart on padding-left alone would only
+     indent the first line, so this uses padding-left on the whole block
+     instead, which affects every wrapped line equally. */
+  padding-left: 8px;
 }
-.thAddr {
-  width: 90px;
+/* Bottom-horizontal orientation only - real request 2026-09-01: with the
+   log as a wide strip (not a narrow sidebar column), a stacked time/
+   message pair reads as wasted vertical space rather than the clarity
+   fix it was for the sidebar (see .logEntryTime's own doc comment) -
+   same-line reads better here, time still its own (dim) color. */
+.logEntryHorizontal {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.logEntryHorizontal .logEntryTime {
+  margin-bottom: 0;
+  flex-shrink: 0;
+}
+.logEntryHorizontal .logEntryText {
+  padding-left: 0;
+}
+.thDevice {
+  min-width: 168px;
 }
 .thStatus {
-  width: 120px;
-}
-.thProgress {
-  width: 200px;
+  width: 88px;
 }
 .thActions {
-  width: 110px;
-}
-.accentMono {
-  color: var(--accent);
-  font-family: monospace;
-}
-.logEntrySuccess {
-  composes: logEntry;
-  color: var(--green);
-}
-.logEntryNormal {
-  composes: logEntry;
-  color: var(--muted);
+  /* Real bug, found live 2026-08-30: viewSlot(52) + gap(6) +
+     verifyBtnWrap's actionBtn(min 92) + gap(6) + downloadModeAnchor's
+     actionBtn(min 92) = 248px of real content, packed into a 250px
+     column that itself loses 24px to TD's own horizontal padding (see
+     primitives.module.css's .td) - genuinely never enough room, just
+     narrowly enough to go unnoticed until Re-program's button visibly
+     spilled out past the column into whatever sits to its right (the log
+     panel's collapsed strip). Widened with real slack this time - see
+     .table's min-width comment for how this feeds into it.
+     Widened again 2026-08-30 (same day) alongside .actionBtn going from a
+     92px min-width to a fixed 104px (both Verify and Program, so
+     "✓ Re-program" - the longest real label - no longer grows one button
+     past the other): new content total 52+6+104+6+104=272px, needing
+     more than the 24px of slack the 280px width left over TD's own 24px
+     padding. */
+  width: 300px;
 }
 
 .rowActions {
   display: flex;
   gap: 6px;
   align-items: center;
+  /* Right-aligned within the (now correctly widened, see .thActions'
+     comment) actions column - flush against the column's own right edge
+     rather than packed against its left, so the row's buttons land at a
+     consistent x right next to wherever the log panel/collapsed strip
+     sits, instead of drifting depending on how much slack the column has. */
+  justify-content: flex-end;
+}
+
+/* ── Verify progress popover: a small readout under the Verify button
+   while a read is in flight, using the same live progress data the
+   Device vs Project page's loading banner shows. ── */
+.verifyBtnWrap {
+  position: relative;
+}
+.rowActions :global(button) {
+  white-space: nowrap;
+}
+/* Shared FIXED width (not just a floor) across Verify/Re-verify and
+   Program/Re-program/✓ Re-program/Retry so the buttons stay exactly the
+   same size regardless of which label is currently showing - real
+   request 2026-08-30: a plain min-width let "✓ Re-program" (the longest
+   real label, checkmark included) grow past Verify's own width, so the
+   two buttons visibly weren't aligned/matched anymore. Widened slightly
+   and paired with a 1px-smaller font (below) to fit that longest label
+   without the column needing to grow again. */
+.actionBtn {
+  width: 104px;
+  font-size: 9px;
+  text-align: center;
+  position: relative;
+  overflow: hidden;
+}
+/* Gentle left-to-right "flow" while a Verify/Program is running - real
+   request 2026-08-31, replacing the global `pulse` class (whole-button
+   opacity fade, global.css) which read as too harsh/flashing on a large
+   filled button. A soft shine band sweeps across the button's own area on
+   a loop, independent of the percentage-fill gradient set inline per-row
+   (that gradient stays on the button's own `background`; this is a
+   separate ::before layer on top of it, not a replacement).
+
+   Clipped to --action-pct (set inline per-row alongside the fill
+   gradient) rather than the button's full width - real follow-up request
+   2026-08-31: the shine used to sweep the whole button regardless of how
+   much of the progress bar was actually filled, which didn't read as
+   "part of the progress bar". Falls back to 100% when no percentage is
+   known yet (verifying but no live progress message received yet). */
+.actionBtnRunning::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: var(--action-pct, 100%);
+  background: linear-gradient(
+    100deg,
+    transparent 40%,
+    color-mix(in srgb, var(--text) 25%, transparent) 50%,
+    transparent 60%
+  );
+  background-size: 60% 100%;
+  background-repeat: no-repeat;
+  animation: actionBtnFlow 1.6s linear infinite;
+  pointer-events: none;
+}
+@keyframes actionBtnFlow {
+  from {
+    background-position: -60% 0;
+  }
+  to {
+    background-position: 160% 0;
+  }
+}
+/* Fixed-width slot for the View icon so Verify/Program always line up at
+   the same x across rows, whether or not a row has a cached result (see
+   the comment at its call site). Narrowed 2026-09-01 (52px -> 26px) when
+   the clear-cache icon that used to share this slot moved into the
+   compare slide-over's own header instead. */
+.viewSlot {
+  width: 26px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+/* Small square icon button (View 👁) - replaced the old text "View" pill
+   once a second action needed to sit next to it; a pill sized for "Clear"
+   text would have eaten more row width than the icons combined. The
+   second icon (clear-cache 🗑) has since moved to the compare slide-over's
+   own header - see .viewSlot's own comment. */
+.iconChipBtn {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  color: var(--accent);
+  border-radius: 5px;
+  font-size: 11px;
+  line-height: 1;
+  font-family: inherit;
+  cursor: pointer;
+}
+.iconChipBtn:hover {
+  background: color-mix(in srgb, var(--accent) 30%, transparent);
+}
+.iconChipBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+/* Clear-cache is a lower-key, slightly-careful action next to the primary
+   View affordance - muted/dim by default (not competing with View for
+   attention), a red tint only on hover to signal "this removes something"
+   without being alarming at rest. Destructive but low-stakes (re-verify
+   any time restores it), so no confirm step - same precedent as the log
+   sidebar's plain "Clear Log" button. */
+.clearCacheBtn {
+  background: color-mix(in srgb, var(--dim) 15%, transparent);
+  border-color: color-mix(in srgb, var(--dim) 35%, transparent);
+  color: var(--dim);
+}
+.clearCacheBtn:hover {
+  background: color-mix(in srgb, var(--red) 20%, transparent);
+  border-color: color-mix(in srgb, var(--red) 40%, transparent);
+  color: var(--red);
+}
+/* Debug-log toggle's "on" state - muted when off (.clearCacheBtn, reused
+   for the same dim-by-default treatment), accent-highlighted when on so
+   it's obvious debug detail is currently included in the log. */
+.debugLogBtnActive {
+  background: color-mix(in srgb, var(--accent) 25%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+  color: var(--accent);
+}
+/* ── Slide-over: opens automatically once a Verify read completes.
+   position:absolute against .root (not position:fixed against the
+   viewport) so both the scrim and the panel are scoped to this page's own
+   content area - to the right of the app's own sidebar - and never cover
+   it. Width is a percentage of THAT container (not the viewport), so it
+   shrinks continuously as the window (or the app sidebar) resizes, down to
+   a floor beyond which the content inside scrolls horizontally instead. ── */
+.slideOverScrim {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 90;
+}
+.slideOver {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(900px, 96%);
+  min-width: 320px;
+  max-width: 100%;
+  /* Distinct from the page's own --bg (visible in the sliver of Programming
+     still showing to the left) so the panel unmistakably reads as a layer
+     on top, not just more of the same page. */
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  box-shadow: -12px 0 32px rgba(0, 0, 0, 0.5);
+  z-index: 91;
+  display: flex;
+  flex-direction: column;
+  transform: translateX(100%);
+  transition: transform 0.22s ease-out;
+}
+.slideOverOpen {
+  transform: translateX(0);
+}
+.slideOverHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.slideOverTitle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: 'Syne', sans-serif;
+  font-weight: 700;
+  font-size: 14px;
+}
+/* Wraps the clear-cache icon + close button, added 2026-09-01 so
+   .slideOverHeader's own space-between still only has two real children
+   (title, this group) rather than three fighting over the same
+   justify-content behavior. */
+.slideOverHeaderActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.slideOverClose {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--muted);
+  width: 28px;
+  height: 28px;
+  cursor: pointer;
+  font-size: 13px;
+  font-family: inherit;
+}
+.slideOverClose:hover {
+  color: var(--fg);
+  border-color: var(--dim);
+}
+.slideOverBody {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+}
+
+/* ── Full/Partial download picker popover (2026-08-30) - the button that
+   opens it lives inside the table's own scrolling container (.content),
+   but the popover itself renders through a React portal into
+   document.body (see ProgrammingView.tsx's DownloadModePopover/
+   downloadModePopoverFor comments) with `position: fixed` coordinates
+   computed from the trigger's real on-screen rect. That's a deliberate
+   departure from AppShell's busStatusPopover (App.module.css), which can
+   get away with plain position:absolute because its own anchor never
+   sits inside a scrolling ancestor - this one does, and a portal is what
+   keeps it from being clipped by that ancestor's overflow. ── */
+.downloadModeAnchor {
+  position: relative;
+  display: inline-flex;
+}
+.downloadModePopover {
+  position: fixed;
+  z-index: 200;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  /* Real bug, found live via a screenshot 2026-08-31: this popover renders
+     through a React portal straight into document.body (see the file
+     comment above for why), which takes it outside .appShell's DOM
+     subtree entirely - the app's monospace font ('DM Mono', set on
+     .appShell in App.module.css, not on html/body) never reaches it, so
+     every label/description here silently fell back to the browser's
+     default serif font instead, looking like a different, inconsistent
+     component. Inherited by every child below (none override
+     font-family), so this one declaration fixes the whole popover. */
+  font-family: 'DM Mono', monospace;
+  /* Matched to AppShell's busStatusPopover (App.module.css) - the app's
+     one other options/status popover - radius, shadow, and outer padding
+     all previously drifted from it (12px/14-36-0.5/8px vs its 8px/
+     8-24-0.4/4px), reading as a visually distinct component rather than
+     the same kind of popover. `position: fixed` (vs that one's plain
+     `absolute`) and the entrance animation below are kept - real,
+     necessary differences, not drift - see the file comment above for
+     why this one needs a portal + fixed coordinates. */
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  /* 3px -> 6px alongside the option rows gaining their own visible tinted
+     background/border (above) - the tighter gap read fine against plain
+     rows, but crowded two now-bordered rows together. */
+  gap: 6px;
+  /* Guards against a transient frame where `pos` was computed from a
+     stale/zero rect (e.g. right after mount, before layout settles) -
+     keeps the popover fully offscreen rather than flashing at (0,0). */
+  animation: downloadModePopIn 0.12s ease-out;
+}
+@keyframes downloadModePopIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.downloadModeHeader {
+  font-size: 10px;
+  color: var(--dim);
+  letter-spacing: 0.08em;
+  padding: 6px 10px 6px;
+}
+.downloadModeOption {
+  text-align: left;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 11px 10px;
+  cursor: pointer;
+  font-family: inherit;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.downloadModeOption:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+/* Real request 2026-08-31: each row's own background now carries the same
+   color its icon chip already did, rather than the icon being the only
+   colored element on an otherwise flat row - same tint-percentage
+   convention the app already uses elsewhere for a semantic row/badge
+   (e.g. App.module.css's .busConnected/.busDisconnected: ~9% bg,
+   ~19% border), not a new pattern invented for this popover. Hover
+   strengthens the same tint rather than switching to a flat neutral
+   background, so the row's color identity doesn't disappear right when
+   it's actually being considered. */
+.downloadModeOptionFull {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+.downloadModeOptionFull:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+}
+.downloadModeOptionPartial {
+  background: color-mix(in srgb, var(--amber) 8%, transparent);
+  border-color: color-mix(in srgb, var(--amber) 18%, transparent);
+}
+.downloadModeOptionPartial:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--amber) 15%, transparent);
+}
+/* Icon chip color reflects each mode's own character, not just a shared
+   accent tint - Full is the safe/thorough option (blue, same language the
+   rest of the app uses for "trustworthy default") and Partial is the
+   fast/lighter one (amber, same language the app uses for "quicker but
+   more conditional" - matches its own lightning-bolt icon). Two explicit
+   variant classes rather than one shared .downloadModeIcon, so each
+   option's chip is unambiguous even before reading the label. */
+.downloadModeIcon {
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 7px;
+  font-size: 14px;
+  margin-top: 1px;
+}
+.downloadModeIconFull {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent);
+}
+.downloadModeIconPartial {
+  background: color-mix(in srgb, var(--amber) 16%, transparent);
+  color: var(--amber);
+}
+.downloadModeText {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.downloadModeLabel {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+.downloadModeDesc {
+  font-size: 11px;
+  color: var(--dim);
+  line-height: 1.5;
+  white-space: normal;
 }

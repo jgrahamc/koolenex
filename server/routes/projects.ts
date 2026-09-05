@@ -24,8 +24,10 @@ const upload = multer({
   limits: { fileSize: MAX_UPLOAD_BYTES },
 });
 
-// Shared insert logic used by both import and reimport
-function insertParsedData(
+// Shared insert logic used by both import and reimport. Exported (test-only
+// convention, matching e.g. knx-cemi.ts's `_apduPropertyValueWrite`) so a
+// script can drive a real parse+insert without going through Express/multer.
+export function insertParsedData(
   run: (sql: string, params?: unknown[]) => RunResult,
   pid: number,
   parsed: ParsedProject,
@@ -63,11 +65,12 @@ function insertParsedData(
     const { lastInsertRowid } = run(
       `
       INSERT OR REPLACE INTO devices
-      (project_id,individual_address,name,description,comment,installation_hints,manufacturer,model,order_number,serial_number,product_ref,area,line,device_type,status,last_modified,last_download,app_number,app_version,space_id,medium,parameters,app_ref,param_values,model_translations,bus_current,width_mm,is_power_supply,is_coupler,is_rail_mounted)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      (project_id,individual_address,has_address,name,description,comment,installation_hints,manufacturer,model,order_number,serial_number,product_ref,area,line,device_type,status,last_modified,last_download,app_number,app_version,space_id,medium,parameters,app_ref,param_values,model_translations,bus_current,width_mm,is_power_supply,is_coupler,is_rail_mounted,apdu_length)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         pid,
         d.individual_address,
+        d.has_address ? 1 : 0,
         d.name,
         d.description || '',
         d.comment || '',
@@ -96,6 +99,13 @@ function insertParsedData(
         d.is_power_supply ? 1 : 0,
         d.is_coupler ? 1 : 0,
         d.is_rail_mounted ? 1 : 0,
+        // Real request, 2026-08-31: `LastUsedAPDULength`, off the real
+        // `<DeviceInstance>` XML - was already parsed (ets-parser.ts) but
+        // silently dropped before this insert, never persisted. See
+        // db.ts's migration comment for the real evidence this is worth
+        // keeping (an exact match against a live PID_MAX_APDULENGTH
+        // read for one real device).
+        d.apdu_length || '',
       ],
     );
     deviceIdMap[d.individual_address] = lastInsertRowid;
@@ -140,8 +150,8 @@ function insertParsedData(
     if (!devId) continue;
     run(
       `INSERT INTO com_objects
-      (project_id,device_id,object_number,channel,name,function_text,dpt,object_size,flags,direction,ga_address,ga_send,ga_receive)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      (project_id,device_id,object_number,channel,name,function_text,dpt,object_size,flags,direction,ga_address,ga_send,ga_receive,read_on_init,priority,read,write,comm,tx,upd)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         pid,
         devId,
@@ -156,6 +166,14 @@ function insertParsedData(
         co.ga_address || '',
         co.ga_send || '',
         co.ga_receive || '',
+        co.read_on_init ? 1 : 0,
+        co.priority || 'low',
+        co.read ? 1 : 0,
+        co.write ? 1 : 0,
+        co.comm ? 1 : 0,
+        co.tx ? 1 : 0,
+        // `upd`, not `update` - see the DB-column-naming comment in db.ts.
+        co.update ? 1 : 0,
       ],
     );
   }

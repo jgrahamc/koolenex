@@ -76,7 +76,16 @@
   color: var(--dim);
   font-size: 10px;
 }
-/* TelegramFlowPanel */
+/* TelegramFlowPanel - height set inline (adjustable, see flowResizeHandle) */
+.flowResizeHandle {
+  height: 4px;
+  flex-shrink: 0;
+  cursor: row-resize;
+  background: var(--border);
+}
+.flowResizeHandle:hover {
+  background: var(--border2);
+}
 .flowPanel {
   border-top: 1px solid var(--border);
   background: var(--sidebar);
@@ -85,11 +94,12 @@
   flex-direction: column;
   gap: 5px;
   flex-shrink: 0;
+  overflow: hidden;
 }
 .flowEmpty {
   border-top: 1px solid var(--border);
   background: var(--sidebar);
-  height: 54px;
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;

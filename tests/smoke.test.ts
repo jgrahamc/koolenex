@@ -146,14 +146,17 @@ function assertParserOutput(
       assert.equal(getParsed().devices.length, 6);
     });
 
+    // Real fixture data, confirmed 2026-08-30: the "power supply" DeviceInstance
+    // (P-03BF-0_DI-1, ETS6-exported) genuinely carries no Address attribute -
+    // it was never given an individual address in the real ETS project this
+    // fixture was captured from. It is intentionally excluded from
+    // EXPECTED_DEVICES below (which asserts real individual_address lookups)
+    // and covered separately by 'the unaddressed power supply device' below,
+    // matching a real import bug fix (ets-parser.ts: a missing Address
+    // attribute is no longer coerced to device number 0, which collided with
+    // real address-0 devices and silently dropped every device after the
+    // first one on a project with more than one unaddressed device).
     const EXPECTED_DEVICES = [
-      {
-        ia: '1.1.0',
-        name: 'SV/S30.160.1.1 Power Supply,160mA,MDRC',
-        order: '2CDG 110 144 R0011',
-        hasApp: false,
-        paramCount: 0,
-      },
       {
         ia: '1.1.1',
         name: 'USB/S1.2 USB Interface, MDRC',
@@ -219,10 +222,18 @@ function assertParserOutput(
       assert.equal(Object.keys(d.param_values || {}).length, 16);
     });
 
-    it('power supply (1.1.0) has no application program', () => {
+    it('the unaddressed power supply device is still imported, not dropped', () => {
+      // See the EXPECTED_DEVICES comment above - this device has no real
+      // Address in the source project. It gets a synthetic individual_address
+      // (device number >= 256, the real-address range's real ceiling is 255)
+      // so it still gets a stable DB row instead of colliding with device 0.
       const d = getParsed().devices.find(
-        (d) => d.individual_address === '1.1.0',
+        (d) => d.order_number === '2CDG 110 144 R0011',
       );
+      assert(d, 'unaddressed power supply device not found');
+      assert.equal(d.name, 'SV/S30.160.1.1 Power Supply,160mA,MDRC');
+      assert.equal(d.has_address, false);
+      assert.equal(d.individual_address, '1.1.256');
       assert.equal(d.app_ref, '');
       assert.equal((d.parameters || []).length, 0);
     });
@@ -397,7 +408,10 @@ function assertParserOutput(
     it('device-to-space assignments are correct', () => {
       assert.equal(getParsed().devSpaceMap['1.1.4'], 2);
       assert.equal(getParsed().devSpaceMap['1.1.5'], 2);
-      assert.equal(getParsed().devSpaceMap['1.1.0'], 3);
+      // '1.1.256' is the unaddressed power-supply device's synthetic address
+      // (see EXPECTED_DEVICES comment above) - not '1.1.0', which no real
+      // device in this fixture actually carries.
+      assert.equal(getParsed().devSpaceMap['1.1.256'], 3);
       assert.equal(getParsed().devSpaceMap['1.1.1'], 3);
       assert.equal(getParsed().devSpaceMap['1.1.2'], 3);
       assert.equal(getParsed().devSpaceMap['1.1.3'], 3);

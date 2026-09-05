@@ -25,6 +25,11 @@ import {
 } from './ets-parser.ts';
 
 // ─── Internal lookup map value types ─────────────────────────────────────────
+// Matches knx-tables.ts's GroupObjectFlags['priority'] (kept as a separate,
+// local type rather than an import to avoid coupling this parser module to
+// the Object 3 write-path code - same 4-value vocabulary, deliberately).
+type ComObjectPriority = 'low' | 'alarm' | 'high' | 'system';
+
 interface CoDef {
   num: number;
   text: string;
@@ -35,6 +40,30 @@ interface CoDef {
   write: string;
   comm: string;
   tx: string;
+  // Update - added 2026-08-29, alongside the fix for a real bug: this field
+  // didn't exist at all until now, so ets-parser.ts read UpdateFlag directly
+  // off the ComObjectRef with no fallback to the base ComObject's own
+  // declared value (unlike every other flag here, which already goes
+  // through resolveCoRef()'s `cor.X ?? co.X` merge) - most real
+  // ComObjectRefs never override Update at all (they inherit the app's
+  // base default), so this silently defaulted Update to OFF for nearly
+  // every communication object, confirmed live on 1.1.10 where every
+  // project-side Update flag read off while the real device (correctly
+  // programmed by real ETS) had it on for the same objects. See
+  // docs/knx-device-write-protocol.md for the write-path implication -
+  // this wasn't just a display bug, `buildGroupObjectTable()` would have
+  // written the same wrong value to a real device.
+  update: string;
+  // Read-On-Init and Priority - added 2026-08-29 (koolenex knx-tables.ts's
+  // Object 3 Group Object Table needs both; neither was captured before).
+  // Real attribute names confirmed against the project's own real app XML
+  // (M-0004_A-0025-10-1BA6-O00A6.xml / M-0004_A-3030-23-F0EA-O000A.xml):
+  // ReadOnInitFlag="Enabled"/"Disabled" (same Enabled/Disabled vocabulary as
+  // the other flags), Priority="Low"/"Alarm"/"High"/"System" (System is
+  // confirmed unreachable from ETS's own UI - see docs/knx-device-write-
+  // protocol.md Part 10.1 - so real projects only ever show Low/Alarm/High).
+  readOnInit: string;
+  priority: string;
 }
 
 interface CorDef {
@@ -47,6 +76,9 @@ interface CorDef {
   write: string | null;
   comm: string | null;
   tx: string | null;
+  update: string | null;
+  readOnInit: string | null;
+  priority: string | null;
 }
 
 interface ParamType {
@@ -274,6 +306,17 @@ export interface ParamMemLayoutEntry {
   fromMemoryChild: boolean;
   isVisible: boolean;
   coefficient?: number;
+  // Display metadata, derived the same way as `params` (pr.text || pd.text,
+  // the section/group maps, ti.enums/unit) but WITHOUT the Access="None"
+  // and typeKind==='none' skips `params` applies for its own (UI-editing)
+  // purposes. Present here so a decoder (e.g. decodeParamMem) can label
+  // download-only/hidden params too, straight from the same ETS product
+  // data - not a hardcoded per-param lookup.
+  label?: string;
+  section?: string;
+  group?: string;
+  unit?: string;
+  enums?: Record<string, string>;
 }
 
 export interface ParamModel {
@@ -288,6 +331,53 @@ export interface ParamModel {
   relSegData: Record<number, string>;
   absSegData: Record<number, { size: number; hex: string }>;
   loadProcedures?: LoadProcedureStep[];
+  // Object 3 (Group Object Table) real buffer size - added 2026-08-29.
+  // Confirmed against both real testbed apps' actual on-wire table sizes:
+  // `2 x maxComObjectNumber + 2` matches exactly (1.1.9: max object# 48 ->
+  // 98 bytes; 1.1.10: max object# 470 -> 942 bytes - see docs/knx-device-
+  // write-protocol.md §10 for the real captured sizes this was checked
+  // against). Deliberately the APP's total declared object-number range
+  // (every ComObject the app statically defines), not the per-device
+  // instantiated/linked subset in com_objects - real ETS pre-allocates
+  // Object 3 space for every com object the app could ever expose, not
+  // just the ones a given device instance currently links.
+  groupObjectTableSize?: number;
+  // 🔴 SPECULATIVE - a real, unproven hypothesis for which memory-write
+  // service (legacy A_Memory_Write vs A_MemoryExtended_Write) a device's
+  // app actually requires, from the app's own real `IsSecureEnabled`
+  // attribute (`<ApplicationProgram>` root element - real request,
+  // 2026-08-31). NEEDS REAL-HARDWARE TESTING before being trusted -
+  // added because it's consistent with every real data point available
+  // right now, not because it's been independently confirmed causal.
+  //
+  // Real background: mask `0x07B0` ("System B") alone does NOT reliably
+  // predict this - real ETS uses extended for two real mask-0x07B0
+  // devices (1.1.9, 1.1.10, both Albrecht Jung) even at addresses that
+  // fit in 16 bits, confirmed by a verbatim-replay experiment
+  // (2026-08-28) and reconfirmed via a fresh live capture (2026-08-31) -
+  // but uses LEGACY for a third mask-0x07B0 device (HDL `M/AG40B.1`,
+  // this project's own testbed) at an address that also fits in 16 bits
+  // (confirmed live, 2026-08-31). The one clean, binary distinction
+  // found across all four real apps in this project's own testbed
+  // `.knxproj`: `IsSecureEnabled="true"` is present on all three Jung
+  // apps (the two confirmed-extended ones, plus the router's own base
+  // app, untested) and completely ABSENT (not `false` - never written)
+  // from the HDL app (confirmed-legacy). A segment-SIZE-based theory
+  // (152 vs 8178/10433 bytes) was considered too - also consistent with
+  // the same data - but rejected in favor of this one specifically
+  // because it's a real declared boolean, not a threshold guessed
+  // across the wide, unconfirmed gap between the two known segment
+  // sizes.
+  //
+  // What would actually confirm or kill this: a device/app with
+  // IsSecureEnabled=false (or absent) and a LARGE parameter segment, or
+  // one with IsSecureEnabled=true and a SMALL segment - neither
+  // combination has ever been tested. Until then, treat this as the
+  // best available guess, not a settled rule. See CLAUDE.md's (koolenex
+  // repo) standing-gaps list and docs/knx-device-write-protocol.md's
+  // "Genuinely open questions" section - both should carry this same
+  // caveat; update both if this gets confirmed OR disproven later.
+  isSecureEnabled?: boolean;
 }
 
 // ─── AppIndex return type ───────────────────────────────────────────────────
@@ -306,6 +396,9 @@ export interface AppIndex {
     write: boolean;
     comm: boolean;
     tx: boolean;
+    update: boolean;
+    readOnInit: boolean;
+    priority: ComObjectPriority;
   } | null;
   resolveParamRef: (
     refId: string,
@@ -326,15 +419,48 @@ export interface AppIndex {
     write: boolean;
     comm: boolean;
     tx: boolean;
+    update: boolean;
+    readOnInit: boolean;
+    priority: ComObjectPriority;
     channel: string;
   } | null;
   buildParamModel: () => ParamModel;
   appId: string;
+  // Highest `Number` across every ComObject this app statically declares
+  // (all Static sections, including module Static) - see ParamModel.
+  // groupObjectTableSize's doc comment for why this, not the per-device
+  // linked/active subset, is the right basis for Object 3's real size. 0 if
+  // the app declares no ComObjects at all.
+  maxComObjectNumber: number;
+  // 🔴 SPECULATIVE, not yet confirmed - real request, 2026-08-31. See
+  // ParamModel.isSecureEnabled's own doc comment (same file) for the full
+  // real-hardware evidence this is based on and what still needs testing
+  // before this can be trusted as a real rule.
+  isSecureEnabled: boolean;
   paramRefKeys: string[];
   moduleKeys: string[];
   getDefault: (prKey: string) => string | null;
   getModArgs: (mk: string) => Record<string, string | number> | null;
   loadProcedures: LoadProcedureStep[];
+}
+
+// Normalizes a real ComObject/ComObjectRef `Priority` attribute value
+// ("Low"/"Alarm"/"High"/"System", or absent) to the lowercase vocabulary
+// used by koolenex's own Object 3 code (knx-tables.ts's GroupObjectFlags).
+// Absent/unrecognized defaults to 'low' - the real default seen throughout
+// this project's own app XML (docs/knx-device-write-protocol.md Part 10.1).
+function normalizePriority(raw: string | undefined | null): ComObjectPriority {
+  switch (raw) {
+    case 'Alarm':
+      return 'alarm';
+    case 'High':
+      return 'high';
+    case 'System':
+      return 'system';
+    case 'Low':
+    default:
+      return 'low';
+  }
 }
 
 // ─── Build per-application-program index ─────────────────────────────────────
@@ -358,6 +484,10 @@ export function buildAppIndex(buf: Buffer): AppIndex | null {
   if (!ap) return null;
 
   const appId = attr(ap, 'Id');
+  // 🔴 SPECULATIVE input for the memory-write-service guess - see
+  // AppIndex.isSecureEnabled's own doc comment for the full real-hardware
+  // evidence and what's still needed to actually confirm this.
+  const isSecureEnabled = attr(ap, 'IsSecureEnabled') === 'true';
 
   // Parse entire app XML with order-preserving parser to extract Dynamic sections
   // and ParameterBlock indent levels (leading spaces in Text attributes that the
@@ -503,6 +633,9 @@ export function buildAppIndex(buf: Buffer): AppIndex | null {
         write: attr(co, 'WriteFlag'),
         comm: attr(co, 'CommunicationFlag'),
         tx: attr(co, 'TransmitFlag'),
+        update: attr(co, 'UpdateFlag'),
+        readOnInit: attr(co, 'ReadOnInitFlag'),
+        priority: attr(co, 'Priority'),
       };
     }
   }
@@ -523,6 +656,9 @@ export function buildAppIndex(buf: Buffer): AppIndex | null {
         write: attr(cor, 'WriteFlag') || null,
         comm: attr(cor, 'CommunicationFlag') || null,
         tx: attr(cor, 'TransmitFlag') || null,
+        update: attr(cor, 'UpdateFlag') || null,
+        readOnInit: attr(cor, 'ReadOnInitFlag') || null,
+        priority: attr(cor, 'Priority') || null,
       };
     }
   }
@@ -605,6 +741,9 @@ export function buildAppIndex(buf: Buffer): AppIndex | null {
       write: (cor.write ?? co.write) === 'Enabled',
       comm: (cor.comm ?? co.comm) === 'Enabled',
       tx: (cor.tx ?? co.tx) === 'Enabled',
+      update: (cor.update ?? co.update) === 'Enabled',
+      readOnInit: (cor.readOnInit ?? co.readOnInit) === 'Enabled',
+      priority: normalizePriority(cor.priority ?? co.priority),
     });
 
     // Case 1: module-based "MD-{x}_M-{y}_MI-{z}_O-{a}-{b}_R-{c}"
@@ -750,6 +889,41 @@ export function buildAppIndex(buf: Buffer): AppIndex | null {
           kind: 'text',
           enums: {},
           sizeInBit: parseInt(attr(tt, 'SizeInBit'), 10) || 8,
+        };
+        continue;
+      }
+      if (pt.TypeRawData) {
+        // Whole pre-baked binary blobs shipped inline as a Parameter's own
+        // Value (e.g. "Characteristic curve value domain" parameters -
+        // confirmed 2026-08-28 against 1.1.10's real .knxproj: manufacturer
+        // ID 0004, ParameterType "_DA_Kennlinie_Raw Data"). Before this fix
+        // TypeRawData fell all the way through to the generic
+        // TypeRestriction-based branch below, which only reads
+        // TypeRestriction's own SizeInBit - absent here, so every such
+        // parameter silently got the `|| 8` fallback (1 byte) regardless of
+        // its real size. That's the root cause of a real, large gap between
+        // koolenex's computed parameter image and a real device - see
+        // docs/knx-device-write-protocol.md Part 9 and
+        // docs/follow-ups/2026-08-28-full-download-history-and-blob-params.md.
+        //
+        // MaxSize is in bytes, not bits (confirmed against the real XML:
+        // `<TypeRawData MaxSize="516" />` for a 512-byte curve table -
+        // real wire format is a 4-byte big-endian length prefix followed by
+        // up to MaxSize-4 bytes of data, decoding that same real curve's
+        // leading 4 bytes as `0x00000200` = 512, exactly the real payload
+        // length - so MaxSize itself already accounts for the prefix).
+        // buildParamMem() (server/routes/knx-tables.ts) is what actually
+        // emits the length prefix + payload for entries whose real value
+        // exceeds a plain scalar's size; this only needs to report the real
+        // byte size so that code can recognise them.
+        const trd = Array.isArray(pt.TypeRawData)
+          ? pt.TypeRawData[0]
+          : pt.TypeRawData;
+        const maxSizeBytes = parseInt(attr(trd, 'MaxSize'), 10) || 1;
+        paramTypes[tid] = {
+          kind: 'other',
+          enums: {},
+          sizeInBit: maxSizeBytes * 8,
         };
         continue;
       }
@@ -1343,6 +1517,9 @@ export function buildAppIndex(buf: Buffer): AppIndex | null {
       write: (cor.write ?? co.write) === 'Enabled',
       comm: (cor.comm ?? co.comm) === 'Enabled',
       tx: (cor.tx ?? co.tx) === 'Enabled',
+      update: (cor.update ?? co.update) === 'Enabled',
+      readOnInit: (cor.readOnInit ?? co.readOnInit) === 'Enabled',
+      priority: normalizePriority(cor.priority ?? co.priority),
       channel: '',
     };
   }
@@ -1392,6 +1569,40 @@ export function buildAppIndex(buf: Buffer): AppIndex | null {
         .filter((m: { id: string; items: DynItem[] }) => m.items.length > 0),
     };
 
+    // chooseOwnerOf: paramRefId → the paramRefId of the nearest enclosing
+    // <Choose> in the dynamic tree. Some paramRefs genuinely have no Text of
+    // their own (they're a companion value ETS writes based on a visible
+    // enum/checkbox's selected branch, not something ETS itself ever shows a
+    // distinct label for) - for those, the enclosing choose's own label is
+    // the most meaningful generic thing derivable from the ETS product data,
+    // since that choose IS the user-visible control this companion value
+    // belongs to. Built once from the same dynTree already computed above -
+    // not a per-parameter/per-device lookup.
+    const chooseOwnerOf: Record<string, string> = {};
+    function walkForChooseOwners(
+      items: DynItem[] | null | undefined,
+      owner: string | null,
+    ): void {
+      if (!items) return;
+      for (const it of items) {
+        if (it.type === 'paramRef' && it.refId) {
+          if (owner && !(it.refId in chooseOwnerOf))
+            chooseOwnerOf[it.refId] = owner;
+        } else if (it.type === 'choose' && it.paramRefId) {
+          for (const w of it.whens || [])
+            walkForChooseOwners(w.items, it.paramRefId!);
+        } else if (
+          it.type === 'block' ||
+          it.type === 'channel' ||
+          it.type === 'cib'
+        ) {
+          walkForChooseOwners(it.items, owner);
+        }
+      }
+    }
+    walkForChooseOwners(dynTree.main?.items ?? null, null);
+    for (const md of dynTree.moduleDefs) walkForChooseOwners(md.items, null);
+
     // paramMemLayout: ALL paramRefs (including Access=None download-only params)
     // keyed by paramRefId → { offset, bitOffset, bitSize, defaultValue }
     // Used by the download engine to build the parameter memory segment.
@@ -1412,6 +1623,26 @@ export function buildAppIndex(buf: Buffer): AppIndex | null {
       const effectiveAccess = pr.access ?? pd.access ?? '';
       const isVisible =
         effectiveAccess !== 'None' && ti.kind !== undefined && ti.kind !== null;
+
+      // Same generic derivation as `params` above (pr.text || pd.text) -
+      // just not gated on Access/typeKind, so download-only params still
+      // get a real label instead of falling back to their raw paramRefId.
+      // When the paramRef itself has no Text at all (a companion value
+      // written by a <Choose>, not something ETS ever labels on its own),
+      // borrow the enclosing choose's own label/section instead - see
+      // chooseOwnerOf above.
+      let ownLabel = pr.text || pd.text || '';
+      let labelSection = paramRefSectionMap[prId] || '';
+      const ownerId = chooseOwnerOf[prId];
+      if (!ownLabel && ownerId) {
+        const ownerPr = paramRefDefs[ownerId];
+        const ownerPd = ownerPr ? paramDefs[ownerPr.paramId] : null;
+        if (ownerPr && ownerPd) {
+          ownLabel = ownerPr.text || ownerPd.text || '';
+          labelSection = paramRefSectionMap[ownerId] || labelSection;
+        }
+      }
+
       paramMemLayout[prId] = {
         offset: pd.offset,
         bitOffset: pd.bitOffset || 0,
@@ -1422,6 +1653,13 @@ export function buildAppIndex(buf: Buffer): AppIndex | null {
         fromMemoryChild: pd.fromMemoryChild || false,
         isVisible,
         ...(ti.coefficient ? { coefficient: ti.coefficient } : {}),
+        ...(ownLabel && {
+          label: ownLabel,
+          section: labelSection,
+          group: paramRefGroupMap[prId] || '',
+          unit: ti.unit || '',
+          enums: ti.enums || {},
+        }),
       };
     }
 
@@ -1529,6 +1767,11 @@ export function buildAppIndex(buf: Buffer): AppIndex | null {
               offset: parseInt(attr(el, 'Offset'), 10) || 0,
               size: parseInt(attr(el, 'Size'), 10) || 0,
               mode: attr(el, 'AppliesTo') || 'full',
+              // Real, only-ever-seen-once-so-far attribute (HDL's app,
+              // objIdx 4): `Verify="true"`. See downloadDevice()'s own use
+              // of this field for what it's currently believed to mean and
+              // how tentative that belief still is.
+              verify: attr(el, 'Verify') === 'true',
             });
             break;
           case 'LdCtrlLoadImageProp':
@@ -1585,6 +1828,13 @@ export function buildAppIndex(buf: Buffer): AppIndex | null {
     }
   }
 
+  // See AppIndex.maxComObjectNumber's doc comment - the app's total static
+  // declaration range, not any per-device instantiated subset.
+  const maxComObjectNumber = Object.values(coDefs).reduce(
+    (max, co) => Math.max(max, co.num),
+    0,
+  );
+
   return {
     resolveCoRef,
     resolveParamRef,
@@ -1592,6 +1842,8 @@ export function buildAppIndex(buf: Buffer): AppIndex | null {
     resolveCoRefById,
     buildParamModel,
     appId,
+    maxComObjectNumber,
+    isSecureEnabled,
     paramRefKeys: Object.keys(paramRefDefs),
     moduleKeys: Object.keys(modArgs), // "{appId}_MD-n_M-k" — one per instantiated module
     getDefault,

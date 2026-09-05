@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react';
 import { api } from '../api.ts';
+import { useDpt, useProjectActions } from '../contexts.ts';
+import { PinAddr, TH, TD, coGAs } from '../primitives.tsx';
 import styles from './DeviceParameters.module.css';
 
 // Test whether a numeric/string value matches an ETS when-test entry.
@@ -98,6 +100,7 @@ interface DeviceParametersProps {
 }
 
 export function DeviceParameters({ dev, projectId }: DeviceParametersProps) {
+  const dpt = useDpt();
   const [mode, setMode] = useState<'view' | 'edit'>('view');
   const [model, setModel] = useState<any>(null);
   const [_loading, setLoading] = useState(false);
@@ -109,8 +112,40 @@ export function DeviceParameters({ dev, projectId }: DeviceParametersProps) {
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>(
     {},
   );
+  const [comObjects, setComObjects] = useState<any[]>([]);
 
   const devId = dev.id;
+  const { applyDeviceStatus, applyDeviceVerifyCleared } = useProjectActions();
+
+  // Related communication objects (and their GA links) grouped by channel -
+  // parameters and com objects are separate KNX concepts with no direct
+  // per-parameter link, but they share the same <Channel> grouping in the
+  // app's real XML (server/ets-app.ts's evalDynamic() computes this at
+  // import time into each com_objects row's `channel` column) - matching a
+  // section's label/group against that channel name is how ETS itself
+  // pairs "this channel's parameters" with "this channel's communication
+  // objects" in its own UI.
+  useEffect(() => {
+    if (!projectId || !dev.individual_address) {
+      setComObjects([]);
+      return;
+    }
+    let cancelled = false;
+    api
+      .listComObjects(projectId)
+      .then((rows: any[]) => {
+        if (cancelled) return;
+        setComObjects(
+          rows.filter((r) => r.device_address === dev.individual_address),
+        );
+      })
+      .catch(() => {
+        if (!cancelled) setComObjects([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId, dev.individual_address]);
 
   // Auto-load the model whenever the device changes (if it has an app_ref).
   // This means view mode always shows current saved values, not the stale ETS snapshot.
@@ -156,7 +191,21 @@ export function DeviceParameters({ dev, projectId }: DeviceParametersProps) {
     setSaving(true);
     setSaveErr(null);
     try {
-      await api.saveParamValues(projectId, devId, values);
+      const result = await api.saveParamValues(projectId, devId, values);
+      // Server flips devices.status 'programmed' -> 'modified' when a
+      // parameter genuinely changed on an already-programmed device - see
+      // markDeviceModifiedIfProgrammed() (server/routes/shared.ts). Applied
+      // locally (not another api.setDeviceStatus round trip - the server
+      // already wrote and audited it) so the Programming page's badge
+      // reflects the edit immediately, not only after the next Verify.
+      if (result?.device_status) applyDeviceStatus(devId, result.device_status);
+      // See applyDeviceVerifyCleared's own doc comment (contexts.ts) -
+      // 'in' rather than a truthiness check, since the field is only
+      // present (as null) when the server actually cleared a real prior
+      // verify result.
+      if (result && 'last_verify_match' in result) {
+        applyDeviceVerifyCleared(devId);
+      }
       setDirty(false);
     } catch (e: any) {
       setSaveErr(e.message || 'Save failed');
@@ -459,6 +508,19 @@ export function DeviceParameters({ dev, projectId }: DeviceParametersProps) {
       ? activeSection
       : (visibleSections[0] ?? '');
 
+  // Communication objects whose `channel` matches the active section's own
+  // label, or (falling back) its parent group - a section's leaf label is
+  // usually the more specific match (e.g. a per-channel block), the group
+  // covers cases where the com objects are only tagged at the coarser
+  // channel level. Not a per-parameter link (KNX has no such concept - see
+  // the comment on the fetch effect above), but the closest real
+  // cross-reference available, and the same pairing ETS's own UI shows.
+  const curSecLabel = secLabelMap[curSec] || '';
+  const curSecGroup = secGroupMap[curSec] || '';
+  const relatedComObjects = comObjects.filter(
+    (co) => co.channel && (co.channel === curSecLabel || co.channel === curSecGroup),
+  );
+
   // Format a raw numeric value as hh:mm:ss (or hh:mm:ss.fff) for TypeTime display.
   const fmtDuration = (raw: any, unit: string, uiHint: string) => {
     const n = Number(raw);
@@ -692,9 +754,74 @@ export function DeviceParameters({ dev, projectId }: DeviceParametersProps) {
               tableLayout={secTableLayouts[curSec]}
               renderInput={renderInput}
             />
+            {relatedComObjects.length > 0 && (
+              <RelatedComObjects comObjects={relatedComObjects} dpt={dpt} />
+            )}
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+interface RelatedComObjectsProps {
+  comObjects: any[];
+  dpt: any;
+}
+
+// Communication objects sharing this section's channel - see the comment on
+// `relatedComObjects` above for why this is channel-matched rather than a
+// true per-parameter link. Mirrors the columns already shown on the
+// device's own "GROUP OBJECTS" tab (DevicePinPanel.tsx), scoped down to
+// just this channel. PinAddr reads PinContext itself, no need to thread it
+// through here.
+function RelatedComObjects({ comObjects, dpt }: RelatedComObjectsProps) {
+  return (
+    <div className={styles.coRelated}>
+      <div className={styles.coRelatedLabel}>COMMUNICATION OBJECTS</div>
+      <table className={styles.coRelatedTable}>
+        <thead>
+          <tr>
+            <TH className={styles.coRelatedThNum}>#</TH>
+            <TH>NAME</TH>
+            <TH className={styles.coRelatedThDpt}>DPT</TH>
+            <TH>GA</TH>
+          </tr>
+        </thead>
+        <tbody>
+          {comObjects.map((co: any) => (
+            <tr key={co.id} className="rh">
+              <TD>
+                <span className={styles.coRelatedDim}>{co.object_number}</span>
+              </TD>
+              <TD>
+                <span className={styles.coRelatedName}>{co.name || '—'}</span>
+              </TD>
+              <TD>
+                <span className={styles.coRelatedDim} title={dpt.hover(co.dpt)}>
+                  {dpt.display(co.dpt)}
+                </span>
+              </TD>
+              <TD>
+                {coGAs(co).length === 0 ? (
+                  <span className={styles.coRelatedDim}>—</span>
+                ) : (
+                  coGAs(co).map((ga: string) => (
+                    <PinAddr
+                      key={ga}
+                      address={ga}
+                      wtype="ga"
+                      className={styles.coRelatedGa}
+                    >
+                      {ga}
+                    </PinAddr>
+                  ))
+                )}
+              </TD>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }

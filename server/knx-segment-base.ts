@@ -37,16 +37,25 @@ interface PropertyReader {
  * Read PID 7 over the bus for each distinct WriteRelMem interface object and
  * resolve its absolute base. Objects whose pointer is unallocated (0x00000000)
  * are returned in `unallocated` so the caller can refuse to write.
+ *
+ * `extraObjIdxs` (optional) adds further objects to resolve regardless of
+ * whether a WriteRelMem step exists for them - used for the GA table
+ * (objIdx 1) / Association table (objIdx 2), which real ETS writes/verifies
+ * via the same RelSegment mechanism even when the app's own model doesn't
+ * declare a step for them (see knx-connection.ts's WriteRelMem case and
+ * knx-download-plan.ts's `buildGaAssocMem`).
  */
 export async function resolveRelmemBases(
   bus: PropertyReader,
   deviceAddr: string,
   steps: RelmemStep[],
+  extraObjIdxs: number[] = [],
 ): Promise<{ bases: Record<number, number>; unallocated: number[] }> {
   const objIdxs = [
-    ...new Set(
-      steps.filter((s) => s.type === 'WriteRelMem').map((s) => s.objIdx ?? 4),
-    ),
+    ...new Set([
+      ...steps.filter((s) => s.type === 'WriteRelMem').map((s) => s.objIdx ?? 4),
+      ...extraObjIdxs,
+    ]),
   ];
   if (objIdxs.length === 0) return { bases: {}, unallocated: [] };
 

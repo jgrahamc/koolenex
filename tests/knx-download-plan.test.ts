@@ -12,6 +12,7 @@ import assert from 'node:assert/strict';
 import {
   planDownload,
   planRelmemWrites,
+  planVerify,
   isAbsSegmentProcedure,
   type PlanStep,
   type PlannedOp,
@@ -205,5 +206,120 @@ describe('planRelmemWrites', () => {
   it('falls back to base 0 when the objIdx has no resolved base', () => {
     const ops = planRelmemWrites(STEPS, PARAM, {}, 2);
     assert.equal(ops[0]!.addr, 0x0000);
+  });
+});
+
+// ── planVerify() - undeclaredTableMem (GA/Association/Object 3) ────────────
+//
+// No dedicated unit tests existed for planVerify() before this - its
+// undeclaredTableMem construction was only ever exercised indirectly through
+// tests/bus-routes.test.ts's HTTP-level verify-device tests. Added alongside
+// Object 3 verify support (2026-08-29) and a real bug fix found while adding
+// it (see below).
+
+describe('planVerify() - undeclaredTableMem', () => {
+  const GA_TABLE = Buffer.from('0002490149020000', 'hex'); // arbitrary, content doesn't matter for these tests
+  const ASSOC_TABLE = Buffer.from('0001000100050000', 'hex');
+  const OBJ3_TABLE = Buffer.from('0000000000000000', 'hex');
+  const RELMEM_STEPS: PlanStep[] = [
+    { type: 'WriteRelMem', objIdx: 4, offset: 0, size: 4 },
+  ];
+
+  it('includes GA/Association/Object 3 regions when the model declares nothing for them (1.1.9\'s real shape)', () => {
+    const plan = planVerify(
+      RELMEM_STEPS,
+      GA_TABLE,
+      ASSOC_TABLE,
+      Buffer.alloc(4),
+      null,
+      {},
+      '',
+      { 1: 0x4000, 2: 0x470a, 3: 0x570c },
+      OBJ3_TABLE,
+    );
+    const labels = plan.undeclaredTableMem.map((r) => r.label);
+    assert.ok(labels.some((l) => l.startsWith('gatable@0x4000')));
+    assert.ok(labels.some((l) => l.startsWith('assoctable@0x470a')));
+    assert.ok(labels.some((l) => l.startsWith('object3@0x570c')));
+  });
+
+  it('BUG FIX (2026-08-29): a declared LoadImageProp step must NOT suppress the undeclared-table entries - LoadImageProp is read-only (docs/knx-device-write-protocol.md Part 7), so a model declaring it never actually verifies the table content itself', () => {
+    // Before the fix, buildUndeclaredTableMem() (then buildGaAssocMem())
+    // counted LoadImageProp the same as WriteRelMem for "already declared" -
+    // this silently made verify-device skip comparing GA/Association/
+    // Object 3 for an app shaped like 1.1.10's (which declares
+    // LoadImageProp for objIdx 1/2/3), the same latent bug already fixed on
+    // the write side (knx-connection.ts, koolenex 9eaed85) and the route-
+    // level gate (routes/bus.ts) - this was a third, previously-unfixed copy.
+    const stepsWithLoadImageProp: PlanStep[] = [
+      ...RELMEM_STEPS,
+      { type: 'LoadImageProp', objIdx: 1, propId: 27 },
+      { type: 'LoadImageProp', objIdx: 2, propId: 27 },
+      { type: 'LoadImageProp', objIdx: 3, propId: 27 },
+    ];
+    const plan = planVerify(
+      stepsWithLoadImageProp,
+      GA_TABLE,
+      ASSOC_TABLE,
+      Buffer.alloc(4),
+      null,
+      {},
+      '',
+      { 1: 0x4000, 2: 0x470a, 3: 0x570c },
+      OBJ3_TABLE,
+    );
+    const labels = plan.undeclaredTableMem.map((r) => r.label);
+    assert.ok(
+      labels.some((l) => l.startsWith('gatable@')),
+      'GA table should still be verified despite the declared LoadImageProp step',
+    );
+    assert.ok(
+      labels.some((l) => l.startsWith('assoctable@')),
+      'Association table should still be verified despite the declared LoadImageProp step',
+    );
+    assert.ok(
+      labels.some((l) => l.startsWith('object3@')),
+      'Object 3 should still be verified despite the declared LoadImageProp step',
+    );
+  });
+
+  it('a genuine WriteRelMem declaration for objIdx 3 correctly suppresses the undeclared Object 3 entry (real content write already covers it)', () => {
+    const stepsWithDeclaredObj3: PlanStep[] = [
+      ...RELMEM_STEPS,
+      { type: 'WriteRelMem', objIdx: 3, offset: 0, size: 8 },
+    ];
+    const plan = planVerify(
+      stepsWithDeclaredObj3,
+      GA_TABLE,
+      ASSOC_TABLE,
+      Buffer.alloc(4),
+      null,
+      {},
+      '',
+      { 1: 0x4000, 2: 0x470a, 3: 0x570c },
+      OBJ3_TABLE,
+    );
+    const labels = plan.undeclaredTableMem.map((r) => r.label);
+    assert.ok(
+      !labels.some((l) => l.startsWith('object3@')),
+      'Object 3 should not appear in undeclaredTableMem when a WriteRelMem step already declares it',
+    );
+  });
+
+  it('omits Object 3 entirely when groupObjectTable is null (app has no groupObjectTableSize)', () => {
+    const plan = planVerify(
+      RELMEM_STEPS,
+      GA_TABLE,
+      ASSOC_TABLE,
+      Buffer.alloc(4),
+      null,
+      {},
+      '',
+      { 1: 0x4000, 2: 0x470a, 3: 0x570c },
+      null,
+    );
+    assert.ok(!plan.undeclaredTableMem.some((r) => r.label.startsWith('object3@')));
+    // GA/Association should be entirely unaffected by groupObjectTable being null.
+    assert.ok(plan.undeclaredTableMem.some((r) => r.label.startsWith('gatable@')));
   });
 });

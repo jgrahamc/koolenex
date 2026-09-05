@@ -1,6 +1,61 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { sanitizeText, interpolate } from '../server/ets-parser.ts';
+import {
+  sanitizeText,
+  interpolate,
+  deriveDeviceStatus,
+} from '../server/ets-parser.ts';
+
+// Real evidence for this, 2026-08-29: the live Test Bed.knxproj has a real
+// DeviceInstance where LastModified is AFTER LastDownload (edited in ETS
+// since its last download) - the previous logic (LastDownload present ?
+// 'programmed' : 'unassigned') ignored LastModified entirely and would have
+// misclassified this real device as 'programmed'. See
+// docs/knx-device-write-protocol.md-adjacent session notes / the
+// deriveDeviceStatus() doc comment for the full real-timestamp example.
+describe('deriveDeviceStatus()', () => {
+  test('no LastDownload at all -> unassigned, regardless of LastModified', () => {
+    assert.equal(deriveDeviceStatus('2026-08-29T13:32:51.9340101Z', ''), 'unassigned');
+    assert.equal(deriveDeviceStatus('', ''), 'unassigned');
+  });
+
+  test('LastDownload after LastModified -> programmed', () => {
+    assert.equal(
+      deriveDeviceStatus(
+        '2026-08-26T15:41:42.5035215Z',
+        '2026-08-26T15:41:58.7770377Z',
+      ),
+      'programmed',
+    );
+  });
+
+  test('LastModified after LastDownload -> modified (real Test Bed example)', () => {
+    assert.equal(
+      deriveDeviceStatus(
+        '2026-08-29T20:44:00.5875066Z',
+        '2026-08-29T17:05:02.3787468Z',
+      ),
+      'modified',
+    );
+  });
+
+  test('LastDownload present, no LastModified -> programmed', () => {
+    assert.equal(
+      deriveDeviceStatus('', '2026-08-26T15:41:58.7770377Z'),
+      'programmed',
+    );
+  });
+
+  test('unparsable timestamps fall back to programmed, not a throw', () => {
+    assert.equal(deriveDeviceStatus('not-a-date', '2026-08-26T15:41:58Z'), 'programmed');
+    assert.equal(deriveDeviceStatus('2026-08-26T15:41:58Z', 'not-a-date'), 'programmed');
+  });
+
+  test('equal timestamps -> programmed (not modified)', () => {
+    const t = '2026-08-26T15:41:58.7770377Z';
+    assert.equal(deriveDeviceStatus(t, t), 'programmed');
+  });
+});
 
 describe('sanitizeText()', () => {
   test('returns empty string for null/undefined', () => {

@@ -1,0 +1,43 @@
+{
+  "_comment": "Real MemExtWrite ops captured via tshark during a genuine ETS Full Download to 1.1.9 (M-0004_A-0025-10-1BA6-O00A6). Source: docs/2026-08-27-koolenex-relmem-write-scope-investigation.md, full-download-1.1.9-writes.json / full_download_test.pcapng frames 863 and 869 (Finding 1), plus frames for objects 1/2/3 (Finding 2).",
+  "deviceAddress": "1.1.9",
+  "appRef": "M-0004_A-0025-10-1BA6-O00A6",
+  "relmemBase": "0x005F0E",
+  "relmemSize": 8178,
+  "paramWrites": [
+    {
+      "frame": 863,
+      "wireAddress": "0x005F53",
+      "offsetFromBase": 69,
+      "byteCount": 1,
+      "hex": "80",
+      "note": "paramMemLayout offset 69 - one of 10 named parameters (offsets 69-199)"
+    },
+    {
+      "frame": 869,
+      "wireAddress": "0x005FD3",
+      "offsetFromBase": 197,
+      "byteCount": 3,
+      "hex": "D06001",
+      "note": "same named-parameter range, tail end (offsets 197-199)"
+    }
+  ],
+  "otherObjectWrites": [
+    {
+      "objIdx": 2,
+      "propId7Hex": "000c0000",
+      "resolvedBase": "0x0C0000",
+      "byteCount": 10,
+      "hex": "00020001001F00020020",
+      "identified": "Association Table"
+    },
+    {
+      "objIdx": 1,
+      "propId7Hex": "000f0000",
+      "resolvedBase": "0x0F0000",
+      "byteCount": 6,
+      "hex": "000208000801",
+      "identified": "Address/GA Table"
+    }
+  ]
+}

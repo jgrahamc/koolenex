@@ -1,0 +1,52 @@
+{
+  "_comment": "Real MemExtWrite ops captured via tshark during a genuine ETS Full Download to 1.1.10 (M-0004_A-3030-23-F0EA-O000A). Source: docs/2026-08-27-koolenex-relmem-write-scope-investigation.md, full_download_test.pcapng frames 390 and 399 (Finding 1), plus frames for objects 1/2/3 (Finding 2).",
+  "deviceAddress": "1.1.10",
+  "appRef": "M-0004_A-3030-23-F0EA-O000A",
+  "relmemBase": "0x0C3000",
+  "relmemSize": 10433,
+  "paramWrites": [
+    {
+      "frame": 390,
+      "wireAddress": "0x0C30AC",
+      "offsetFromBase": 172,
+      "byteCount": 1,
+      "hex": "00",
+      "note": "P-1555_R-2348 'Indicating status temporarily' and P-1554_R-2342 'Display length seconds' share this offset"
+    },
+    {
+      "frame": 399,
+      "wireAddress": "0x0C58C0",
+      "offsetFromBase": 10432,
+      "byteCount": 1,
+      "hex": "01",
+      "note": "P-1_R-2, last byte of segment, real paramMemLayout entry with no text label in product data"
+    }
+  ],
+  "otherObjectWrites": [
+    {
+      "objIdx": 1,
+      "propId7Hex": "00004000",
+      "resolvedBase": "0x004000",
+      "byteCount": 6,
+      "hex": "000200010004",
+      "identified": "Address/GA Table"
+    },
+    {
+      "objIdx": 2,
+      "propId7Hex": "0000470a",
+      "resolvedBase": "0x00470A",
+      "byteCount": 10,
+      "hex": "00020001000500020008",
+      "identified": "Association Table"
+    },
+    {
+      "objIdx": 3,
+      "propId7Hex": "0000570c",
+      "resolvedBase": "0x00570C",
+      "byteCount": 98,
+      "hex": "0030000000004B094B094F0C530053004F005B",
+      "hexTruncated": true,
+      "identified": "UNCONFIRMED - guess only, possibly per-channel mapper config (app exposes 10 'Channel 1..10 Mapper' objects); not verified, single degenerate example"
+    }
+  ]
+}

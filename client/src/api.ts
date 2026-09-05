@@ -23,6 +23,79 @@ interface BusStatusResponse {
   type?: string;
   port?: number;
   path?: string;
+  // Real bug, found live 2026-08-31: previously only ever arrived via a
+  // live 'knx:reconnect-failed' WebSocket event - a plain status refresh
+  // (page reload, or the client's own WebSocket reconnecting mid-session)
+  // had no way to learn a standing reconnect failure was real, and
+  // silently read back to a calm "Idle" instead of "Disconnected". Now
+  // tracked server-side (server/knx-bus.ts's _needsAttention) and included
+  // in every /bus/status response.
+  needsAttention?: boolean;
+}
+
+/** Object 3 (Group Object Table) row only - structured flags for the compact per-flag chip
+ * display (server: decodeGroupObjectEntryFlags(), knx-tables.ts). `commLinked` is bit 2 -
+ * Communication AND has-a-real-GA-link combined, not separable from the byte alone. */
+export interface GroupObjectEntryFlags {
+  update: boolean;
+  transmit: boolean;
+  readOnInit: boolean;
+  write: boolean;
+  read: boolean;
+  commLinked: boolean;
+  priority: string;
+  size: string;
+}
+
+export interface VerifyDecodedParam {
+  key: string;
+  label: string;
+  section: string;
+  group: string;
+  unit: string;
+  offset: number;
+  bitOffset: number;
+  bitSize: number;
+  rawValue: number | string;
+  expectedValue: string;
+  actualValue: string | null;
+  match: boolean | null;
+  /** Object 3 rows only - undefined for every other row kind (params, GA links). */
+  obj3Expected?: GroupObjectEntryFlags;
+  obj3Actual?: GroupObjectEntryFlags | null;
+}
+
+export interface VerifyDeviceResult {
+  deviceAddress: string;
+  family: string;
+  match: boolean;
+  totalBytes: number;
+  totalDiffering: number;
+  segments: Array<{
+    label: string;
+    offset: number;
+    size: number;
+    matching: number;
+    differing: number;
+    expectedHex: string;
+    actualHex: string;
+  }>;
+  props: Array<{
+    label: string;
+    obj: number;
+    pid: number;
+    match: boolean;
+    expectedHex: string;
+    actualHex: string;
+  }>;
+  decoded?: VerifyDecodedParam[];
+  /** Object 3 (Group Object Table / "Communication Flags")'s own raw
+   * byte-level totals, present only when this app declares that region -
+   * mirrors totalBytes/totalDiffering but for that separate memory region,
+   * so a log line can quote a real "N/M bytes match" figure for flags too,
+   * not just a count of differing named rows. */
+  flagsTotalBytes?: number;
+  flagsDifferingBytes?: number;
 }
 
 export interface ImportSummary {
@@ -59,6 +132,11 @@ const BASE = '/api';
 
 class ApiError extends Error {
   code?: string;
+  // Raw parsed error body, for routes that attach extra fields beyond
+  // error/message/code (e.g. /bus/program-device's canUseSerial) - see
+  // req()'s own handling below for why code/message are split the way
+  // they are.
+  data?: Record<string, unknown>;
 }
 
 async function req<T = unknown>(
@@ -66,8 +144,10 @@ async function req<T = unknown>(
   path: string,
   body?: unknown,
   isFormData = false,
+  signal?: AbortSignal,
 ): Promise<T> {
   const opts: RequestInit = { method, headers: {} };
+  if (signal) opts.signal = signal;
   if (body && !isFormData) {
     (opts.headers as Record<string, string>)['Content-Type'] =
       'application/json';
@@ -80,16 +160,32 @@ async function req<T = unknown>(
     res = await fetch(BASE + path, opts);
   } catch (e) {
     // fetch() rejects with TypeError on network failure, abort, or browser
-    // socket timeout — surfacing the original message as "Failed to fetch"
-    // tells the user nothing. Wrap it so the cause is at least named.
+    // socket timeout - and with a DOMException named AbortError when a
+    // passed-in `signal` was aborted (e.g. the user cancelling a real-
+    // hardware wait, 2026-08-31 - see busReadSerialsInProgrammingMode).
+    // Surface that distinctly rather than the generic network-error text.
+    if ((e as { name?: string }).name === 'AbortError') {
+      const abortErr = new ApiError('Cancelled');
+      abortErr.code = 'aborted';
+      throw abortErr;
+    }
     throw new ApiError(
       `Network error or request timed out (${(e as Error).message}). Check the server console for details.`,
     );
   }
   const data = await res.json();
   if (!res.ok) {
-    const e = new ApiError(data.error || res.statusText);
+    // Two conventions exist server-side: some routes (project import)
+    // put the friendly text directly in `error` and a distinct `code`;
+    // most bus routes put a short identifying string in `error` and the
+    // friendly text in `message`. Prefer `message` when present (so the
+    // log shows real prose, not a raw code like
+    // "no_device_in_programming_mode"), and fall back to `error` as the
+    // code for callers that need to branch on which error this was.
+    const e = new ApiError(data.message || data.error || res.statusText);
     if (data.code) e.code = data.code;
+    else if (data.message) e.code = data.error;
+    e.data = data;
     throw e;
   }
   return data as T;
@@ -127,6 +223,8 @@ export const api = {
     req<Device>('POST', `/projects/${pid}/devices`, body),
   updateDevice: (pid: number, did: number, body: Record<string, unknown>) =>
     req<Device>('PUT', `/projects/${pid}/devices/${did}`, body),
+  unassignDevice: (pid: number, did: number) =>
+    req<Device>('PATCH', `/projects/${pid}/devices/${did}/unassign`, {}),
   setDeviceStatus: (pid: number, did: number, status: string) =>
     req<{ ok: boolean }>('PATCH', `/projects/${pid}/devices/${did}/status`, {
       status,
@@ -156,7 +254,12 @@ export const api = {
     did: number,
     values: Record<string, unknown>,
   ) =>
-    req<{ ok: boolean }>(
+    req<{
+      ok: boolean;
+      device_status?: string;
+      last_verify_match?: null;
+      last_verify_at?: null;
+    }>(
       'PATCH',
       `/projects/${pid}/devices/${did}/param-values`,
       values,
@@ -207,6 +310,16 @@ export const api = {
     req<ComObjectWithDevice>(
       'PATCH',
       `/projects/${pid}/comobjects/${coid}/gas`,
+      body,
+    ),
+  updateComObjectFlags: (
+    pid: number,
+    coid: number,
+    body: Record<string, unknown>,
+  ) =>
+    req<ComObjectWithDevice>(
+      'PATCH',
+      `/projects/${pid}/comobjects/${coid}/flags`,
       body,
     ),
 
@@ -260,12 +373,17 @@ export const api = {
 
   // Bus
   busStatus: () => req<BusStatusResponse>('GET', '/bus/status'),
-  busConnect: (host: string, port: number, projectId: number) =>
-    req<{ ok: boolean; [key: string]: unknown }>('POST', '/bus/connect', {
-      host,
-      port,
-      projectId,
-    }),
+  busConnect: (
+    host: string,
+    port: number,
+    projectId: number,
+    protocol?: 'udp' | 'tcp' | 'auto',
+  ) =>
+    req<{ ok: boolean; type?: 'udp' | 'tcp'; [key: string]: unknown }>(
+      'POST',
+      '/bus/connect',
+      { host, port, projectId, protocol },
+    ),
   busConnectUsb: (devicePath: string, projectId: number) =>
     req<{ ok: boolean; [key: string]: unknown }>('POST', '/bus/connect-usb', {
       devicePath,
@@ -308,19 +426,101 @@ export const api = {
   busDeviceInfo: (deviceAddress: string) =>
     req<Record<string, unknown>>('POST', '/bus/device-info', { deviceAddress }),
   busProgramIA: (newAddr: string) =>
-    req<{ ok: boolean; newAddr: string }>('POST', '/bus/program-ia', {
-      newAddr,
-    }),
+    req<{ ok: boolean; newAddr: string; restarted: boolean }>(
+      'POST',
+      '/bus/program-ia',
+      { newAddr },
+    ),
+  // Read-side counterpart to busProgramIA - detects a device currently held
+  // in physical programming mode by its address (A_IndividualAddress_Read/
+  // _Response), without needing to know its serial or address ahead of time.
+  // Only safe to write against (busProgramIA) when exactly one device is in
+  // programming mode - see busReadSerialsInProgrammingMode below for the
+  // multi-device-safe alternative.
+  busCheckProgrammingMode: (timeoutMs?: number, signal?: AbortSignal) =>
+    req<{ address: string | null }>(
+      'POST',
+      '/bus/check-programming-mode',
+      { timeoutMs },
+      false,
+      signal,
+    ),
+  // Collects every device currently in programming mode by serial number
+  // (not just the first to answer) - server/knx-connection.ts's
+  // readSerialNumbersInProgrammingMode(), real-hardware confirmed
+  // 2026-08-30 to disambiguate multiple simultaneous devices cleanly.
+  // `signal` (2026-08-31): lets a caller give up on a long real-hardware
+  // wait early - a real timing complaint from live testing ("this needs to
+  // be at least 30 seconds or more as it will take time for people to go
+  // to the device to set prog mode... We should have a cancel write option
+  // to stop the search"). Aborting only stops the CLIENT from waiting on
+  // this response; the server-side scan still runs to its own timeout
+  // server-side (nothing physically dangerous keeps happening - it's a
+  // passive read), the result is just discarded.
+  busReadSerialsInProgrammingMode: (timeoutMs?: number, signal?: AbortSignal) =>
+    req<{ devices: Array<{ serial: string; src: string }> }>(
+      'POST',
+      '/bus/read-serials-in-programming-mode',
+      { timeoutMs },
+      false,
+      signal,
+    ),
+  // Address a device purely by its serial number - no programming-button
+  // press needed. See docs/knx-device-write-protocol.md §9 (koolenex repo):
+  // sourced from the Falcon SDK's own docs + Calimero's implementation, but
+  // unlike every other write path this app exposes, has NO real-hardware
+  // confirmation yet - surface that to the user, don't present it as
+  // equally proven to busProgramIA.
+  busAssignAddressBySerial: (serial: string, newAddress: string) =>
+    req<{
+      ok: boolean;
+      verified: boolean;
+      address: string | null;
+      restarted: boolean;
+    }>('POST', '/bus/assign-address-by-serial', { serial, newAddress }),
+  // `signal` (2026-08-31): the route's own address pre-flight can now
+  // genuinely wait up to 30s for a physical programming-button press -
+  // lets a caller give up early (the "press the button" modal's own
+  // Cancel button) rather than being stuck waiting the full window. See
+  // busReadSerialsInProgrammingMode's own doc comment for the identical
+  // pattern used there first.
   busProgramDevice: (
     deviceAddress: string,
     projectId: number,
     deviceId: number,
+    mode?: 'full' | 'partial',
+    signal?: AbortSignal,
+    // How to locate/(re)address the device when it doesn't currently
+    // answer with a matching serial - omit on the first attempt; the
+    // route returns a distinguishable 'address_needs_confirmation' error
+    // (canUseSerial on the thrown ApiError's `data`) when it needs the
+    // caller to choose. See server/routes/bus.ts's own doc comment.
+    addressMethod?: 'button' | 'serial',
   ) =>
-    req<{ ok: boolean; deviceAddress: string }>('POST', '/bus/program-device', {
-      deviceAddress,
-      projectId,
-      deviceId,
-    }),
+    req<{
+      ok: boolean;
+      deviceAddress: string;
+      mode: 'full' | 'partial';
+      // Best-effort post-write read-back (server/routes/bus.ts) - real
+      // request, 2026-08-31: capture and surface the same identity/size
+      // info the log should show. serialNumber absent if the device
+      // didn't answer that read; totalBytes is always a real number (the
+      // combined size of whatever tables/parameter memory were actually
+      // part of this download's plan).
+      serialNumber?: string;
+      totalBytes: number;
+      // Count/detail of writes whose response never arrived during this
+      // download - see knx-connection.ts's DownloadResult doc comment. 0
+      // means every write was confirmed.
+      unconfirmedWrites?: number;
+      unconfirmedDetails?: string[];
+    }>(
+      'POST',
+      '/bus/program-device',
+      { deviceAddress, projectId, deviceId, mode, addressMethod },
+      false,
+      signal,
+    ),
 
   // Read-only: compare a device's actual memory to the computed image (no writes)
   busVerifyDevice: (
@@ -328,18 +528,25 @@ export const api = {
     projectId: number,
     deviceId: number,
   ) =>
-    req<{
-      deviceAddress: string;
-      match: boolean;
-      totalBytes: number;
-      totalDiffering: number;
-      segments: Array<{
-        offset: number;
-        size: number;
-        matching: number;
-        differing: number;
-      }>;
-    }>('POST', '/bus/verify-device', { deviceAddress, projectId, deviceId }),
+    req<VerifyDeviceResult>('POST', '/bus/verify-device', {
+      deviceAddress,
+      projectId,
+      deviceId,
+    }),
+
+  // Re-runs a cached verify comparison's PROJECT/expected side against
+  // fresh DB state, reusing the already-cached DEVICE/actual side - no bus
+  // access at all. See server/routes/bus.ts's route doc comment for the
+  // full reasoning (real user feedback, 2026-08-31: editing a com object's
+  // flags/GA-link/param values doesn't change what's on the device, only
+  // what we now expect, so there's no reason a local edit should force a
+  // live re-read just to see an accurate comparison again).
+  busRecomputeVerify: (deviceId: number, cached: VerifyDeviceResult) =>
+    req<VerifyDeviceResult & { recomputedAt: number }>(
+      'POST',
+      '/bus/verify-device/recompute',
+      { deviceId, cached },
+    ),
 
   // Settings
   getSettings: () => req<Setting[]>('GET', '/settings'),
@@ -360,8 +567,12 @@ export const api = {
 };
 
 // WebSocket for real-time bus updates
-export function createWS(onMessage: (data: Record<string, unknown>) => void): {
+export function createWS(
+  onMessage: (data: Record<string, unknown>) => void,
+  onOpen?: () => void,
+): {
   close: () => void;
+  send: (data: Record<string, unknown>) => void;
 } {
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
   // In dev (Vite dev server) connect directly to backend on :4000; in prod use same host
@@ -377,6 +588,14 @@ export function createWS(onMessage: (data: Record<string, unknown>) => void): {
 
   function connect() {
     ws = new WebSocket(`${proto}//${host}`);
+    // Real bug, fixed 2026-08-29: this had no onopen handler at all, so a
+    // reconnect (e.g. after the koolenex server restarts) never re-synced
+    // real bus status - if the physical KNX bus connection dropped or
+    // changed while the WebSocket itself was down, the client kept showing
+    // whatever `busStatus` it last had, indefinitely (the top-bar badge
+    // stuck on "connected" even while genuinely disconnected). `onOpen` lets
+    // the caller re-fetch real state on every connect, not just the first.
+    ws.onopen = () => onOpen?.();
     ws.onmessage = (e) => {
       try {
         onMessage(JSON.parse(e.data));
@@ -396,6 +615,18 @@ export function createWS(onMessage: (data: Record<string, unknown>) => void): {
       closed = true;
       if (retryTimer) clearTimeout(retryTimer);
       ws?.close();
+    },
+    // Best-effort: silently dropped if the socket isn't open (e.g. between
+    // reconnect attempts). Used for lightweight signals like the Monitor
+    // view's watch:start/watch:stop (see KnxBusManager.addKeepAliveRef())
+    // - not a queue, and does not currently survive a WS reconnect while
+    // the caller expects the signal to still apply.
+    send(data: Record<string, unknown>) {
+      if (ws?.readyState === WebSocket.OPEN) {
+        try {
+          ws.send(JSON.stringify(data));
+        } catch (_) {}
+      }
     },
   };
 }

@@ -12,6 +12,7 @@ import {
   SectionHeader,
   Empty,
   PinAddr,
+  DeviceAddr,
   SpacePath,
 } from '../primitives.tsx';
 import { useColumns, ColumnPicker, dlCSV } from '../columns.tsx';
@@ -361,8 +362,8 @@ export function DevicesView() {
                                       >
                                         {cv('individual_address') && (
                                           <TD className={styles.tdIndented}>
-                                            <PinAddr
-                                              address={d.individual_address}
+                                            <DeviceAddr
+                                              device={d}
                                               wtype="device"
                                               className={styles.accentMono}
                                             />
@@ -585,8 +586,8 @@ export function DevicesView() {
                   >
                     {cv('individual_address') && (
                       <TD>
-                        <PinAddr
-                          address={d.individual_address}
+                        <DeviceAddr
+                          device={d}
                           wtype="device"
                           className={styles.accentMono}
                         />

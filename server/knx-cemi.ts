@@ -6,6 +6,8 @@ import { encodeDpt } from './knx-dpt.ts';
 
 // Extended 10-bit APCI codes (used for property/memory management services)
 export const APCI_EXT = {
+  Authorize_Request: 0x03d1,
+  Authorize_Response: 0x03d2,
   PropertyValue_Read: 0x03d5,
   PropertyValue_Response: 0x03d6,
   PropertyValue_Write: 0x03d7,
@@ -15,6 +17,35 @@ export const APCI_EXT = {
   MemoryExtended_Write_Response: 0x01fc,
   MemoryExtended_Read: 0x01fd,
   MemoryExtended_Read_Response: 0x01fe,
+  // A_IndividualAddressSerialNumber_{Write,Read,Response} - the standard KNX
+  // network-management procedures NM_IndividualAddress_SerialNumber_Write/
+  // _Read (spec 3/5/2 §2.5/§2.4): assign or query a device's individual
+  // address via its 6-byte KNX serial number, no physical programming-
+  // button press needed. Sent as a GROUP-type broadcast to address 0/0/0
+  // at System priority (see buildCEMI's `priority: 'system'` option),
+  // never point-to-point. Codes and wire format confirmed against a real
+  // KNXnet/IP capture of ETS's own commissioning traffic - see
+  // docs/knx-device-write-protocol.md §9.
+  IndividualAddressSerialNumber_Read: 0x03dc,
+  IndividualAddressSerialNumber_Response: 0x03dd,
+  IndividualAddressSerialNumber_Write: 0x03de,
+  // A_SystemNetworkParameter_{Read,Response,Write} - reads/writes a
+  // network-wide interface-object property, e.g. PID_SERIAL_NUMBER
+  // (11) on object type 0 (Device) to implement
+  // NM_Read_SerialNumber_By_ProgrammingMode: query the serial number of
+  // whichever device(s) are currently in physical programming mode, no
+  // prior knowledge of the device needed at all. Real codes confirmed
+  // against Calimero's ManagementClientImpl.java
+  // (SystemNetworkParamRead/Response/Write = 0b0111001000/1/2). Unlike
+  // the individual-address services above, this one uses `system=true`
+  // in Calimero's own terms - an individual-type broadcast (dst 0.0.0,
+  // ctrl1 "system broadcast" bit clear), not the group-address 0/0/0
+  // "default broadcast" the address-assignment services use - confirmed
+  // by reading `sendSystemNetworkParameter()`'s own
+  // `tl.broadcast(true, ...)` call.
+  SystemNetworkParam_Read: 0x01c8,
+  SystemNetworkParam_Response: 0x01c9,
+  SystemNetworkParam_Write: 0x01ca,
 } as const;
 
 // 10-bit extended APCIs that need exact-match decoding (name by full code).
@@ -139,13 +170,27 @@ export function apduConnectedFull(
   return extraBuf ? Buffer.concat([header, extraBuf]) : header;
 }
 
+// count/startIndex default to 1/1 - the overwhelming majority of property
+// accesses in this codebase are single-element, non-array properties. A few
+// real properties are array-style (e.g. PID 27 on objIdx4 for some apps,
+// confirmed 2026-08-29 against real 1.1.10 captures: ETS reads it as one
+// N=2 read from index 1, then writes each of the 2 elements separately -
+// element 1 with no explicit index, element 2 with startIndex=2) and need
+// the caller to pass both explicitly.
 export function apduPropertyValueWrite(
   seq: number,
   objIdx: number,
   propId: number,
   data: Buffer,
+  count = 1,
+  startIndex = 1,
 ): Buffer {
-  const meta = Buffer.from([objIdx & 0xff, propId & 0xff, 0x10, 0x01]);
+  const meta = Buffer.from([
+    objIdx & 0xff,
+    propId & 0xff,
+    ((count & 0x0f) << 4) | ((startIndex >> 8) & 0x0f),
+    startIndex & 0xff,
+  ]);
   return apduConnectedFull(
     seq,
     APCI_EXT.PropertyValue_Write,
@@ -157,9 +202,31 @@ export function apduPropertyValueRead(
   seq: number,
   objIdx: number,
   propId: number,
+  count = 1,
+  startIndex = 1,
 ): Buffer {
-  const meta = Buffer.from([objIdx & 0xff, propId & 0xff, 0x10, 0x01]);
+  const meta = Buffer.from([
+    objIdx & 0xff,
+    propId & 0xff,
+    ((count & 0x0f) << 4) | ((startIndex >> 8) & 0x0f),
+    startIndex & 0xff,
+  ]);
   return apduConnectedFull(seq, APCI_EXT.PropertyValue_Read, meta);
+}
+
+/**
+ * A_Authorize_Request (0x3D1): [reserved(1)][key(4, BE)]. Real ETS sends
+ * this with the well-known/default key 0xFFFFFFFF before doing property/
+ * memory writes that need elevated access - see docs/follow-ups/2026-08-28-
+ * write-path-missing-load-sequence.md's "authorization" update. koolenex
+ * never sent this at all before that fix; the response
+ * (A_Authorize_Response, 0x3D2) carries a single access-level byte
+ * (0 = full access, per real captured examples).
+ */
+export function apduAuthorizeRequest(seq: number, key: number = 0xffffffff): Buffer {
+  const extra = Buffer.alloc(5);
+  extra.writeUInt32BE(key >>> 0, 1); // byte 0 stays reserved/0
+  return apduConnectedFull(seq, APCI_EXT.Authorize_Request, extra);
 }
 
 export function apduMemoryRead(
@@ -171,6 +238,28 @@ export function apduMemoryRead(
   const fullApci = (APCI.Memory_Read! << 6) | (count & 0x3f);
   const addr = Buffer.from([(address >> 8) & 0xff, address & 0xff]);
   return apduConnectedFull(seq, fullApci, addr);
+}
+
+export function apduMemoryWrite(
+  seq: number,
+  address: number,
+  data: Buffer,
+): Buffer {
+  // APCI Memory_Write = 0b1010; the 6-bit byte count sits in octet7[5:0] -
+  // same short-APCI encoding as apduMemoryRead above. Real bug, found
+  // 2026-09-01 against a real HDL device: every prior caller built this
+  // frame by hand via apduConnected() + a leading count byte tacked onto
+  // extraBuf. apduConnected() never sets those low 6 bits at all, so the
+  // count byte callers thought they were sending was actually parsed by the
+  // receiving device as the high byte of the memory address (the real
+  // address/data bytes then land shifted by one), producing a garbage
+  // target address for every legacy Memory_Write chunk. Never caught
+  // earlier because every previously-tested device (Jung 1.1.9/1.1.10) used
+  // the extended write service instead, which already went through
+  // apduConnectedFull() correctly.
+  const fullApci = (APCI.Memory_Write! << 6) | (data.length & 0x3f);
+  const addr = Buffer.from([(address >> 8) & 0xff, address & 0xff]);
+  return apduConnectedFull(seq, fullApci, Buffer.concat([addr, data]));
 }
 
 export function apduMemoryExtendedRead(
@@ -186,6 +275,164 @@ export function apduMemoryExtendedRead(
     address & 0xff,
   ]);
   return apduConnectedFull(seq, APCI_EXT.MemoryExtended_Read, extra);
+}
+
+export function apduMemoryExtendedWrite(
+  seq: number,
+  address: number,
+  data: Buffer,
+): Buffer {
+  // A_MemoryExtended_Write (0x1FB): [count(1)] + [address(3, big-endian)] + [data...].
+  // Same header shape as the read (minus the returned data), count = byte length
+  // being written. Real-hardware wire format confirmed against a captured ETS
+  // MemExtWrite frame - see docs/knx-device-write-protocol.md.
+  const extra = Buffer.concat([
+    Buffer.from([
+      data.length & 0xff,
+      (address >> 16) & 0xff,
+      (address >> 8) & 0xff,
+      address & 0xff,
+    ]),
+    data,
+  ]);
+  return apduConnectedFull(seq, APCI_EXT.MemoryExtended_Write, extra);
+}
+
+/**
+ * Build an APDU carrying a 10-bit extended APCI with UNNUMBERED transport
+ * (TPCI_DATA_GROUP, no sequence number) - the shape used for broadcast
+ * destinations, which don't carry a transport-layer connection the way a
+ * point-to-point managementSession() does. `apduConnectedFull` is the
+ * numbered/connected equivalent used by every other extended-APCI service
+ * in this module.
+ */
+export function apduExtUnnumbered(
+  fullApci: number,
+  extraBuf: Buffer | null = null,
+): Buffer {
+  const word = ((TPCI.DATA_GROUP << 10) | (fullApci & 0x3ff)) & 0xffff;
+  const header = Buffer.alloc(2);
+  header.writeUInt16BE(word);
+  return extraBuf ? Buffer.concat([header, extraBuf]) : header;
+}
+
+/**
+ * A_IndividualAddressSerialNumber_Write (0x3DE). Payload: 6-byte serial
+ * number + 2-byte new individual address + 4 reserved/zero bytes -
+ * confirmed against Calimero's real implementation. Sent as a system
+ * broadcast (see buildCEMI's `systemBroadcast` option) - the caller is
+ * responsible for that, this only builds the APDU.
+ */
+export function apduIndividualAddressSerialNumberWrite(
+  serial: Buffer,
+  newAddr: string,
+): Buffer {
+  if (serial.length !== 6) {
+    throw new Error(
+      `KNX serial number must be 6 bytes, got ${serial.length}`,
+    );
+  }
+  const extra = Buffer.concat([
+    serial,
+    encodePhysical(newAddr),
+    Buffer.alloc(4),
+  ]);
+  return apduExtUnnumbered(APCI_EXT.IndividualAddressSerialNumber_Write, extra);
+}
+
+/**
+ * A_IndividualAddressSerialNumber_Read (0x3DC). Payload: just the 6-byte
+ * serial number. Sent as a system broadcast; only the device whose own
+ * serial number matches is expected to answer with
+ * A_IndividualAddressSerialNumber_Response.
+ */
+export function apduIndividualAddressSerialNumberRead(serial: Buffer): Buffer {
+  if (serial.length !== 6) {
+    throw new Error(
+      `KNX serial number must be 6 bytes, got ${serial.length}`,
+    );
+  }
+  return apduExtUnnumbered(APCI_EXT.IndividualAddressSerialNumber_Read, serial);
+}
+
+export interface IndividualAddressSerialNumberResponse {
+  serial: Buffer;
+  address: string;
+}
+
+/**
+ * Decode an A_IndividualAddressSerialNumber_Response payload: 6-byte
+ * serial number + 4 reserved/zero bytes - there is no address field in
+ * the payload. The device's address is instead communicated by *which
+ * device replies* (`frame.src`), the same convention
+ * A_IndividualAddress_Response (the button-press discovery service)
+ * uses. Confirmed against a real KNXnet/IP capture of ETS's own
+ * commissioning traffic - see docs/knx-device-write-protocol.md §9.
+ * Caller should verify `serial` matches the one it queried before
+ * trusting `address` - a broadcast reply isn't otherwise correlated to
+ * the request the way a point-to-point managementSession() response is.
+ */
+export function parseIndividualAddressSerialNumberResponse(
+  frame: CemiFrame,
+): IndividualAddressSerialNumberResponse {
+  const d = frame.apduData;
+  return { serial: d.slice(0, 6), address: frame.src };
+}
+
+/**
+ * A_SystemNetworkParameter_Read (0x1C8). Payload: [objectType(2, BE)]
+ * [pid<<4 (2, BE)][operand(1)][...additionalTestInfo]. Used here for
+ * NM_Read_SerialNumber_By_ProgrammingMode: objectType=0 (Device), pid=11
+ * (PID_SERIAL_NUMBER), operand=1. Confirmed byte-for-byte against a real
+ * KNXnet/IP capture of ETS's own commissioning traffic - see
+ * docs/knx-device-write-protocol.md §9. Real ETS sends this exact APDU,
+ * repeated roughly every 3s while waiting for a device to enter
+ * programming mode. Sent as a GROUP-type frame to `0/0/0` with
+ * `{ priority: 'system' }` (ctrl1 `0xB0`) - see buildCEMI's doc comment.
+ */
+export function apduSystemNetworkParamRead(
+  objectType: number,
+  pid: number,
+  operand: number,
+  additionalTestInfo: Buffer = Buffer.alloc(0),
+): Buffer {
+  const asdu = Buffer.concat([
+    Buffer.from([
+      (objectType >> 8) & 0xff,
+      objectType & 0xff,
+      ((pid << 4) >> 8) & 0xff,
+      (pid << 4) & 0xff,
+    ]),
+    Buffer.from([operand & 0xff]),
+    additionalTestInfo,
+  ]);
+  return apduExtUnnumbered(APCI_EXT.SystemNetworkParam_Read, asdu);
+}
+
+export interface SystemNetworkParamResponse {
+  objectType: number;
+  pid: number;
+  value: Buffer;
+}
+
+/**
+ * Decode an A_SystemNetworkParameter_Response payload: [objectType(2,
+ * BE)][pid<<4 (2, BE)][echoedOperand(1)][...value]. A real device's
+ * response echoes the request's operand byte before the actual value -
+ * confirmed against a real KNXnet/IP capture (see
+ * docs/knx-device-write-protocol.md §9). `value` is empty when the
+ * responding device reports the object type/PID/response as unsupported
+ * (per Calimero's own real decode logic) - callers should treat an empty
+ * `value` as "no data", not assume a fixed length.
+ */
+export function parseSystemNetworkParamResponse(
+  frame: CemiFrame,
+): SystemNetworkParamResponse {
+  const d = frame.apduData;
+  const objectType = (d[0]! << 8) | d[1]!;
+  const pid = ((d[2]! << 8) | d[3]!) >> 4;
+  const value = d.length > 5 ? d.slice(5) : Buffer.alloc(0);
+  return { objectType, pid, value };
 }
 
 export function apduControl(tpciCode: number, seq: number = 0): Buffer {
@@ -207,14 +454,31 @@ export function buildCEMI(
   dstAddr: string,
   apdu: Buffer,
   isGroup: boolean,
+  opts?: { priority?: 'low' | 'system'; systemBroadcast?: boolean },
 ): Buffer {
   const src = encodePhysical(srcAddr || '0.0.0');
   const dst = isGroup ? encodeGroup(dstAddr) : encodePhysical(dstAddr);
   const cf2 = isGroup ? 0xe0 : 0x60;
+  // Control Field 1: every other frame this module builds uses the fixed
+  // ctrl1 = 0xBC (std frame / don't-repeat / "ordinary" broadcast type /
+  // Low priority) - fine for point-to-point and group traffic. KNX
+  // network-management broadcast services (individual-address discovery,
+  // serial-number addressing, system-network-parameter reads) need System
+  // priority (bits3-2=00): ctrl1=0xB0, the *ordinary* broadcast bit
+  // (bit4=1) combined with System priority - confirmed against a real
+  // KNXnet/IP capture of ETS's own commissioning traffic, see
+  // docs/knx-device-write-protocol.md §9. `systemBroadcast` sets the
+  // separate "system broadcast" ctrl1 bit (bit4=0, a real, spec-defined
+  // value) for any service that needs it - none of the services in this
+  // codebase currently do. Opt-in so every existing call site's frame
+  // stays byte-for-byte unchanged.
+  let ctrl1 = 0xbc;
+  if (opts?.priority === 'system') ctrl1 &= ~0x0c; // bits3-2 -> 00 (System)
+  if (opts?.systemBroadcast) ctrl1 &= ~0x10; // bit4 -> 0 (system broadcast)
   const buf = Buffer.alloc(9 + apdu.length);
   buf[0] = MC.REQ;
   buf[1] = 0x00;
-  buf[2] = 0xbc;
+  buf[2] = ctrl1;
   buf[3] = cf2;
   src.copy(buf, 4);
   dst.copy(buf, 6);

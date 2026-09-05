@@ -1114,4 +1114,171 @@ describe('buildParamMem', () => {
     );
     assert.equal(buf[0], 77);
   });
+
+  // TypeRawData-shaped defaults ("Characteristic curve value domain" and
+  // similar) - a manufacturer-shipped, pre-baked binary blob as the whole
+  // parameter value, rather than a scalar. Confirmed 2026-08-28 against a
+  // real device + its real .knxproj XML: the true wire format is a 4-byte
+  // big-endian length prefix followed by the payload (`declaredBytes ===
+  // blob.length + 4`, matching `<TypeRawData MaxSize="...">` in the
+  // source XML once ets-app.ts's TypeRawData handling reads it correctly -
+  // see docs/knx-device-write-protocol.md Part 9 and
+  // docs/follow-ups/2026-08-28-full-download-history-and-blob-params.md).
+  describe('blob-shaped (TypeRawData) default values', () => {
+    it('frames a blob with a 4-byte BE length prefix when declaredBytes matches payload+4', () => {
+      // Must decode to enough bytes that its base64 form is >=20 chars (the
+      // blob-detection heuristic's own threshold, guarding against
+      // mistaking an ordinary short scalar for a blob) - real curve tables
+      // are hundreds of bytes, this is just the smallest realistic size
+      // for a clean test.
+      const payload = Buffer.from(
+        Array.from({ length: 20 }, (_, i) => i * 3 + 1),
+      ); // 20 bytes
+      const layout: any = {
+        curve: {
+          offset: 2,
+          bitOffset: 0,
+          bitSize: (payload.length + 4) * 8, // real MaxSize-derived size
+          defaultValue: payload.toString('base64'),
+        },
+      };
+      const buf = buildParamMem(30, layout, {}, 0x00);
+      // [len:4 BE][payload] starting at offset 2
+      assert.equal(buf.readUInt32BE(2), payload.length);
+      assert.deepEqual(buf.subarray(6, 6 + payload.length), payload);
+    });
+
+    it('writes the raw payload with no framing when declaredBytes does not match a length-prefixed shape (e.g. a stale bitSize=8 cache)', () => {
+      const payload = Buffer.from(Array.from({ length: 30 }, (_, i) => i));
+      const layout: any = {
+        curve: {
+          offset: 1,
+          bitOffset: 0,
+          bitSize: 8, // pre-fix cached value - not payload.length+4
+          defaultValue: payload.toString('base64'),
+        },
+      };
+      const buf = buildParamMem(40, layout, {}, 0x00);
+      assert.deepEqual(buf.subarray(1, 1 + payload.length), payload);
+    });
+
+    it('a short base64-looking scalar (not a real blob) falls through to the generic numeric path unchanged', () => {
+      // "12345678901234567890" is >=20 chars and technically valid base64
+      // charset, but decodes to only a few bytes - must not be mistaken
+      // for a blob and must still be treated as a plain scalar value.
+      const layout: any = {
+        pr1: {
+          offset: 0,
+          bitOffset: 0,
+          bitSize: 8,
+          defaultValue: '99',
+        },
+      };
+      const buf = buildParamMem(4, layout, {}, 0xff);
+      assert.equal(buf[0], 99);
+    });
+
+    it('conditional-activation gate still governs which of several blob alternates gets written', () => {
+      // >=20 bytes each so their base64 form clears the blob-detection
+      // heuristic's own length threshold (see the first test above).
+      const payloadA = Buffer.from(Array.from({ length: 20 }, () => 0x01));
+      const payloadB = Buffer.from(Array.from({ length: 20 }, () => 0x04));
+      const layout: any = {
+        curveA: {
+          offset: 0,
+          bitOffset: 0,
+          bitSize: (payloadA.length + 4) * 8,
+          defaultValue: payloadA.toString('base64'),
+          fromMemoryChild: true,
+          isVisible: false,
+        },
+        curveB: {
+          offset: 0,
+          bitOffset: 0,
+          bitSize: (payloadB.length + 4) * 8,
+          defaultValue: payloadB.toString('base64'),
+          fromMemoryChild: true,
+          isVisible: false,
+        },
+      };
+      const dynTree: any = { main: { items: [] } };
+      const params: any = {
+        curveA: { defaultValue: payloadA.toString('base64') },
+        curveB: { defaultValue: payloadB.toString('base64') },
+      };
+      // Neither is unconditional and neither is explicitly set in
+      // currentValues, so neither passes the conditional gate - the
+      // segment should be left at its fill value, not either blob.
+      const buf = buildParamMem(20, layout, {}, 0x00, null, dynTree, params);
+      assert.equal(buf.readUInt32BE(0), 0);
+    });
+  });
+
+  // Root-caused 2026-08-28 (docs/follow-ups/2026-08-28-write-path-missing-
+  // load-sequence.md's "wrong padding-bit fill" section), fixed 2026-08-29
+  // as part of working through the write-path capability status memory's
+  // open items. Real evidence: a real 1-bit boolean at offset 69 (bitOffset
+  // 0, bitSize 1) - real device/ETS value is 0x80 when the flag is on (bit
+  // 7 set, all other 7 bits CLEAR), not 0xFF as this function previously
+  // computed with the default fill.
+  describe('padding-bit fill for sub-byte params (fixed 2026-08-29)', () => {
+    it('a 1-bit boolean sharing its byte with unnamed bits: real captured case (offset 69-equivalent), flag ON -> 0x80, not 0xFF', () => {
+      const layout: any = {
+        flag: { offset: 0, bitOffset: 0, bitSize: 1, defaultValue: '1' },
+      };
+      const buf = buildParamMem(1, layout, {});
+      assert.equal(buf[0], 0x80, 'bit 7 set, all other bits clear - not 0xFF');
+    });
+
+    it('same case, flag OFF -> 0x00, not 0x7F', () => {
+      const layout: any = {
+        flag: { offset: 0, bitOffset: 0, bitSize: 1, defaultValue: '0' },
+      };
+      const buf = buildParamMem(1, layout, {});
+      assert.equal(buf[0], 0x00, 'all bits clear when the flag is off, including the flag bit itself');
+    });
+
+    it('genuinely UNNAMED bytes (no parameter touches them at all) still use `fill`, unaffected by the padding-bit fix', () => {
+      const layout: any = {
+        flag: { offset: 0, bitOffset: 0, bitSize: 1, defaultValue: '1' },
+      };
+      const buf = buildParamMem(3, layout, {}, 0xff);
+      assert.equal(buf[0], 0x80, 'the sub-byte param\'s own byte still gets zero-padding, not fill');
+      assert.equal(buf[1], 0xff, 'a byte no parameter touches at all keeps the real fill value');
+      assert.equal(buf[2], 0xff);
+    });
+
+    it('multiple sub-byte fields sharing one byte: each field\'s own bits are set correctly, the rest is zero', () => {
+      // Two independent 1-bit flags packed into the same byte at different
+      // bit positions (bitOffset 0 = MSB/bit7, bitOffset 3 = bit4).
+      const layout: any = {
+        flagA: { offset: 0, bitOffset: 0, bitSize: 1, defaultValue: '1' },
+        flagB: { offset: 0, bitOffset: 3, bitSize: 1, defaultValue: '1' },
+      };
+      const buf = buildParamMem(1, layout, {});
+      assert.equal(buf[0], 0x90, 'bit 7 (flagA) and bit 4 (flagB) set, everything else clear');
+    });
+
+    it('a byte-aligned (non-sub-byte) param is completely unaffected - keeps using `fill` for its own untouched bytes as before', () => {
+      const layout: any = {
+        val: { offset: 1, bitOffset: 0, bitSize: 8, defaultValue: '42' },
+      };
+      const buf = buildParamMem(4, layout, {}, 0xff);
+      assert.equal(buf[0], 0xff, 'byte before the param: untouched, real fill');
+      assert.equal(buf[1], 42, 'the byte-aligned param itself: fully its own value, not zero-padded');
+      assert.equal(buf[3], 0xff, 'byte after the param: untouched, real fill');
+    });
+
+    it('a byte already seeded by relSegHex (a real captured default) is NOT re-zeroed by the padding fix - relSegBase already has the real correct value', () => {
+      // relSegHex seeds byte 0 with a real captured 0x55 - if a sub-byte
+      // param also declared at offset 0 tried to zero-pad it, that would
+      // destroy real, already-correct content from an actual device
+      // capture, not fix anything.
+      const layout: any = {
+        flag: { offset: 0, bitOffset: 0, bitSize: 1, defaultValue: '' }, // empty -> skipped by the main loop, only the pre-pass matters here
+      };
+      const buf = buildParamMem(2, layout, {}, 0xff, '55');
+      assert.equal(buf[0], 0x55, 'relSegHex-seeded byte must survive untouched by the padding-bit pre-pass');
+    });
+  });
 });

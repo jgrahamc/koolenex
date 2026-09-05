@@ -98,12 +98,19 @@ interface DeviceTypeIconProps {
   type?: string;
   size?: number;
   style?: React.CSSProperties;
+  // Real request 2026-08-31: the icon's own color (actuator=blue,
+  // sensor=green, router=amber - see COLMAP call sites) had no
+  // explanation on hover, so the meaning had to be told rather than
+  // discovered. Optional so callers that don't want a tooltip (or
+  // already wrap this in their own) aren't forced into one.
+  title?: string;
 }
 
 export function DeviceTypeIcon({
   type,
   size = 13,
   style,
+  title,
 }: DeviceTypeIconProps) {
   // detail = SVG elements drawn inside the panel area (x 1.5-8.5, y 3.8-8.0)
   let detail: React.ReactNode;
@@ -195,7 +202,7 @@ export function DeviceTypeIcon({
     );
   }
   return (
-    <span style={style}>
+    <span style={style} title={title}>
       <IconDinBase size={size} detail={detail} />
     </span>
   );
@@ -479,6 +486,48 @@ export function IconMonitor({ size = 14 }: SizeOnlyProps) {
   );
 }
 
+export function IconDeviceCompare({ size = 14 }: SizeOnlyProps) {
+  // Two side-by-side columns with a checkmark - project vs device comparison
+  return (
+    <_SvgIcon size={size}>
+      <rect
+        x="0.5"
+        y="1.5"
+        width="5.5"
+        height="11"
+        rx="0.8"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.1"
+      />
+      <rect
+        x="8"
+        y="1.5"
+        width="5.5"
+        height="11"
+        rx="0.8"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.1"
+      />
+      <path
+        d="M2 5 L4 5 M2 7 L4 7 M2 9 L4 9"
+        stroke="currentColor"
+        strokeWidth="1"
+        strokeLinecap="round"
+      />
+      <path
+        d="M9.3 6.7 L10.4 7.9 L12.5 5.3"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.1"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </_SvgIcon>
+  );
+}
+
 export function IconScan({ size = 14 }: SizeOnlyProps) {
   // Radar screen
   return (
@@ -527,6 +576,89 @@ export function IconScan({ size = 14 }: SizeOnlyProps) {
         fill="currentColor"
         fillOpacity="0.7"
       />
+    </_SvgIcon>
+  );
+}
+
+export function IconOffline({ size = 14 }: SizeOnlyProps) {
+  // Signal-strength bars (ascending) with a diagonal strike-through - the
+  // common, calm "not connected" glyph used broadly in software (browser
+  // offline pages, OS network indicators), not an alarm/warning symbol.
+  // Added 2026-08-31, replacing a ⚠ character: "not connected" is this
+  // app's normal, everyday idle state (most work here is offline project
+  // editing, not live bus access), not an error condition, and reads as
+  // one whenever the disconnected indicator borrows warning iconography.
+  return (
+    <_SvgIcon size={size}>
+      <rect x="2" y="8.5" width="2" height="3" rx="0.4" fill="currentColor" fillOpacity="0.55" />
+      <rect x="5.3" y="6" width="2" height="5.5" rx="0.4" fill="currentColor" fillOpacity="0.55" />
+      <rect x="8.6" y="3.5" width="2" height="8" rx="0.4" fill="currentColor" fillOpacity="0.55" />
+      <line
+        x1="1.5"
+        y1="2"
+        x2="12.5"
+        y2="12"
+        stroke="currentColor"
+        strokeWidth="1.1"
+        strokeLinecap="round"
+      />
+    </_SvgIcon>
+  );
+}
+
+export function IconAttention({ size = 14 }: SizeOnlyProps) {
+  // A genuine "needs attention" state, reserved for cases that deserve the
+  // deliberately alarming warning-triangle reading - IconOffline's own
+  // calm, non-alarm glyph is used for ordinary idle states instead (see
+  // its doc comment). Originally added for a failed reconnect attempt
+  // (AppShell.tsx); reused wherever else the same "this needs a look, not
+  // just informational" meaning applies (e.g. ProgrammingView.tsx's
+  // "verify recommended" indicator).
+  return (
+    <_SvgIcon size={size}>
+      <path
+        d="M7 1.6 L12.6 11.4 A0.9 0.9 0 0 1 11.8 12.8 L2.2 12.8 A0.9 0.9 0 0 1 1.4 11.4 Z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.1"
+        strokeLinejoin="round"
+      />
+      <rect x="6.4" y="5.4" width="1.2" height="3.4" rx="0.5" fill="currentColor" />
+      <rect x="6.4" y="9.8" width="1.2" height="1.2" rx="0.5" fill="currentColor" />
+    </_SvgIcon>
+  );
+}
+
+export function IconSerial({ size = 14 }: SizeOnlyProps) {
+  // Barcode glyph - per-device row indicator for whether a real physical
+  // unit's serial number has been recorded against this address (see
+  // ProgrammingView.tsx's serial-status icon, added 2026-08-30). Deliberately
+  // distinct from IconScan (the general "scan for devices" action icon)
+  // so the two aren't confused at a glance despite both relating to
+  // addressing.
+  return (
+    <_SvgIcon size={size}>
+      <rect
+        x="1.5"
+        y="2.5"
+        width="11"
+        height="9"
+        rx="1"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="0.8"
+        strokeOpacity="0.6"
+      />
+      {[3, 4.2, 5, 6.2, 7, 7.8, 9, 10.2].map((x, i) => (
+        <rect
+          key={x}
+          x={x}
+          y="4.2"
+          width={i % 3 === 0 ? 0.9 : 0.5}
+          height="5.6"
+          fill="currentColor"
+        />
+      ))}
     </_SvgIcon>
   );
 }

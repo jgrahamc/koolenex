@@ -168,11 +168,23 @@
   gap: 8px;
   align-items: center;
 }
+/* Wraps the status badge + its quick-connect popover (2026-08-29) - the
+   badge itself is now a <button>, clickable to open BusConnectionPanel
+   without navigating away from wherever the user currently is. */
+.busStatusWrap {
+  position: relative;
+}
 .busStatus {
   display: flex;
   align-items: center;
   gap: 5px;
   font-size: 10px;
+  /* Reset <button> defaults - this used to be a plain <div>. */
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  padding: 4px 10px;
+  border-radius: 999px;
 }
 .busDot {
   width: 6px;
@@ -182,14 +194,53 @@
 .busDotConnected {
   background: var(--green);
 }
-.busDotDisconnected {
-  background: var(--dim);
-}
 .busConnected {
   color: var(--green);
+  background: color-mix(in srgb, var(--green) 9%, transparent);
+  border: 1px solid color-mix(in srgb, var(--green) 19%, transparent);
 }
-.busDisconnected {
+/* Neutral gray, not red - real request 2026-08-31: "not connected" is this
+   app's normal, everyday state (most work here is offline project editing,
+   not live bus access), not an error condition, and red/⚠ read as an alarm
+   regardless of that context. The badge still needs to be genuinely
+   noticeable, not mistaken for "quiet/idle" the way the ORIGINAL --dim-only
+   treatment was (found live 2026-08-29: that ambiguity let a stale
+   "connected" state go unnoticed) - but that problem is now solved by
+   accuracy (the WebSocket re-sync fix from that day) and a real, distinct
+   icon (IconOffline, icons.tsx), not by borrowing warning/error coloring
+   for an unremarkable state. Renamed from .busDisconnected 2026-08-31 -
+   this is now specifically the "not connected, nothing needs it right
+   now" reading, distinct from .busNeedsAttention below (a THIRD, real
+   state: a reconnect attempt genuinely failed - see
+   BusStatus.needsAttention, state.ts). */
+.busIdle {
   color: var(--dim);
+  background: color-mix(in srgb, var(--dim) 9%, transparent);
+  border: 1px solid color-mix(in srgb, var(--dim) 19%, transparent);
+}
+/* Amber, not red - real request 2026-08-31: even a genuine "this needs
+   manual attention" failure (a reconnect attempt exhausted its retries -
+   see knx-bus.ts's 'knx:reconnect-failed') shouldn't read as red/danger
+   for a KNX bus connection; amber matches this app's own established
+   language elsewhere for "needs a look, not an emergency" (e.g. the
+   download-mode popover's Partial Download tint, an "Experimental" write
+   path badge) rather than introducing red as a one-off severity level. */
+.busNeedsAttention {
+  color: var(--amber);
+  background: color-mix(in srgb, var(--amber) 9%, transparent);
+  border: 1px solid color-mix(in srgb, var(--amber) 19%, transparent);
+}
+.busStatusPopover {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 50;
+  width: 280px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  padding: 4px;
 }
 .toolbarBtn {
   background: var(--surface);
@@ -220,9 +271,21 @@
   display: flex;
   flex-direction: column;
   flex: 1;
+  min-height: 0;
   overflow: hidden;
 }
+/* ── Space priority when the window is too short to fit everything: the
+   static nav list (navItems) shrinks/scrolls first (flex-shrink allowed,
+   min-height:0, its own scroll) - it's always the same links, always
+   reachable by scrolling. The pinned-window section below it (pinSection)
+   refuses to shrink past a floor tall enough for one group header + its
+   first item (flex-shrink:0 + min-height), so a short window never clips
+   it down to a bare, contentless divider line sitting against the
+   "Project" footer - see the min-height comment on .pinSection. ── */
 .navItems {
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow-y: auto;
   padding: 8px 0;
 }
 .navItem {
@@ -243,7 +306,10 @@
 .pinSection {
   border-top: 1px solid var(--border);
   overflow: auto;
-  flex: 1;
+  flex: 1 0 auto;
+  /* One .pinGroupLabel (~19px) + one .pinItem (~20px) + the border - the
+     guaranteed-visible floor described above. */
+  min-height: 44px;
 }
 .pinGroupLabel {
   padding: 6px 14px 2px;

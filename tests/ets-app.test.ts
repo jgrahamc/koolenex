@@ -144,3 +144,147 @@ describe('ets-app.ts: Union <Memory BitOffset> propagation', () => {
     assert.equal(entry.bitOffset, 4);
   });
 });
+
+// TypeRawData ParameterTypes (whole pre-baked binary blobs, e.g.
+// "Characteristic curve value domain" tables) were never handled at all —
+// every branch in the ParameterType-parsing loop checks for a specific
+// child element (TypeNumber/TypeFloat/TypeTime/TypeText) before falling
+// through to a generic TypeRestriction-based branch that only reads
+// TypeRestriction's own SizeInBit. TypeRawData has none of those, so it
+// silently got the `|| 8` fallback (1 byte) regardless of its real,
+// potentially-hundreds-of-bytes size. Confirmed 2026-08-28 against a real
+// device + its real .knxproj XML (`<TypeRawData MaxSize="516" />` for a
+// 512-byte curve table) — root cause of a real, large gap between
+// koolenex's computed parameter image and a real device. See
+// docs/knx-device-write-protocol.md Part 9 and
+// docs/follow-ups/2026-08-28-full-download-history-and-blob-params.md.
+describe('ets-app.ts: TypeRawData ParameterType (blob-shaped defaults)', () => {
+  it('reads MaxSize into bitSize (bytes, not bits) instead of falling back to 8', () => {
+    const xml = `<?xml version="1.0" encoding="utf-8"?>
+<KNX>
+  <ManufacturerData>
+    <Manufacturer>
+      <ApplicationPrograms>
+        <ApplicationProgram Id="AP-4">
+          <Static>
+            <ParameterTypes>
+              <ParameterType Id="PT-4">
+                <TypeRawData MaxSize="516" />
+              </ParameterType>
+            </ParameterTypes>
+            <Parameters>
+              <Parameter Id="P-4" ParameterType="PT-4" Value="AAAAAQIDBA==" Text="Curve" Access="None" Offset="0" BitOffset="0" />
+            </Parameters>
+            <ParameterRefs>
+              <ParameterRef Id="PR-4" RefId="P-4" />
+            </ParameterRefs>
+          </Static>
+        </ApplicationProgram>
+      </ApplicationPrograms>
+    </Manufacturer>
+  </ManufacturerData>
+</KNX>`;
+    const idx = buildAppIndex(Buffer.from(xml, 'utf8'));
+    assert(idx, 'buildAppIndex should parse the synthetic app XML');
+    const model = idx!.buildParamModel();
+    const entry = model.paramMemLayout['PR-4'];
+    assert(entry, 'PR-4 should be present in paramMemLayout');
+    // 516 bytes = 4128 bits — MaxSize is in bytes, confirmed against the
+    // real device's own real .knxprod (MaxSize="516" for a real 512-byte
+    // table + 4-byte length prefix = 516).
+    assert.equal(entry.bitSize, 4128);
+    assert.equal(entry.defaultValue, 'AAAAAQIDBA==');
+  });
+
+  it('falls back to 1 byte (not a crash) when MaxSize is missing', () => {
+    const xml = `<?xml version="1.0" encoding="utf-8"?>
+<KNX>
+  <ManufacturerData>
+    <Manufacturer>
+      <ApplicationPrograms>
+        <ApplicationProgram Id="AP-5">
+          <Static>
+            <ParameterTypes>
+              <ParameterType Id="PT-5">
+                <TypeRawData />
+              </ParameterType>
+            </ParameterTypes>
+            <Parameters>
+              <Parameter Id="P-5" ParameterType="PT-5" Value="AA==" Text="Curve" Access="None" Offset="0" BitOffset="0" />
+            </Parameters>
+            <ParameterRefs>
+              <ParameterRef Id="PR-5" RefId="P-5" />
+            </ParameterRefs>
+          </Static>
+        </ApplicationProgram>
+      </ApplicationPrograms>
+    </Manufacturer>
+  </ManufacturerData>
+</KNX>`;
+    const idx = buildAppIndex(Buffer.from(xml, 'utf8'));
+    assert(idx, 'buildAppIndex should parse the synthetic app XML');
+    const model = idx!.buildParamModel();
+    const entry = model.paramMemLayout['PR-5'];
+    assert(entry, 'PR-5 should be present in paramMemLayout');
+    assert.equal(entry.bitSize, 8);
+  });
+});
+
+describe('ets-app.ts: LdCtrlWriteRelMem Verify attribute', () => {
+  // Real, only-ever-seen-once-so-far data point: HDL's app
+  // (M-0073_A-20A9-10-EAA5) declares exactly one LdCtrlWriteRelMem, for
+  // objIdx 4, with Verify="true" - the only occurrence of that attribute
+  // anywhere in the app. See knx-connection.ts's own use of this field for
+  // the full, deliberately cautious caveat on what it's believed to mean.
+  it('parses Verify="true" into the WriteRelMem step', () => {
+    const xml = `<?xml version="1.0" encoding="utf-8"?>
+<KNX>
+  <ManufacturerData>
+    <Manufacturer>
+      <ApplicationPrograms>
+        <ApplicationProgram Id="AP-6">
+          <Static>
+            <LoadProcedures>
+              <LoadProcedure MergeId="4">
+                <LdCtrlWriteRelMem ObjIdx="4" Offset="0" Size="152" Verify="true" AppliesTo="full,par" />
+              </LoadProcedure>
+            </LoadProcedures>
+          </Static>
+        </ApplicationProgram>
+      </ApplicationPrograms>
+    </Manufacturer>
+  </ManufacturerData>
+</KNX>`;
+    const idx = buildAppIndex(Buffer.from(xml, 'utf8'));
+    assert(idx, 'buildAppIndex should parse the synthetic app XML');
+    const step = idx!.loadProcedures.find((s) => s.type === 'WriteRelMem');
+    assert(step, 'a WriteRelMem step should be present');
+    assert.equal(step!.verify, true);
+  });
+
+  it('parses a missing Verify attribute as false, not undefined/truthy', () => {
+    const xml = `<?xml version="1.0" encoding="utf-8"?>
+<KNX>
+  <ManufacturerData>
+    <Manufacturer>
+      <ApplicationPrograms>
+        <ApplicationProgram Id="AP-7">
+          <Static>
+            <LoadProcedures>
+              <LoadProcedure MergeId="4">
+                <LdCtrlWriteRelMem ObjIdx="4" Offset="0" Size="8" AppliesTo="full" />
+              </LoadProcedure>
+            </LoadProcedures>
+          </Static>
+        </ApplicationProgram>
+      </ApplicationPrograms>
+    </Manufacturer>
+  </ManufacturerData>
+</KNX>`;
+    const idx = buildAppIndex(Buffer.from(xml, 'utf8'));
+    assert(idx, 'buildAppIndex should parse the synthetic app XML');
+    const step = idx!.loadProcedures.find((s) => s.type === 'WriteRelMem');
+    assert(step, 'a WriteRelMem step should be present');
+    assert.equal(step!.verify, false);
+  });
+});

@@ -376,6 +376,77 @@ export interface VerifyPlan {
   family: VerifyFamily;
   mem: VerifyMemRegion[];
   props: VerifyPropRead[];
+  // GA table (objIdx 1) / Association table (objIdx 2) / Group Object Table
+  // (objIdx 3, added 2026-08-29) regions, kept separate from `mem`
+  // deliberately - see downloadDevice()'s writeUndeclaredTable() for the
+  // write-side twin of this same mechanism (hence the name). Only populated
+  // when the app's own model doesn't already declare a WriteRelMem step for
+  // that object (i.e. would otherwise never be verified at all, matching
+  // the fact it'd otherwise never have been written either - see
+  // declaredObjIdxs below for exactly which step type counts as "declared").
+  // Kept out of `mem`/`totalBytes` so the existing "raw memory bytes match"
+  // scope (parameter segment only) and the `segments.length === 1` decode
+  // gate in the verify-device route are unaffected - these are decoded and
+  // surfaced as their own named comparison rows instead (per communication
+  // object, not per raw byte). Named `undeclaredTableMem` (not `gaAssocMem`,
+  // its pre-Object-3 name) since it's no longer just the two GA/Assoc tables.
+  undeclaredTableMem: VerifyMemRegion[];
+}
+
+// Shared by every VerifyPlan branch below - see the `undeclaredTableMem`
+// field comment above for why this exists and is kept separate from `mem`.
+function buildUndeclaredTableMem(
+  steps: PlanStep[],
+  gaTable: Buffer | null,
+  assocTable: Buffer | null,
+  groupObjectTable: Buffer | null,
+  relBaseByObj: Record<number, number>,
+): VerifyMemRegion[] {
+  // Only a genuine WriteRelMem step (a real content write) counts as
+  // "already handled" - LoadImageProp is confirmed read-only for every
+  // objIdx (docs/knx-device-write-protocol.md Part 7), so a model
+  // declaring it never actually reads/writes the table content itself.
+  // Matches the identical fix already applied on the write side
+  // (knx-connection.ts's downloadDevice(), Part 12) and the route-level
+  // gate in routes/bus.ts's /bus/verify-device - this was a third,
+  // previously-unfixed copy of the same latent bug, found 2026-08-29 while
+  // extending this function to cover Object 3.
+  const declaredObjIdxs = new Set(
+    steps.filter((s) => s.type === 'WriteRelMem').map((s) => s.objIdx),
+  );
+  const out: VerifyMemRegion[] = [];
+  if (gaTable && gaTable.length && !declaredObjIdxs.has(1) && relBaseByObj[1] != null) {
+    out.push({
+      addr: relBaseByObj[1],
+      expected: gaTable,
+      label: `gatable@0x${relBaseByObj[1].toString(16)}`,
+    });
+  }
+  if (
+    assocTable &&
+    assocTable.length &&
+    !declaredObjIdxs.has(2) &&
+    relBaseByObj[2] != null
+  ) {
+    out.push({
+      addr: relBaseByObj[2],
+      expected: assocTable,
+      label: `assoctable@0x${relBaseByObj[2].toString(16)}`,
+    });
+  }
+  if (
+    groupObjectTable &&
+    groupObjectTable.length &&
+    !declaredObjIdxs.has(3) &&
+    relBaseByObj[3] != null
+  ) {
+    out.push({
+      addr: relBaseByObj[3],
+      expected: groupObjectTable,
+      label: `object3@0x${relBaseByObj[3].toString(16)}`,
+    });
+  }
+  return out;
 }
 
 export function planVerify(
@@ -387,7 +458,16 @@ export function planVerify(
   absSegData: Record<number, AbsSegSeed> = {},
   appId: string = '',
   relBaseByObj: Record<number, number> = {},
+  groupObjectTable: Buffer | null = null,
 ): VerifyPlan {
+  const undeclaredTableMem = buildUndeclaredTableMem(
+    steps,
+    gaTable,
+    assocTable,
+    groupObjectTable,
+    relBaseByObj,
+  );
+
   // AbsSegment (MDT-style): read back exactly what planDownload would stream.
   if (isAbsSegmentProcedure(steps)) {
     const ops = planDownload(
@@ -408,7 +488,7 @@ export function planVerify(
         label: `mem@0x${op.addr.toString(16)}`,
       });
     }
-    return { family: 'absmem', mem, props: [] };
+    return { family: 'absmem', mem, props: [], undeclaredTableMem };
   }
 
   // Legacy RelSegment: read paramMem at each WriteRelMem segment's offset.
@@ -431,7 +511,7 @@ export function planVerify(
         label: `relmem@0x${(base + offset).toString(16)}`,
       });
     }
-    return { family: 'relmem', mem, props: [] };
+    return { family: 'relmem', mem, props: [], undeclaredTableMem };
   }
 
   // Property-configured device (e.g. KNX IP router): no downloadable parameter
@@ -457,8 +537,8 @@ export function planVerify(
         label: `prop obj=${s.objIdx} pid=${s.propId}`,
       });
     }
-    if (props.length) return { family: 'prop', mem: [], props };
+    if (props.length) return { family: 'prop', mem: [], props, undeclaredTableMem };
   }
 
-  return { family: 'none', mem: [], props: [] };
+  return { family: 'none', mem: [], props: [], undeclaredTableMem };
 }

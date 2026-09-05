@@ -4,8 +4,10 @@ import { z } from 'zod';
 import * as db from '../db.ts';
 import { buildGAMaps } from '../../shared/ga-maps.ts';
 import { validateBody, paramId } from '../validate.ts';
-import { makeUpdateBuilder } from './shared.ts';
+import { makeUpdateBuilder, markDeviceModifiedIfProgrammed } from './shared.ts';
+import type { PendingChangeInput } from './shared.ts';
 import { invalidateGaDptCache } from './bus.ts';
+import { buildFlags } from '../ets-parser.ts';
 import type {
   GroupAddress,
   GaGroupName,
@@ -265,12 +267,165 @@ router.patch(
       `CO ${co.object_number}`,
       `ga_address: "${oldGAs}" → "${newGAs}" on "${(co.name as string) || co.object_number}"`,
     );
+    let deviceStatus: string | null = null;
+    let verifyCleared = false;
+    if (oldGAs !== newGAs) {
+      const pendingChanges: PendingChangeInput[] = [
+        {
+          kind: 'ga_link',
+          key: String(co.object_number),
+          oldVal: oldGAs,
+          newVal: newGAs,
+        },
+      ];
+      ({ status: deviceStatus, verifyCleared } = markDeviceModifiedIfProgrammed(
+        pid,
+        co.device_id as number,
+        pendingChanges,
+      ));
+    }
     db.scheduleSave();
     res.json({
       ...co,
       ga_address: gaAddr.join(' '),
       ga_send: gaSend,
       ga_receive: gaRecv,
+      ...(deviceStatus ? { device_status: deviceStatus } : {}),
+      ...(verifyCleared
+        ? { last_verify_match: null, last_verify_at: null }
+        : {}),
+    });
+  },
+);
+
+// Update Object 3 (Group Object Table) flags/priority/read-on-init on a com
+// object. Writes the dedicated raw columns (read/write/comm/tx/upd/
+// read_on_init/priority) that bus.ts's buildDeviceProgramming() already
+// reads directly when constructing the real device write - see that
+// function's groupObjectTable comment. `flags` (the composite display
+// string, e.g. "CWTU") is recomputed here via the same buildFlags() helper
+// ets-parser.ts uses when first importing a project, so the two stay in
+// sync; `flags` itself is never read back for a device write (see its own
+// "lossy" doc comment on ComObject) - it's display-only.
+router.patch(
+  '/projects/:pid/comobjects/:coid/flags',
+  (req: Request, res: Response): void => {
+    const pid = paramId(req, 'pid');
+    const coid = paramId(req, 'coid');
+    const co = db.get<ComObjectWithDevice>(
+      'SELECT * FROM com_objects WHERE id=? AND project_id=?',
+      [coid, pid],
+    );
+    if (!co) {
+      res.status(404).json({ error: 'Not found' });
+      return;
+    }
+    const b = validateBody(
+      req,
+      z.object({
+        read: z.boolean().optional(),
+        write: z.boolean().optional(),
+        comm: z.boolean().optional(),
+        tx: z.boolean().optional(),
+        upd: z.boolean().optional(),
+        read_on_init: z.boolean().optional(),
+        priority: z.enum(['low', 'alarm', 'high', 'system']).optional(),
+      }),
+    );
+
+    const next = {
+      read: b.read ?? !!co.read,
+      write: b.write ?? !!co.write,
+      comm: b.comm ?? !!co.comm,
+      tx: b.tx ?? !!co.tx,
+      upd: b.upd ?? !!co.upd,
+      read_on_init: b.read_on_init ?? !!co.read_on_init,
+      priority: b.priority ?? (co.priority as string) ?? 'low',
+    };
+    const nextFlags = buildFlags({
+      read: next.read,
+      write: next.write,
+      comm: next.comm,
+      tx: next.tx,
+      u: next.upd,
+    });
+
+    db.run(
+      `UPDATE com_objects SET read=?, write=?, comm=?, tx=?, upd=?, read_on_init=?, priority=?, flags=? WHERE id=?`,
+      [
+        next.read ? 1 : 0,
+        next.write ? 1 : 0,
+        next.comm ? 1 : 0,
+        next.tx ? 1 : 0,
+        next.upd ? 1 : 0,
+        next.read_on_init ? 1 : 0,
+        next.priority,
+        nextFlags,
+        co.id,
+      ],
+    );
+
+    const oldFlags = (co.flags as string) || '';
+    const oldPriority = (co.priority as string) || 'low';
+    const oldReadOnInit = !!co.read_on_init;
+    const changeParts: string[] = [];
+    if (oldFlags !== nextFlags)
+      changeParts.push(`flags: "${oldFlags}" → "${nextFlags}"`);
+    if (oldPriority !== next.priority)
+      changeParts.push(`priority: "${oldPriority}" → "${next.priority}"`);
+    if (oldReadOnInit !== next.read_on_init)
+      changeParts.push(
+        `read_on_init: ${oldReadOnInit} → ${next.read_on_init}`,
+      );
+    let deviceStatus: string | null = null;
+    let verifyCleared = false;
+    if (changeParts.length) {
+      db.audit(
+        pid,
+        'update',
+        'com_object',
+        `CO ${co.object_number}`,
+        `${changeParts.join(', ')} on "${(co.name as string) || co.object_number}"`,
+      );
+      // Tracked as one composite unit (kind 'group_object_flag'), not one
+      // row per field - Object 3's real per-object byte encodes read/
+      // write/comm/tx/upd/read_on_init/priority together (computeGroupObjectByte(),
+      // knx-tables.ts), so a partial download needs to know the object's
+      // combined before/after state to detect a genuine revert-to-original,
+      // not just whether ONE of the seven fields happened to move.
+      const oldComposite = {
+        read: !!co.read,
+        write: !!co.write,
+        comm: !!co.comm,
+        tx: !!co.tx,
+        upd: !!co.upd,
+        read_on_init: oldReadOnInit,
+        priority: oldPriority,
+      };
+      const pendingChanges: PendingChangeInput[] = [
+        {
+          kind: 'group_object_flag',
+          key: String(co.object_number),
+          oldVal: oldComposite,
+          newVal: next,
+        },
+      ];
+      ({ status: deviceStatus, verifyCleared } = markDeviceModifiedIfProgrammed(
+        pid,
+        co.device_id as number,
+        pendingChanges,
+      ));
+      db.scheduleSave();
+    }
+
+    res.json({
+      ...co,
+      ...next,
+      flags: nextFlags,
+      ...(deviceStatus ? { device_status: deviceStatus } : {}),
+      ...(verifyCleared
+        ? { last_verify_match: null, last_verify_at: null }
+        : {}),
     });
   },
 );

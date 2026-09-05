@@ -13,6 +13,24 @@ koolenex.db
 # manufacturer-copyrighted — never commit.
 data/
 
+# Real-hardware packet captures (.pcapng) and their decoded transcripts, taken
+# against real devices at real sites during protocol investigations. Same
+# category as data/ above (real device serials, IPs, site identities) —
+# never commit.
+captures/
+
+# Reusable-but-unproductized replay/dry-run/diff tooling built during
+# real-hardware investigations - several embed real IPs, same category as
+# captures/ above. Kept deliberately (not deleted) for reuse next time a
+# similar investigation is needed - see scratch-tools/README.md.
+scratch-tools/
+
+# Ad-hoc dev-server/capture log files left at the repo root during manual
+# testing sessions - same category as captures/ above (several contain real
+# device/router IPs). Never committed deliberately; ignored so an
+# unqualified `git add` can't sweep them in by accident.
+*.log
+
 # Build output
 client/dist/
 

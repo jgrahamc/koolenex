@@ -1,0 +1,34 @@
+{
+  "deviceAddress": "1.1.0",
+  "family": "prop",
+  "match": false,
+  "totalBytes": 10,
+  "totalDiffering": 8,
+  "segments": [],
+  "props": [
+    {
+      "label": "prop obj=0 pid=12",
+      "obj": 0,
+      "pid": 12,
+      "match": true,
+      "expectedHex": "0004",
+      "actualHex": "0004"
+    },
+    {
+      "label": "prop obj=0 pid=78",
+      "obj": 0,
+      "pid": 78,
+      "match": false,
+      "expectedHex": "000000150000",
+      "actualHex": "000000150001"
+    },
+    {
+      "label": "prop obj=0 pid=12",
+      "obj": 0,
+      "pid": 12,
+      "match": false,
+      "expectedHex": "00a6",
+      "actualHex": "0004"
+    }
+  ]
+}

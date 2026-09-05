@@ -1,0 +1,32 @@
+{
+  "_comment": "Real GA (Address) table and Association table MemExtWrite ops captured via tshark during a genuine ETS Full Download to 1.1.10, AFTER real project GAs were renumbered to non-degenerate values - see 1.1.9's sibling fixture for full context. This device's first download attempt failed (aborted right after IndAddrSerNumRead/DevDescrRead, before any memory writes - see frames ~13034-13039 in the pcap); this fixture is from the successful second attempt only. Source: ga_wire_format_test.pcapng, frames 517/518 (Address table) and 505/506 (Association table).",
+  "deviceAddress": "1.1.10",
+  "gaTable": {
+    "objIdx": 1,
+    "resolvedBase": "0x0F0000",
+    "byteCount": 6,
+    "hex": "00020A010A02",
+    "decoded": {
+      "count": 2,
+      "entries": [
+        { "gaHex": "0x0A01", "ga": "1/2/1" },
+        { "gaHex": "0x0A02", "ga": "1/2/2" }
+      ]
+    },
+    "note": "Matches real ETS group-address tree: 1/2/1 'Ch1 - SW' and 1/2/2 'Ch1 - FB' under '1 Functions > 1/2 Lighting' - sensible for this device (LED dimming actuator, channel 1 switch + feedback)."
+  },
+  "associationTable": {
+    "objIdx": 2,
+    "resolvedBase": "0x0C0000",
+    "byteCount": 10,
+    "hex": "00020001001F00020020",
+    "decoded": {
+      "count": 2,
+      "entries": [
+        { "gaIndex": 1, "coNumber": 31 },
+        { "gaIndex": 2, "coNumber": 32 }
+      ]
+    },
+    "note": "Byte-identical to the earlier degenerate-GA capture, same reasoning as 1.1.9's fixture - association entries reference GA-table position, not value."
+  }
+}
