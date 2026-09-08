@@ -185,7 +185,9 @@ export async function init(
   // instead of always requiring a physical programming-button press.
   // 'true' skips the choice prompt and does this automatically; '' (the
   // default) offers the choice each time.
-  db.run(`INSERT OR IGNORE INTO settings VALUES ('auto_address_by_serial', '')`);
+  db.run(
+    `INSERT OR IGNORE INTO settings VALUES ('auto_address_by_serial', '')`,
+  );
 
   // ── Migrations: add columns introduced after initial schema ──────────────
   // SQLite has no ADD COLUMN IF NOT EXISTS, so we check pragma first.

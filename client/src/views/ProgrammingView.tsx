@@ -21,7 +21,10 @@ import {
   useVerifyCache,
   useProgrammingLog,
 } from '../contexts.ts';
-import { DeviceCompareResults, displaySectionName } from './DeviceCompareResults.tsx';
+import {
+  DeviceCompareResults,
+  displaySectionName,
+} from './DeviceCompareResults.tsx';
 import { AddressDeviceModal } from '../AddressDeviceModal.tsx';
 import styles from './ProgrammingView.module.css';
 import primStyles from '../primitives.module.css';
@@ -31,7 +34,9 @@ import primStyles from '../primitives.module.css';
 function parseUnconfirmedDetail(raw: string): string[] {
   try {
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed.filter((x) => typeof x === 'string') : [];
+    return Array.isArray(parsed)
+      ? parsed.filter((x) => typeof x === 'string')
+      : [];
   } catch {
     return [];
   }
@@ -77,7 +82,9 @@ export function ProgrammingView() {
   useEffect(() => {
     api
       .getSettings()
-      .then((s: any) => setAutoAddressBySerial(s.auto_address_by_serial === 'true'))
+      .then((s: any) =>
+        setAutoAddressBySerial(s.auto_address_by_serial === 'true'),
+      )
       .catch(() => {});
   }, []);
   const toggleAutoAddressBySerial = async () => {
@@ -237,10 +244,7 @@ export function ProgrammingView() {
         document.removeEventListener('mousemove', onMove);
         document.removeEventListener('mouseup', onUp);
         try {
-          localStorage.setItem(
-            'programmingLogWidth',
-            String(widthRef.current),
-          );
+          localStorage.setItem('programmingLogWidth', String(widthRef.current));
         } catch {}
       };
       document.addEventListener('mousemove', onMove);
@@ -349,7 +353,9 @@ export function ProgrammingView() {
       {
         const patch: Record<string, unknown> = {
           unconfirmed_writes_count: unconfirmed,
-          unconfirmed_writes_detail: JSON.stringify(result.unconfirmedDetails ?? []),
+          unconfirmed_writes_detail: JSON.stringify(
+            result.unconfirmedDetails ?? [],
+          ),
         };
         if (result.serialNumber) patch.serial_number = result.serialNumber;
         try {
@@ -529,7 +535,9 @@ export function ProgrammingView() {
       // color/tick to carry the "did this succeed" signal at all).
       const msg =
         `Verified → ${devAddr} — ${scopes.join('; ')}` +
-        (mismatchedSections.length ? `; ${mismatchedSections.join(', ')} differ` : '');
+        (mismatchedSections.length
+          ? `; ${mismatchedSections.join(', ')} differ`
+          : '');
       addLog(`[${new Date().toLocaleTimeString()}] ${msg}`);
       // Slide over to show the full comparison as soon as the read completes,
       // auto-closing the log panel (per explicit request) so the slide-over
@@ -702,9 +710,9 @@ export function ProgrammingView() {
   // AssignProjectAddressModal this used to open is gone (merged in, 2026-
   // 08-31 - real user feedback: "let's combine address edit and serial
   // edit into the one popup").
-  const [addressModalFor, setAddressModalFor] = useState<number | 'scan' | null>(
-    null,
-  );
+  const [addressModalFor, setAddressModalFor] = useState<
+    number | 'scan' | null
+  >(null);
 
   return (
     <div
@@ -737,8 +745,10 @@ export function ProgrammingView() {
               style={
                 autoAddressBySerial
                   ? {
-                      borderColor: 'color-mix(in srgb, var(--green) 65%, black)',
-                      background: 'color-mix(in srgb, var(--green) 12%, transparent)',
+                      borderColor:
+                        'color-mix(in srgb, var(--green) 65%, black)',
+                      background:
+                        'color-mix(in srgb, var(--green) 12%, transparent)',
                     }
                   : undefined
               }
@@ -853,8 +863,7 @@ export function ProgrammingView() {
                             color: COLMAP[d.device_type] || 'var(--muted)',
                           }}
                           title={
-                            DEVICE_TYPE_LABEL[d.device_type] ||
-                            'Generic device'
+                            DEVICE_TYPE_LABEL[d.device_type] || 'Generic device'
                           }
                         />
                         <DeviceAddr
@@ -969,7 +978,8 @@ export function ProgrammingView() {
                             className={styles.lastDownloadLabel}
                             title={`Last download to device: ${new Date(d.last_download).toLocaleString()}`}
                           >
-                            D/L: {new Date(d.last_download).toLocaleDateString()}
+                            D/L:{' '}
+                            {new Date(d.last_download).toLocaleDateString()}
                           </span>
                         )}
                       </div>
@@ -1095,9 +1105,9 @@ export function ProgrammingView() {
                                   : d.status === 'unassigned'
                                     ? 'Not yet commissioned — program the device first'
                                     : verifying
-                                      ? (liveVerifyProgress
-                                          ? `${liveVerifyProgress.bytesRead}/${liveVerifyProgress.totalBytes} bytes`
-                                          : 'Reading device…')
+                                      ? liveVerifyProgress
+                                        ? `${liveVerifyProgress.bytesRead}/${liveVerifyProgress.totalBytes} bytes`
+                                        : 'Reading device…'
                                       : // Real request, 2026-09-01: "update
                                         // the tooltip to reflect the
                                         // verification status" - prefixes
@@ -1157,7 +1167,8 @@ export function ProgrammingView() {
                               ) : (
                                 <Spinner />
                               )
-                            ) : verifyCache[d.id] && d.status !== 'unassigned' ? (
+                            ) : verifyCache[d.id] &&
+                              d.status !== 'unassigned' ? (
                               d.last_verify_match === 1 ? (
                                 '✓ Re-verify'
                               ) : d.last_verify_match === 0 ? (
@@ -1177,102 +1188,106 @@ export function ProgrammingView() {
                             else anchorRefs.current.delete(d.id);
                           }}
                         >
-                        <Btn
-                          className={`${styles.actionBtn}${prog?.state === 'running' ? ' ' + styles.actionBtnRunning : ''}`}
-                          onClick={() => {
-                            // Real request 2026-08-30: only offer the
-                            // Full/Partial choice when there's something a
-                            // Partial Download could actually skip - a
-                            // device with no known modifications (never
-                            // downloaded, or already matching what was
-                            // last written) has nothing to differentiate
-                            // the two modes on, so the popup would just be
-                            // an extra click for no real decision. Go
-                            // straight to a Full download for those.
-                            if (d.status !== 'modified') {
-                              programDevice(d.id, d.individual_address, 'full');
-                              return;
+                          <Btn
+                            className={`${styles.actionBtn}${prog?.state === 'running' ? ' ' + styles.actionBtnRunning : ''}`}
+                            onClick={() => {
+                              // Real request 2026-08-30: only offer the
+                              // Full/Partial choice when there's something a
+                              // Partial Download could actually skip - a
+                              // device with no known modifications (never
+                              // downloaded, or already matching what was
+                              // last written) has nothing to differentiate
+                              // the two modes on, so the popup would just be
+                              // an extra click for no real decision. Go
+                              // straight to a Full download for those.
+                              if (d.status !== 'modified') {
+                                programDevice(
+                                  d.id,
+                                  d.individual_address,
+                                  'full',
+                                );
+                                return;
+                              }
+                              setDownloadModePopoverFor((v) =>
+                                v === d.id ? null : d.id,
+                              );
+                            }}
+                            disabled={
+                              prog?.state === 'running' ||
+                              !d.has_address ||
+                              anyOperationRunning
                             }
-                            setDownloadModePopoverFor((v) =>
-                              v === d.id ? null : d.id,
-                            );
-                          }}
-                          disabled={
-                            prog?.state === 'running' ||
-                            !d.has_address ||
-                            anyOperationRunning
-                          }
-                          title={
-                            !d.has_address
-                              ? 'No individual address assigned yet — click the "-.-.-" badge to assign one'
-                              : prog?.state === 'running'
-                                ? liveProgramProgress?.msg
+                            title={
+                              !d.has_address
+                                ? 'No individual address assigned yet — click the "-.-.-" badge to assign one'
+                                : prog?.state === 'running'
+                                  ? liveProgramProgress?.msg
+                                  : undefined
+                            }
+                            // Colored/labeled off the PERSISTENT status
+                            // (d.status, stored server-side), not the
+                            // transient in-memory `prog` state, so it still
+                            // reads correctly after a page reload/navigation,
+                            // not just immediately after a click. Reuses
+                            // STATUS_COLOR (the same map the summary badges
+                            // use) rather than a green-only check - found
+                            // live: 'modified' devices (a real, populated
+                            // status as of the same day this button's color
+                            // was added) fell through to the exact same
+                            // plain, uncolored "Program" as a device that's
+                            // never been touched (unassigned) at all, no
+                            // visual distinction despite being materially
+                            // different states.
+                            color={
+                              prog?.state !== 'error' &&
+                              d.status !== 'unassigned'
+                                ? STATUS_COLOR[d.status]
                                 : undefined
-                          }
-                          // Colored/labeled off the PERSISTENT status
-                          // (d.status, stored server-side), not the
-                          // transient in-memory `prog` state, so it still
-                          // reads correctly after a page reload/navigation,
-                          // not just immediately after a click. Reuses
-                          // STATUS_COLOR (the same map the summary badges
-                          // use) rather than a green-only check - found
-                          // live: 'modified' devices (a real, populated
-                          // status as of the same day this button's color
-                          // was added) fell through to the exact same
-                          // plain, uncolored "Program" as a device that's
-                          // never been touched (unassigned) at all, no
-                          // visual distinction despite being materially
-                          // different states.
-                          color={
-                            prog?.state !== 'error' && d.status !== 'unassigned'
-                              ? STATUS_COLOR[d.status]
-                              : undefined
-                          }
-                          bg={
-                            prog?.state !== 'error' && d.status !== 'unassigned'
-                              ? `color-mix(in srgb, ${STATUS_COLOR[d.status]} 12%, transparent)`
-                              : undefined
-                          }
-                          // While running, the button's own background
-                          // becomes the progress bar (a hard-stop
-                          // linear-gradient, filled up to the live
-                          // percentage) instead of popping a separate
-                          // PROGRESS column open elsewhere in the row -
-                          // explicit request, replacing that column
-                          // entirely. `style` is spread last inside Btn, so
-                          // this overrides its usual disabled-state gray.
-                          // The `actionBtnRunning` flow animation (below,
-                          // this module's own CSS - not the global `pulse`
-                          // whole-button opacity fade, found too harsh on a
-                          // filled button, real request 2026-08-31) and
-                          // `wait` cursor make clear the download is still
-                          // active during a real, long, percentage-static
-                          // stretch late in a write (observed live: ~20s+
-                          // sitting at 80% before jumping to 100%) rather than
-                          // reading as stalled.
-                          style={
-                            prog?.state === 'running'
-                              ? ({
-                                  background: `linear-gradient(to right, color-mix(in srgb, var(--accent) 55%, transparent) 0%, color-mix(in srgb, var(--accent) 55%, transparent) ${Math.round(programPct)}%, var(--surface) ${Math.round(programPct)}%, var(--surface) 100%)`,
-                                  color: 'var(--text)',
-                                  cursor: 'wait',
-                                  '--action-pct': `${Math.round(programPct)}%`,
-                                } as CSSProperties)
-                              : undefined
-                          }
-                        >
-                          {prog?.state === 'running' ? (
-                            `${Math.round(programPct)}%`
-                          ) : prog?.state === 'error' ? (
-                            'Retry'
-                          ) : d.status === 'programmed' ? (
-                            '✓ Re-program'
-                          ) : d.status === 'modified' ? (
-                            'Re-program'
-                          ) : (
-                            'Program'
-                          )}
-                        </Btn>
+                            }
+                            bg={
+                              prog?.state !== 'error' &&
+                              d.status !== 'unassigned'
+                                ? `color-mix(in srgb, ${STATUS_COLOR[d.status]} 12%, transparent)`
+                                : undefined
+                            }
+                            // While running, the button's own background
+                            // becomes the progress bar (a hard-stop
+                            // linear-gradient, filled up to the live
+                            // percentage) instead of popping a separate
+                            // PROGRESS column open elsewhere in the row -
+                            // explicit request, replacing that column
+                            // entirely. `style` is spread last inside Btn, so
+                            // this overrides its usual disabled-state gray.
+                            // The `actionBtnRunning` flow animation (below,
+                            // this module's own CSS - not the global `pulse`
+                            // whole-button opacity fade, found too harsh on a
+                            // filled button, real request 2026-08-31) and
+                            // `wait` cursor make clear the download is still
+                            // active during a real, long, percentage-static
+                            // stretch late in a write (observed live: ~20s+
+                            // sitting at 80% before jumping to 100%) rather than
+                            // reading as stalled.
+                            style={
+                              prog?.state === 'running'
+                                ? ({
+                                    background: `linear-gradient(to right, color-mix(in srgb, var(--accent) 55%, transparent) 0%, color-mix(in srgb, var(--accent) 55%, transparent) ${Math.round(programPct)}%, var(--surface) ${Math.round(programPct)}%, var(--surface) 100%)`,
+                                    color: 'var(--text)',
+                                    cursor: 'wait',
+                                    '--action-pct': `${Math.round(programPct)}%`,
+                                  } as CSSProperties)
+                                : undefined
+                            }
+                          >
+                            {prog?.state === 'running'
+                              ? `${Math.round(programPct)}%`
+                              : prog?.state === 'error'
+                                ? 'Retry'
+                                : d.status === 'programmed'
+                                  ? '✓ Re-program'
+                                  : d.status === 'modified'
+                                    ? 'Re-program'
+                                    : 'Program'}
+                          </Btn>
                         </div>
                       </div>
                     </TD>
@@ -1661,7 +1676,9 @@ export function ProgrammingView() {
           server just picks serial automatically and this never fires. */}
       {addressChoiceFor &&
         (() => {
-          const d = devices.find((dev: any) => dev.id === addressChoiceFor.deviceId);
+          const d = devices.find(
+            (dev: any) => dev.id === addressChoiceFor.deviceId,
+          );
           if (!d) return null;
           return (
             <div className={primStyles.modalOverlay}>
@@ -1670,9 +1687,9 @@ export function ProgrammingView() {
                   Device not found at {addressChoiceFor.devAddr}
                 </div>
                 <div className={primStyles.modalBody}>
-                  {d.name} didn't answer at its assigned address with a
-                  matching Serial No. ({d.serial_number}) - this can happen
-                  after a factory reset. How should it be programmed?
+                  {d.name} didn't answer at its assigned address with a matching
+                  Serial No. ({d.serial_number}) - this can happen after a
+                  factory reset. How should it be programmed?
                 </div>
                 <div className={primStyles.modalActions}>
                   <Btn

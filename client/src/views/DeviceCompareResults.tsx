@@ -54,18 +54,30 @@ function composeCount(entries: Array<{ count: number; word: string }>): string {
 function MatchIcon({ match }: { match: boolean | null }) {
   if (match === true)
     return (
-      <span className={styles.matchIcon} style={{ color: 'var(--green)' }} title="Match">
+      <span
+        className={styles.matchIcon}
+        style={{ color: 'var(--green)' }}
+        title="Match"
+      >
         ✓
       </span>
     );
   if (match === false)
     return (
-      <span className={styles.matchIcon} style={{ color: 'var(--red)' }} title="Differs">
+      <span
+        className={styles.matchIcon}
+        style={{ color: 'var(--red)' }}
+        title="Differs"
+      >
         ✕
       </span>
     );
   return (
-    <span className={styles.matchIcon} style={{ color: 'var(--dim)' }} title="Not applicable">
+    <span
+      className={styles.matchIcon}
+      style={{ color: 'var(--dim)' }}
+      title="Not applicable"
+    >
       –
     </span>
   );
@@ -80,8 +92,16 @@ function MatchIcon({ match }: { match: boolean | null }) {
 // GroupObjectEntryFlags's own doc comment) but labeled plain "C" here,
 // matching ETS's own "Communication" checkbox the byte can't fully
 // distinguish from.
-const FLAG_CHIP_ORDER: Array<{ key: keyof GroupObjectEntryFlags; letter: string; label: string }> = [
-  { key: 'commLinked', letter: 'C', label: 'Communication (+ has a real GA link)' },
+const FLAG_CHIP_ORDER: Array<{
+  key: keyof GroupObjectEntryFlags;
+  letter: string;
+  label: string;
+}> = [
+  {
+    key: 'commLinked',
+    letter: 'C',
+    label: 'Communication (+ has a real GA link)',
+  },
   { key: 'read', letter: 'R', label: 'Read' },
   { key: 'write', letter: 'W', label: 'Write' },
   { key: 'transmit', letter: 'T', label: 'Transmit' },
@@ -170,9 +190,7 @@ export function DeviceCompareResults({
   // Row filter driven by the summary chips above the table ("N match" / "N
   // differ") instead of a separate checkbox - clicking a chip filters to
   // that outcome, clicking it again (or the same state) returns to 'all'.
-  const [rowFilter, setRowFilter] = useState<'all' | 'differ' | 'match'>(
-    'all',
-  );
+  const [rowFilter, setRowFilter] = useState<'all' | 'differ' | 'match'>('all');
   const [onlyNamed, setOnlyNamed] = useState(true);
   const [showGroupCol, setShowGroupCol] = useState(false);
   const [sectionsOpen, setSectionsOpen] = useState(false);
@@ -416,11 +434,15 @@ export function DeviceCompareResults({
                   always the com object's name, never equal to their key). */}
               {decoded && (
                 <div className={styles.summaryGroup}>
-                  {(matchCount > 0 || gaMatchCount > 0 || obj3MatchCount > 0) && (
+                  {(matchCount > 0 ||
+                    gaMatchCount > 0 ||
+                    obj3MatchCount > 0) && (
                     <button
                       type="button"
                       className={`${styles.filterChipBtn} ${rowFilter === 'match' ? styles.filterChipBtnActive : ''}`}
-                      style={{ '--chip-ring': 'var(--green)' } as React.CSSProperties}
+                      style={
+                        { '--chip-ring': 'var(--green)' } as React.CSSProperties
+                      }
                       onClick={() =>
                         setRowFilter(rowFilter === 'match' ? 'all' : 'match')
                       }
@@ -430,7 +452,9 @@ export function DeviceCompareResults({
                           : 'Show only matching rows. ') +
                         'Named, project-configurable parameters' +
                         (gaDecoded.length ? ', group-address links' : '') +
-                        (obj3Decoded.length ? ', and communication objects\' flags' : '') +
+                        (obj3Decoded.length
+                          ? ", and communication objects' flags"
+                          : '') +
                         ' only. Underneath, at the raw byte level, ' +
                         `${result.totalBytes - result.totalDiffering}/${result.totalBytes} ` +
                         `bytes of the parameter memory segment match ` +
@@ -451,11 +475,15 @@ export function DeviceCompareResults({
                       />
                     </button>
                   )}
-                  {(mismatchCount > 0 || gaMismatchCount > 0 || obj3MismatchCount > 0) && (
+                  {(mismatchCount > 0 ||
+                    gaMismatchCount > 0 ||
+                    obj3MismatchCount > 0) && (
                     <button
                       type="button"
                       className={`${styles.filterChipBtn} ${rowFilter === 'differ' ? styles.filterChipBtnActive : ''}`}
-                      style={{ '--chip-ring': 'var(--red)' } as React.CSSProperties}
+                      style={
+                        { '--chip-ring': 'var(--red)' } as React.CSSProperties
+                      }
                       onClick={() => {
                         const next = rowFilter === 'differ' ? 'all' : 'differ';
                         setRowFilter(next);
@@ -479,7 +507,9 @@ export function DeviceCompareResults({
                       <Badge
                         label={
                           `${composeCount(mismatchCountEntries)} differ` +
-                          (hiddenMismatchCount > 0 ? ` (${hiddenMismatchCount} hidden)` : '')
+                          (hiddenMismatchCount > 0
+                            ? ` (${hiddenMismatchCount} hidden)`
+                            : '')
                         }
                         color="var(--red)"
                       />
@@ -507,14 +537,16 @@ export function DeviceCompareResults({
                     <button
                       type="button"
                       className={`${styles.filterChipBtn} ${rowFilter === 'all' ? styles.filterChipBtnActive : ''}`}
-                      style={{ '--chip-ring': 'var(--dim)' } as React.CSSProperties}
+                      style={
+                        { '--chip-ring': 'var(--dim)' } as React.CSSProperties
+                      }
                       onClick={() => setRowFilter('all')}
                       title={
                         (rowFilter === 'all'
                           ? 'Showing every row — matched and differing together. '
                           : 'Show every row — matched and differing together, in one view. ') +
                         '(Doesn\'t change the "Only named parameters" filter below - ' +
-                        'that\'s a separate axis.)'
+                        "that's a separate axis.)"
                       }
                     >
                       <Badge label="All" color="var(--dim)" />

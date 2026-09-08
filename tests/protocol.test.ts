@@ -76,7 +76,7 @@ describe('KNXnet/IP: pktConnect', () => {
     assert.equal(pkt.readUInt16BE(12), 50000);
   });
 
-  it('uses the placeholder HPAI (0.0.0.0:0, protocol TCP) when hostProtocol=TCP - matches Calimero\'s HPAI.Tcp', () => {
+  it("uses the placeholder HPAI (0.0.0.0:0, protocol TCP) when hostProtocol=TCP - matches Calimero's HPAI.Tcp", () => {
     const pkt = pktConnect('192.168.1.10', 50000, HOST_PROTOCOL.TCP);
     assert.equal(pkt[7], 0x02); // protocol code TCP
     assert.deepEqual([...pkt.slice(8, 12)], [0, 0, 0, 0]);
@@ -477,10 +477,7 @@ describe('APDU: apduSystemNetworkParamRead', () => {
     // commissioning flow, 2026-08-30 - see
     // docs/knx-device-write-protocol.md §9.
     const apdu = apduSystemNetworkParamRead(0, 11, 1);
-    assert.deepEqual(
-      [...apdu],
-      [0x01, 0xc8, 0x00, 0x00, 0x00, 0xb0, 0x01],
-    );
+    assert.deepEqual([...apdu], [0x01, 0xc8, 0x00, 0x00, 0x00, 0xb0, 0x01]);
     const fullApci = ((apdu[0]! & 0x03) << 8) | apdu[1]!;
     assert.equal(fullApci, APCI_EXT.SystemNetworkParam_Read);
   });
@@ -503,10 +500,7 @@ describe('parseSystemNetworkParamResponse', () => {
     const resp = parseSystemNetworkParamResponse(frame);
     assert.equal(resp.objectType, 0);
     assert.equal(resp.pid, 11);
-    assert.deepEqual(
-      [...resp.value],
-      [0x00, 0x0a, 0x57, 0x82, 0x04, 0x19],
-    );
+    assert.deepEqual([...resp.value], [0x00, 0x0a, 0x57, 0x82, 0x04, 0x19]);
   });
 
   it('returns an empty value when the payload is too short (unsupported)', () => {
@@ -587,7 +581,7 @@ describe('buildAssocTable', () => {
   // decode of a real captured Full Download - see
   // docs/knx-device-write-protocol.md §2.6/§1.1 (`00020001000500020008`
   // decodes as `[count=2][gaIndex=1,coNumber=5][gaIndex=2,coNumber=8]`).
-  it('preserves the real declared entry order (coRows order, then a com object\'s own GA list order) - does NOT re-sort by GA index', () => {
+  it("preserves the real declared entry order (coRows order, then a com object's own GA list order) - does NOT re-sort by GA index", () => {
     // Real bug, found live 2026-08-30: this used to sort entries by GA
     // index then CO number, discarding the real declared order entirely -
     // a real captured ETS association table for a live device came back

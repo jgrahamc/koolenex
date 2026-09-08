@@ -106,7 +106,8 @@ export function AddressDeviceModal({
   onClose: () => void;
   addLog: (line: string) => void;
 }) {
-  const { updateDevice, unassignDevice, addScannedDevice } = useProjectActions();
+  const { updateDevice, unassignDevice, addScannedDevice } =
+    useProjectActions();
   const { connect } = useBusActions();
   const { busStatus } = useLiveData();
   const { clearResult: clearVerifyResult } = useVerifyCache();
@@ -156,9 +157,10 @@ export function AddressDeviceModal({
 
   // ── Detect tab (programming-mode scan) ──────────────────────────────────
   const [scanning, setScanning] = useState(false);
-  const [detected, setDetected] = useState<
-    Array<{ serial: string; src: string }> | null
-  >(null);
+  const [detected, setDetected] = useState<Array<{
+    serial: string;
+    src: string;
+  }> | null>(null);
   const [detectError, setDetectError] = useState<string | null>(null);
   // 'new' is a real, addressable choice, not just a device id - real
   // request, 2026-08-31 (general/unlocked flow only): "in the Assign To,
@@ -215,7 +217,9 @@ export function AddressDeviceModal({
     try {
       await ensureBusConnected();
       setScanStatus('Press the programming button on the device now…');
-      addLog(`[${new Date().toLocaleTimeString()}] Scanning for devices in programming mode…`);
+      addLog(
+        `[${new Date().toLocaleTimeString()}] Scanning for devices in programming mode…`,
+      );
       // Real live-test finding, 2026-08-31: "our Scan for New Device
       // functionality does not seem to pick up our device in prog mode" -
       // this only ever tried the serial-number scan
@@ -234,7 +238,10 @@ export function AddressDeviceModal({
       const deadline = Date.now() + 30000;
       const bySrc = new Map<string, string>(); // src -> serial ('' if unknown)
       while (bySrc.size === 0 && Date.now() < deadline) {
-        const thisRound = Math.min(roundMs, Math.max(deadline - Date.now(), 100));
+        const thisRound = Math.min(
+          roundMs,
+          Math.max(deadline - Date.now(), 100),
+        );
         const [serialScan, addrCheck] = await Promise.all([
           api.busReadSerialsInProgrammingMode(thisRound),
           api.busCheckProgrammingMode(thisRound),
@@ -403,9 +410,10 @@ export function AddressDeviceModal({
     initialDeviceId ?? '',
   );
   const [manualBusy, setManualBusy] = useState(false);
-  const [manualResult, setManualResult] = useState<
-    { ok: boolean; msg: string } | null
-  >(null);
+  const [manualResult, setManualResult] = useState<{
+    ok: boolean;
+    msg: string;
+  } | null>(null);
 
   const manualSerialValid = /^[0-9a-fA-F]{12}$/.test(manualSerial);
   const manualMatch = manualSerialValid ? matchBySerial(manualSerial) : null;
@@ -506,7 +514,10 @@ export function AddressDeviceModal({
   const [addrError, setAddrError] = useState<string | null>(null);
   const newAddr = `${addrArea}.${addrLine}.${addrDevNum}`;
   const addrConflict = allDevices.find(
-    (d) => d.id !== lockedTarget?.id && d.has_address && d.individual_address === newAddr,
+    (d) =>
+      d.id !== lockedTarget?.id &&
+      d.has_address &&
+      d.individual_address === newAddr,
   );
   const addrUnchanged =
     !!lockedTarget?.has_address && lockedTarget.individual_address === newAddr;
@@ -560,9 +571,10 @@ export function AddressDeviceModal({
   // serial-based write (busAssignAddressBySerial) stays on the Serial tab
   // below, since it inherently needs a serial to target by.
   const [writeAddrBusy, setWriteAddrBusy] = useState(false);
-  const [writeAddrResult, setWriteAddrResult] = useState<
-    { ok: boolean; msg: string } | null
-  >(null);
+  const [writeAddrResult, setWriteAddrResult] = useState<{
+    ok: boolean;
+    msg: string;
+  } | null>(null);
   // Status line for the detect-first flow below - mirrors scanStatus's
   // "press the button now" pattern, but scoped to this button since scan()
   // and writeAddressDirect() are independent flows that can each be
@@ -662,7 +674,10 @@ export function AddressDeviceModal({
       const byAddress = new Map<string, string | null>(); // address -> serial (null if unknown)
       let sawAnySerialReply = false;
       while (byAddress.size === 0 && Date.now() < deadline) {
-        const thisRound = Math.min(roundMs, Math.max(deadline - Date.now(), 100));
+        const thisRound = Math.min(
+          roundMs,
+          Math.max(deadline - Date.now(), 100),
+        );
         const [serialScan, addrCheck] = await Promise.all([
           api.busReadSerialsInProgrammingMode(thisRound, controller.signal),
           api.busCheckProgrammingMode(thisRound, controller.signal),
@@ -834,9 +849,10 @@ export function AddressDeviceModal({
   // this one) now live together on the Device Address tab; the Serial tab
   // is pure bookkeeping only (view/detect/clear).
   const [writeBySerialBusy, setWriteBySerialBusy] = useState(false);
-  const [writeBySerialResult, setWriteBySerialResult] = useState<
-    { ok: boolean; msg: string } | null
-  >(null);
+  const [writeBySerialResult, setWriteBySerialResult] = useState<{
+    ok: boolean;
+    msg: string;
+  } | null>(null);
   // Same real bug/fix as writeAddressDirect() above, 2026-08-31: this used
   // lockedTarget.individual_address (the last SAVED project value)
   // regardless of unsaved edits sitting in the address selectors - fixed
@@ -927,7 +943,10 @@ export function AddressDeviceModal({
         );
       }
       await updateDevice(target.id, { serial_number: manualSerial });
-      setManualResult({ ok: true, msg: `✓ Addressed as ${target.individual_address}` });
+      setManualResult({
+        ok: true,
+        msg: `✓ Addressed as ${target.individual_address}`,
+      });
       addLog(
         `[${new Date().toLocaleTimeString()}] Addressed ${manualSerial} → ${target.individual_address}`,
       );
@@ -960,17 +979,16 @@ export function AddressDeviceModal({
             {lockDevice ? (
               lockedNoAddress ? (
                 <>
-                  Capture this device's serial number, either by pressing
-                  its programming button to detect it, or by entering the
-                  serial directly. No project address is assigned yet, so
-                  nothing is written to the device - it just records the
-                  serial.
+                  Capture this device's serial number, either by pressing its
+                  programming button to detect it, or by entering the serial
+                  directly. No project address is assigned yet, so nothing is
+                  written to the device - it just records the serial.
                 </>
               ) : (
                 <>
                   Re-confirm or update the recorded serial number for this
-                  device, either by pressing its programming button to
-                  detect it, or by entering the serial directly.
+                  device, either by pressing its programming button to detect
+                  it, or by entering the serial directly.
                 </>
               )
             ) : (
@@ -1018,7 +1036,9 @@ export function AddressDeviceModal({
                             max={15}
                             className={styles.textInput}
                             value={addrArea}
-                            onChange={(e) => setAddrArea(Number(e.target.value) || 0)}
+                            onChange={(e) =>
+                              setAddrArea(Number(e.target.value) || 0)
+                            }
                           />
                         </div>
                         <div className={styles.col}>
@@ -1029,7 +1049,9 @@ export function AddressDeviceModal({
                             max={15}
                             className={styles.textInput}
                             value={addrLine}
-                            onChange={(e) => setAddrLine(Number(e.target.value) || 0)}
+                            onChange={(e) =>
+                              setAddrLine(Number(e.target.value) || 0)
+                            }
                           />
                         </div>
                         <div className={styles.col}>
@@ -1040,26 +1062,31 @@ export function AddressDeviceModal({
                             max={255}
                             className={styles.textInput}
                             value={addrDevNum}
-                            onChange={(e) => setAddrDevNum(Number(e.target.value) || 0)}
+                            onChange={(e) =>
+                              setAddrDevNum(Number(e.target.value) || 0)
+                            }
                           />
                         </div>
                       </div>
                       {addrConflict && (
                         <div className={styles.errorMsg}>
-                          &#x2717; {newAddr} is already used by {addrConflict.name}
+                          &#x2717; {newAddr} is already used by{' '}
+                          {addrConflict.name}
                         </div>
                       )}
                       {addrError && (
-                        <div className={styles.errorMsg}>&#x2717; {addrError}</div>
+                        <div className={styles.errorMsg}>
+                          &#x2717; {addrError}
+                        </div>
                       )}
                       {/* Real user note, 2026-08-31: "the save button on
                           editing the device address may be confusing.
                           People may not recognise the distinction between
                           saving locally and writing to device." */}
                       <div className={styles.emptyState}>
-                        Saving only updates the project's planned address -
-                        it does not write anything to the physical device.
-                        Use ⚡ Write Address below for that.
+                        Saving only updates the project's planned address - it
+                        does not write anything to the physical device. Use ⚡
+                        Write Address below for that.
                       </div>
                       <div className={styles.row}>
                         <Btn
@@ -1067,7 +1094,11 @@ export function AddressDeviceModal({
                           disabled={addrBusy || !!addrConflict || addrUnchanged}
                           title="Saves the planned address to the project only - does not write to the physical device"
                         >
-                          {addrBusy ? <Spinner /> : `Save ${newAddr} (Project Only)`}
+                          {addrBusy ? (
+                            <Spinner />
+                          ) : (
+                            `Save ${newAddr} (Project Only)`
+                          )}
                         </Btn>
                         {!!lockedTarget?.has_address && (
                           <Btn
@@ -1085,7 +1116,10 @@ export function AddressDeviceModal({
                       <div className={styles.matchedTag}>
                         DEVICE ADDRESS: {lockedTarget?.individual_address}
                       </div>
-                      <Btn onClick={() => setAddrEditing(true)} color="var(--dim)">
+                      <Btn
+                        onClick={() => setAddrEditing(true)}
+                        color="var(--dim)"
+                      >
                         Edit
                       </Btn>
                       <Btn
@@ -1106,7 +1140,9 @@ export function AddressDeviceModal({
                   <div className={styles.row}>
                     <Btn
                       onClick={
-                        writeAddrWaiting ? cancelWriteAddress : writeAddressDirect
+                        writeAddrWaiting
+                          ? cancelWriteAddress
+                          : writeAddressDirect
                       }
                       disabled={
                         (writeAddrBusy && !writeAddrWaiting) ||
@@ -1216,7 +1252,9 @@ export function AddressDeviceModal({
                         for it at all. */}
                     <Btn
                       onClick={() => confirmSerial(manualSerial)}
-                      disabled={confirmBusy || !manualSerialValid || manualNoChange}
+                      disabled={
+                        confirmBusy || !manualSerialValid || manualNoChange
+                      }
                       className={styles.serialSideBtn}
                       title={
                         manualNoChange
@@ -1253,7 +1291,9 @@ export function AddressDeviceModal({
                     <div className={styles.pressPromptBadge}>{scanStatus}</div>
                   )}
                   {detectError && (
-                    <div className={styles.errorMsg}>&#x2717; {detectError}</div>
+                    <div className={styles.errorMsg}>
+                      &#x2717; {detectError}
+                    </div>
                   )}
                   {detected && detected.length === 0 && (
                     <div className={styles.emptyState}>
@@ -1280,7 +1320,13 @@ export function AddressDeviceModal({
                                 : `${d.src} (no serial — detected via legacy address broadcast)`}
                               <CopyButton text={d.serial || d.src} />
                             </div>
-                            <div className={isMatch ? styles.matchedTag : styles.unmatchedTag}>
+                            <div
+                              className={
+                                isMatch
+                                  ? styles.matchedTag
+                                  : styles.unmatchedTag
+                              }
+                            >
                               {lockedNoAddress
                                 ? 'No project address assigned yet.'
                                 : isMatch
@@ -1314,139 +1360,152 @@ export function AddressDeviceModal({
             </>
           ) : (
             <>
-          <div className={styles.tabRow}>
-            <button
-              className={`${styles.tabBtn} ${tab === 'detect' ? styles.tabBtnActive : ''}`}
-              onClick={() => setTab('detect')}
-            >
-              Press Programming Button
-            </button>
-            <button
-              className={`${styles.tabBtn} ${tab === 'serial' ? styles.tabBtnActive : ''}`}
-              onClick={() => {
-                // Real request, 2026-08-31: "once I select the device to
-                // assign it to, shouldn't that selection carry over to the
-                // Enter Serial Number tab (along with the serial of the
-                // selected device)?" - only meaningful with exactly one
-                // detected device (detectSelection is keyed by address, so
-                // there's no single "the" selection to carry over when
-                // several are on screen at once).
-                if (detected?.length === 1) {
-                  const d = detected[0]!;
-                  const pickedId = detectSelection[d.src];
-                  // 'new' (see detectSelection's own comment) has no
-                  // existing device id to carry over - the manual tab has
-                  // no equivalent "add as new" concept of its own, so
-                  // there's nothing meaningful to pre-fill for that case.
-                  if (pickedId && pickedId !== 'new') {
-                    setManualDeviceId(pickedId);
-                    const picked = allDevices.find((dev) => dev.id === pickedId);
-                    setManualSerial(d.serial || picked?.serial_number || '');
-                  }
-                }
-                setTab('serial');
-              }}
-            >
-              Enter Serial Number
-            </button>
-          </div>
+              <div className={styles.tabRow}>
+                <button
+                  className={`${styles.tabBtn} ${tab === 'detect' ? styles.tabBtnActive : ''}`}
+                  onClick={() => setTab('detect')}
+                >
+                  Press Programming Button
+                </button>
+                <button
+                  className={`${styles.tabBtn} ${tab === 'serial' ? styles.tabBtnActive : ''}`}
+                  onClick={() => {
+                    // Real request, 2026-08-31: "once I select the device to
+                    // assign it to, shouldn't that selection carry over to the
+                    // Enter Serial Number tab (along with the serial of the
+                    // selected device)?" - only meaningful with exactly one
+                    // detected device (detectSelection is keyed by address, so
+                    // there's no single "the" selection to carry over when
+                    // several are on screen at once).
+                    if (detected?.length === 1) {
+                      const d = detected[0]!;
+                      const pickedId = detectSelection[d.src];
+                      // 'new' (see detectSelection's own comment) has no
+                      // existing device id to carry over - the manual tab has
+                      // no equivalent "add as new" concept of its own, so
+                      // there's nothing meaningful to pre-fill for that case.
+                      if (pickedId && pickedId !== 'new') {
+                        setManualDeviceId(pickedId);
+                        const picked = allDevices.find(
+                          (dev) => dev.id === pickedId,
+                        );
+                        setManualSerial(
+                          d.serial || picked?.serial_number || '',
+                        );
+                      }
+                    }
+                    setTab('serial');
+                  }}
+                >
+                  Enter Serial Number
+                </button>
+              </div>
 
-          <label className={styles.checkboxRow}>
-            <input
-              type="checkbox"
-              checked={showAllDevices}
-              onChange={(e) => setShowAllDevices(e.target.checked)}
-            />
-            Show already-programmed devices too (re-addressing a factory-reset unit)
-          </label>
+              <label className={styles.checkboxRow}>
+                <input
+                  type="checkbox"
+                  checked={showAllDevices}
+                  onChange={(e) => setShowAllDevices(e.target.checked)}
+                />
+                Show already-programmed devices too (re-addressing a
+                factory-reset unit)
+              </label>
 
-          {tab === 'detect' ? (
-            <>
-              <Btn onClick={scan} disabled={scanning}>
-                {scanning ? (
-                  <>
-                    <Spinner /> Scanning…
-                  </>
-                ) : (
-                  '⟲ Scan for devices in programming mode'
-                )}
-              </Btn>
-              {detectError && (
-                <div className={styles.errorMsg}>&#x2717; {detectError}</div>
-              )}
-              {detected && detected.length === 0 && (
-                <div className={styles.emptyState}>
-                  No devices answered. Press the physical programming button
-                  on the target device, then scan again.
-                </div>
-              )}
-              {detected && detected.length > 0 && (
-                <div className={styles.detectedList}>
-                  {detected.map((d) => {
-                    // Keyed by d.src throughout (see scan()'s own comment) -
-                    // d.serial can be '' for a device found only via the
-                    // legacy address broadcast (real live-test finding,
-                    // 2026-08-31: "Scan for New Device... does not seem to
-                    // pick up our device in prog mode" - a non-Albrecht-
-                    // Jung device that doesn't answer the serial-number
-                    // scan at all).
-                    const matched = d.serial ? matchBySerial(d.serial) : null;
-                    const busy = detectBusy[d.src];
-                    const result = detectResult[d.src];
-                    return (
-                      <div key={d.src} className={styles.detectedRow}>
-                        <div className={styles.detectedSerial}>
-                          {d.serial
-                            ? `Serial ${d.serial} @ ${d.src}`
-                            : `${d.src} (no serial — detected via legacy address broadcast)`}
-                          <CopyButton text={d.serial || d.src} />
-                        </div>
-                        {matched ? (
-                          <div className={styles.matchedTag}>
-                            Matched project record: {matched.name}
-                          </div>
-                        ) : (
-                          <div className={styles.unmatchedTag}>
-                            {d.serial
-                              ? 'No matching serial in the project — pick manually'
-                              : 'No serial to match — pick the target device manually'}
-                          </div>
-                        )}
-                        <div className={styles.row}>
-                          <div className={styles.col}>
-                            <div className={styles.fieldLabel}>ASSIGN TO</div>
-                            <select
-                              className={styles.select}
-                              value={detectSelection[d.src] ?? ''}
-                              onChange={(e) =>
-                                setDetectSelection((s) => ({
-                                  ...s,
-                                  [d.src]:
-                                    e.target.value === 'new'
-                                      ? 'new'
-                                      : e.target.value
-                                        ? Number(e.target.value)
-                                        : '',
-                                }))
-                              }
-                            >
-                              <option value="">— select a device —</option>
-                              {/* Real request, 2026-08-31: "in the Assign
+              {tab === 'detect' ? (
+                <>
+                  <Btn onClick={scan} disabled={scanning}>
+                    {scanning ? (
+                      <>
+                        <Spinner /> Scanning…
+                      </>
+                    ) : (
+                      '⟲ Scan for devices in programming mode'
+                    )}
+                  </Btn>
+                  {detectError && (
+                    <div className={styles.errorMsg}>
+                      &#x2717; {detectError}
+                    </div>
+                  )}
+                  {detected && detected.length === 0 && (
+                    <div className={styles.emptyState}>
+                      No devices answered. Press the physical programming button
+                      on the target device, then scan again.
+                    </div>
+                  )}
+                  {detected && detected.length > 0 && (
+                    <div className={styles.detectedList}>
+                      {detected.map((d) => {
+                        // Keyed by d.src throughout (see scan()'s own comment) -
+                        // d.serial can be '' for a device found only via the
+                        // legacy address broadcast (real live-test finding,
+                        // 2026-08-31: "Scan for New Device... does not seem to
+                        // pick up our device in prog mode" - a non-Albrecht-
+                        // Jung device that doesn't answer the serial-number
+                        // scan at all).
+                        const matched = d.serial
+                          ? matchBySerial(d.serial)
+                          : null;
+                        const busy = detectBusy[d.src];
+                        const result = detectResult[d.src];
+                        return (
+                          <div key={d.src} className={styles.detectedRow}>
+                            <div className={styles.detectedSerial}>
+                              {d.serial
+                                ? `Serial ${d.serial} @ ${d.src}`
+                                : `${d.src} (no serial — detected via legacy address broadcast)`}
+                              <CopyButton text={d.serial || d.src} />
+                            </div>
+                            {matched ? (
+                              <div className={styles.matchedTag}>
+                                Matched project record: {matched.name}
+                              </div>
+                            ) : (
+                              <div className={styles.unmatchedTag}>
+                                {d.serial
+                                  ? 'No matching serial in the project — pick manually'
+                                  : 'No serial to match — pick the target device manually'}
+                              </div>
+                            )}
+                            <div className={styles.row}>
+                              <div className={styles.col}>
+                                <div className={styles.fieldLabel}>
+                                  ASSIGN TO
+                                </div>
+                                <select
+                                  className={styles.select}
+                                  value={detectSelection[d.src] ?? ''}
+                                  onChange={(e) =>
+                                    setDetectSelection((s) => ({
+                                      ...s,
+                                      [d.src]:
+                                        e.target.value === 'new'
+                                          ? 'new'
+                                          : e.target.value
+                                            ? Number(e.target.value)
+                                            : '',
+                                    }))
+                                  }
+                                >
+                                  <option value="">— select a device —</option>
+                                  {/* Real request, 2026-08-31: "in the Assign
                                   To, we should have an option (maybe first
                                   in the list) to add as New Device (i.e.
                                   something not already in our DB)." */}
-                              <option value="new">+ Add as New Device</option>
-                              {generalCandidates.map((c) => (
-                                <option key={c.id} value={c.id}>
-                                  {c.has_address
-                                    ? `${c.individual_address} — ${c.name}`
-                                    : `(unassigned) — ${c.name}`}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-                        </div>
-                        {/* No bus write happens from this general/unlocked
+                                  <option value="new">
+                                    + Add as New Device
+                                  </option>
+                                  {generalCandidates.map((c) => (
+                                    <option key={c.id} value={c.id}>
+                                      {c.has_address
+                                        ? `${c.individual_address} — ${c.name}`
+                                        : `(unassigned) — ${c.name}`}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                            </div>
+                            {/* No bus write happens from this general/unlocked
                             flow at all any more - real request, 2026-08-31:
                             "the Write Address buttons here shouldn't be
                             present as we don't have an address editor.
@@ -1458,129 +1517,136 @@ export function AddressDeviceModal({
                             device's own row (which now offers a real
                             address editor - the locked flow's Device
                             Address tab). */}
-                        <div className={styles.row}>
-                          <Btn
-                            onClick={() => recordDetectedSerial(d.src, d.serial)}
-                            disabled={
-                              busy ||
-                              !detectSelection[d.src] ||
-                              (detectSelection[d.src] !== 'new' && !d.serial)
-                            }
-                            title={
-                              detectSelection[d.src] === 'new'
-                                ? `Add a new project device at ${d.src}${d.serial ? ', with this serial recorded' : ''} - no write to the physical device`
-                                : !d.serial
-                                  ? 'No real serial number available — this device was only found via the legacy address broadcast, nothing to record yet'
-                                  : 'Record this serial against the selected project device - bookkeeping only, no write to the physical device'
-                            }
-                          >
-                            {busy ? (
-                              <Spinner />
-                            ) : detectSelection[d.src] === 'new' ? (
-                              'Add as New Device'
-                            ) : (
-                              'Record Serial'
+                            <div className={styles.row}>
+                              <Btn
+                                onClick={() =>
+                                  recordDetectedSerial(d.src, d.serial)
+                                }
+                                disabled={
+                                  busy ||
+                                  !detectSelection[d.src] ||
+                                  (detectSelection[d.src] !== 'new' &&
+                                    !d.serial)
+                                }
+                                title={
+                                  detectSelection[d.src] === 'new'
+                                    ? `Add a new project device at ${d.src}${d.serial ? ', with this serial recorded' : ''} - no write to the physical device`
+                                    : !d.serial
+                                      ? 'No real serial number available — this device was only found via the legacy address broadcast, nothing to record yet'
+                                      : 'Record this serial against the selected project device - bookkeeping only, no write to the physical device'
+                                }
+                              >
+                                {busy ? (
+                                  <Spinner />
+                                ) : detectSelection[d.src] === 'new' ? (
+                                  'Add as New Device'
+                                ) : (
+                                  'Record Serial'
+                                )}
+                              </Btn>
+                            </div>
+                            {result && (
+                              <div
+                                className={
+                                  result.ok
+                                    ? styles.successMsg
+                                    : styles.errorMsg
+                                }
+                              >
+                                {result.msg}
+                              </div>
                             )}
-                          </Btn>
-                        </div>
-                        {result && (
-                          <div
-                            className={
-                              result.ok ? styles.successMsg : styles.errorMsg
-                            }
-                          >
-                            {result.msg}
                           </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </>
-          ) : (
-            <>
-              <div className={styles.row}>
-                <div className={styles.col}>
-                  <div className={styles.fieldLabel}>SERIAL NUMBER (12 hex chars)</div>
-                  <input
-                    className={styles.textInput}
-                    value={manualSerial}
-                    onChange={(e) => setManualSerial(e.target.value.trim())}
-                    placeholder="e.g. 00fa1234abcd"
-                  />
-                </div>
-              </div>
-              {manualSerial && !manualSerialValid && (
-                <div className={styles.errorMsg}>
-                  Serial must be exactly 12 hex characters (6 bytes).
-                </div>
-              )}
-              {lockDevice ? (
-                lockedTarget && (
-                  <div className={styles.matchedTag}>
-                    Addressing: {lockedTarget.individual_address} —{' '}
-                    {lockedTarget.name}
-                  </div>
-                )
+                        );
+                      })}
+                    </div>
+                  )}
+                </>
               ) : (
                 <>
                   <div className={styles.row}>
                     <div className={styles.col}>
-                      <div className={styles.fieldLabel}>ASSIGN TO</div>
-                      <select
-                        className={styles.select}
-                        value={manualDeviceId || manualMatch?.id || ''}
-                        onChange={(e) =>
-                          setManualDeviceId(
-                            e.target.value ? Number(e.target.value) : '',
-                          )
-                        }
-                      >
-                        <option value="">— select a device —</option>
-                        {candidates.map((c) => (
-                          <option key={c.id} value={c.id}>
-                            {c.individual_address} — {c.name}
-                          </option>
-                        ))}
-                      </select>
+                      <div className={styles.fieldLabel}>
+                        SERIAL NUMBER (12 hex chars)
+                      </div>
+                      <input
+                        className={styles.textInput}
+                        value={manualSerial}
+                        onChange={(e) => setManualSerial(e.target.value.trim())}
+                        placeholder="e.g. 00fa1234abcd"
+                      />
                     </div>
                   </div>
-                  {manualMatch && !manualDeviceId && (
-                    <div className={styles.matchedTag}>
-                      Matched project record: {manualMatch.name}
+                  {manualSerial && !manualSerialValid && (
+                    <div className={styles.errorMsg}>
+                      Serial must be exactly 12 hex characters (6 bytes).
+                    </div>
+                  )}
+                  {lockDevice ? (
+                    lockedTarget && (
+                      <div className={styles.matchedTag}>
+                        Addressing: {lockedTarget.individual_address} —{' '}
+                        {lockedTarget.name}
+                      </div>
+                    )
+                  ) : (
+                    <>
+                      <div className={styles.row}>
+                        <div className={styles.col}>
+                          <div className={styles.fieldLabel}>ASSIGN TO</div>
+                          <select
+                            className={styles.select}
+                            value={manualDeviceId || manualMatch?.id || ''}
+                            onChange={(e) =>
+                              setManualDeviceId(
+                                e.target.value ? Number(e.target.value) : '',
+                              )
+                            }
+                          >
+                            <option value="">— select a device —</option>
+                            {candidates.map((c) => (
+                              <option key={c.id} value={c.id}>
+                                {c.individual_address} — {c.name}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+                      {manualMatch && !manualDeviceId && (
+                        <div className={styles.matchedTag}>
+                          Matched project record: {manualMatch.name}
+                        </div>
+                      )}
+                    </>
+                  )}
+                  <Btn
+                    onClick={writeManual}
+                    disabled={
+                      manualBusy ||
+                      !manualSerialValid ||
+                      !(manualDeviceId || manualMatch) ||
+                      manualNoChange
+                    }
+                    color="var(--amber)"
+                    title={
+                      manualNoChange
+                        ? 'No change — this is already the recorded serial for this device'
+                        : 'Write by targeting this exact serial number — no programming-button press needed, real-hardware confirmed'
+                    }
+                  >
+                    {manualBusy ? <Spinner /> : 'Write Address'}
+                  </Btn>
+                  {manualResult && (
+                    <div
+                      className={
+                        manualResult.ok ? styles.successMsg : styles.errorMsg
+                      }
+                    >
+                      {manualResult.msg}
                     </div>
                   )}
                 </>
               )}
-              <Btn
-                onClick={writeManual}
-                disabled={
-                  manualBusy ||
-                  !manualSerialValid ||
-                  !(manualDeviceId || manualMatch) ||
-                  manualNoChange
-                }
-                color="var(--amber)"
-                title={
-                  manualNoChange
-                    ? 'No change — this is already the recorded serial for this device'
-                    : 'Write by targeting this exact serial number — no programming-button press needed, real-hardware confirmed'
-                }
-              >
-                {manualBusy ? <Spinner /> : 'Write Address'}
-              </Btn>
-              {manualResult && (
-                <div
-                  className={
-                    manualResult.ok ? styles.successMsg : styles.errorMsg
-                  }
-                >
-                  {manualResult.msg}
-                </div>
-              )}
-            </>
-          )}
             </>
           )}
         </div>

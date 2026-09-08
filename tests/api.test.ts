@@ -428,11 +428,9 @@ describe('Device validation', () => {
   });
 
   it('PUT individual_address rejects a malformed address', async () => {
-    const { status } = await req(
-      'PUT',
-      `/projects/${pid}/devices/${did}`,
-      { individual_address: 'not-an-address' },
-    );
+    const { status } = await req('PUT', `/projects/${pid}/devices/${did}`, {
+      individual_address: 'not-an-address',
+    });
     assert.equal(status, 400);
   });
 
@@ -477,11 +475,9 @@ describe('Device validation', () => {
     // succeeding - the real thing this test guards against (a same-address
     // resend wiping the recorded serial) is verified directly against the
     // DB below, independent of the response status.
-    const { status } = await req(
-      'PUT',
-      `/projects/${pid}/devices/${did}`,
-      { individual_address: before.individual_address },
-    );
+    const { status } = await req('PUT', `/projects/${pid}/devices/${did}`, {
+      individual_address: before.individual_address,
+    });
     assert.equal(status, 400);
     const row = db.get('SELECT serial_number FROM devices WHERE id=?', [did]);
     assert.equal(row.serial_number, '00a625401d94');
@@ -1927,10 +1923,9 @@ describe('Com Object Flags', () => {
     );
     assert.equal(status, 200);
     assert.equal(data.read_on_init, true);
-    const row = db.get(
-      'SELECT read_on_init FROM com_objects WHERE id=?',
-      [coId],
-    );
+    const row = db.get('SELECT read_on_init FROM com_objects WHERE id=?', [
+      coId,
+    ]);
     assert.equal(row.read_on_init, 1);
   });
 

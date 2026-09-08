@@ -345,7 +345,10 @@ export function reducer(state: AppState, action: Action): AppState {
     case 'SET_BUS_ATTENTION':
       return {
         ...state,
-        busStatus: { ...state.busStatus, needsAttention: action.needsAttention },
+        busStatus: {
+          ...state.busStatus,
+          needsAttention: action.needsAttention,
+        },
       };
     case 'ADD_TELEGRAM':
       return {

@@ -15,7 +15,10 @@ import {
 // deriveDeviceStatus() doc comment for the full real-timestamp example.
 describe('deriveDeviceStatus()', () => {
   test('no LastDownload at all -> unassigned, regardless of LastModified', () => {
-    assert.equal(deriveDeviceStatus('2026-08-29T13:32:51.9340101Z', ''), 'unassigned');
+    assert.equal(
+      deriveDeviceStatus('2026-08-29T13:32:51.9340101Z', ''),
+      'unassigned',
+    );
     assert.equal(deriveDeviceStatus('', ''), 'unassigned');
   });
 
@@ -47,8 +50,14 @@ describe('deriveDeviceStatus()', () => {
   });
 
   test('unparsable timestamps fall back to programmed, not a throw', () => {
-    assert.equal(deriveDeviceStatus('not-a-date', '2026-08-26T15:41:58Z'), 'programmed');
-    assert.equal(deriveDeviceStatus('2026-08-26T15:41:58Z', 'not-a-date'), 'programmed');
+    assert.equal(
+      deriveDeviceStatus('not-a-date', '2026-08-26T15:41:58Z'),
+      'programmed',
+    );
+    assert.equal(
+      deriveDeviceStatus('2026-08-26T15:41:58Z', 'not-a-date'),
+      'programmed',
+    );
   });
 
   test('equal timestamps -> programmed (not modified)', () => {

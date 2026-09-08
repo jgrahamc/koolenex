@@ -8,11 +8,7 @@ export function useBusHandlers(
   dispatch: React.Dispatch<Action>,
 ) {
   const handleConnect = useCallback(
-    async (
-      host: string,
-      port: number,
-      protocol?: 'udp' | 'tcp' | 'auto',
-    ) => {
+    async (host: string, port: number, protocol?: 'udp' | 'tcp' | 'auto') => {
       const result = await api.busConnect(
         host,
         port,

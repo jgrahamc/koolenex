@@ -297,7 +297,9 @@ router.patch(
     // occupy the unique individual_address column, same as a real one).
     const used = new Set(
       db
-        .all<{ individual_address: string }>(
+        .all<{
+          individual_address: string;
+        }>(
           'SELECT individual_address FROM devices WHERE project_id=? AND area=? AND line=? AND id!=?',
           [pid, dev.area, dev.line, did],
         )
@@ -521,7 +523,12 @@ router.patch(
       const nv = newVals[k];
       if (JSON.stringify(ov) !== JSON.stringify(nv)) {
         diffs.push(`${k}: "${ov ?? ''}" → "${nv}"`);
-        pendingChanges.push({ kind: 'param_value', key: k, oldVal: ov, newVal: nv });
+        pendingChanges.push({
+          kind: 'param_value',
+          key: k,
+          oldVal: ov,
+          newVal: nv,
+        });
       }
     }
     // Merged into the existing values, not a full replace - real request

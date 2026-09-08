@@ -26,7 +26,10 @@ import path from 'node:path';
 const FIX = path.join(import.meta.dirname, 'fixtures', 'relmem-real-devices');
 
 function loadHex(name: string): Buffer {
-  return Buffer.from(fs.readFileSync(path.join(FIX, name), 'utf8').trim(), 'hex');
+  return Buffer.from(
+    fs.readFileSync(path.join(FIX, name), 'utf8').trim(),
+    'hex',
+  );
 }
 
 function loadJson(name: string): any {
@@ -145,9 +148,10 @@ function decodeGaTable(hex: string): { count: number; gas: string[] } {
   return { count, gas };
 }
 
-function decodeAssocTable(
-  hex: string,
-): { count: number; entries: Array<{ gaIndex: number; coNumber: number }> } {
+function decodeAssocTable(hex: string): {
+  count: number;
+  entries: Array<{ gaIndex: number; coNumber: number }>;
+} {
   const buf = Buffer.from(hex, 'hex');
   const count = buf.readUInt16BE(0);
   const entries: Array<{ gaIndex: number; coNumber: number }> = [];

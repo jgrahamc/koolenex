@@ -204,8 +204,13 @@
    Write Address detect-first flow (writeAddrStatus) - same underlying
    "go press the button" moment in both places. */
 @keyframes pressPromptFlash {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.45; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
 }
 .pressPromptBadge {
   display: inline-flex;

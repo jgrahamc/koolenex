@@ -1049,11 +1049,17 @@ export function parseKnxproj(
             // "No" by koolenex, verified via a real ETS capture of the
             // same device showing the correct flag bit set.
             const instanceReadOnInit = attr(cor, 'ReadOnInitFlag');
-            if (instanceReadOnInit) readOnInit = instanceReadOnInit === 'Enabled';
+            if (instanceReadOnInit)
+              readOnInit = instanceReadOnInit === 'Enabled';
             const instancePriority = attr(cor, 'Priority');
             if (instancePriority) {
               const p = instancePriority.toLowerCase();
-              if (p === 'low' || p === 'alarm' || p === 'high' || p === 'system')
+              if (
+                p === 'low' ||
+                p === 'alarm' ||
+                p === 'high' ||
+                p === 'system'
+              )
                 priority = p;
             }
 

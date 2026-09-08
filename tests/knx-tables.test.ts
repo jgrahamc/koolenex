@@ -1235,7 +1235,11 @@ describe('buildParamMem', () => {
         flag: { offset: 0, bitOffset: 0, bitSize: 1, defaultValue: '0' },
       };
       const buf = buildParamMem(1, layout, {});
-      assert.equal(buf[0], 0x00, 'all bits clear when the flag is off, including the flag bit itself');
+      assert.equal(
+        buf[0],
+        0x00,
+        'all bits clear when the flag is off, including the flag bit itself',
+      );
     });
 
     it('genuinely UNNAMED bytes (no parameter touches them at all) still use `fill`, unaffected by the padding-bit fix', () => {
@@ -1243,12 +1247,20 @@ describe('buildParamMem', () => {
         flag: { offset: 0, bitOffset: 0, bitSize: 1, defaultValue: '1' },
       };
       const buf = buildParamMem(3, layout, {}, 0xff);
-      assert.equal(buf[0], 0x80, 'the sub-byte param\'s own byte still gets zero-padding, not fill');
-      assert.equal(buf[1], 0xff, 'a byte no parameter touches at all keeps the real fill value');
+      assert.equal(
+        buf[0],
+        0x80,
+        "the sub-byte param's own byte still gets zero-padding, not fill",
+      );
+      assert.equal(
+        buf[1],
+        0xff,
+        'a byte no parameter touches at all keeps the real fill value',
+      );
       assert.equal(buf[2], 0xff);
     });
 
-    it('multiple sub-byte fields sharing one byte: each field\'s own bits are set correctly, the rest is zero', () => {
+    it("multiple sub-byte fields sharing one byte: each field's own bits are set correctly, the rest is zero", () => {
       // Two independent 1-bit flags packed into the same byte at different
       // bit positions (bitOffset 0 = MSB/bit7, bitOffset 3 = bit4).
       const layout: any = {
@@ -1256,7 +1268,11 @@ describe('buildParamMem', () => {
         flagB: { offset: 0, bitOffset: 3, bitSize: 1, defaultValue: '1' },
       };
       const buf = buildParamMem(1, layout, {});
-      assert.equal(buf[0], 0x90, 'bit 7 (flagA) and bit 4 (flagB) set, everything else clear');
+      assert.equal(
+        buf[0],
+        0x90,
+        'bit 7 (flagA) and bit 4 (flagB) set, everything else clear',
+      );
     });
 
     it('a byte-aligned (non-sub-byte) param is completely unaffected - keeps using `fill` for its own untouched bytes as before', () => {
@@ -1265,7 +1281,11 @@ describe('buildParamMem', () => {
       };
       const buf = buildParamMem(4, layout, {}, 0xff);
       assert.equal(buf[0], 0xff, 'byte before the param: untouched, real fill');
-      assert.equal(buf[1], 42, 'the byte-aligned param itself: fully its own value, not zero-padded');
+      assert.equal(
+        buf[1],
+        42,
+        'the byte-aligned param itself: fully its own value, not zero-padded',
+      );
       assert.equal(buf[3], 0xff, 'byte after the param: untouched, real fill');
     });
 
@@ -1278,7 +1298,11 @@ describe('buildParamMem', () => {
         flag: { offset: 0, bitOffset: 0, bitSize: 1, defaultValue: '' }, // empty -> skipped by the main loop, only the pre-pass matters here
       };
       const buf = buildParamMem(2, layout, {}, 0xff, '55');
-      assert.equal(buf[0], 0x55, 'relSegHex-seeded byte must survive untouched by the padding-bit pre-pass');
+      assert.equal(
+        buf[0],
+        0x55,
+        'relSegHex-seeded byte must survive untouched by the padding-bit pre-pass',
+      );
     });
   });
 });

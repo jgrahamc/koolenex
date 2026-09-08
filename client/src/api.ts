@@ -259,11 +259,7 @@ export const api = {
       device_status?: string;
       last_verify_match?: null;
       last_verify_at?: null;
-    }>(
-      'PATCH',
-      `/projects/${pid}/devices/${did}/param-values`,
-      values,
-    ),
+    }>('PATCH', `/projects/${pid}/devices/${did}/param-values`, values),
 
   // DPT info (per-project, from project's knx_master.xml)
   getDptInfo: (pid?: number) =>

@@ -210,9 +210,13 @@ class KnxIpConnection extends (KnxConnection as new () => InstanceType<
       );
       this._routing = routing;
     } catch (err) {
-      logger.warn('knx', 'KNXnet/IP Routing unavailable, continuing without it', {
-        error: (err as Error).message,
-      });
+      logger.warn(
+        'knx',
+        'KNXnet/IP Routing unavailable, continuing without it',
+        {
+          error: (err as Error).message,
+        },
+      );
     }
   }
 
@@ -248,7 +252,9 @@ class KnxIpConnection extends (KnxConnection as new () => InstanceType<
           reject(err);
         });
 
-        this._sendRaw(pktConnect(this.localIp, this.localPort, HOST_PROTOCOL.UDP));
+        this._sendRaw(
+          pktConnect(this.localIp, this.localPort, HOST_PROTOCOL.UDP),
+        );
       });
     });
   }
@@ -335,7 +341,9 @@ class KnxIpConnection extends (KnxConnection as new () => InstanceType<
           fail(err);
         });
 
-        this._sendRaw(pktConnect(this.localIp, this.localPort, HOST_PROTOCOL.TCP));
+        this._sendRaw(
+          pktConnect(this.localIp, this.localPort, HOST_PROTOCOL.TCP),
+        );
       });
     });
   }
@@ -423,7 +431,9 @@ class KnxIpConnection extends (KnxConnection as new () => InstanceType<
     // the next bus operation - see _ensureConnected() in knx-bus.ts.
     if (this.transport !== 'tcp') {
       this._hbTimer = setInterval(() => {
-        this._sendRaw(pktConnState(this.channelId, this.localIp, this.localPort));
+        this._sendRaw(
+          pktConnState(this.channelId, this.localIp, this.localPort),
+        );
       }, 60000);
     }
 

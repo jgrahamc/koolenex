@@ -234,7 +234,10 @@ export interface DownloadExtra {
   // requirement, not something derived from the pending-change log itself;
   // see that function's own doc comment and docs/knx-device-write-
   // protocol.md §6.1 for the evidence.
-  pendingWriteRanges?: Record<number, Array<{ offset: number; length: number }>>;
+  pendingWriteRanges?: Record<
+    number,
+    Array<{ offset: number; length: number }>
+  >;
 }
 
 // ── Download result type ───────────────────────────────────────────────────────
@@ -317,9 +320,7 @@ export class KnxConnection extends EventEmitter {
    * path at all. See docs/knx-device-write-protocol.md §9.
    */
   sendCEMIViaRouting(_cemi: Buffer): Promise<void> {
-    throw new Error(
-      'KNXnet/IP Routing is not available on this transport',
-    );
+    throw new Error('KNXnet/IP Routing is not available on this transport');
   }
 
   /** Disconnect from the bus. Must be implemented by transport subclass. */
@@ -421,7 +422,9 @@ export class KnxConnection extends EventEmitter {
       s: number = 0,
     ): Promise<void> => {
       const apdu = apduControl(tpciCode, s);
-      const cemi = buildCEMI(this.localAddr, deviceAddr, apdu, false, { priority: 'system' });
+      const cemi = buildCEMI(this.localAddr, deviceAddr, apdu, false, {
+        priority: 'system',
+      });
       await this.sendCEMI(cemi);
     };
 
@@ -430,7 +433,9 @@ export class KnxConnection extends EventEmitter {
       extraBuf: Buffer | null = null,
     ): Promise<void> => {
       const apdu = apduConnected(seq, apciName, extraBuf);
-      const cemi = buildCEMI(this.localAddr, deviceAddr, apdu, false, { priority: 'system' });
+      const cemi = buildCEMI(this.localAddr, deviceAddr, apdu, false, {
+        priority: 'system',
+      });
       await this.sendCEMI(cemi);
     };
 
@@ -599,7 +604,9 @@ export class KnxConnection extends EventEmitter {
           try {
             const seq = nextSeq();
             const apdu = apduPropertyValueRead(seq, objIdx, propId);
-            const cemi = buildCEMI(this.localAddr, deviceAddr, apdu, false, { priority: 'system' });
+            const cemi = buildCEMI(this.localAddr, deviceAddr, apdu, false, {
+              priority: 'system',
+            });
             await this.sendCEMI(cemi);
             await waitResponse('OTHER', 2000);
           } catch (e) {
@@ -803,9 +810,7 @@ export class KnxConnection extends EventEmitter {
       const timer = setTimeout(() => {
         clearInterval(repeat);
         this.off('_mgmt', onMgmt);
-        resolve(
-          [...found.entries()].map(([serial, src]) => ({ serial, src })),
-        );
+        resolve([...found.entries()].map(([serial, src]) => ({ serial, src })));
       }, timeoutMs);
       this.on('_mgmt', onMgmt);
       const apdu = apduSystemNetworkParamRead(0, 11, 1);
@@ -1142,7 +1147,9 @@ export class KnxConnection extends EventEmitter {
     const { waitResponse } = fns;
     try {
       const apdu = apduGroup('DeviceDescriptor_Read');
-      const cemi = buildCEMI(this.localAddr, deviceAddr, apdu, false, { priority: 'system' });
+      const cemi = buildCEMI(this.localAddr, deviceAddr, apdu, false, {
+        priority: 'system',
+      });
       const respP = waitResponse('DeviceDescriptor_Response', 3000);
       await this.sendCEMI(cemi);
       const resp = await respP;
@@ -1190,7 +1197,11 @@ export class KnxConnection extends EventEmitter {
       const seq = nextSeq();
       const apdu = apduPropertyValueRead(seq, 0, 56);
       const respP = waitResponse('OTHER', 3000);
-      await this.sendCEMI(buildCEMI(this.localAddr, deviceAddr, apdu, false, { priority: 'system' }));
+      await this.sendCEMI(
+        buildCEMI(this.localAddr, deviceAddr, apdu, false, {
+          priority: 'system',
+        }),
+      );
       const res = await respP;
       const data = res?.apduData;
       // 4-byte PropertyValue_Response header (objIdx, propId, count,
@@ -1302,10 +1313,17 @@ export class KnxConnection extends EventEmitter {
       if (useExtended) {
         const apdu = apduMemoryExtendedRead(seq, n, wantAddr);
         const respP = waitResponse('MemoryExtended_Read_Response', 3000);
-        await this.sendCEMI(buildCEMI(this.localAddr, deviceAddr, apdu, false, { priority: 'system' }));
+        await this.sendCEMI(
+          buildCEMI(this.localAddr, deviceAddr, apdu, false, {
+            priority: 'system',
+          }),
+        );
         const frame = await respP;
-        const { returnCode, address: gotAddr, data } =
-          parseMemoryExtendedResponse(frame);
+        const {
+          returnCode,
+          address: gotAddr,
+          data,
+        } = parseMemoryExtendedResponse(frame);
         if (returnCode !== 0)
           throw new Error(
             `MemoryExtended read error rc=${returnCode} at 0x${wantAddr.toString(16)}`,
@@ -1348,7 +1366,11 @@ export class KnxConnection extends EventEmitter {
       }
       const apdu = apduMemoryRead(seq, n, wantAddr);
       const respP = waitResponse('Memory_Response', 3000);
-      await this.sendCEMI(buildCEMI(this.localAddr, deviceAddr, apdu, false, { priority: 'system' }));
+      await this.sendCEMI(
+        buildCEMI(this.localAddr, deviceAddr, apdu, false, {
+          priority: 'system',
+        }),
+      );
       const frame = await respP;
       const { address: gotAddr, data } = parseMemoryResponse(frame);
       if (gotAddr !== wantAddr)
@@ -1400,7 +1422,9 @@ export class KnxConnection extends EventEmitter {
         const retryApdu = apduMemoryRead(retrySeq, retryN, wantAddr);
         const retryRespP = waitResponse('Memory_Response', 3000);
         await this.sendCEMI(
-          buildCEMI(this.localAddr, deviceAddr, retryApdu, false, { priority: 'system' }),
+          buildCEMI(this.localAddr, deviceAddr, retryApdu, false, {
+            priority: 'system',
+          }),
         );
         const retryFrame = await retryRespP;
         const { address: retryGotAddr, data: retryData } =
@@ -1458,7 +1482,9 @@ export class KnxConnection extends EventEmitter {
           const apdu = apduPropertyValueRead(seq, objIdx, propId);
           const respP = waitResponse('OTHER', 3000);
           await this.sendCEMI(
-            buildCEMI(this.localAddr, deviceAddr, apdu, false, { priority: 'system' }),
+            buildCEMI(this.localAddr, deviceAddr, apdu, false, {
+              priority: 'system',
+            }),
           );
           const res = await respP;
           const data = res?.apduData;
@@ -1497,7 +1523,9 @@ export class KnxConnection extends EventEmitter {
           const apdu = apduMemoryExtendedRead(seq, n, address + off);
           const respP = waitResponse('MemoryExtended_Read_Response', 3000);
           await this.sendCEMI(
-            buildCEMI(this.localAddr, deviceAddr, apdu, false, { priority: 'system' }),
+            buildCEMI(this.localAddr, deviceAddr, apdu, false, {
+              priority: 'system',
+            }),
           );
           const frame = await respP;
           const { returnCode, data } = parseMemoryExtendedResponse(frame);
@@ -1570,7 +1598,9 @@ export class KnxConnection extends EventEmitter {
               logDebug(`PropWrite ObjIdx=${op.obj} PropId=${op.pid}`);
               const seq = nextSeq();
               const apdu = apduPropertyValueWrite(seq, op.obj, op.pid, op.data);
-              const cemi = buildCEMI(this.localAddr, deviceAddr, apdu, false, { priority: 'system' });
+              const cemi = buildCEMI(this.localAddr, deviceAddr, apdu, false, {
+                priority: 'system',
+              });
               await this.sendCEMI(cemi);
               await delay(50);
               break;
@@ -1584,7 +1614,13 @@ export class KnxConnection extends EventEmitter {
                 const addr = op.addr + off;
                 const seq = nextSeq();
                 const apdu = apduMemoryWrite(seq, addr, chunk);
-                const cemi = buildCEMI(this.localAddr, deviceAddr, apdu, false, { priority: 'system' });
+                const cemi = buildCEMI(
+                  this.localAddr,
+                  deviceAddr,
+                  apdu,
+                  false,
+                  { priority: 'system' },
+                );
                 await this.sendCEMI(cemi);
                 await delay(30);
               }
@@ -1594,7 +1630,9 @@ export class KnxConnection extends EventEmitter {
               logDebug('Restart');
               const seq = nextSeq();
               const apdu = apduConnected(seq, 'Restart');
-              const cemi = buildCEMI(this.localAddr, deviceAddr, apdu, false, { priority: 'system' });
+              const cemi = buildCEMI(this.localAddr, deviceAddr, apdu, false, {
+                priority: 'system',
+              });
               await this.sendCEMI(cemi);
               break;
             }
@@ -1656,15 +1694,26 @@ export class KnxConnection extends EventEmitter {
         startIndex = 1,
       ): Promise<void> => {
         const seq = nextSeq();
-        const apdu = apduPropertyValueWrite(seq, objIdx, propId, data, 1, startIndex);
-        const cemi = buildCEMI(this.localAddr, deviceAddr, apdu, false, { priority: 'system' });
+        const apdu = apduPropertyValueWrite(
+          seq,
+          objIdx,
+          propId,
+          data,
+          1,
+          startIndex,
+        );
+        const cemi = buildCEMI(this.localAddr, deviceAddr, apdu, false, {
+          priority: 'system',
+        });
         const respP = waitResponse('OTHER', 3000);
         await this.sendCEMI(cemi);
         try {
           await respP;
         } catch (_e) {
           const detail = `PropertyValue write ObjIdx=${objIdx} PropId=${propId} unconfirmed`;
-          logDebug(`No PropertyValue_Response for ObjIdx=${objIdx} PropId=${propId} (continuing)`);
+          logDebug(
+            `No PropertyValue_Response for ObjIdx=${objIdx} PropId=${propId} (continuing)`,
+          );
           unconfirmed.push(detail);
         }
       };
@@ -1677,8 +1726,16 @@ export class KnxConnection extends EventEmitter {
         startIndex = 1,
       ): Promise<Buffer | null> => {
         const seq = nextSeq();
-        const apdu = apduPropertyValueRead(seq, objIdx, propId, count, startIndex);
-        const cemi = buildCEMI(this.localAddr, deviceAddr, apdu, false, { priority: 'system' });
+        const apdu = apduPropertyValueRead(
+          seq,
+          objIdx,
+          propId,
+          count,
+          startIndex,
+        );
+        const cemi = buildCEMI(this.localAddr, deviceAddr, apdu, false, {
+          priority: 'system',
+        });
         const respP = waitResponse('OTHER', 3000);
         await this.sendCEMI(cemi);
         try {
@@ -1740,14 +1797,17 @@ export class KnxConnection extends EventEmitter {
         );
       } else {
         const apdu = apduGroup('DeviceDescriptor_Read');
-        const cemi = buildCEMI(this.localAddr, deviceAddr, apdu, false, { priority: 'system' });
+        const cemi = buildCEMI(this.localAddr, deviceAddr, apdu, false, {
+          priority: 'system',
+        });
         const respP = waitResponse('DeviceDescriptor_Response', 3000);
         await this.sendCEMI(cemi);
         try {
           const resp = await respP;
-          const mask = resp.apduData.length >= 2
-            ? (resp.apduData[0]! << 8) | resp.apduData[1]!
-            : null;
+          const mask =
+            resp.apduData.length >= 2
+              ? (resp.apduData[0]! << 8) | resp.apduData[1]!
+              : null;
           if (mask != null) {
             useExtendedMemory = (mask & 0xff) === 0xb0;
             logDebug(
@@ -1756,7 +1816,9 @@ export class KnxConnection extends EventEmitter {
             );
           }
         } catch (_e) {
-          logDebug('No DeviceDescriptor_Response received (falling back to address-size heuristic for memory writes)');
+          logDebug(
+            'No DeviceDescriptor_Response received (falling back to address-size heuristic for memory writes)',
+          );
         }
       }
 
@@ -1786,7 +1848,10 @@ export class KnxConnection extends EventEmitter {
       if (maxApduLengthValue != null) {
         MEM_CHUNK = Math.min(
           MEM_CHUNK,
-          maxChunkFromApduLength(maxApduLengthValue, useExtendedMemory ?? false),
+          maxChunkFromApduLength(
+            maxApduLengthValue,
+            useExtendedMemory ?? false,
+          ),
         );
         logDebug(`Real MEM_CHUNK for this device: ${MEM_CHUNK} bytes`);
       }
@@ -1807,7 +1872,9 @@ export class KnxConnection extends EventEmitter {
       {
         const seq = nextSeq();
         const apdu = apduAuthorizeRequest(seq);
-        const cemi = buildCEMI(this.localAddr, deviceAddr, apdu, false, { priority: 'system' });
+        const cemi = buildCEMI(this.localAddr, deviceAddr, apdu, false, {
+          priority: 'system',
+        });
         const respP = waitResponse('OTHER', 3000);
         await this.sendCEMI(cemi);
         try {
@@ -1907,7 +1974,11 @@ export class KnxConnection extends EventEmitter {
         event: number,
         extraBytes: Buffer = Buffer.alloc(9),
       ): Promise<void> => {
-        await propWrite(objIdx, 5, Buffer.concat([Buffer.from([event]), extraBytes]));
+        await propWrite(
+          objIdx,
+          5,
+          Buffer.concat([Buffer.from([event]), extraBytes]),
+        );
       };
       // LoadData's real wire shape: [event=03][SCF=0x0B][rsvd:2][size:2 BE]
       // [combinedFullPar:1][fill:1][rsvd:2] - `combined` is set when the
@@ -1999,7 +2070,8 @@ export class KnxConnection extends EventEmitter {
               // real 8-byte element. Not observed for any other property in
               // that same data, so this trim is scoped to propId 27 only,
               // not a general InlineData-parsing artifact.
-              const data = step.propId === 27 ? step.data.subarray(0, 8) : step.data;
+              const data =
+                step.propId === 27 ? step.data.subarray(0, 8) : step.data;
               await propWrite(step.objIdx, step.propId, data);
             }
             break;
@@ -2247,7 +2319,10 @@ export class KnxConnection extends EventEmitter {
               // Defensive clamp - a range resolved against a stale/mismatched
               // table length (e.g. the app model changed since the pending
               // row was logged) should never overrun the real buffer.
-              length: Math.max(0, Math.min(r.length, j.table.length - r.offset)),
+              length: Math.max(
+                0,
+                Math.min(r.length, j.table.length - r.offset),
+              ),
             }))
             .filter((r) => r.length > 0);
           if (!j.writeRanges.length) continue;
@@ -2270,7 +2345,9 @@ export class KnxConnection extends EventEmitter {
         for (const j of loadCycleJobs) {
           logDebug(`StartLoading ObjIdx=${j.objIdx} (${j.label})`);
           await lsmWrite(j.objIdx, LSM_EVENT.START_LOADING);
-          logDebug(`LoadData ObjIdx=${j.objIdx} Size=${j.table.length} (${j.label})`);
+          logDebug(
+            `LoadData ObjIdx=${j.objIdx} Size=${j.table.length} (${j.label})`,
+          );
           await lsmWrite(j.objIdx, LSM_EVENT.LOAD_DATA, j.loadDataPayload!);
         }
 
@@ -2361,112 +2438,121 @@ export class KnxConnection extends EventEmitter {
           let jobBytesWritten = 0;
           for (const win of writeWindows) {
             for (let off = win.offset; off < win.offset + win.length; ) {
-            const seq = nextSeq();
-            const addr = base + j.offset + off;
-            // A_Memory_Write only carries a 16-bit address - same problem as
-            // the read side (see readRegionInSession). A resolved relmem
-            // base can land above 0xFFFF, in which case the legacy service
-            // silently truncates to the wrong (low) address and writes
-            // nothing meaningful to the real target. Originally this only
-            // switched to A_MemoryExtended_Write when the address itself
-            // didn't fit in 16 bits. Correction: a real captured ETS
-            // Partial Download against 1.1.9 (address 0x5F53, well within
-            // 16 bits) still used A_MemoryExtended_Write exclusively -
-            // confirmed via byte-level replay: a verbatim replay of ETS's
-            // own captured frames (all-extended) persisted correctly on
-            // real hardware, while koolenex's own reconstruction (legacy
-            // Memory_Write for this same address, otherwise byte-identical
-            // count/address/data) silently failed to persist, twice,
-            // reproducibly. Not a universal rule though - see
-            // `useExtendedMemory`'s own resolution above (🔴 speculative
-            // IsSecureEnabled-based guess, mask as fallback) for the
-            // primary decision. `|| addr > 0xffff` is a HARD FLOOR, always
-            // applied regardless of what that resolution says - a
-            // resolved-`false`/legacy decision must never suppress
-            // extended for an address that genuinely doesn't fit in 16
-            // bits (the original 2026-08-26 truncation bug this guards
-            // against), which is why this isn't `??` (that would let an
-            // explicit `false` skip the floor entirely).
-            const useExtendedForThisChunk =
-              (useExtendedMemory ?? false) || addr > 0xffff;
-            // Legacy A_Memory_Write packs its byte count into a 6-bit APCI
-            // field (max 63) - the extended service's own 1-byte count
-            // field allows MEM_CHUNK up to 228. The address-size fallback
-            // heuristic above can resolve a DIFFERENT service per chunk
-            // (e.g. a write straddling 0xFFFF), so a chunk sized for
-            // extended can't just be sent legacy as-is once it lands there
-            // - it must be re-capped to 63 for this specific chunk, mirroring
-            // the read-side protocolMaxN fix (2026-08-30). Not caught until
-            // 2026-09-01: the legacy write path's separate byte-encoding bug
-            // (see apduMemoryWrite's own doc comment, knx-cemi.ts) meant no
-            // real count was ever actually reaching the wire before now, so
-            // this 6-bit overflow had nothing to silently corrupt yet.
-            const stepSize = useExtendedForThisChunk
-              ? MEM_CHUNK
-              : Math.min(MEM_CHUNK, 63);
-            // Bounded by the current window's own end, not just
-            // `stepSize` - a pending-change-resolved range can (and
-            // usually does) end well before a natural stepSize boundary;
-            // Buffer.subarray's own clipping only protects the end of the
-            // whole table, which isn't tight enough once writeWindows is a
-            // sub-range of it.
-            const chunkEnd = Math.min(off + stepSize, win.offset + win.length);
-            const chunk = j.table.subarray(off, chunkEnd);
-            const apdu = useExtendedForThisChunk
-              ? apduMemoryExtendedWrite(seq, addr, chunk)
-              : apduMemoryWrite(seq, addr, chunk);
-            const cemi = buildCEMI(this.localAddr, deviceAddr, apdu, false, { priority: 'system' });
-            // Real bug, found live 2026-08-30: this loop used to fire each
-            // chunk with a flat 30ms pace and never confirm the device
-            // actually kept up (these writes weren't response-waited at
-            // all, unlike propRead/propWrite). For a large write (the
-            // parameter object's memory, hundreds of chunks) a real device
-            // was found genuinely backlogged: its own response
-            // confirmations kept trickling in for ~9s after we'd finished
-            // BLASTING the whole burst - moving straight on to another
-            // object's PID 7 read while the device was still digesting
-            // that backlog meant the read queued behind it and timed out
-            // on our side, not a protocol/sequencing bug. Confirmed
-            // against a real ETS capture of this exact write (2026-08-30):
-            // ETS never blasts chunks either - it waits for each one's own
-            // real response (response times observed varying 56ms-279ms
-            // as the write progressed) before sending the next, adapting
-            // automatically to whatever the device's real pace is, no
-            // fixed delay involved at all. Same real response APCI
-            // (MemoryExtended_Write_Response / Memory_Response) either
-            // way; not fatal if a chunk's response never arrives (log and
-            // continue - a real device may legitimately not always
-            // respond, matching propWrite's own tolerance elsewhere).
-            const respP = waitResponse(
-              useExtendedForThisChunk
-                ? 'MemoryExtended_Write_Response'
-                : 'Memory_Response',
-              3000,
-            );
-            await this.sendCEMI(cemi);
-            try {
-              await respP;
-            } catch (_e) {
-              logDebug(`No write response for ObjIdx=${j.objIdx} offset=${off} (continuing)`);
-              unconfirmed.push(
-                `Memory write ObjIdx=${j.objIdx} (${j.label}) offset=${off} size=${chunk.length} unconfirmed`,
+              const seq = nextSeq();
+              const addr = base + j.offset + off;
+              // A_Memory_Write only carries a 16-bit address - same problem as
+              // the read side (see readRegionInSession). A resolved relmem
+              // base can land above 0xFFFF, in which case the legacy service
+              // silently truncates to the wrong (low) address and writes
+              // nothing meaningful to the real target. Originally this only
+              // switched to A_MemoryExtended_Write when the address itself
+              // didn't fit in 16 bits. Correction: a real captured ETS
+              // Partial Download against 1.1.9 (address 0x5F53, well within
+              // 16 bits) still used A_MemoryExtended_Write exclusively -
+              // confirmed via byte-level replay: a verbatim replay of ETS's
+              // own captured frames (all-extended) persisted correctly on
+              // real hardware, while koolenex's own reconstruction (legacy
+              // Memory_Write for this same address, otherwise byte-identical
+              // count/address/data) silently failed to persist, twice,
+              // reproducibly. Not a universal rule though - see
+              // `useExtendedMemory`'s own resolution above (🔴 speculative
+              // IsSecureEnabled-based guess, mask as fallback) for the
+              // primary decision. `|| addr > 0xffff` is a HARD FLOOR, always
+              // applied regardless of what that resolution says - a
+              // resolved-`false`/legacy decision must never suppress
+              // extended for an address that genuinely doesn't fit in 16
+              // bits (the original 2026-08-26 truncation bug this guards
+              // against), which is why this isn't `??` (that would let an
+              // explicit `false` skip the floor entirely).
+              const useExtendedForThisChunk =
+                (useExtendedMemory ?? false) || addr > 0xffff;
+              // Legacy A_Memory_Write packs its byte count into a 6-bit APCI
+              // field (max 63) - the extended service's own 1-byte count
+              // field allows MEM_CHUNK up to 228. The address-size fallback
+              // heuristic above can resolve a DIFFERENT service per chunk
+              // (e.g. a write straddling 0xFFFF), so a chunk sized for
+              // extended can't just be sent legacy as-is once it lands there
+              // - it must be re-capped to 63 for this specific chunk, mirroring
+              // the read-side protocolMaxN fix (2026-08-30). Not caught until
+              // 2026-09-01: the legacy write path's separate byte-encoding bug
+              // (see apduMemoryWrite's own doc comment, knx-cemi.ts) meant no
+              // real count was ever actually reaching the wire before now, so
+              // this 6-bit overflow had nothing to silently corrupt yet.
+              const stepSize = useExtendedForThisChunk
+                ? MEM_CHUNK
+                : Math.min(MEM_CHUNK, 63);
+              // Bounded by the current window's own end, not just
+              // `stepSize` - a pending-change-resolved range can (and
+              // usually does) end well before a natural stepSize boundary;
+              // Buffer.subarray's own clipping only protects the end of the
+              // whole table, which isn't tight enough once writeWindows is a
+              // sub-range of it.
+              const chunkEnd = Math.min(
+                off + stepSize,
+                win.offset + win.length,
               );
-            }
-            jobBytesWritten += chunk.length;
-            // `bytesWrittenSoFar + jobBytesWritten` (bytes actually sent
-            // so far), not `bytesWrittenSoFar + off` (the old formula) -
-            // `off` is a position WITHIN the table, meaningless as a
-            // "bytes written" count once writeWindows is a sub-range of
-            // it (a window starting well past offset 0 would otherwise
-            // make the bar jump to a misleadingly high percentage the
-            // instant its first chunk sends, before any of ITS bytes are
-            // actually written).
-            if (onProgress && totalActiveBytes > 0)
-              onProgress({
-                msg: `WriteRelMem ObjIdx=${j.objIdx} (${j.label}) ${jobBytesWritten}/${jobBytesToWrite}`,
-                pct: ((bytesWrittenSoFar + jobBytesWritten) / totalActiveBytes) * 80,
+              const chunk = j.table.subarray(off, chunkEnd);
+              const apdu = useExtendedForThisChunk
+                ? apduMemoryExtendedWrite(seq, addr, chunk)
+                : apduMemoryWrite(seq, addr, chunk);
+              const cemi = buildCEMI(this.localAddr, deviceAddr, apdu, false, {
+                priority: 'system',
               });
-            off = chunkEnd;
+              // Real bug, found live 2026-08-30: this loop used to fire each
+              // chunk with a flat 30ms pace and never confirm the device
+              // actually kept up (these writes weren't response-waited at
+              // all, unlike propRead/propWrite). For a large write (the
+              // parameter object's memory, hundreds of chunks) a real device
+              // was found genuinely backlogged: its own response
+              // confirmations kept trickling in for ~9s after we'd finished
+              // BLASTING the whole burst - moving straight on to another
+              // object's PID 7 read while the device was still digesting
+              // that backlog meant the read queued behind it and timed out
+              // on our side, not a protocol/sequencing bug. Confirmed
+              // against a real ETS capture of this exact write (2026-08-30):
+              // ETS never blasts chunks either - it waits for each one's own
+              // real response (response times observed varying 56ms-279ms
+              // as the write progressed) before sending the next, adapting
+              // automatically to whatever the device's real pace is, no
+              // fixed delay involved at all. Same real response APCI
+              // (MemoryExtended_Write_Response / Memory_Response) either
+              // way; not fatal if a chunk's response never arrives (log and
+              // continue - a real device may legitimately not always
+              // respond, matching propWrite's own tolerance elsewhere).
+              const respP = waitResponse(
+                useExtendedForThisChunk
+                  ? 'MemoryExtended_Write_Response'
+                  : 'Memory_Response',
+                3000,
+              );
+              await this.sendCEMI(cemi);
+              try {
+                await respP;
+              } catch (_e) {
+                logDebug(
+                  `No write response for ObjIdx=${j.objIdx} offset=${off} (continuing)`,
+                );
+                unconfirmed.push(
+                  `Memory write ObjIdx=${j.objIdx} (${j.label}) offset=${off} size=${chunk.length} unconfirmed`,
+                );
+              }
+              jobBytesWritten += chunk.length;
+              // `bytesWrittenSoFar + jobBytesWritten` (bytes actually sent
+              // so far), not `bytesWrittenSoFar + off` (the old formula) -
+              // `off` is a position WITHIN the table, meaningless as a
+              // "bytes written" count once writeWindows is a sub-range of
+              // it (a window starting well past offset 0 would otherwise
+              // make the bar jump to a misleadingly high percentage the
+              // instant its first chunk sends, before any of ITS bytes are
+              // actually written).
+              if (onProgress && totalActiveBytes > 0)
+                onProgress({
+                  msg: `WriteRelMem ObjIdx=${j.objIdx} (${j.label}) ${jobBytesWritten}/${jobBytesToWrite}`,
+                  pct:
+                    ((bytesWrittenSoFar + jobBytesWritten) / totalActiveBytes) *
+                    80,
+                });
+              off = chunkEnd;
             }
           }
           bytesWrittenSoFar += jobBytesToWrite;
@@ -2489,10 +2575,14 @@ export class KnxConnection extends EventEmitter {
           if (j.isParamObject && j.loadDataPayload) {
             const version = await propRead(4, 13);
             if (version && version.length) {
-              logDebug(`PID_PROGRAM_VERSION=${version.toString('hex')} (write-back)`);
+              logDebug(
+                `PID_PROGRAM_VERSION=${version.toString('hex')} (write-back)`,
+              );
               await propWrite(4, 13, version);
             } else {
-              logDebug('Could not read PID_PROGRAM_VERSION - skipping write-back');
+              logDebug(
+                'Could not read PID_PROGRAM_VERSION - skipping write-back',
+              );
             }
           }
         }
@@ -2520,7 +2610,9 @@ export class KnxConnection extends EventEmitter {
         logDebug('Restart');
         const seq = nextSeq();
         const apdu = apduConnected(seq, 'Restart');
-        const cemi = buildCEMI(this.localAddr, deviceAddr, apdu, false, { priority: 'system' });
+        const cemi = buildCEMI(this.localAddr, deviceAddr, apdu, false, {
+          priority: 'system',
+        });
         await this.sendCEMI(cemi);
       }
 
@@ -2539,7 +2631,10 @@ export class KnxConnection extends EventEmitter {
           unconfirmedWrites: unconfirmed.length,
         });
     });
-    return { unconfirmedWrites: unconfirmed.length, unconfirmedDetails: unconfirmed };
+    return {
+      unconfirmedWrites: unconfirmed.length,
+      unconfirmedDetails: unconfirmed,
+    };
   }
 
   // ── Identify ──────────────────────────────────────────────────────────────────
@@ -2596,7 +2691,9 @@ export class KnxConnection extends EventEmitter {
           ): Promise<Buffer | null> => {
             const seq = nextSeq();
             const apdu = apduPropertyValueRead(seq, objIdx, propId);
-            const cemi = buildCEMI(this.localAddr, deviceAddr, apdu, false, { priority: 'system' });
+            const cemi = buildCEMI(this.localAddr, deviceAddr, apdu, false, {
+              priority: 'system',
+            });
             await this.sendCEMI(cemi);
             const res = await waitResponse('OTHER', 2000);
             return res?.apduData || null;
@@ -2690,7 +2787,9 @@ export class KnxConnection extends EventEmitter {
       };
       this.on('_mgmt', onMgmt);
       const apdu = apduGroup('DeviceDescriptor_Read');
-      const cemi = buildCEMI(this.localAddr, deviceAddr, apdu, false, { priority: 'system' });
+      const cemi = buildCEMI(this.localAddr, deviceAddr, apdu, false, {
+        priority: 'system',
+      });
       this.sendCEMI(cemi).catch(() => {});
     });
   }

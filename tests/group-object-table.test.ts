@@ -54,13 +54,23 @@ describe('computeGroupObjectByte() - real captured bytes, device 1.1.9 unless no
   });
   it('object 7: Update=on -> 0xD3', () => {
     assert.equal(
-      computeGroupObjectByte({ object_number: 7, ...DEF_OBJ67, linked: false, update: true }),
+      computeGroupObjectByte({
+        object_number: 7,
+        ...DEF_OBJ67,
+        linked: false,
+        update: true,
+      }),
       0xd3,
     );
   });
   it('object 7: Update=off, Read=on -> 0x5B', () => {
     assert.equal(
-      computeGroupObjectByte({ object_number: 7, ...DEF_OBJ67, linked: false, read: true }),
+      computeGroupObjectByte({
+        object_number: 7,
+        ...DEF_OBJ67,
+        linked: false,
+        read: true,
+      }),
       0x5b,
     );
   });
@@ -152,7 +162,12 @@ describe('computeGroupObjectByte() - real captured bytes, device 1.1.9 unless no
   });
   it('object 6: Update=on (Read-On-Init reverted) -> 0xD3', () => {
     assert.equal(
-      computeGroupObjectByte({ object_number: 6, ...DEF_OBJ67, linked: false, update: true }),
+      computeGroupObjectByte({
+        object_number: 6,
+        ...DEF_OBJ67,
+        linked: false,
+        update: true,
+      }),
       0xd3,
     );
   });
@@ -173,11 +188,19 @@ describe('computeGroupObjectByte() - real captured bytes, device 1.1.9 unless no
   // DPST-19-1 date/time) than every other object tested, and the object used to isolate bit 2's
   // real Communication-AND-linked meaning. ──
   it('object 5: manufacturer default, linked -> 0x4F', () => {
-    assert.equal(computeGroupObjectByte({ object_number: 5, ...DEF_OBJ5, linked: true }), 0x4f);
+    assert.equal(
+      computeGroupObjectByte({ object_number: 5, ...DEF_OBJ5, linked: true }),
+      0x4f,
+    );
   });
   it('object 5: Read-On-Init=on -> 0x6F', () => {
     assert.equal(
-      computeGroupObjectByte({ object_number: 5, ...DEF_OBJ5, linked: true, readOnInit: true }),
+      computeGroupObjectByte({
+        object_number: 5,
+        ...DEF_OBJ5,
+        linked: true,
+        readOnInit: true,
+      }),
       0x6f,
     );
   });
@@ -192,19 +215,31 @@ describe('computeGroupObjectByte() - real captured bytes, device 1.1.9 unless no
       0x4b,
     );
   });
-  it('object 5: Communication back on, 2 GA links -> 0x4F, identical to the 1-link case (link count doesn\'t matter)', () => {
-    assert.equal(computeGroupObjectByte({ object_number: 5, ...DEF_OBJ5, linked: true }), 0x4f);
+  it("object 5: Communication back on, 2 GA links -> 0x4F, identical to the 1-link case (link count doesn't matter)", () => {
+    assert.equal(
+      computeGroupObjectByte({ object_number: 5, ...DEF_OBJ5, linked: true }),
+      0x4f,
+    );
   });
   it('object 5: swapping which of 2 links sends -> no change (0x4F) - direction lives in the Association table, not here', () => {
-    assert.equal(computeGroupObjectByte({ object_number: 5, ...DEF_OBJ5, linked: true }), 0x4f);
+    assert.equal(
+      computeGroupObjectByte({ object_number: 5, ...DEF_OBJ5, linked: true }),
+      0x4f,
+    );
   });
 
   // ── Object 8 (offset 16) ──
   it('object 8: default, linked -> 0x4F', () => {
-    assert.equal(computeGroupObjectByte({ object_number: 8, ...DEF_OBJ5, linked: true }), 0x4f);
+    assert.equal(
+      computeGroupObjectByte({ object_number: 8, ...DEF_OBJ5, linked: true }),
+      0x4f,
+    );
   });
   it('object 8: GA link removed -> 0x4B', () => {
-    assert.equal(computeGroupObjectByte({ object_number: 8, ...DEF_OBJ5, linked: false }), 0x4b);
+    assert.equal(
+      computeGroupObjectByte({ object_number: 8, ...DEF_OBJ5, linked: false }),
+      0x4b,
+    );
   });
 
   // ── Object 96, device 1.1.10 (M-0004_A-3030-23-F0EA-O000A) - a completely different
@@ -296,7 +331,7 @@ describe('buildGroupObjectTable() - full-buffer placement, real device sizes', (
     assert.equal(buf.readUInt16BE(0), 470);
   });
 
-  it('places each communication object\'s flag byte at 2×object_number and its size-code companion byte right after, leaves everything else zero (1.1.9\'s real 98-byte size)', () => {
+  it("places each communication object's flag byte at 2×object_number and its size-code companion byte right after, leaves everything else zero (1.1.9's real 98-byte size)", () => {
     const buf = buildGroupObjectTable(98, [
       { object_number: 6, ...DEF_OBJ67, linked: false, objectSize: '1 Bit' },
       { object_number: 7, ...DEF_OBJ67, linked: false, objectSize: '1 Bit' },
@@ -312,7 +347,10 @@ describe('buildGroupObjectTable() - full-buffer placement, real device sizes', (
     rest.writeUInt16BE(0, 0);
     rest[12] = 0;
     rest[14] = 0;
-    assert.ok(rest.every((b) => b === 0), 'every byte outside the header and the two placed objects should be 0');
+    assert.ok(
+      rest.every((b) => b === 0),
+      'every byte outside the header and the two placed objects should be 0',
+    );
   });
 
   it('reproduces the real 4-object layout observed on the wire (objects 5/6/7/8, 1.1.9), including companion bytes', () => {
@@ -364,7 +402,9 @@ describe('buildGroupObjectTable() - full-buffer placement, real device sizes', (
   });
 
   it('silently skips (leaves at zero) any object number that would fall outside the real buffer size, rather than throwing', () => {
-    const buf = buildGroupObjectTable(10, [{ object_number: 96, ...DEF_OBJ5, linked: true, objectSize: '8 Bytes' }]);
+    const buf = buildGroupObjectTable(10, [
+      { object_number: 96, ...DEF_OBJ5, linked: true, objectSize: '8 Bytes' },
+    ]);
     assert.equal(buf.length, 10);
     // Header still gets written (total count = (10-2)/2 = 4) - only the out-of-range object is skipped.
     assert.equal(buf.readUInt16BE(0), 4);
@@ -420,7 +460,10 @@ describe('buildGroupObjectTable() - full-buffer placement, real device sizes', (
       { object_number: 6, ...DEF_OBJ67, linked: false, objectSize: '1 Bit' },
       { object_number: 7, ...DEF_OBJ67, linked: false, objectSize: '1 Bit' },
       { object_number: 8, ...DEF_OBJ5, linked: true, objectSize: '1 Bit' },
-      ...[9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28].map(mapperObj),
+      ...[
+        9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26,
+        27, 28,
+      ].map(mapperObj),
     ];
     const buf = buildGroupObjectTable(98, comObjects);
     assert.equal(buf.toString('hex'), REAL_HEX);
@@ -430,21 +473,30 @@ describe('buildGroupObjectTable() - full-buffer placement, real device sizes', (
 describe('describeGroupObjectEntry() - human-readable formatting for the device-compare page', () => {
   it('formats every flag bit, priority, and size - not just a raw hex byte pair', () => {
     // 0x6f = object 5 with Read-On-Init=on (0x4F | 0x20) - real captured value.
-    const str = describeGroupObjectEntry({ flagByte: 0x6f, sizeCodeByte: 0x0c });
+    const str = describeGroupObjectEntry({
+      flagByte: 0x6f,
+      sizeCodeByte: 0x0c,
+    });
     assert.equal(
       str,
       'Update=No Transmit=Yes ReadOnInit=Yes Write=No Read=Yes Comm+Linked=Yes Priority=Low Size=8 Bytes',
     );
   });
 
-  it('Comm+Linked reflects the combined bit 2 - Yes only when both Communication and a real GA link are true (the byte can\'t distinguish which, if either, is false)', () => {
+  it("Comm+Linked reflects the combined bit 2 - Yes only when both Communication and a real GA link are true (the byte can't distinguish which, if either, is false)", () => {
     // 0x4B = object 5 default with Communication=off (or unlinked) - bit 2 clear either way.
-    const str = describeGroupObjectEntry({ flagByte: 0x4b, sizeCodeByte: 0x00 });
+    const str = describeGroupObjectEntry({
+      flagByte: 0x4b,
+      sizeCodeByte: 0x00,
+    });
     assert.match(str, /Comm\+Linked=No/);
   });
 
   it('all-zero byte (no com object here) decodes to a fully "No"/System/1 Bit baseline, not garbage - bits 0b00 are genuinely Priority=System (unreachable from ETS, but a real, correct decode of the literal bit pattern), not a default-to-Low guess', () => {
-    const str = describeGroupObjectEntry({ flagByte: 0x00, sizeCodeByte: 0x00 });
+    const str = describeGroupObjectEntry({
+      flagByte: 0x00,
+      sizeCodeByte: 0x00,
+    });
     assert.equal(
       str,
       'Update=No Transmit=No ReadOnInit=No Write=No Read=No Comm+Linked=No Priority=System Size=1 Bit',
@@ -452,9 +504,18 @@ describe('describeGroupObjectEntry() - human-readable formatting for the device-
   });
 
   it('Priority=Alarm/High/System decode correctly from their real bit patterns', () => {
-    assert.match(describeGroupObjectEntry({ flagByte: 0b10, sizeCodeByte: 0 }), /Priority=Alarm/);
-    assert.match(describeGroupObjectEntry({ flagByte: 0b01, sizeCodeByte: 0 }), /Priority=High/);
-    assert.match(describeGroupObjectEntry({ flagByte: 0b00, sizeCodeByte: 0 }), /Priority=System/);
+    assert.match(
+      describeGroupObjectEntry({ flagByte: 0b10, sizeCodeByte: 0 }),
+      /Priority=Alarm/,
+    );
+    assert.match(
+      describeGroupObjectEntry({ flagByte: 0b01, sizeCodeByte: 0 }),
+      /Priority=High/,
+    );
+    assert.match(
+      describeGroupObjectEntry({ flagByte: 0b00, sizeCodeByte: 0 }),
+      /Priority=System/,
+    );
   });
 
   it('an unrecognized size code (never confirmed against real hardware, but the sequence is well-known) still shows its own real name, not garbage', () => {
@@ -465,7 +526,10 @@ describe('describeGroupObjectEntry() - human-readable formatting for the device-
 
 describe('decodeGroupObjectEntryFlags() - structured (not string) decode, for the per-flag chip display', () => {
   it('matches describeGroupObjectEntry() bit-for-bit - same real captured value (0x6f object 5, Read-On-Init on)', () => {
-    const flags = decodeGroupObjectEntryFlags({ flagByte: 0x6f, sizeCodeByte: 0x0c });
+    const flags = decodeGroupObjectEntryFlags({
+      flagByte: 0x6f,
+      sizeCodeByte: 0x0c,
+    });
     assert.deepEqual(flags, {
       update: false,
       transmit: true,
@@ -479,7 +543,10 @@ describe('decodeGroupObjectEntryFlags() - structured (not string) decode, for th
   });
 
   it('every bit independently toggleable - all-set byte (0xFF, priority bits included) decodes every flag true', () => {
-    const flags = decodeGroupObjectEntryFlags({ flagByte: 0xff, sizeCodeByte: 7 });
+    const flags = decodeGroupObjectEntryFlags({
+      flagByte: 0xff,
+      sizeCodeByte: 7,
+    });
     assert.equal(flags.update, true);
     assert.equal(flags.transmit, true);
     assert.equal(flags.readOnInit, true);
@@ -491,7 +558,10 @@ describe('decodeGroupObjectEntryFlags() - structured (not string) decode, for th
   });
 
   it('all-clear byte decodes every flag false, priority System (the real bit pattern, not a Low default)', () => {
-    const flags = decodeGroupObjectEntryFlags({ flagByte: 0x00, sizeCodeByte: 0x00 });
+    const flags = decodeGroupObjectEntryFlags({
+      flagByte: 0x00,
+      sizeCodeByte: 0x00,
+    });
     assert.equal(flags.update, false);
     assert.equal(flags.transmit, false);
     assert.equal(flags.readOnInit, false);

@@ -374,9 +374,7 @@ router.patch(
     if (oldPriority !== next.priority)
       changeParts.push(`priority: "${oldPriority}" → "${next.priority}"`);
     if (oldReadOnInit !== next.read_on_init)
-      changeParts.push(
-        `read_on_init: ${oldReadOnInit} → ${next.read_on_init}`,
-      );
+      changeParts.push(`read_on_init: ${oldReadOnInit} → ${next.read_on_init}`);
     let deviceStatus: string | null = null;
     let verifyCleared = false;
     if (changeParts.length) {

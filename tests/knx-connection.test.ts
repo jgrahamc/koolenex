@@ -518,7 +518,12 @@ describe('KnxConnection.checkProgrammingMode', () => {
     conn.localAddr = '1.0.1';
 
     const p = conn.checkProgrammingMode(500);
-    const raw = buildCEMI('1.1.20', '0.0.0', apduGroup('PhysicalAddress_Response'), false);
+    const raw = buildCEMI(
+      '1.1.20',
+      '0.0.0',
+      apduGroup('PhysicalAddress_Response'),
+      false,
+    );
     conn.simulateMgmtFrame(parseCEMI(raw)!);
 
     const result = await p;
@@ -619,7 +624,10 @@ describe('KnxConnection.readSerialNumbersInProgrammingMode', () => {
     const p = conn.readSerialNumbersInProgrammingMode(50);
     const makeApdu = (serial: number[]): { apdu: Buffer; apduData: Buffer } => {
       const apduData = Buffer.from([0x00, 0x00, 0x00, 0xb0, 0x01, ...serial]);
-      return { apduData, apdu: Buffer.concat([Buffer.from([0x01, 0xc9]), apduData]) };
+      return {
+        apduData,
+        apdu: Buffer.concat([Buffer.from([0x01, 0xc9]), apduData]),
+      };
     };
     const a = makeApdu([0x00, 0x0a, 0x57, 0x82, 0x04, 0x19]);
     const b = makeApdu([0x00, 0x73, 0x3c, 0x00, 0x5b, 0x42]);
@@ -731,8 +739,7 @@ describe('KnxConnection.writeIndividualAddressBySerial', () => {
     const conn = new TestKnxConnection();
     conn.connected = false;
     await assert.rejects(
-      () =>
-        conn.writeIndividualAddressBySerial(Buffer.alloc(6), '1.1.20'),
+      () => conn.writeIndividualAddressBySerial(Buffer.alloc(6), '1.1.20'),
       { message: 'Not connected' },
     );
   });
@@ -1104,7 +1111,9 @@ describe('KnxConnection.downloadDevice', () => {
     );
 
     assert.ok(
-      !progress.some((m) => m.includes('byte5=') || m.includes('PID_MCB_TABLE')),
+      !progress.some(
+        (m) => m.includes('byte5=') || m.includes('PID_MCB_TABLE'),
+      ),
       'a WriteProp[PropId=27] step must not be read as a write-service signal any more',
     );
     // With no IsSecureEnabled and this fake device never answering
@@ -1150,7 +1159,9 @@ describe('KnxConnection.downloadDevice', () => {
       // this whole file's runtime (~74s for this one test alone).
       conn.autoAnswerIdentityReads = true;
 
-      const steps: DownloadStep[] = [{ type: 'LoadImageProp', objIdx, propId: 27 }];
+      const steps: DownloadStep[] = [
+        { type: 'LoadImageProp', objIdx, propId: 27 },
+      ];
       const progress: string[] = [];
 
       await conn.downloadDevice('1.1.2', steps, null, null, null, (p) =>
@@ -1158,7 +1169,9 @@ describe('KnxConnection.downloadDevice', () => {
       );
 
       assert.ok(
-        progress.some((m) => m.includes('LoadImageProp') && m.includes('read-only')),
+        progress.some(
+          (m) => m.includes('LoadImageProp') && m.includes('read-only'),
+        ),
         `objIdx=${objIdx} should log a read-only LoadImageProp message`,
       );
       assert.equal(
@@ -1233,12 +1246,18 @@ describe('KnxConnection.downloadDevice', () => {
       .map((cemi) => parseCEMI(cemi))
       .filter(
         (p): p is NonNullable<typeof p> =>
-          !!p && p.apdu.length >= 2 && (p.apdu.readUInt16BE(0) & 0x3ff) === 0x03d7,
+          !!p &&
+          p.apdu.length >= 2 &&
+          (p.apdu.readUInt16BE(0) & 0x3ff) === 0x03d7,
       );
 
     assert.equal(propFrames.length, 1);
     const sentData = propFrames[0]!.apduData.subarray(4);
-    assert.equal(sentData.length, 8, 'must send exactly the 8-byte element, not the declared 10');
+    assert.equal(
+      sentData.length,
+      8,
+      'must send exactly the 8-byte element, not the declared 10',
+    );
     assert.equal(sentData.toString('hex'), '000028c000330000');
   });
 
@@ -1251,7 +1270,9 @@ describe('KnxConnection.downloadDevice', () => {
     conn.autoAnswerIdentityReads = true;
 
     const data = Buffer.from('0007080770', 'hex'); // real PID_PROGRAM_VERSION-shaped example
-    const steps: DownloadStep[] = [{ type: 'WriteProp', objIdx: 4, propId: 13, data }];
+    const steps: DownloadStep[] = [
+      { type: 'WriteProp', objIdx: 4, propId: 13, data },
+    ];
     const progress: string[] = [];
 
     await conn.downloadDevice('1.1.2', steps, null, null, null, (p) =>
@@ -1262,11 +1283,16 @@ describe('KnxConnection.downloadDevice', () => {
       .map((cemi) => parseCEMI(cemi))
       .filter(
         (p): p is NonNullable<typeof p> =>
-          !!p && p.apdu.length >= 2 && (p.apdu.readUInt16BE(0) & 0x3ff) === 0x03d7,
+          !!p &&
+          p.apdu.length >= 2 &&
+          (p.apdu.readUInt16BE(0) & 0x3ff) === 0x03d7,
       );
 
     assert.equal(propFrames.length, 1);
-    assert.equal(propFrames[0]!.apduData.subarray(4).toString('hex'), '0007080770');
+    assert.equal(
+      propFrames[0]!.apduData.subarray(4).toString('hex'),
+      '0007080770',
+    );
   });
 
   it('processes WriteRelMem steps with chunking', async () => {

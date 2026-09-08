@@ -675,7 +675,11 @@ describe('KnxBusManager.forceReconnect', () => {
     }) as any;
 
     await bus.forceReconnect();
-    assert.equal(connectCalls, 1, 'connect() is called even though already connected');
+    assert.equal(
+      connectCalls,
+      1,
+      'connect() is called even though already connected',
+    );
   });
 
   it('is a no-op when never connected at all (no known host)', async () => {
@@ -971,7 +975,11 @@ describe('KnxBusManager._autoReconnect', () => {
       await new Promise((r) => setImmediate(r));
       // Attempts 1-4 each schedule a retry and broadcast nothing.
       for (let i = 0; i < 4; i++) {
-        assert.equal(broadcasts.length, 0, `no broadcast yet after attempt ${i + 1}`);
+        assert.equal(
+          broadcasts.length,
+          0,
+          `no broadcast yet after attempt ${i + 1}`,
+        );
         const next = scheduled.shift()!;
         next();
         await new Promise((r) => setImmediate(r));

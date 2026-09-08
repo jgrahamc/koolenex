@@ -223,7 +223,10 @@ export function apduPropertyValueRead(
  * (A_Authorize_Response, 0x3D2) carries a single access-level byte
  * (0 = full access, per real captured examples).
  */
-export function apduAuthorizeRequest(seq: number, key: number = 0xffffffff): Buffer {
+export function apduAuthorizeRequest(
+  seq: number,
+  key: number = 0xffffffff,
+): Buffer {
   const extra = Buffer.alloc(5);
   extra.writeUInt32BE(key >>> 0, 1); // byte 0 stays reserved/0
   return apduConnectedFull(seq, APCI_EXT.Authorize_Request, extra);
@@ -328,9 +331,7 @@ export function apduIndividualAddressSerialNumberWrite(
   newAddr: string,
 ): Buffer {
   if (serial.length !== 6) {
-    throw new Error(
-      `KNX serial number must be 6 bytes, got ${serial.length}`,
-    );
+    throw new Error(`KNX serial number must be 6 bytes, got ${serial.length}`);
   }
   const extra = Buffer.concat([
     serial,
@@ -348,9 +349,7 @@ export function apduIndividualAddressSerialNumberWrite(
  */
 export function apduIndividualAddressSerialNumberRead(serial: Buffer): Buffer {
   if (serial.length !== 6) {
-    throw new Error(
-      `KNX serial number must be 6 bytes, got ${serial.length}`,
-    );
+    throw new Error(`KNX serial number must be 6 bytes, got ${serial.length}`);
   }
   return apduExtUnnumbered(APCI_EXT.IndividualAddressSerialNumber_Read, serial);
 }

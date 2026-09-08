@@ -404,9 +404,9 @@ router.post('/bus/connect', async (req: Request, res: Response) => {
     db.scheduleSave();
     res.json({ ok: true, ...result });
   } catch (e) {
-    res
-      .status(502)
-      .json({ error: safeErrorOrConnection('bus', 'Bus connection failed', e) });
+    res.status(502).json({
+      error: safeErrorOrConnection('bus', 'Bus connection failed', e),
+    });
   }
 });
 
@@ -417,9 +417,9 @@ router.get('/bus/usb-devices', (_req: Request, res: Response) => {
     const devices = b.listUsbDevices();
     res.json({ devices });
   } catch (e) {
-    res
-      .status(500)
-      .json({ error: safeErrorOrConnection('bus', 'Failed to list USB devices', e) });
+    res.status(500).json({
+      error: safeErrorOrConnection('bus', 'Failed to list USB devices', e),
+    });
   }
 });
 
@@ -430,9 +430,9 @@ router.get('/bus/usb-devices/all', (_req: Request, res: Response) => {
     const devices = b.listAllHidDevices();
     res.json({ devices });
   } catch (e) {
-    res
-      .status(500)
-      .json({ error: safeErrorOrConnection('bus', 'Failed to list HID devices', e) });
+    res.status(500).json({
+      error: safeErrorOrConnection('bus', 'Failed to list HID devices', e),
+    });
   }
 });
 
@@ -451,9 +451,9 @@ router.post('/bus/connect-usb', async (req: Request, res: Response) => {
     const result = await b.connectUsb(devicePath, projectId);
     res.json({ ok: true, type: 'usb', ...result });
   } catch (e) {
-    res
-      .status(502)
-      .json({ error: safeErrorOrConnection('bus', 'USB connection failed', e) });
+    res.status(502).json({
+      error: safeErrorOrConnection('bus', 'USB connection failed', e),
+    });
   }
 });
 
@@ -519,7 +519,9 @@ router.post('/bus/write', (req: Request, res: Response) => {
     }
     res.json(result);
   } catch (e) {
-    res.status(502).json({ error: safeErrorOrConnection('bus', 'Bus write failed', e) });
+    res
+      .status(502)
+      .json({ error: safeErrorOrConnection('bus', 'Bus write failed', e) });
   }
 });
 
@@ -530,7 +532,9 @@ router.post('/bus/read', async (req: Request, res: Response) => {
   try {
     res.json(await b.read(body.ga));
   } catch (e) {
-    res.status(502).json({ error: safeErrorOrConnection('bus', 'Bus read failed', e) });
+    res
+      .status(502)
+      .json({ error: safeErrorOrConnection('bus', 'Bus read failed', e) });
   }
 });
 
@@ -634,9 +638,9 @@ router.post('/bus/device-info', async (req: Request, res: Response) => {
     res.json(info);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    res
-      .status(msg.includes('Not connected') ? 409 : 500)
-      .json({ error: safeErrorOrConnection('bus', 'Failed to read device info', e) });
+    res.status(msg.includes('Not connected') ? 409 : 500).json({
+      error: safeErrorOrConnection('bus', 'Failed to read device info', e),
+    });
   }
 });
 
@@ -756,13 +760,35 @@ router.post('/bus/write-memory', async (req: Request, res: Response) => {
               },
             ]
           : []),
-        { type: 'WriteRelMem', objIdx, propId: 0, size: data.length, offset: 0 },
+        {
+          type: 'WriteRelMem',
+          objIdx,
+          propId: 0,
+          size: data.length,
+          offset: 0,
+        },
       ]
-    : [{ type: 'WriteRelMem', objIdx, propId: 0, size: data.length, offset: 0 }];
+    : [
+        {
+          type: 'WriteRelMem',
+          objIdx,
+          propId: 0,
+          size: data.length,
+          offset: 0,
+        },
+      ];
   try {
-    const result = await b.downloadDevice(deviceAddress, steps, null, null, data, undefined, {
-      resolvedBases: { [objIdx]: address },
-    });
+    const result = await b.downloadDevice(
+      deviceAddress,
+      steps,
+      null,
+      null,
+      data,
+      undefined,
+      {
+        resolvedBases: { [objIdx]: address },
+      },
+    );
     res.json({
       deviceAddress,
       address,
@@ -795,7 +821,10 @@ router.post('/bus/replay-frames', async (req: Request, res: Response) => {
     req,
     z.object({
       deviceAddress: z.string().min(1),
-      frames: z.array(z.string().regex(/^[0-9a-fA-F]+$/)).min(1).max(500),
+      frames: z
+        .array(z.string().regex(/^[0-9a-fA-F]+$/))
+        .min(1)
+        .max(500),
       delayMs: z.number().int().min(0).max(5000).default(30),
     }),
   );
@@ -805,7 +834,9 @@ router.post('/bus/replay-frames', async (req: Request, res: Response) => {
     await b.replayFrames(deviceAddress, buffers, delayMs);
     res.json({ deviceAddress, frameCount: buffers.length });
   } catch (e) {
-    res.status(502).json({ error: safeErrorOrConnection('bus', 'Frame replay failed', e) });
+    res
+      .status(502)
+      .json({ error: safeErrorOrConnection('bus', 'Frame replay failed', e) });
   }
 });
 
@@ -880,13 +911,17 @@ router.post('/bus/restart-device', async (req: Request, res: Response) => {
     }),
   );
   try {
-    await b.restartDevice(body.deviceAddress, body.settleMs, body.postRestartDelayMs);
+    await b.restartDevice(
+      body.deviceAddress,
+      body.settleMs,
+      body.postRestartDelayMs,
+    );
     res.json({ ok: true });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    res
-      .status(msg.includes('Not connected') ? 409 : 502)
-      .json({ error: safeErrorOrConnection('bus', 'Restart device failed', e) });
+    res.status(msg.includes('Not connected') ? 409 : 502).json({
+      error: safeErrorOrConnection('bus', 'Restart device failed', e),
+    });
   }
 });
 
@@ -908,9 +943,9 @@ router.post(
       res.json(result);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      res
-        .status(msg.includes('Not connected') ? 409 : 502)
-        .json({ error: safeErrorOrConnection('bus', 'Check programming mode failed', e) });
+      res.status(msg.includes('Not connected') ? 409 : 502).json({
+        error: safeErrorOrConnection('bus', 'Check programming mode failed', e),
+      });
     }
   },
 );
@@ -934,15 +969,19 @@ router.post(
       z.object({ timeoutMs: z.number().int().min(100).max(30000).optional() }),
     );
     try {
-      const devices = await b.readSerialNumbersInProgrammingMode(body.timeoutMs);
+      const devices = await b.readSerialNumbersInProgrammingMode(
+        body.timeoutMs,
+      );
       res.json({ devices });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      res
-        .status(msg.includes('Not connected') ? 409 : 502)
-        .json({
-          error: safeErrorOrConnection('bus', 'Read serials in programming mode failed', e),
-        });
+      res.status(msg.includes('Not connected') ? 409 : 502).json({
+        error: safeErrorOrConnection(
+          'bus',
+          'Read serials in programming mode failed',
+          e,
+        ),
+      });
     }
   },
 );
@@ -976,9 +1015,13 @@ router.post(
       res.json(result);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      res
-        .status(msg.includes('Not connected') ? 409 : 502)
-        .json({ error: safeErrorOrConnection('bus', 'Assign address by serial failed', e) });
+      res.status(msg.includes('Not connected') ? 409 : 502).json({
+        error: safeErrorOrConnection(
+          'bus',
+          'Assign address by serial failed',
+          e,
+        ),
+      });
     }
   },
 );
@@ -1011,9 +1054,9 @@ router.post(
       res.json(result ?? { address: null });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      res
-        .status(msg.includes('Not connected') ? 409 : 502)
-        .json({ error: safeErrorOrConnection('bus', 'Read address by serial failed', e) });
+      res.status(msg.includes('Not connected') ? 409 : 502).json({
+        error: safeErrorOrConnection('bus', 'Read address by serial failed', e),
+      });
     }
   },
 );
@@ -1292,9 +1335,7 @@ function resolvePendingWriteRanges(
 
   for (const row of pending) {
     if (row.kind === 'param_value') {
-      const layout = (paramMemLayout as Record<string, ParamMemEntry>)[
-        row.key
-      ];
+      const layout = (paramMemLayout as Record<string, ParamMemEntry>)[row.key];
       if (layout && layout.offset != null) {
         const length = Math.max(
           1,
@@ -1489,9 +1530,13 @@ router.post('/bus/program-device', async (req: Request, res: Response) => {
     await b.forceReconnect();
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    return res
-      .status(msg.includes('Not connected') ? 409 : 502)
-      .json({ error: safeErrorOrConnection('bus', 'Failed to reconnect before programming', e) });
+    return res.status(msg.includes('Not connected') ? 409 : 502).json({
+      error: safeErrorOrConnection(
+        'bus',
+        'Failed to reconnect before programming',
+        e,
+      ),
+    });
   }
 
   // A download can run long enough for the gateway's own idle timeout to
@@ -1676,11 +1721,13 @@ router.post('/bus/program-device', async (req: Request, res: Response) => {
           );
         } catch (e) {
           const msg = e instanceof Error ? e.message : String(e);
-          return res
-            .status(msg.includes('Not connected') ? 409 : 502)
-            .json({
-              error: safeErrorOrConnection('bus', 'Locate device by serial failed', e),
-            });
+          return res.status(msg.includes('Not connected') ? 409 : 502).json({
+            error: safeErrorOrConnection(
+              'bus',
+              'Locate device by serial failed',
+              e,
+            ),
+          });
         }
         if (!bySerial.verified) {
           return res.status(409).json({
@@ -1776,10 +1823,10 @@ router.post('/bus/program-device', async (req: Request, res: Response) => {
         });
       }
       if (confirmedInfo.serialNumber) {
-        db.run(
-          'UPDATE devices SET serial_number=?, has_address=1 WHERE id=?',
-          [confirmedInfo.serialNumber, dev.id],
-        );
+        db.run('UPDATE devices SET serial_number=?, has_address=1 WHERE id=?', [
+          confirmedInfo.serialNumber,
+          dev.id,
+        ]);
         onProgress({
           msg: `Confirmed device at ${deviceAddress}, serial ${confirmedInfo.serialNumber} - rebooted, continuing with the rest of the download`,
         });
@@ -1856,7 +1903,9 @@ router.post('/bus/program-device', async (req: Request, res: Response) => {
       (paramMem?.length ?? 0) +
       (groupObjectTable?.length ?? 0);
     const unconfirmedWritesCount = downloadResult.unconfirmedWrites;
-    const unconfirmedWritesDetail = JSON.stringify(downloadResult.unconfirmedDetails);
+    const unconfirmedWritesDetail = JSON.stringify(
+      downloadResult.unconfirmedDetails,
+    );
     // last_verify_match/last_verify_at cleared back to NULL here too -
     // real request, 2026-09-01: "clear last verify on each download" - a
     // verify result describes content that this download just replaced,
@@ -1926,9 +1975,9 @@ router.post('/bus/program-device', async (req: Request, res: Response) => {
       pct: -1,
       error: true,
     });
-    res
-      .status(errMsg.includes('Not connected') ? 409 : 502)
-      .json({ error: safeErrorOrConnection('bus', 'Device programming failed', e) });
+    res.status(errMsg.includes('Not connected') ? 409 : 502).json({
+      error: safeErrorOrConnection('bus', 'Device programming failed', e),
+    });
   } finally {
     releaseKeepAlive();
   }
@@ -1994,9 +2043,13 @@ router.post('/bus/verify-device', async (req: Request, res: Response) => {
     await b.forceReconnect();
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    return res
-      .status(msg.includes('Not connected') ? 409 : 502)
-      .json({ error: safeErrorOrConnection('bus', 'Failed to reconnect before verifying', e) });
+    return res.status(msg.includes('Not connected') ? 409 : 502).json({
+      error: safeErrorOrConnection(
+        'bus',
+        'Failed to reconnect before verifying',
+        e,
+      ),
+    });
   }
 
   // See the matching comment in /bus/program-device above -
@@ -2005,11 +2058,7 @@ router.post('/bus/verify-device', async (req: Request, res: Response) => {
   // retries) against an idle-timeout drop interrupting verification.
   const releaseKeepAlive = b.addKeepAliveRef();
   try {
-    for (
-      let attempt = 1;
-      attempt <= VERIFY_TRANSIENT_MAX_ATTEMPTS;
-      attempt++
-    ) {
+    for (let attempt = 1; attempt <= VERIFY_TRANSIENT_MAX_ATTEMPTS; attempt++) {
       try {
         await runVerifyDevice(b, dev, deviceAddress, res);
         return;
@@ -2026,9 +2075,9 @@ router.post('/bus/verify-device', async (req: Request, res: Response) => {
           continue;
         }
         const msg = e instanceof Error ? e.message : String(e);
-        res
-          .status(msg.includes('Not connected') ? 409 : 502)
-          .json({ error: safeErrorOrConnection('bus', 'Device verify failed', e) });
+        res.status(msg.includes('Not connected') ? 409 : 502).json({
+          error: safeErrorOrConnection('bus', 'Device verify failed', e),
+        });
         return;
       }
     }
@@ -2110,9 +2159,19 @@ async function runVerifyDevice(
       .map((s) => s.objIdx),
   );
   const extraObjIdxs: number[] = [];
-  if (isRelSegmentApp && gaTable && gaTable.length && !declaredTableObjIdxs.has(1))
+  if (
+    isRelSegmentApp &&
+    gaTable &&
+    gaTable.length &&
+    !declaredTableObjIdxs.has(1)
+  )
     extraObjIdxs.push(1);
-  if (isRelSegmentApp && assocTable && assocTable.length && !declaredTableObjIdxs.has(2))
+  if (
+    isRelSegmentApp &&
+    assocTable &&
+    assocTable.length &&
+    !declaredTableObjIdxs.has(2)
+  )
     extraObjIdxs.push(2);
   if (
     isRelSegmentApp &&
@@ -2173,10 +2232,7 @@ async function runVerifyDevice(
   // known upfront (it's the same computed-image size "expected" is built
   // from), so real progress can be broadcast as chunks come in rather than
   // only reporting done/not-done - the UI no longer has to guess.
-  const progressTotal = plan.mem.reduce(
-    (sum, r) => sum + r.expected.length,
-    0,
-  );
+  const progressTotal = plan.mem.reduce((sum, r) => sum + r.expected.length, 0);
   const memActuals = plan.mem.length
     ? await b.readMemoryMany(
         deviceAddress,
@@ -2344,7 +2400,9 @@ async function runVerifyDevice(
       [dev.id],
     );
     const gaRegion = gaAssocMem.find((r) => r.label.startsWith('gatable@'));
-    const assocRegion = gaAssocMem.find((r) => r.label.startsWith('assoctable@'));
+    const assocRegion = gaAssocMem.find((r) =>
+      r.label.startsWith('assoctable@'),
+    );
     const gaIdx = gaRegion ? gaAssocMem.indexOf(gaRegion) : -1;
     const assocIdx = assocRegion ? gaAssocMem.indexOf(assocRegion) : -1;
 
@@ -2356,7 +2414,10 @@ async function runVerifyDevice(
       : [];
     const actualAssoc =
       assocIdx >= 0
-        ? decodeAssocTable(gaAssocActuals[assocIdx] ?? Buffer.alloc(0), actualGAs)
+        ? decodeAssocTable(
+            gaAssocActuals[assocIdx] ?? Buffer.alloc(0),
+            actualGAs,
+          )
         : [];
     // A com object can have more than one GA link (see buildAssocTable) -
     // aggregate every link per com object rather than keeping only the
@@ -2451,8 +2512,9 @@ async function runVerifyDevice(
     // Write/Read/Comm+Linked), Priority, and the real Object Size, not
     // just the GA link already shown in its own row above. See
     // describeGroupObjectEntry()'s own doc comment (knx-tables.ts).
-    const fmtEntry = (e: { flagByte: number; sizeCodeByte: number } | null): string =>
-      e ? describeGroupObjectEntry(e) : '(out of range)';
+    const fmtEntry = (
+      e: { flagByte: number; sizeCodeByte: number } | null,
+    ): string => (e ? describeGroupObjectEntry(e) : '(out of range)');
     for (const co of coRows) {
       const expectedEntry = decodeGroupObjectEntry(
         object3Region.expected,
@@ -2486,7 +2548,9 @@ async function runVerifyDevice(
         obj3Expected: expectedEntry
           ? decodeGroupObjectEntryFlags(expectedEntry)
           : undefined,
-        obj3Actual: actualEntry ? decodeGroupObjectEntryFlags(actualEntry) : null,
+        obj3Actual: actualEntry
+          ? decodeGroupObjectEntryFlags(actualEntry)
+          : null,
       });
     }
     if (obj3Rows.length) decoded = [...(decoded ?? []), ...obj3Rows];
@@ -2630,9 +2694,7 @@ router.post(
     );
     const { deviceId, cached } = body;
 
-    const dev = db.get<Device>('SELECT * FROM devices WHERE id=?', [
-      deviceId,
-    ]);
+    const dev = db.get<Device>('SELECT * FROM devices WHERE id=?', [deviceId]);
     if (!dev) {
       res.status(404).json({ error: 'Device not found' });
       return;
@@ -2809,9 +2871,7 @@ router.post(
 
     const decoded = [
       ...(paramRows ?? priorParamRows),
-      ...(gaTable && assocTable
-        ? gaRows
-        : [...priorGaRows.values()]),
+      ...(gaTable && assocTable ? gaRows : [...priorGaRows.values()]),
       ...(groupObjectTable ? obj3Rows : [...priorObj3Rows.values()]),
     ];
     const allDecodedMatch =

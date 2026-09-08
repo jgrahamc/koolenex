@@ -826,7 +826,10 @@ function ComObjectGAAdder({ co, gaMap, onAdd }: ComObjectGAAdderProps) {
 // real Object 3 write - see server/routes/gas.ts's flags-route comment -
 // so an edit here takes effect on the device on the next Program/Verify,
 // same as a parameter or GA-link edit.
-const CO_FLAG_FIELDS: { key: 'comm' | 'read' | 'write' | 'tx' | 'upd'; label: string }[] = [
+const CO_FLAG_FIELDS: {
+  key: 'comm' | 'read' | 'write' | 'tx' | 'upd';
+  label: string;
+}[] = [
   { key: 'comm', label: 'Communication' },
   { key: 'read', label: 'Read' },
   { key: 'write', label: 'Write' },
@@ -837,7 +840,10 @@ const CO_PRIORITIES = ['low', 'alarm', 'high', 'system'] as const;
 
 interface ComObjectFlagsCellProps {
   co: any;
-  onUpdateComObjectFlags?: (coId: number, body: Record<string, unknown>) => void;
+  onUpdateComObjectFlags?: (
+    coId: number,
+    body: Record<string, unknown>,
+  ) => void;
 }
 
 // The composite `flags` string (buildFlags(), ets-parser.ts) only ever
@@ -860,7 +866,10 @@ function flagsCellDisplay(co: any): string {
   return s;
 }
 
-function ComObjectFlagsCell({ co, onUpdateComObjectFlags }: ComObjectFlagsCellProps) {
+function ComObjectFlagsCell({
+  co,
+  onUpdateComObjectFlags,
+}: ComObjectFlagsCellProps) {
   const [open, setOpen] = useState(false);
 
   if (!onUpdateComObjectFlags) {
@@ -1059,8 +1068,8 @@ function DuplicateDeviceModal({
         <div className={styles.modalTitle}>Duplicate Device</div>
         <div className={styles.modalSubtitle}>
           Copy {dev.has_address ? dev.individual_address : '-.-.-'} (
-          {dev.manufacturer} {dev.model}) with
-          parameters. Group addresses and channel assignments are not copied.
+          {dev.manufacturer} {dev.model}) with parameters. Group addresses and
+          channel assignments are not copied.
         </div>
 
         {/* Name */}

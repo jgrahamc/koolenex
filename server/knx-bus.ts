@@ -39,9 +39,17 @@ class KnxBusManager extends EventEmitter {
   projectId: number | string | null;
   _wss: WebSocketServer | null;
   _remapFn: ((telegram: Telegram) => Telegram) | null;
-  _reconnecting: Promise<{ host: string; port: number; type: 'udp' | 'tcp' }> | null;
+  _reconnecting: Promise<{
+    host: string;
+    port: number;
+    type: 'udp' | 'tcp';
+  }> | null;
   _forceReconnecting: Promise<void> | null;
-  _connecting: Promise<{ host: string; port: number; type: 'udp' | 'tcp' }> | null;
+  _connecting: Promise<{
+    host: string;
+    port: number;
+    type: 'udp' | 'tcp';
+  }> | null;
   _keepAliveRefs: number;
   // Real bug, found live 2026-08-31: "needsAttention" (the badge's
   // Idle-vs-Disconnected distinction) previously lived ONLY as a live
@@ -453,10 +461,14 @@ class KnxBusManager extends EventEmitter {
     const maxAttempts = 5;
     this._ensureConnected(false)
       .then(() => {
-        logger.info('knx', 'Bus auto-reconnected after an unexpected disconnect');
+        logger.info(
+          'knx',
+          'Bus auto-reconnected after an unexpected disconnect',
+        );
       })
       .catch((err: Error) => {
-        if (!this.host || this.type === 'usb' || this._keepAliveRefs <= 0) return;
+        if (!this.host || this.type === 'usb' || this._keepAliveRefs <= 0)
+          return;
         logger.warn('knx', 'Bus auto-reconnect attempt failed', {
           attempt,
           message: err.message,
@@ -553,7 +565,11 @@ class KnxBusManager extends EventEmitter {
     postRestartDelayMs?: number,
   ): Promise<void> {
     await this._ensureConnected();
-    return this.connection!.restartDevice(deviceAddr, settleMs, postRestartDelayMs);
+    return this.connection!.restartDevice(
+      deviceAddr,
+      settleMs,
+      postRestartDelayMs,
+    );
   }
 
   async readSerialNumbersInProgrammingMode(

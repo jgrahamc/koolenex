@@ -415,7 +415,12 @@ function buildUndeclaredTableMem(
     steps.filter((s) => s.type === 'WriteRelMem').map((s) => s.objIdx),
   );
   const out: VerifyMemRegion[] = [];
-  if (gaTable && gaTable.length && !declaredObjIdxs.has(1) && relBaseByObj[1] != null) {
+  if (
+    gaTable &&
+    gaTable.length &&
+    !declaredObjIdxs.has(1) &&
+    relBaseByObj[1] != null
+  ) {
     out.push({
       addr: relBaseByObj[1],
       expected: gaTable,
@@ -537,7 +542,8 @@ export function planVerify(
         label: `prop obj=${s.objIdx} pid=${s.propId}`,
       });
     }
-    if (props.length) return { family: 'prop', mem: [], props, undeclaredTableMem };
+    if (props.length)
+      return { family: 'prop', mem: [], props, undeclaredTableMem };
   }
 
   return { family: 'none', mem: [], props: [], undeclaredTableMem };

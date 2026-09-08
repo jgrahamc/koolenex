@@ -20,7 +20,13 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { parseCEMI, buildCEMI, apduConnectedFull, apduGroup, APCI_EXT } from '../server/knx-cemi.ts';
+import {
+  parseCEMI,
+  buildCEMI,
+  apduConnectedFull,
+  apduGroup,
+  APCI_EXT,
+} from '../server/knx-cemi.ts';
 import { KnxConnection } from '../server/knx-connection.ts';
 import type { DownloadStep } from '../server/knx-connection.ts';
 
@@ -73,9 +79,10 @@ class LoadGatedFakeDevice extends KnxConnection {
     // frame.apciName comes back 'OTHER' for these, and frame.apciIdx is the
     // wrong (4-bit-only) value. Recompute the real full 10-bit APCI
     // ourselves from the raw APDU the same way parseCEMI does internally.
-    const fullApci = frame.apdu.length >= 2
-      ? ((frame.apdu[0]! & 0x03) << 8) | frame.apdu[1]!
-      : -1;
+    const fullApci =
+      frame.apdu.length >= 2
+        ? ((frame.apdu[0]! & 0x03) << 8) | frame.apdu[1]!
+        : -1;
     if (fullApci === 0x3d1 /* Authorize_Request */) {
       this.authRequests.push(Buffer.from(frame.apduData));
       const respApdu = apduConnectedFull(
@@ -120,7 +127,11 @@ class LoadGatedFakeDevice extends KnxConnection {
         }
       }
       const respExtra =
-        propId === 5 ? Buffer.from([state]) : data.length ? data : Buffer.from([0x00]);
+        propId === 5
+          ? Buffer.from([state])
+          : data.length
+            ? data
+            : Buffer.from([0x00]);
       const respApdu = apduConnectedFull(
         0,
         APCI_EXT.PropertyValue_Response,
@@ -179,7 +190,9 @@ class LoadGatedFakeDevice extends KnxConnection {
     } else if (frame.apciName === 'MemoryExtended_Write') {
       const count = frame.apduData[0]!;
       const address =
-        (frame.apduData[1]! << 16) | (frame.apduData[2]! << 8) | frame.apduData[3]!;
+        (frame.apduData[1]! << 16) |
+        (frame.apduData[2]! << 8) |
+        frame.apduData[3]!;
       const data = frame.apduData.subarray(4, 4 + count);
       if (this.loadingObjIdx !== null) data.copy(this.memory, address);
       else this.rejectedWrites.push({ address, extended: true });
@@ -207,8 +220,24 @@ describe('WriteRelMem load-sequence fix — real device gating simulation', () =
   // RelSegment declarations (full+par, same lsmIdx) followed by WriteRelMem
   // - exactly what buildDeviceProgramming() produces for this real app.
   const steps: DownloadStep[] = [
-    { type: 'RelSegment', objIdx: 0, propId: 0, lsmIdx: 4, size: 20, mode: 'full', fill: 255 },
-    { type: 'RelSegment', objIdx: 0, propId: 0, lsmIdx: 4, size: 20, mode: 'par', fill: 255 },
+    {
+      type: 'RelSegment',
+      objIdx: 0,
+      propId: 0,
+      lsmIdx: 4,
+      size: 20,
+      mode: 'full',
+      fill: 255,
+    },
+    {
+      type: 'RelSegment',
+      objIdx: 0,
+      propId: 0,
+      lsmIdx: 4,
+      size: 20,
+      mode: 'par',
+      fill: 255,
+    },
     { type: 'WriteRelMem', objIdx: 4, propId: 0, size: 20, offset: 0 },
   ];
   const payload = Buffer.from(Array.from({ length: 20 }, (_, i) => i + 1));
@@ -225,7 +254,11 @@ describe('WriteRelMem load-sequence fix — real device gating simulation', () =
       [...payload],
       'the real payload should be present at the real address once loaded correctly',
     );
-    assert.equal(dev.rejectedWrites.length, 0, 'no write should have been rejected');
+    assert.equal(
+      dev.rejectedWrites.length,
+      0,
+      'no write should have been rejected',
+    );
   });
 
   it('sends the exact real LSM event sequence, byte-verified against 4 independent real captures', async () => {
@@ -259,14 +292,31 @@ describe('WriteRelMem load-sequence fix — real device gating simulation', () =
     ];
     const backing = Buffer.alloc(0x10000);
     const dev = new LoadGatedFakeDevice('1.1.9', backing);
-    await dev.downloadDevice('1.1.9', bareSteps, null, null, payload, undefined, {
-      resolvedBases: { 4: RESOLVED_BASE },
-    });
+    await dev.downloadDevice(
+      '1.1.9',
+      bareSteps,
+      null,
+      null,
+      payload,
+      undefined,
+      {
+        resolvedBases: { 4: RESOLVED_BASE },
+      },
+    );
 
-    assert.equal(dev.lsmEvents.length, 0, 'no load-state transition should have been sent at all');
-    assert.ok(dev.rejectedWrites.length > 0, 'every write should have been rejected (device never entered Loading state)');
+    assert.equal(
+      dev.lsmEvents.length,
+      0,
+      'no load-state transition should have been sent at all',
+    );
     assert.ok(
-      dev.memory.subarray(RESOLVED_BASE, RESOLVED_BASE + 20).every((b) => b === 0),
+      dev.rejectedWrites.length > 0,
+      'every write should have been rejected (device never entered Loading state)',
+    );
+    assert.ok(
+      dev.memory
+        .subarray(RESOLVED_BASE, RESOLVED_BASE + 20)
+        .every((b) => b === 0),
       'memory should be unchanged - exactly what was observed on real hardware',
     );
   });

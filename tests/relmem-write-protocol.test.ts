@@ -27,14 +27,23 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { parseCEMI, buildCEMI, apduConnectedFull, apduGroup, APCI_EXT } from '../server/knx-cemi.ts';
+import {
+  parseCEMI,
+  buildCEMI,
+  apduConnectedFull,
+  apduGroup,
+  APCI_EXT,
+} from '../server/knx-cemi.ts';
 import { KnxConnection } from '../server/knx-connection.ts';
 import type { DownloadStep } from '../server/knx-connection.ts';
 
 const FIX = path.join(import.meta.dirname, 'fixtures', 'relmem-real-devices');
 
 function loadHex(name: string): Buffer {
-  return Buffer.from(fs.readFileSync(path.join(FIX, name), 'utf8').trim(), 'hex');
+  return Buffer.from(
+    fs.readFileSync(path.join(FIX, name), 'utf8').trim(),
+    'hex',
+  );
 }
 
 function loadJson(name: string): any {
@@ -59,7 +68,11 @@ class FakeWritableMemoryDevice extends KnxConnection {
   // from; pass `null` to simulate a device that never answers the
   // descriptor read at all (exercises the fallback address-size heuristic).
   private readonly maskVersion: number | null;
-  constructor(deviceAddr: string, memory: Buffer, maskVersion: number | null = 0x07b0) {
+  constructor(
+    deviceAddr: string,
+    memory: Buffer,
+    maskVersion: number | null = 0x07b0,
+  ) {
     super();
     this.deviceAddr = deviceAddr;
     this.memory = memory;
@@ -89,9 +102,10 @@ class FakeWritableMemoryDevice extends KnxConnection {
     // driven writes (see the 2026-08-28 authorization fix) and waits for
     // the response - respond like real hardware does, or every download
     // would stall on the 3s wait timeout.
-    const fullApci = frame.apdu.length >= 2
-      ? ((frame.apdu[0]! & 0x03) << 8) | frame.apdu[1]!
-      : -1;
+    const fullApci =
+      frame.apdu.length >= 2
+        ? ((frame.apdu[0]! & 0x03) << 8) | frame.apdu[1]!
+        : -1;
     if (fullApci === 0x3d1 /* Authorize_Request */) {
       const respApdu = apduConnectedFull(
         0,
@@ -157,7 +171,8 @@ class FakeWritableMemoryDevice extends KnxConnection {
       .filter(
         (f): f is NonNullable<typeof f> =>
           !!f &&
-          (f.apciName === 'Memory_Write' || f.apciName === 'MemoryExtended_Write'),
+          (f.apciName === 'Memory_Write' ||
+            f.apciName === 'MemoryExtended_Write'),
       )
       .map((f) => {
         if (f.apciName === 'MemoryExtended_Write') {
@@ -204,11 +219,25 @@ describe('WriteRelMem protocol-level test — 1.1.10 (real captured memory, base
     const dev = new FakeWritableMemoryDevice('1.1.10', backing);
 
     const steps: DownloadStep[] = [
-      { type: 'WriteRelMem', objIdx: 4, propId: 0, size: NEAR_START.length, offset: 0 },
+      {
+        type: 'WriteRelMem',
+        objIdx: 4,
+        propId: 0,
+        size: NEAR_START.length,
+        offset: 0,
+      },
     ];
-    await dev.downloadDevice('1.1.10', steps, null, null, NEAR_START, undefined, {
-      resolvedBases: { 4: RESOLVED_BASE },
-    });
+    await dev.downloadDevice(
+      '1.1.10',
+      steps,
+      null,
+      null,
+      NEAR_START,
+      undefined,
+      {
+        resolvedBases: { 4: RESOLVED_BASE },
+      },
+    );
 
     const sentWrites = dev.writesSent();
     assert.ok(sentWrites.length > 0, 'expected at least one write chunk');
@@ -232,7 +261,15 @@ describe('WriteRelMem protocol-level test — 1.1.10 (real captured memory, base
     // real captured named-parameter writes).
     await dev.downloadDevice(
       '1.1.10',
-      [{ type: 'WriteRelMem', objIdx: 4, propId: 0, size: NEAR_START.length, offset: 0 }],
+      [
+        {
+          type: 'WriteRelMem',
+          objIdx: 4,
+          propId: 0,
+          size: NEAR_START.length,
+          offset: 0,
+        },
+      ],
       null,
       null,
       NEAR_START,
@@ -294,7 +331,13 @@ describe('WriteRelMem protocol-level test — 1.1.10 (real captured memory, base
     const payload = Buffer.alloc(250, 0xaa);
 
     const steps: DownloadStep[] = [
-      { type: 'WriteRelMem', objIdx: 4, propId: 0, size: payload.length, offset: 0 },
+      {
+        type: 'WriteRelMem',
+        objIdx: 4,
+        propId: 0,
+        size: payload.length,
+        offset: 0,
+      },
     ];
     // Base/length chosen so the write region straddles 0xFFFF with the
     // real MEM_CHUNK=228 (see knx-connection.ts's own comment - confirmed
@@ -313,11 +356,27 @@ describe('WriteRelMem protocol-level test — 1.1.10 (real captured memory, base
     });
 
     const sentWrites = dev.writesSent();
-    assert.equal(sentWrites.length, 2, 'expected 2 chunks: 63 legacy bytes then 187 extended bytes');
-    assert.equal(sentWrites[0]!.extended, false, 'fallback heuristic: first chunk (0xFFDC) fits in 16 bits');
+    assert.equal(
+      sentWrites.length,
+      2,
+      'expected 2 chunks: 63 legacy bytes then 187 extended bytes',
+    );
+    assert.equal(
+      sentWrites[0]!.extended,
+      false,
+      'fallback heuristic: first chunk (0xFFDC) fits in 16 bits',
+    );
     assert.equal(sentWrites[0]!.address, 0xffdc);
-    assert.equal(sentWrites[0]!.count, 63, 'legacy chunk capped at its 6-bit wire count-field max');
-    assert.equal(sentWrites[1]!.extended, true, 'fallback heuristic: second chunk (0xFFFB) does not fit');
+    assert.equal(
+      sentWrites[0]!.count,
+      63,
+      'legacy chunk capped at its 6-bit wire count-field max',
+    );
+    assert.equal(
+      sentWrites[1]!.extended,
+      true,
+      'fallback heuristic: second chunk (0xFFFB) does not fit',
+    );
     assert.equal(sentWrites[1]!.address, 0xffdc + 63);
     assert.deepEqual(
       [...dev.memory.subarray(0xffdc, 0xffdc + 250)],
@@ -339,7 +398,13 @@ describe('WriteRelMem protocol-level test — 1.1.10 (real captured memory, base
     const dev = new FakeWritableMemoryDevice('1.1.20', backing, null);
     const payload = Buffer.alloc(5, 0xaa);
     const steps: DownloadStep[] = [
-      { type: 'WriteRelMem', objIdx: 4, propId: 0, size: payload.length, offset: 0 },
+      {
+        type: 'WriteRelMem',
+        objIdx: 4,
+        propId: 0,
+        size: payload.length,
+        offset: 0,
+      },
     ];
     await dev.downloadDevice('1.1.20', steps, null, null, payload, undefined, {
       resolvedBases: { 4: 0x1000 },
@@ -349,15 +414,24 @@ describe('WriteRelMem protocol-level test — 1.1.10 (real captured memory, base
       .map((c) => parseCEMI(c))
       .filter((f): f is NonNullable<typeof f> => {
         if (!f) return false;
-        const fullApci = f.apdu.length >= 2 ? ((f.apdu[0]! & 0x03) << 8) | f.apdu[1]! : -1;
+        const fullApci =
+          f.apdu.length >= 2 ? ((f.apdu[0]! & 0x03) << 8) | f.apdu[1]! : -1;
         return (
           fullApci === 0x3d7 /* PropertyValue_Write */ &&
           f.apduData[0] === 0 /* objIdx 0 */ &&
           f.apduData[1] === 14 /* PID_DEVICE_CONTROL */
         );
       });
-    assert.equal(verifyModeWrites.length, 1, 'expected exactly one PID_DEVICE_CONTROL write');
-    assert.equal(verifyModeWrites[0]!.apduData[4], 0x04, 'Verify Mode bit (bit 2) should be set');
+    assert.equal(
+      verifyModeWrites.length,
+      1,
+      'expected exactly one PID_DEVICE_CONTROL write',
+    );
+    assert.equal(
+      verifyModeWrites[0]!.apduData[4],
+      0x04,
+      'Verify Mode bit (bit 2) should be set',
+    );
   });
 
   it('also writes PID_DEVICE_CONTROL when the write service could not be resolved at all (conservative default)', async () => {
@@ -371,7 +445,13 @@ describe('WriteRelMem protocol-level test — 1.1.10 (real captured memory, base
     const dev = new FakeWritableMemoryDevice('1.1.20', backing, null);
     const payload = Buffer.alloc(5, 0xaa);
     const steps: DownloadStep[] = [
-      { type: 'WriteRelMem', objIdx: 4, propId: 0, size: payload.length, offset: 0 },
+      {
+        type: 'WriteRelMem',
+        objIdx: 4,
+        propId: 0,
+        size: payload.length,
+        offset: 0,
+      },
     ];
     await dev.downloadDevice('1.1.20', steps, null, null, payload, undefined, {
       resolvedBases: { 4: 0x1000 },
@@ -380,14 +460,19 @@ describe('WriteRelMem protocol-level test — 1.1.10 (real captured memory, base
       .map((c) => parseCEMI(c))
       .filter((f): f is NonNullable<typeof f> => {
         if (!f) return false;
-        const fullApci = f.apdu.length >= 2 ? ((f.apdu[0]! & 0x03) << 8) | f.apdu[1]! : -1;
+        const fullApci =
+          f.apdu.length >= 2 ? ((f.apdu[0]! & 0x03) << 8) | f.apdu[1]! : -1;
         return (
           fullApci === 0x3d7 /* PropertyValue_Write */ &&
           f.apduData[0] === 0 /* objIdx 0 */ &&
           f.apduData[1] === 14 /* PID_DEVICE_CONTROL */
         );
       });
-    assert.equal(verifyModeWrites.length, 1, 'expected exactly one PID_DEVICE_CONTROL write');
+    assert.equal(
+      verifyModeWrites.length,
+      1,
+      'expected exactly one PID_DEVICE_CONTROL write',
+    );
   });
 
   it('does NOT write PID_DEVICE_CONTROL when the write service resolves to extended', async () => {
@@ -399,7 +484,13 @@ describe('WriteRelMem protocol-level test — 1.1.10 (real captured memory, base
     const dev = new FakeWritableMemoryDevice('1.1.20', backing, null);
     const payload = Buffer.alloc(5, 0xaa);
     const steps: DownloadStep[] = [
-      { type: 'WriteRelMem', objIdx: 4, propId: 0, size: payload.length, offset: 0 },
+      {
+        type: 'WriteRelMem',
+        objIdx: 4,
+        propId: 0,
+        size: payload.length,
+        offset: 0,
+      },
     ];
     await dev.downloadDevice('1.1.20', steps, null, null, payload, undefined, {
       resolvedBases: { 4: 0x1000 },
@@ -409,7 +500,8 @@ describe('WriteRelMem protocol-level test — 1.1.10 (real captured memory, base
       .map((c) => parseCEMI(c))
       .filter((f): f is NonNullable<typeof f> => {
         if (!f) return false;
-        const fullApci = f.apdu.length >= 2 ? ((f.apdu[0]! & 0x03) << 8) | f.apdu[1]! : -1;
+        const fullApci =
+          f.apdu.length >= 2 ? ((f.apdu[0]! & 0x03) << 8) | f.apdu[1]! : -1;
         return (
           fullApci === 0x3d7 /* PropertyValue_Write */ &&
           f.apduData[0] === 0 /* objIdx 0 */ &&
@@ -419,7 +511,7 @@ describe('WriteRelMem protocol-level test — 1.1.10 (real captured memory, base
     assert.equal(verifyModeWrites.length, 0);
   });
 
-  it('gates on the device\'s real mask version: System B (0x07B0) always uses A_MemoryExtended_Write, even for a 16-bit-fitting address', async () => {
+  it("gates on the device's real mask version: System B (0x07B0) always uses A_MemoryExtended_Write, even for a 16-bit-fitting address", async () => {
     // The specific real-hardware finding this test locks in: a real
     // captured ETS Partial Download against 1.1.9 (mask 0x07B0, confirmed
     // via a live A_DeviceDescriptor_Read against the real device, address
@@ -430,7 +522,13 @@ describe('WriteRelMem protocol-level test — 1.1.10 (real captured memory, base
     const payload = Buffer.alloc(5, 0xaa);
 
     const steps: DownloadStep[] = [
-      { type: 'WriteRelMem', objIdx: 4, propId: 0, size: payload.length, offset: 0 },
+      {
+        type: 'WriteRelMem',
+        objIdx: 4,
+        propId: 0,
+        size: payload.length,
+        offset: 0,
+      },
     ];
     await dev.downloadDevice('1.1.9', steps, null, null, payload, undefined, {
       resolvedBases: { 4: 0x5f53 }, // well within 16 bits
@@ -438,11 +536,15 @@ describe('WriteRelMem protocol-level test — 1.1.10 (real captured memory, base
 
     const sentWrites = dev.writesSent();
     assert.equal(sentWrites.length, 1);
-    assert.equal(sentWrites[0]!.extended, true, 'System B device: extended even though the address fits in 16 bits');
+    assert.equal(
+      sentWrites[0]!.extended,
+      true,
+      'System B device: extended even though the address fits in 16 bits',
+    );
     assert.equal(sentWrites[0]!.address, 0x5f53);
   });
 
-  it('gates on the device\'s real mask version: a legacy (non-System-B) device falls back to the address-size heuristic', async () => {
+  it("gates on the device's real mask version: a legacy (non-System-B) device falls back to the address-size heuristic", async () => {
     // Sanity check for the other side of the gate - a device that reports a
     // real, recognized, but non-System-B mask (e.g. 0x0020 = BCU2, per this
     // project's own bundled KNX Master Data, data/knx_master_*.xml) should
@@ -455,7 +557,13 @@ describe('WriteRelMem protocol-level test — 1.1.10 (real captured memory, base
     const payload = Buffer.alloc(5, 0xaa);
 
     const steps: DownloadStep[] = [
-      { type: 'WriteRelMem', objIdx: 4, propId: 0, size: payload.length, offset: 0 },
+      {
+        type: 'WriteRelMem',
+        objIdx: 4,
+        propId: 0,
+        size: payload.length,
+        offset: 0,
+      },
     ];
     await dev.downloadDevice('1.1.1', steps, null, null, payload, undefined, {
       resolvedBases: { 4: 0x5f53 },
@@ -463,7 +571,11 @@ describe('WriteRelMem protocol-level test — 1.1.10 (real captured memory, base
 
     const sentWrites = dev.writesSent();
     assert.equal(sentWrites.length, 1);
-    assert.equal(sentWrites[0]!.extended, false, 'BCU2 (non-System-B): address fits in 16 bits, so legacy Memory_Write');
+    assert.equal(
+      sentWrites[0]!.extended,
+      false,
+      'BCU2 (non-System-B): address fits in 16 bits, so legacy Memory_Write',
+    );
     assert.equal(sentWrites[0]!.address, 0x5f53);
   });
 });
@@ -474,7 +586,11 @@ describe('WriteRelMem protocol-level test — 1.1.10 (real captured memory, base
 class UnresponsiveMemoryDevice extends FakeWritableMemoryDevice {
   sendCEMI(cemi: Buffer): Promise<void> {
     const frame = parseCEMI(cemi);
-    if (frame && (frame.apciName === 'Memory_Write' || frame.apciName === 'MemoryExtended_Write')) {
+    if (
+      frame &&
+      (frame.apciName === 'Memory_Write' ||
+        frame.apciName === 'MemoryExtended_Write')
+    ) {
       this.sent.push(cemi);
       return Promise.resolve(); // swallow - simulate no response
     }
@@ -489,11 +605,25 @@ describe('downloadDevice() reports unconfirmed writes instead of silent success'
     const payload = Buffer.alloc(5, 0xaa);
 
     const steps: DownloadStep[] = [
-      { type: 'WriteRelMem', objIdx: 4, propId: 0, size: payload.length, offset: 0 },
+      {
+        type: 'WriteRelMem',
+        objIdx: 4,
+        propId: 0,
+        size: payload.length,
+        offset: 0,
+      },
     ];
-    const result = await dev.downloadDevice('1.1.9', steps, null, null, payload, undefined, {
-      resolvedBases: { 4: 0x5f53 },
-    });
+    const result = await dev.downloadDevice(
+      '1.1.9',
+      steps,
+      null,
+      null,
+      payload,
+      undefined,
+      {
+        resolvedBases: { 4: 0x5f53 },
+      },
+    );
 
     assert.equal(result.unconfirmedWrites, 1);
     assert.equal(result.unconfirmedDetails.length, 1);
@@ -509,11 +639,25 @@ describe('downloadDevice() reports unconfirmed writes instead of silent success'
     const payload = Buffer.alloc(5, 0xaa);
 
     const steps: DownloadStep[] = [
-      { type: 'WriteRelMem', objIdx: 4, propId: 0, size: payload.length, offset: 0 },
+      {
+        type: 'WriteRelMem',
+        objIdx: 4,
+        propId: 0,
+        size: payload.length,
+        offset: 0,
+      },
     ];
-    const result = await dev.downloadDevice('1.1.9', steps, null, null, payload, undefined, {
-      resolvedBases: { 4: 0x5f53 },
-    });
+    const result = await dev.downloadDevice(
+      '1.1.9',
+      steps,
+      null,
+      null,
+      payload,
+      undefined,
+      {
+        resolvedBases: { 4: 0x5f53 },
+      },
+    );
 
     assert.equal(result.unconfirmedWrites, 0);
     assert.deepEqual(result.unconfirmedDetails, []);

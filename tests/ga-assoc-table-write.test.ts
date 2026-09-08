@@ -16,7 +16,13 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { parseCEMI, buildCEMI, apduConnectedFull, apduGroup, APCI_EXT } from '../server/knx-cemi.ts';
+import {
+  parseCEMI,
+  buildCEMI,
+  apduConnectedFull,
+  apduGroup,
+  APCI_EXT,
+} from '../server/knx-cemi.ts';
 import { KnxConnection } from '../server/knx-connection.ts';
 import type { DownloadStep } from '../server/knx-connection.ts';
 
@@ -29,7 +35,11 @@ class TableFakeDevice extends KnxConnection {
   // objIdx -> PID_TABLE_REFERENCE response (4-byte BE base, 0 = unallocated)
   private readonly bases: Record<number, number>;
 
-  constructor(deviceAddr: string, memory: Buffer, bases: Record<number, number>) {
+  constructor(
+    deviceAddr: string,
+    memory: Buffer,
+    bases: Record<number, number>,
+  ) {
     super();
     this.deviceAddr = deviceAddr;
     this.memory = memory;
@@ -44,19 +54,32 @@ class TableFakeDevice extends KnxConnection {
     if (!frame) return Promise.resolve();
 
     if (frame.apciName === 'DeviceDescriptor_Read') {
-      const respApdu = apduGroup('DeviceDescriptor_Response', 0, Buffer.from([0x07, 0xb0]));
-      const resp = parseCEMI(buildCEMI(this.deviceAddr, this.localAddr, respApdu, false))!;
+      const respApdu = apduGroup(
+        'DeviceDescriptor_Response',
+        0,
+        Buffer.from([0x07, 0xb0]),
+      );
+      const resp = parseCEMI(
+        buildCEMI(this.deviceAddr, this.localAddr, respApdu, false),
+      )!;
       setImmediate(() => this._onCEMI(resp));
       return Promise.resolve();
     }
 
-    const fullApci = frame.apdu.length >= 2
-      ? ((frame.apdu[0]! & 0x03) << 8) | frame.apdu[1]!
-      : -1;
+    const fullApci =
+      frame.apdu.length >= 2
+        ? ((frame.apdu[0]! & 0x03) << 8) | frame.apdu[1]!
+        : -1;
 
     if (fullApci === 0x3d1 /* Authorize_Request */) {
-      const respApdu = apduConnectedFull(0, APCI_EXT.Authorize_Response, Buffer.from([0x00]));
-      const resp = parseCEMI(buildCEMI(this.deviceAddr, this.localAddr, respApdu, false))!;
+      const respApdu = apduConnectedFull(
+        0,
+        APCI_EXT.Authorize_Response,
+        Buffer.from([0x00]),
+      );
+      const resp = parseCEMI(
+        buildCEMI(this.deviceAddr, this.localAddr, respApdu, false),
+      )!;
       setImmediate(() => this._onCEMI(resp));
     } else if (fullApci === 0x3d7 /* PropertyValue_Write */) {
       const objIdx = frame.apduData[0]!;
@@ -79,13 +102,20 @@ class TableFakeDevice extends KnxConnection {
           state = 0x00;
         }
       }
-      const respExtra = propId === 5 ? Buffer.from([state]) : data.length ? data : Buffer.from([0x00]);
+      const respExtra =
+        propId === 5
+          ? Buffer.from([state])
+          : data.length
+            ? data
+            : Buffer.from([0x00]);
       const respApdu = apduConnectedFull(
         0,
         APCI_EXT.PropertyValue_Response,
         Buffer.concat([Buffer.from([objIdx, propId, 0x10, 0x01]), respExtra]),
       );
-      const resp = parseCEMI(buildCEMI(this.deviceAddr, this.localAddr, respApdu, false))!;
+      const resp = parseCEMI(
+        buildCEMI(this.deviceAddr, this.localAddr, respApdu, false),
+      )!;
       setImmediate(() => this._onCEMI(resp));
     } else if (fullApci === 0x3d5 /* PropertyValue_Read */) {
       const objIdx = frame.apduData[0]!;
@@ -104,7 +134,9 @@ class TableFakeDevice extends KnxConnection {
         APCI_EXT.PropertyValue_Response,
         Buffer.concat([Buffer.from([objIdx, propId, 0x10, 0x01]), value]),
       );
-      const resp = parseCEMI(buildCEMI(this.deviceAddr, this.localAddr, respApdu, false))!;
+      const resp = parseCEMI(
+        buildCEMI(this.deviceAddr, this.localAddr, respApdu, false),
+      )!;
       setImmediate(() => this._onCEMI(resp));
     } else if (frame.apciName === 'Memory_Write') {
       const count = frame.apduData[0]!;
@@ -116,15 +148,26 @@ class TableFakeDevice extends KnxConnection {
       // like real hardware does, or every write would stall on the 3s
       // timeout.
       const respApdu = apduGroup('Memory_Response', 0, frame.apduData);
-      const resp = parseCEMI(buildCEMI(this.deviceAddr, this.localAddr, respApdu, false))!;
+      const resp = parseCEMI(
+        buildCEMI(this.deviceAddr, this.localAddr, respApdu, false),
+      )!;
       setImmediate(() => this._onCEMI(resp));
     } else if (frame.apciName === 'MemoryExtended_Write') {
       const count = frame.apduData[0]!;
-      const address = (frame.apduData[1]! << 16) | (frame.apduData[2]! << 8) | frame.apduData[3]!;
+      const address =
+        (frame.apduData[1]! << 16) |
+        (frame.apduData[2]! << 8) |
+        frame.apduData[3]!;
       const data = frame.apduData.subarray(4, 4 + count);
       data.copy(this.memory, address);
-      const respApdu = apduConnectedFull(0, APCI_EXT.MemoryExtended_Write_Response, Buffer.alloc(0));
-      const resp = parseCEMI(buildCEMI(this.deviceAddr, this.localAddr, respApdu, false))!;
+      const respApdu = apduConnectedFull(
+        0,
+        APCI_EXT.MemoryExtended_Write_Response,
+        Buffer.alloc(0),
+      );
+      const resp = parseCEMI(
+        buildCEMI(this.deviceAddr, this.localAddr, respApdu, false),
+      )!;
       setImmediate(() => this._onCEMI(resp));
     }
     return Promise.resolve();
@@ -135,26 +178,42 @@ class TableFakeDevice extends KnxConnection {
   }
 }
 
-describe('GA table / Association table write fallback for apps that don\'t declare it', () => {
+describe("GA table / Association table write fallback for apps that don't declare it", () => {
   // Real byte shapes from docs/knx-device-write-protocol.md §1.1 Stage 3:
   // GA table (objIdx 1): [count=2][GA 9/1/1][GA 9/1/4], 6 bytes.
   const gaTable = Buffer.from('000249014904', 'hex');
   // Association table (objIdx 2): [count=2][gaIndex=1,co=5][gaIndex=2,co=8], 10 bytes.
   const assocTable = Buffer.from('00020001000500020008', 'hex');
 
-  it('writes the GA and Association tables when the model has no step for them (1.1.9\'s real shape)', async () => {
+  it("writes the GA and Association tables when the model has no step for them (1.1.9's real shape)", async () => {
     const backing = Buffer.alloc(0x10000);
     const dev = new TableFakeDevice('1.1.9', backing, { 1: 0x4000, 2: 0x470a });
     // Matches 1.1.9's real model: only objIdx 4 declared.
     const steps: DownloadStep[] = [
-      { type: 'RelSegment', objIdx: 0, propId: 0, lsmIdx: 4, size: 20, mode: 'full', fill: 255 },
+      {
+        type: 'RelSegment',
+        objIdx: 0,
+        propId: 0,
+        lsmIdx: 4,
+        size: 20,
+        mode: 'full',
+        fill: 255,
+      },
       { type: 'WriteRelMem', objIdx: 4, propId: 0, size: 20, offset: 0 },
     ];
     const payload = Buffer.alloc(20, 0xaa);
 
-    await dev.downloadDevice('1.1.9', steps, gaTable, assocTable, payload, undefined, {
-      resolvedBases: { 4: 0x5f0e },
-    });
+    await dev.downloadDevice(
+      '1.1.9',
+      steps,
+      gaTable,
+      assocTable,
+      payload,
+      undefined,
+      {
+        resolvedBases: { 4: 0x5f0e },
+      },
+    );
 
     assert.deepEqual(
       [...dev.memory.subarray(0x4000, 0x4000 + gaTable.length)],
@@ -169,12 +228,18 @@ describe('GA table / Association table write fallback for apps that don\'t decla
     // Both objects should have gone through the real Load State sequence,
     // not a raw write.
     for (const objIdx of [1, 2]) {
-      const events = dev.lsmEvents.filter((e) => e.objIdx === objIdx).map((e) => e.event);
-      assert.deepEqual(events, [0x04, 0x01, 0x03, 0x02], `objIdx ${objIdx} should Unload/StartLoad/LoadData/LoadCompleted`);
+      const events = dev.lsmEvents
+        .filter((e) => e.objIdx === objIdx)
+        .map((e) => e.event);
+      assert.deepEqual(
+        events,
+        [0x04, 0x01, 0x03, 0x02],
+        `objIdx ${objIdx} should Unload/StartLoad/LoadData/LoadCompleted`,
+      );
     }
   });
 
-  it('still runs the real write when the model only declares (read-only) LoadImageProp for objIdx 1/2 (1.1.10\'s real shape) - corrected 2026-08-29', async () => {
+  it("still runs the real write when the model only declares (read-only) LoadImageProp for objIdx 1/2 (1.1.10's real shape) - corrected 2026-08-29", async () => {
     // Was previously asserted the other way (fallback suppressed) under the
     // wrong assumption that a declared LoadImageProp step meant "this object
     // already handled". Confirmed 2026-08-29 against 3 independent real
@@ -187,13 +252,24 @@ describe('GA table / Association table write fallback for apps that don\'t decla
     // (a real content write) should count as "already handled" - see
     // knx-connection.ts's declaredTableObjIdxs.
     const backing = Buffer.alloc(0x10000);
-    const dev = new TableFakeDevice('1.1.10', backing, { 1: 0x4000, 2: 0x470a });
+    const dev = new TableFakeDevice('1.1.10', backing, {
+      1: 0x4000,
+      2: 0x470a,
+    });
     const steps: DownloadStep[] = [
       { type: 'LoadImageProp', objIdx: 1, propId: 27 },
       { type: 'LoadImageProp', objIdx: 2, propId: 27 },
     ];
 
-    await dev.downloadDevice('1.1.10', steps, gaTable, assocTable, null, undefined, {});
+    await dev.downloadDevice(
+      '1.1.10',
+      steps,
+      gaTable,
+      assocTable,
+      null,
+      undefined,
+      {},
+    );
 
     assert.deepEqual(
       [...dev.memory.subarray(0x4000, 0x4000 + gaTable.length)],
@@ -206,8 +282,14 @@ describe('GA table / Association table write fallback for apps that don\'t decla
       'Association table should land at its resolved base despite the declared LoadImageProp step',
     );
     for (const objIdx of [1, 2]) {
-      const events = dev.lsmEvents.filter((e) => e.objIdx === objIdx).map((e) => e.event);
-      assert.deepEqual(events, [0x04, 0x01, 0x03, 0x02], `objIdx ${objIdx} should Unload/StartLoad/LoadData/LoadCompleted`);
+      const events = dev.lsmEvents
+        .filter((e) => e.objIdx === objIdx)
+        .map((e) => e.event);
+      assert.deepEqual(
+        events,
+        [0x04, 0x01, 0x03, 0x02],
+        `objIdx ${objIdx} should Unload/StartLoad/LoadData/LoadCompleted`,
+      );
     }
   });
 
@@ -218,15 +300,31 @@ describe('GA table / Association table write fallback for apps that don\'t decla
     // knx-segment-base.ts.
     const dev = new TableFakeDevice('1.1.9', backing, { 1: 0, 2: 0x470a });
     const steps: DownloadStep[] = [
-      { type: 'RelSegment', objIdx: 0, propId: 0, lsmIdx: 4, size: 20, mode: 'full', fill: 255 },
+      {
+        type: 'RelSegment',
+        objIdx: 0,
+        propId: 0,
+        lsmIdx: 4,
+        size: 20,
+        mode: 'full',
+        fill: 255,
+      },
       { type: 'WriteRelMem', objIdx: 4, propId: 0, size: 20, offset: 0 },
     ];
     const payload = Buffer.alloc(20, 0xaa);
 
     // Should not throw despite the unallocated base.
-    await dev.downloadDevice('1.1.9', steps, gaTable, assocTable, payload, undefined, {
-      resolvedBases: { 4: 0x5f0e },
-    });
+    await dev.downloadDevice(
+      '1.1.9',
+      steps,
+      gaTable,
+      assocTable,
+      payload,
+      undefined,
+      {
+        resolvedBases: { 4: 0x5f0e },
+      },
+    );
 
     assert.deepEqual(
       [...dev.memory.subarray(0x470a, 0x470a + assocTable.length)],

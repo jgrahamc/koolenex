@@ -225,7 +225,7 @@ describe('planVerify() - undeclaredTableMem', () => {
     { type: 'WriteRelMem', objIdx: 4, offset: 0, size: 4 },
   ];
 
-  it('includes GA/Association/Object 3 regions when the model declares nothing for them (1.1.9\'s real shape)', () => {
+  it("includes GA/Association/Object 3 regions when the model declares nothing for them (1.1.9's real shape)", () => {
     const plan = planVerify(
       RELMEM_STEPS,
       GA_TABLE,
@@ -318,8 +318,12 @@ describe('planVerify() - undeclaredTableMem', () => {
       { 1: 0x4000, 2: 0x470a, 3: 0x570c },
       null,
     );
-    assert.ok(!plan.undeclaredTableMem.some((r) => r.label.startsWith('object3@')));
+    assert.ok(
+      !plan.undeclaredTableMem.some((r) => r.label.startsWith('object3@')),
+    );
     // GA/Association should be entirely unaffected by groupObjectTable being null.
-    assert.ok(plan.undeclaredTableMem.some((r) => r.label.startsWith('gatable@')));
+    assert.ok(
+      plan.undeclaredTableMem.some((r) => r.label.startsWith('gatable@')),
+    );
   });
 });

@@ -18,7 +18,9 @@ import { _SVC as SVC } from '../server/knx-protocol.ts';
 
 describe('pktRoutingInd', () => {
   it('wraps a cEMI frame with a 6-byte header, no extra fields', () => {
-    const cemi = Buffer.from([0x29, 0x00, 0xa0, 0x60, 0x11, 0x02, 0x00, 0x00, 0x01, 0x00, 0x00]);
+    const cemi = Buffer.from([
+      0x29, 0x00, 0xa0, 0x60, 0x11, 0x02, 0x00, 0x00, 0x01, 0x00, 0x00,
+    ]);
     const pkt = pktRoutingInd(cemi);
     assert.equal(pkt.length, 6 + cemi.length);
     assert.equal(pkt[0], 0x06);
@@ -31,7 +33,9 @@ describe('pktRoutingInd', () => {
 
 describe('parseRoutingPacket', () => {
   it('extracts the cEMI frame from a real ROUTING_INDICATION', () => {
-    const cemi = Buffer.from([0x29, 0x00, 0xbc, 0x50, 0x11, 0x02, 0xff, 0xff, 0x01, 0x03, 0x00]);
+    const cemi = Buffer.from([
+      0x29, 0x00, 0xbc, 0x50, 0x11, 0x02, 0xff, 0xff, 0x01, 0x03, 0x00,
+    ]);
     const pkt = pktRoutingInd(cemi);
     const parsed = parseRoutingPacket(pkt);
     assert.ok(parsed);

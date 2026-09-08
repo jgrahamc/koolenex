@@ -518,7 +518,8 @@ export function DeviceParameters({ dev, projectId }: DeviceParametersProps) {
   const curSecLabel = secLabelMap[curSec] || '';
   const curSecGroup = secGroupMap[curSec] || '';
   const relatedComObjects = comObjects.filter(
-    (co) => co.channel && (co.channel === curSecLabel || co.channel === curSecGroup),
+    (co) =>
+      co.channel && (co.channel === curSecLabel || co.channel === curSecGroup),
   );
 
   // Format a raw numeric value as hh:mm:ss (or hh:mm:ss.fff) for TypeTime display.

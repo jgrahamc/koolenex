@@ -431,7 +431,9 @@ export function AppShell(props: AppShellProps) {
               }
             >
               {state.busStatus.connected ? (
-                <span className={`${appStyles.busDot} pulse ${appStyles.busDotConnected}`} />
+                <span
+                  className={`${appStyles.busDot} pulse ${appStyles.busDotConnected}`}
+                />
               ) : state.busStatus.needsAttention ? (
                 <IconAttention size={11} />
               ) : (

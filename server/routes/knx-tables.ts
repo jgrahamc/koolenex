@@ -517,8 +517,11 @@ export function decodeGroupObjectEntryFlags(entry: {
     write: has(1 << 4),
     read: has(1 << 3),
     commLinked: has(1 << 2),
-    priority: GROUP_OBJECT_PRIORITY_NAMES[b & 0b11] ?? `0b${(b & 0b11).toString(2)}`,
-    size: GROUP_OBJECT_SIZE_NAMES[entry.sizeCodeByte] ?? `code ${entry.sizeCodeByte}`,
+    priority:
+      GROUP_OBJECT_PRIORITY_NAMES[b & 0b11] ?? `0b${(b & 0b11).toString(2)}`,
+    size:
+      GROUP_OBJECT_SIZE_NAMES[entry.sizeCodeByte] ??
+      `code ${entry.sizeCodeByte}`,
   };
 }
 
@@ -1053,7 +1056,11 @@ export function buildParamMem(
     // only the one genuinely active alternate among a conditional group
     // (e.g. one of a channel's several curve-type choices) - this branch
     // only needs to apply whichever value survives that gate.
-    if (typeof rawVal === 'string' && /^[A-Za-z0-9+/]+=*$/.test(rawVal) && rawVal.length >= 20) {
+    if (
+      typeof rawVal === 'string' &&
+      /^[A-Za-z0-9+/]+=*$/.test(rawVal) &&
+      rawVal.length >= 20
+    ) {
       let blob: Buffer;
       try {
         blob = Buffer.from(rawVal, 'base64');
@@ -1067,7 +1074,12 @@ export function buildParamMem(
         const framed = Buffer.alloc(4 + blob.length);
         framed.writeUInt32BE(blob.length, 0);
         blob.copy(framed, 4);
-        framed.copy(buf, info.offset, 0, Math.min(framed.length, buf.length - info.offset));
+        framed.copy(
+          buf,
+          info.offset,
+          0,
+          Math.min(framed.length, buf.length - info.offset),
+        );
         continue;
       }
       if (blob.length > declaredBytes + 1) {
@@ -1077,7 +1089,12 @@ export function buildParamMem(
         // against) - write the raw payload with no framing as a
         // best-effort fallback, matching the offset ETS's own writes
         // used in every capture so far.
-        blob.copy(buf, info.offset, 0, Math.min(blob.length, buf.length - info.offset));
+        blob.copy(
+          buf,
+          info.offset,
+          0,
+          Math.min(blob.length, buf.length - info.offset),
+        );
         continue;
       }
       // Falls through to the generic numeric path below for genuinely

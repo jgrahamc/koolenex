@@ -20,7 +20,11 @@ import assert from 'node:assert/strict';
 
 import { buildAppIndex } from '../server/ets-app.ts';
 
-function appXml(appId: string, comObjectsXml: string, comObjectRefsXml: string): string {
+function appXml(
+  appId: string,
+  comObjectsXml: string,
+  comObjectRefsXml: string,
+): string {
   return `<?xml version="1.0" encoding="utf-8"?>
 <KNX>
   <ManufacturerData>
@@ -81,8 +85,16 @@ describe('ets-app.ts: ComObject/ComObjectRef ReadOnInitFlag + Priority', () => {
     assert(idx, 'buildAppIndex should parse the synthetic app XML');
     const resolved = idx!.resolveCoRef('O-32_R-1', '');
     assert(resolved, 'O-32_R-1 should resolve');
-    assert.equal(resolved!.readOnInit, true, 'ComObjectRef override should win over the ComObject default');
-    assert.equal(resolved!.priority, 'high', 'ComObjectRef override should win over the ComObject default');
+    assert.equal(
+      resolved!.readOnInit,
+      true,
+      'ComObjectRef override should win over the ComObject default',
+    );
+    assert.equal(
+      resolved!.priority,
+      'high',
+      'ComObjectRef override should win over the ComObject default',
+    );
   });
 
   it('resolveCoRef(): Priority="System" normalizes to "system" (confirmed unreachable from ETS itself, but the parser should still round-trip it faithfully if present)', () => {

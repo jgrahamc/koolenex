@@ -58,10 +58,9 @@ function seedProject(name: string): { pid: number; did: number; coid: number } {
 }
 
 function pendingRows(did: number): Array<Record<string, unknown>> {
-  return ts.db.all(
-    'SELECT * FROM device_pending_changes WHERE device_id=?',
-    [did],
-  );
+  return ts.db.all('SELECT * FROM device_pending_changes WHERE device_id=?', [
+    did,
+  ]);
 }
 
 // ── param_value: create, further-edit, revert-to-original ─────────────────
@@ -69,12 +68,23 @@ function pendingRows(did: number): Array<Record<string, unknown>> {
 describe('device_pending_changes via param-values PATCH', () => {
   it('a real edit on a programmed device creates one pending row and flips status to modified', async () => {
     const { pid, did } = seedProject('pv-basic');
-    const r = await req(ts.baseUrl, 'PATCH', `/projects/${pid}/devices/${did}/param-values`, {
-      'ref-1': 42,
-    });
+    const r = await req(
+      ts.baseUrl,
+      'PATCH',
+      `/projects/${pid}/devices/${did}/param-values`,
+      {
+        'ref-1': 42,
+      },
+    );
     assert.equal(r.status, 200);
-    assert.equal((r.data as { device_status?: string }).device_status, 'modified');
-    const dev = ts.db.get<{ status: string }>('SELECT status FROM devices WHERE id=?', [did]);
+    assert.equal(
+      (r.data as { device_status?: string }).device_status,
+      'modified',
+    );
+    const dev = ts.db.get<{ status: string }>(
+      'SELECT status FROM devices WHERE id=?',
+      [did],
+    );
     assert.equal(dev!.status, 'modified');
     const rows = pendingRows(did);
     assert.equal(rows.length, 1);
@@ -89,15 +99,32 @@ describe('device_pending_changes via param-values PATCH', () => {
 
   it('editing the same key again (still not original) updates current_value, keeps baseline, status stays modified', async () => {
     const { pid, did } = seedProject('pv-re-edit');
-    await req(ts.baseUrl, 'PATCH', `/projects/${pid}/devices/${did}/param-values`, {
-      'ref-1': 42,
-    });
-    const r2 = await req(ts.baseUrl, 'PATCH', `/projects/${pid}/devices/${did}/param-values`, {
-      'ref-1': 77,
-    });
-    assert.equal((r2.data as { device_status?: string }).device_status, 'modified');
+    await req(
+      ts.baseUrl,
+      'PATCH',
+      `/projects/${pid}/devices/${did}/param-values`,
+      {
+        'ref-1': 42,
+      },
+    );
+    const r2 = await req(
+      ts.baseUrl,
+      'PATCH',
+      `/projects/${pid}/devices/${did}/param-values`,
+      {
+        'ref-1': 77,
+      },
+    );
+    assert.equal(
+      (r2.data as { device_status?: string }).device_status,
+      'modified',
+    );
     const rows = pendingRows(did);
-    assert.equal(rows.length, 1, 'still exactly one row for this key, not a duplicate');
+    assert.equal(
+      rows.length,
+      1,
+      'still exactly one row for this key, not a duplicate',
+    );
     assert.equal(JSON.parse(rows[0]!.current_value as string), 77);
   });
 
@@ -106,82 +133,143 @@ describe('device_pending_changes via param-values PATCH', () => {
     // Establish a real baseline (10), then change it (42) - the pending
     // row's baseline_value is set from the value seen at THAT first edit,
     // not from whatever the key held before the device existed.
-    await req(ts.baseUrl, 'PATCH', `/projects/${pid}/devices/${did}/param-values`, {
-      'ref-1': 10,
-    });
+    await req(
+      ts.baseUrl,
+      'PATCH',
+      `/projects/${pid}/devices/${did}/param-values`,
+      {
+        'ref-1': 10,
+      },
+    );
     // Downloading resets the baseline for future edits - simulate that
     // directly (the download route itself is covered separately, in
     // bus-routes.test.ts) so this test isolates just the revert logic.
-    ts.db.run("DELETE FROM device_pending_changes WHERE device_id=?", [did]);
+    ts.db.run('DELETE FROM device_pending_changes WHERE device_id=?', [did]);
     ts.db.run("UPDATE devices SET status='programmed' WHERE id=?", [did]);
 
-    await req(ts.baseUrl, 'PATCH', `/projects/${pid}/devices/${did}/param-values`, {
-      'ref-1': 42,
-    });
+    await req(
+      ts.baseUrl,
+      'PATCH',
+      `/projects/${pid}/devices/${did}/param-values`,
+      {
+        'ref-1': 42,
+      },
+    );
     assert.equal(pendingRows(did).length, 1);
     assert.equal(
-      ts.db.get<{ status: string }>('SELECT status FROM devices WHERE id=?', [did])!.status,
+      ts.db.get<{ status: string }>('SELECT status FROM devices WHERE id=?', [
+        did,
+      ])!.status,
       'modified',
     );
 
-    const r = await req(ts.baseUrl, 'PATCH', `/projects/${pid}/devices/${did}/param-values`, {
-      'ref-1': 10, // back to the real, last-downloaded value
-    });
-    assert.equal((r.data as { device_status?: string }).device_status, 'programmed');
+    const r = await req(
+      ts.baseUrl,
+      'PATCH',
+      `/projects/${pid}/devices/${did}/param-values`,
+      {
+        'ref-1': 10, // back to the real, last-downloaded value
+      },
+    );
+    assert.equal(
+      (r.data as { device_status?: string }).device_status,
+      'programmed',
+    );
     assert.equal(pendingRows(did).length, 0, 'the pending row should be gone');
     assert.equal(
-      ts.db.get<{ status: string }>('SELECT status FROM devices WHERE id=?', [did])!.status,
+      ts.db.get<{ status: string }>('SELECT status FROM devices WHERE id=?', [
+        did,
+      ])!.status,
       'programmed',
     );
   });
 
   it('reverting one of two pending keys leaves the device modified (the other key is still pending)', async () => {
     const { pid, did } = seedProject('pv-two-keys');
-    await req(ts.baseUrl, 'PATCH', `/projects/${pid}/devices/${did}/param-values`, {
-      'ref-1': 10,
-      'ref-2': 20,
-    });
-    ts.db.run("DELETE FROM device_pending_changes WHERE device_id=?", [did]);
+    await req(
+      ts.baseUrl,
+      'PATCH',
+      `/projects/${pid}/devices/${did}/param-values`,
+      {
+        'ref-1': 10,
+        'ref-2': 20,
+      },
+    );
+    ts.db.run('DELETE FROM device_pending_changes WHERE device_id=?', [did]);
     ts.db.run("UPDATE devices SET status='programmed' WHERE id=?", [did]);
 
-    await req(ts.baseUrl, 'PATCH', `/projects/${pid}/devices/${did}/param-values`, {
-      'ref-1': 99,
-      'ref-2': 88,
-    });
+    await req(
+      ts.baseUrl,
+      'PATCH',
+      `/projects/${pid}/devices/${did}/param-values`,
+      {
+        'ref-1': 99,
+        'ref-2': 88,
+      },
+    );
     assert.equal(pendingRows(did).length, 2);
 
     // Revert ref-1 only - ref-2 is still changed, so the device must stay
     // modified with exactly one pending row remaining.
-    const r = await req(ts.baseUrl, 'PATCH', `/projects/${pid}/devices/${did}/param-values`, {
-      'ref-1': 10,
-      'ref-2': 88,
-    });
-    assert.equal((r.data as { device_status?: string }).device_status, 'modified');
+    const r = await req(
+      ts.baseUrl,
+      'PATCH',
+      `/projects/${pid}/devices/${did}/param-values`,
+      {
+        'ref-1': 10,
+        'ref-2': 88,
+      },
+    );
+    assert.equal(
+      (r.data as { device_status?: string }).device_status,
+      'modified',
+    );
     const rows = pendingRows(did);
     assert.equal(rows.length, 1);
     assert.equal(rows[0]!.key, 'ref-2');
 
     // Now revert ref-2 too - the device should finally flip back.
-    const r2 = await req(ts.baseUrl, 'PATCH', `/projects/${pid}/devices/${did}/param-values`, {
-      'ref-2': 20,
-    });
-    assert.equal((r2.data as { device_status?: string }).device_status, 'programmed');
+    const r2 = await req(
+      ts.baseUrl,
+      'PATCH',
+      `/projects/${pid}/devices/${did}/param-values`,
+      {
+        'ref-2': 20,
+      },
+    );
+    assert.equal(
+      (r2.data as { device_status?: string }).device_status,
+      'programmed',
+    );
     assert.equal(pendingRows(did).length, 0);
   });
 
   it('verifyCleared only reports true once - a subsequent edit finds it already cleared', async () => {
     const { pid, did } = seedProject('pv-verify-once');
-    ts.db.run('UPDATE devices SET last_verify_match=1, last_verify_at=? WHERE id=?', [
-      new Date().toISOString(),
-      did,
-    ]);
-    const r1 = await req(ts.baseUrl, 'PATCH', `/projects/${pid}/devices/${did}/param-values`, {
-      'ref-1': 5,
-    });
-    assert.equal((r1.data as { last_verify_match?: null }).last_verify_match, null);
-    const r2 = await req(ts.baseUrl, 'PATCH', `/projects/${pid}/devices/${did}/param-values`, {
-      'ref-1': 9,
-    });
+    ts.db.run(
+      'UPDATE devices SET last_verify_match=1, last_verify_at=? WHERE id=?',
+      [new Date().toISOString(), did],
+    );
+    const r1 = await req(
+      ts.baseUrl,
+      'PATCH',
+      `/projects/${pid}/devices/${did}/param-values`,
+      {
+        'ref-1': 5,
+      },
+    );
+    assert.equal(
+      (r1.data as { last_verify_match?: null }).last_verify_match,
+      null,
+    );
+    const r2 = await req(
+      ts.baseUrl,
+      'PATCH',
+      `/projects/${pid}/devices/${did}/param-values`,
+      {
+        'ref-1': 9,
+      },
+    );
     // Second edit: verify was already null, so the route's own
     // `last_verify_match: null` echo should be absent this time (nothing
     // NEW was cleared) - confirms no attempt to "re-clear" or otherwise
@@ -195,11 +283,19 @@ describe('device_pending_changes via param-values PATCH', () => {
 describe('device_pending_changes via com-object GA-link PATCH', () => {
   it('adding a GA link tracks a ga_link row keyed by object_number and marks modified', async () => {
     const { pid, did, coid } = seedProject('ga-basic');
-    const r = await req(ts.baseUrl, 'PATCH', `/projects/${pid}/comobjects/${coid}/gas`, {
-      add: '1/2/3',
-    });
+    const r = await req(
+      ts.baseUrl,
+      'PATCH',
+      `/projects/${pid}/comobjects/${coid}/gas`,
+      {
+        add: '1/2/3',
+      },
+    );
     assert.equal(r.status, 200);
-    assert.equal((r.data as { device_status?: string }).device_status, 'modified');
+    assert.equal(
+      (r.data as { device_status?: string }).device_status,
+      'modified',
+    );
     const rows = pendingRows(did);
     assert.equal(rows.length, 1);
     assert.equal(rows[0]!.kind, 'ga_link');
@@ -212,10 +308,18 @@ describe('device_pending_changes via com-object GA-link PATCH', () => {
       add: '1/2/3',
     });
     assert.equal(pendingRows(did).length, 1);
-    const r = await req(ts.baseUrl, 'PATCH', `/projects/${pid}/comobjects/${coid}/gas`, {
-      remove: '1/2/3',
-    });
-    assert.equal((r.data as { device_status?: string }).device_status, 'programmed');
+    const r = await req(
+      ts.baseUrl,
+      'PATCH',
+      `/projects/${pid}/comobjects/${coid}/gas`,
+      {
+        remove: '1/2/3',
+      },
+    );
+    assert.equal(
+      (r.data as { device_status?: string }).device_status,
+      'programmed',
+    );
     assert.equal(pendingRows(did).length, 0);
   });
 });
@@ -225,11 +329,19 @@ describe('device_pending_changes via com-object GA-link PATCH', () => {
 describe('device_pending_changes via com-object flags PATCH', () => {
   it('changing a flag tracks a group_object_flag row keyed by object_number, composite value', async () => {
     const { pid, did, coid } = seedProject('flags-basic');
-    const r = await req(ts.baseUrl, 'PATCH', `/projects/${pid}/comobjects/${coid}/flags`, {
-      write: true,
-    });
+    const r = await req(
+      ts.baseUrl,
+      'PATCH',
+      `/projects/${pid}/comobjects/${coid}/flags`,
+      {
+        write: true,
+      },
+    );
     assert.equal(r.status, 200);
-    assert.equal((r.data as { device_status?: string }).device_status, 'modified');
+    assert.equal(
+      (r.data as { device_status?: string }).device_status,
+      'modified',
+    );
     const rows = pendingRows(did);
     assert.equal(rows.length, 1);
     assert.equal(rows[0]!.kind, 'group_object_flag');
@@ -240,14 +352,27 @@ describe('device_pending_changes via com-object flags PATCH', () => {
 
   it('flipping the flag back to its original value clears the row and undoes modified', async () => {
     const { pid, did, coid } = seedProject('flags-revert');
-    await req(ts.baseUrl, 'PATCH', `/projects/${pid}/comobjects/${coid}/flags`, {
-      write: true,
-    });
+    await req(
+      ts.baseUrl,
+      'PATCH',
+      `/projects/${pid}/comobjects/${coid}/flags`,
+      {
+        write: true,
+      },
+    );
     assert.equal(pendingRows(did).length, 1);
-    const r = await req(ts.baseUrl, 'PATCH', `/projects/${pid}/comobjects/${coid}/flags`, {
-      write: false,
-    });
-    assert.equal((r.data as { device_status?: string }).device_status, 'programmed');
+    const r = await req(
+      ts.baseUrl,
+      'PATCH',
+      `/projects/${pid}/comobjects/${coid}/flags`,
+      {
+        write: false,
+      },
+    );
+    assert.equal(
+      (r.data as { device_status?: string }).device_status,
+      'programmed',
+    );
     assert.equal(pendingRows(did).length, 0);
   });
 });
@@ -257,11 +382,20 @@ describe('device_pending_changes via com-object flags PATCH', () => {
 describe('unassign clears device_pending_changes', () => {
   it('unassigning a device with pending changes clears the tracking table for it', async () => {
     const { pid, did } = seedProject('unassign-clears');
-    await req(ts.baseUrl, 'PATCH', `/projects/${pid}/devices/${did}/param-values`, {
-      'ref-1': 1,
-    });
+    await req(
+      ts.baseUrl,
+      'PATCH',
+      `/projects/${pid}/devices/${did}/param-values`,
+      {
+        'ref-1': 1,
+      },
+    );
     assert.equal(pendingRows(did).length, 1);
-    const r = await req(ts.baseUrl, 'PATCH', `/projects/${pid}/devices/${did}/unassign`);
+    const r = await req(
+      ts.baseUrl,
+      'PATCH',
+      `/projects/${pid}/devices/${did}/unassign`,
+    );
     assert.equal(r.status, 200);
     assert.equal(pendingRows(did).length, 0);
   });
@@ -285,7 +419,7 @@ describe('resolvePendingWriteRanges()', () => {
   // genuine real ETS Partial Download: it wrote both the edited byte AND
   // the parameter object's own final byte (a device-required trailer),
   // unconditionally. See resolvePendingWriteRanges()'s own doc comment.
-  it('appends the parameter object\'s own final byte (trailer) alongside a real edit, when paramSize is given', () => {
+  it("appends the parameter object's own final byte (trailer) alongside a real edit, when paramSize is given", () => {
     const { did } = seedProject('resolve-param-trailer');
     ts.db.run(
       'INSERT INTO device_pending_changes (device_id, kind, key, baseline_value, current_value) VALUES (?,?,?,?,?)',
@@ -354,7 +488,7 @@ describe('resolvePendingWriteRanges()', () => {
     assert.equal(ranges[4], undefined);
   });
 
-  it('a ga_link change marks objIdx 1 and 2 with the -1 (whole-table) sentinel, plus the comm object\'s own Object 3 entry', () => {
+  it("a ga_link change marks objIdx 1 and 2 with the -1 (whole-table) sentinel, plus the comm object's own Object 3 entry", () => {
     const { did } = seedProject('resolve-ga');
     ts.db.run(
       'INSERT INTO device_pending_changes (device_id, kind, key, baseline_value, current_value) VALUES (?,?,?,?,?)',
@@ -366,7 +500,7 @@ describe('resolvePendingWriteRanges()', () => {
     assert.deepEqual(ranges[3], [{ offset: 10, length: 2 }]); // object_number 5 * 2
   });
 
-  it('a group_object_flag change marks only the comm object\'s own Object 3 entry (not GA/Association)', () => {
+  it("a group_object_flag change marks only the comm object's own Object 3 entry (not GA/Association)", () => {
     const { did } = seedProject('resolve-flag');
     ts.db.run(
       'INSERT INTO device_pending_changes (device_id, kind, key, baseline_value, current_value) VALUES (?,?,?,?,?)',

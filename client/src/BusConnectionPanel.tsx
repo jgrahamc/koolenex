@@ -197,9 +197,8 @@ export function BusConnectionPanel({
 
           {usbDevices !== null && usbDevices.length === 0 && !usbLoading && (
             <div className={styles.noUsbMsg}>
-              No KNX USB devices found. Make sure the device is plugged in
-              and <code className={styles.codeBg}>node-hid</code> is
-              installed.
+              No KNX USB devices found. Make sure the device is plugged in and{' '}
+              <code className={styles.codeBg}>node-hid</code> is installed.
             </div>
           )}
 
@@ -258,8 +257,8 @@ export function BusConnectionPanel({
       {!busStatus.hasLib && (
         <div className={`${styles.warningBox} ${styles.warningBorder}`}>
           &#x26A0; KNX package not installed. Run{' '}
-          <code className={styles.warningCodeBg}>npm install knx</code> in
-          the server directory.
+          <code className={styles.warningCodeBg}>npm install knx</code> in the
+          server directory.
         </div>
       )}
     </div>

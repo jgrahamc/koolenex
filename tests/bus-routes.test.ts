@@ -968,16 +968,16 @@ describe('POST /bus/write-memory', () => {
     assert.equal(data.byteCount, 1);
     const call = mockBus.calls.find((c) => c.method === 'downloadDevice');
     assert.ok(call, 'expected downloadDevice to be called');
-    const [deviceAddr, steps, gaTable, assocTable, paramMem, , extra] =
-      call!.args as [
-        string,
-        Array<{ type: string; objIdx: number; size?: number; offset?: number }>,
-        unknown,
-        unknown,
-        Buffer,
-        unknown,
-        { resolvedBases?: Record<number, number> },
-      ];
+    const [deviceAddr, steps, gaTable, assocTable, paramMem, , extra] = call!
+      .args as [
+      string,
+      Array<{ type: string; objIdx: number; size?: number; offset?: number }>,
+      unknown,
+      unknown,
+      Buffer,
+      unknown,
+      { resolvedBases?: Record<number, number> },
+    ];
     assert.equal(deviceAddr, '1.1.1');
     assert.equal(gaTable, null);
     assert.equal(assocTable, null);
@@ -1446,7 +1446,10 @@ describe('POST /bus/program-device — pendingWriteRanges wiring', () => {
       .filter((c) => c.method === 'downloadDevice')
       .at(-1)!;
     const extra = call.args[6] as {
-      pendingWriteRanges?: Record<number, Array<{ offset: number; length: number }>>;
+      pendingWriteRanges?: Record<
+        number,
+        Array<{ offset: number; length: number }>
+      >;
     };
     // RELMEM_MODEL's param object is 4 bytes (WriteRelMem size:4) - real
     // ETS trailer-byte behavior (see resolvePendingWriteRanges()'s own doc
@@ -1463,7 +1466,11 @@ describe('POST /bus/program-device — pendingWriteRanges wiring', () => {
       'SELECT * FROM device_pending_changes WHERE device_id=?',
       [dev.id],
     );
-    assert.equal(rows.length, 0, 'pending changes should be cleared after a successful download');
+    assert.equal(
+      rows.length,
+      0,
+      'pending changes should be cleared after a successful download',
+    );
   });
 
   it('passes an empty pendingWriteRanges when nothing is pending for this device', async () => {
@@ -1481,7 +1488,10 @@ describe('POST /bus/program-device — pendingWriteRanges wiring', () => {
       .filter((c) => c.method === 'downloadDevice')
       .at(-1)!;
     const extra = call.args[6] as {
-      pendingWriteRanges?: Record<number, Array<{ offset: number; length: number }>>;
+      pendingWriteRanges?: Record<
+        number,
+        Array<{ offset: number; length: number }>
+      >;
     };
     assert.deepEqual(extra.pendingWriteRanges, {});
   });
@@ -1520,7 +1530,9 @@ describe('POST /bus/program-device — address-by-serial choice', () => {
   before(() => {
     // RELMEM_MODEL already written by an earlier describe block (writeModel/
     // APPS_DIR is shared, keyed by appId) - no need to re-write it.
-    ts.db.run(`INSERT INTO projects (name) VALUES ('program-address-by-serial')`);
+    ts.db.run(
+      `INSERT INTO projects (name) VALUES ('program-address-by-serial')`,
+    );
     projectId = ts.db.get<{ id: number }>(
       `SELECT id FROM projects WHERE name='program-address-by-serial'`,
     )!.id;
@@ -1532,7 +1544,9 @@ describe('POST /bus/program-device — address-by-serial choice', () => {
     // scoped per-project - reset it so later describe blocks in this file
     // that also call /bus/program-device aren't silently affected by
     // whatever this block last left it as.
-    ts.db.run("UPDATE settings SET value='' WHERE key='auto_address_by_serial'");
+    ts.db.run(
+      "UPDATE settings SET value='' WHERE key='auto_address_by_serial'",
+    );
     // mockBus is a single shared, file-scoped instance (see `before()`
     // above) - the global beforeEach() only resets calls/connected/host/
     // port/type/projectId, not these two fields, so leaving them set
@@ -1550,7 +1564,9 @@ describe('POST /bus/program-device — address-by-serial choice', () => {
     // a real factory-reset device no longer answering at deviceAddress.
     mockBus.deviceInfoSerialOverride = null;
     mockBus.assignBySerialVerified = true;
-    ts.db.run("UPDATE settings SET value='' WHERE key='auto_address_by_serial'");
+    ts.db.run(
+      "UPDATE settings SET value='' WHERE key='auto_address_by_serial'",
+    );
   });
 
   it('offers a choice instead of forcing the button-press wait, when auto_address_by_serial is off', async () => {
@@ -1574,7 +1590,9 @@ describe('POST /bus/program-device — address-by-serial choice', () => {
   });
 
   it('uses serial-based addressing automatically when auto_address_by_serial is on', async () => {
-    ts.db.run("UPDATE settings SET value='true' WHERE key='auto_address_by_serial'");
+    ts.db.run(
+      "UPDATE settings SET value='true' WHERE key='auto_address_by_serial'",
+    );
     const r = await req(ts.baseUrl, 'POST', '/bus/program-device', {
       deviceAddress: deviceAddr,
       projectId,
@@ -1718,7 +1736,8 @@ describe('POST /bus/verify-device — GA/Association table fallback for an app t
       ['2/7', Buffer.from([0, 0, ASSOC_BASE >> 8, ASSOC_BASE & 0xff])],
     ]);
     const map = new Map<number, number>();
-    for (let i = 0; i < paramMem.length; i++) map.set(PARAM_BASE + i, paramMem[i]!);
+    for (let i = 0; i < paramMem.length; i++)
+      map.set(PARAM_BASE + i, paramMem[i]!);
     for (let i = 0; i < actualGaTable.length; i++)
       map.set(GA_BASE + i, actualGaTable[i]!);
     for (let i = 0; i < actualAssocTable.length; i++)
@@ -1763,13 +1782,15 @@ describe('POST /bus/verify-device — GA/Association table fallback for an app t
     assert.equal(co48.match, true);
     // Named-parameter row(s) for objIdx 4 should still be present alongside
     // the GA rows, not replaced by them.
-    assert.ok((body.decoded ?? []).some((d: any) => d.section !== 'Group Addresses'));
+    assert.ok(
+      (body.decoded ?? []).some((d: any) => d.section !== 'Group Addresses'),
+    );
     // GA/Association bytes must NOT be folded into the raw byte totals -
     // those stay scoped to the parameter segment only (4 bytes).
     assert.equal(body.totalBytes, paramMem.length);
   });
 
-  it('flags a mismatch when the device\'s actual GA table differs from the project', async () => {
+  it("flags a mismatch when the device's actual GA table differs from the project", async () => {
     mockBus.connected = true;
     // Device's real GA/Association tables only carry object 0's own link
     // (2/1/2 = GA_LINKS[2]) - object 12's links and object 48 entirely are
@@ -1808,7 +1829,7 @@ describe('POST /bus/verify-device — GA/Association table fallback for an app t
   // decodes the device's real, larger table as if the entries past the
   // truncation point don't exist - reporting them as missing/null instead
   // of what's really there.
-  it('reads the device\'s real table size, not the project\'s currently-smaller expected size', async () => {
+  it("reads the device's real table size, not the project's currently-smaller expected size", async () => {
     mockBus.connected = true;
     // Project currently only expects object 0's link (as if object 12's
     // and 48's GA links were just removed, matching what actually happened
@@ -1904,7 +1925,8 @@ describe('POST /bus/verify-device/recompute', () => {
       ['2/7', Buffer.from([0, 0, ASSOC_BASE >> 8, ASSOC_BASE & 0xff])],
     ]);
     const map = new Map<number, number>();
-    for (let i = 0; i < paramMem.length; i++) map.set(PARAM_BASE + i, paramMem[i]!);
+    for (let i = 0; i < paramMem.length; i++)
+      map.set(PARAM_BASE + i, paramMem[i]!);
     for (let i = 0; i < gaTable.length; i++) map.set(GA_BASE + i, gaTable[i]!);
     for (let i = 0; i < assocTable.length; i++)
       map.set(ASSOC_BASE + i, assocTable[i]!);
@@ -2042,7 +2064,14 @@ describe('POST /bus/program-device — builds and passes a real Object 3 (Group 
       // serial_number matches MockBus.readDeviceInfo()'s own default - see
       // seedDevice()'s identical comment above.
       `INSERT INTO devices (project_id, individual_address, name, app_ref, param_values, serial_number) VALUES (?,?,?,?,?,?)`,
-      [projectId, deviceAddr, `dev-${deviceAddr}`, OBJ3_APP, '{}', 'aabbccddeeff'],
+      [
+        projectId,
+        deviceAddr,
+        `dev-${deviceAddr}`,
+        OBJ3_APP,
+        '{}',
+        'aabbccddeeff',
+      ],
     );
     const dev = ts.db.get<{ id: number }>(
       'SELECT id FROM devices WHERE project_id=? AND individual_address=?',
@@ -2084,7 +2113,10 @@ describe('POST /bus/program-device — builds and passes a real Object 3 (Group 
     const call = mockBus.calls.find((c) => c.method === 'downloadDevice');
     assert.ok(call, 'expected downloadDevice to be called');
     const extra = call!.args[6] as { groupObjectTable?: Buffer | null };
-    assert.ok(extra.groupObjectTable, 'expected extra.groupObjectTable to be set');
+    assert.ok(
+      extra.groupObjectTable,
+      'expected extra.groupObjectTable to be set',
+    );
 
     const expectedFlags: GroupObjectFlags[] = [
       {
@@ -2115,7 +2147,10 @@ describe('POST /bus/program-device — builds and passes a real Object 3 (Group 
       expectedFlags,
     );
     assert.deepEqual([...extra.groupObjectTable!], [...expected]);
-    assert.equal(extra.groupObjectTable!.length, OBJ3_MODEL.groupObjectTableSize);
+    assert.equal(
+      extra.groupObjectTable!.length,
+      OBJ3_MODEL.groupObjectTableSize,
+    );
   });
 
   it('omits groupObjectTable (null) when the app model has no groupObjectTableSize', async () => {
@@ -2184,10 +2219,15 @@ describe('POST /bus/verify-device — Object 3 (Group Object Table) fallback', (
       priority: 'low',
     },
   ];
-  const expectedObj3 = buildGroupObjectTable(OBJ3_MODEL.groupObjectTableSize, expectedFlags);
+  const expectedObj3 = buildGroupObjectTable(
+    OBJ3_MODEL.groupObjectTableSize,
+    expectedFlags,
+  );
   // 4-byte param segment (OBJ3_MODEL declares size:4 via its RelSegment step).
   const paramMem = Buffer.from([0x00, 0x00, 0x00, 0x00]);
-  const gaTable = buildGATable([{ address: '2/1/2', main_g: 2, middle_g: 1, sub_g: 2 }]);
+  const gaTable = buildGATable([
+    { address: '2/1/2', main_g: 2, middle_g: 1, sub_g: 2 },
+  ]);
   const assocTable = buildAssocTable(
     [{ object_number: 5, ga_address: '2/1/2' }],
     [{ address: '2/1/2', main_g: 2, middle_g: 1, sub_g: 2 }],
@@ -2197,12 +2237,21 @@ describe('POST /bus/verify-device — Object 3 (Group Object Table) fallback', (
     // OBJ3_APP/OBJ3_MODEL already written by the program-device describe
     // block above (writeModel/APPS_DIR is shared, keyed by appId).
     ts.db.run(`INSERT INTO projects (name) VALUES ('verify-obj3')`);
-    projectId = ts.db.get<{ id: number }>(`SELECT id FROM projects WHERE name='verify-obj3'`)!.id;
+    projectId = ts.db.get<{ id: number }>(
+      `SELECT id FROM projects WHERE name='verify-obj3'`,
+    )!.id;
     ts.db.run(
       // serial_number matches MockBus.readDeviceInfo()'s own default - see
       // seedDevice()'s identical comment above.
       `INSERT INTO devices (project_id, individual_address, name, app_ref, param_values, serial_number) VALUES (?,?,?,?,?,?)`,
-      [projectId, deviceAddr, `dev-${deviceAddr}`, OBJ3_APP, '{}', 'aabbccddeeff'],
+      [
+        projectId,
+        deviceAddr,
+        `dev-${deviceAddr}`,
+        OBJ3_APP,
+        '{}',
+        'aabbccddeeff',
+      ],
     );
     const dev = ts.db.get<{ id: number }>(
       'SELECT id FROM devices WHERE project_id=? AND individual_address=?',
@@ -2230,10 +2279,13 @@ describe('POST /bus/verify-device — Object 3 (Group Object Table) fallback', (
       ['3/7', Buffer.from([0, 0, OBJ3_BASE >> 8, OBJ3_BASE & 0xff])],
     ]);
     const map = new Map<number, number>();
-    for (let i = 0; i < paramMem.length; i++) map.set(PARAM_BASE + i, paramMem[i]!);
+    for (let i = 0; i < paramMem.length; i++)
+      map.set(PARAM_BASE + i, paramMem[i]!);
     for (let i = 0; i < gaTable.length; i++) map.set(GA_BASE + i, gaTable[i]!);
-    for (let i = 0; i < assocTable.length; i++) map.set(ASSOC_BASE + i, assocTable[i]!);
-    for (let i = 0; i < actualObj3.length; i++) map.set(OBJ3_BASE + i, actualObj3[i]!);
+    for (let i = 0; i < assocTable.length; i++)
+      map.set(ASSOC_BASE + i, assocTable[i]!);
+    for (let i = 0; i < actualObj3.length; i++)
+      map.set(OBJ3_BASE + i, actualObj3[i]!);
     mockBus.memImage = map;
   }
 
@@ -2294,7 +2346,7 @@ describe('POST /bus/verify-device — Object 3 (Group Object Table) fallback', (
     assert.equal(body.match, true);
   });
 
-  it('flags a mismatch when the device\'s actual Object 3 content differs from the project', async () => {
+  it("flags a mismatch when the device's actual Object 3 content differs from the project", async () => {
     mockBus.connected = true;
     const corrupted = Buffer.from(expectedObj3);
     corrupted[14] ^= 0xff; // object 7's flag byte (offset 2*7)

@@ -590,9 +590,33 @@ export function IconOffline({ size = 14 }: SizeOnlyProps) {
   // one whenever the disconnected indicator borrows warning iconography.
   return (
     <_SvgIcon size={size}>
-      <rect x="2" y="8.5" width="2" height="3" rx="0.4" fill="currentColor" fillOpacity="0.55" />
-      <rect x="5.3" y="6" width="2" height="5.5" rx="0.4" fill="currentColor" fillOpacity="0.55" />
-      <rect x="8.6" y="3.5" width="2" height="8" rx="0.4" fill="currentColor" fillOpacity="0.55" />
+      <rect
+        x="2"
+        y="8.5"
+        width="2"
+        height="3"
+        rx="0.4"
+        fill="currentColor"
+        fillOpacity="0.55"
+      />
+      <rect
+        x="5.3"
+        y="6"
+        width="2"
+        height="5.5"
+        rx="0.4"
+        fill="currentColor"
+        fillOpacity="0.55"
+      />
+      <rect
+        x="8.6"
+        y="3.5"
+        width="2"
+        height="8"
+        rx="0.4"
+        fill="currentColor"
+        fillOpacity="0.55"
+      />
       <line
         x1="1.5"
         y1="2"
@@ -623,8 +647,22 @@ export function IconAttention({ size = 14 }: SizeOnlyProps) {
         strokeWidth="1.1"
         strokeLinejoin="round"
       />
-      <rect x="6.4" y="5.4" width="1.2" height="3.4" rx="0.5" fill="currentColor" />
-      <rect x="6.4" y="9.8" width="1.2" height="1.2" rx="0.5" fill="currentColor" />
+      <rect
+        x="6.4"
+        y="5.4"
+        width="1.2"
+        height="3.4"
+        rx="0.5"
+        fill="currentColor"
+      />
+      <rect
+        x="6.4"
+        y="9.8"
+        width="1.2"
+        height="1.2"
+        rx="0.5"
+        fill="currentColor"
+      />
     </_SvgIcon>
   );
 }

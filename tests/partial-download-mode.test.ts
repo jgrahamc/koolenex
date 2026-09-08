@@ -29,7 +29,14 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { parseCEMI, buildCEMI, apduConnectedFull, apduGroup, APCI_EXT, TPCI } from '../server/knx-cemi.ts';
+import {
+  parseCEMI,
+  buildCEMI,
+  apduConnectedFull,
+  apduGroup,
+  APCI_EXT,
+  TPCI,
+} from '../server/knx-cemi.ts';
 import { KnxConnection } from '../server/knx-connection.ts';
 import type { DownloadStep } from '../server/knx-connection.ts';
 
@@ -81,7 +88,9 @@ class FakeRWMemoryDevice extends KnxConnection {
   }
 
   private reply(respApdu: Buffer): void {
-    const resp = parseCEMI(buildCEMI(this.deviceAddr, this.localAddr, respApdu, false))!;
+    const resp = parseCEMI(
+      buildCEMI(this.deviceAddr, this.localAddr, respApdu, false),
+    )!;
     setImmediate(() => this._onCEMI(resp));
   }
 
@@ -97,9 +106,13 @@ class FakeRWMemoryDevice extends KnxConnection {
     }
 
     const fullApci =
-      frame.apdu.length >= 2 ? ((frame.apdu[0]! & 0x03) << 8) | frame.apdu[1]! : -1;
+      frame.apdu.length >= 2
+        ? ((frame.apdu[0]! & 0x03) << 8) | frame.apdu[1]!
+        : -1;
     if (fullApci === 0x3d1 /* Authorize_Request */) {
-      this.reply(apduConnectedFull(0, APCI_EXT.Authorize_Response, Buffer.from([0x00])));
+      this.reply(
+        apduConnectedFull(0, APCI_EXT.Authorize_Response, Buffer.from([0x00])),
+      );
       return Promise.resolve();
     }
     // PropertyValue_Write (0x3D7): downloadDevice() waits for an 'OTHER'
@@ -123,7 +136,9 @@ class FakeRWMemoryDevice extends KnxConnection {
       const meta = frame.apduData.subarray(2, 4);
       const data = this.properties.get(`${objIdx}:${propId}`);
       if (data) {
-        const word = ((TPCI.DATA_CONNECTED << 10) | APCI_EXT.PropertyValue_Response) & 0xffff;
+        const word =
+          ((TPCI.DATA_CONNECTED << 10) | APCI_EXT.PropertyValue_Response) &
+          0xffff;
         this.reply(
           Buffer.concat([
             Buffer.from([(word >> 8) & 0xff, word & 0xff, objIdx, propId]),
@@ -139,10 +154,16 @@ class FakeRWMemoryDevice extends KnxConnection {
       const count = frame.apdu[1]! & 0x3f;
       const address = (frame.apduData[0]! << 8) | frame.apduData[1]!;
       const data = this.memory.subarray(address, address + count);
-      const word = (TPCI.DATA_CONNECTED << 10) | (9 /* Memory_Response */ << 6) | count;
+      const word =
+        (TPCI.DATA_CONNECTED << 10) | (9 /* Memory_Response */ << 6) | count;
       this.reply(
         Buffer.concat([
-          Buffer.from([(word >> 8) & 0xff, word & 0xff, (address >> 8) & 0xff, address & 0xff]),
+          Buffer.from([
+            (word >> 8) & 0xff,
+            word & 0xff,
+            (address >> 8) & 0xff,
+            address & 0xff,
+          ]),
           data,
         ]),
       );
@@ -150,9 +171,14 @@ class FakeRWMemoryDevice extends KnxConnection {
     }
     if (frame.apciName === 'MemoryExtended_Read') {
       const count = frame.apduData[0]!;
-      const address = (frame.apduData[1]! << 16) | (frame.apduData[2]! << 8) | frame.apduData[3]!;
+      const address =
+        (frame.apduData[1]! << 16) |
+        (frame.apduData[2]! << 8) |
+        frame.apduData[3]!;
       const data = this.memory.subarray(address, address + count);
-      const word = ((TPCI.DATA_CONNECTED << 10) | APCI_EXT.MemoryExtended_Read_Response) & 0xffff;
+      const word =
+        ((TPCI.DATA_CONNECTED << 10) | APCI_EXT.MemoryExtended_Read_Response) &
+        0xffff;
       this.reply(
         Buffer.concat([
           Buffer.from([
@@ -179,9 +205,18 @@ class FakeRWMemoryDevice extends KnxConnection {
       this.reply(apduGroup('Memory_Response', 0, frame.apduData));
     } else if (frame.apciName === 'MemoryExtended_Write') {
       const count = frame.apduData[0]!;
-      const address = (frame.apduData[1]! << 16) | (frame.apduData[2]! << 8) | frame.apduData[3]!;
+      const address =
+        (frame.apduData[1]! << 16) |
+        (frame.apduData[2]! << 8) |
+        frame.apduData[3]!;
       frame.apduData.subarray(4, 4 + count).copy(this.memory, address);
-      this.reply(apduConnectedFull(0, APCI_EXT.MemoryExtended_Write_Response, Buffer.alloc(0)));
+      this.reply(
+        apduConnectedFull(
+          0,
+          APCI_EXT.MemoryExtended_Write_Response,
+          Buffer.alloc(0),
+        ),
+      );
     }
     return Promise.resolve();
   }
@@ -196,7 +231,8 @@ class FakeRWMemoryDevice extends KnxConnection {
     for (const c of this.sent) {
       const f = parseCEMI(c);
       if (!f) continue;
-      const fullApci = f.apdu.length >= 2 ? ((f.apdu[0]! & 0x03) << 8) | f.apdu[1]! : -1;
+      const fullApci =
+        f.apdu.length >= 2 ? ((f.apdu[0]! & 0x03) << 8) | f.apdu[1]! : -1;
       if (fullApci !== 0x3d7) continue;
       // apduData layout: [objIdx][propId][count/startIdx:2][event][SCF][rsvd:2][size:2][mode][fill][rsvd:2]
       // - 4-byte meta header (apduPropertyValueWrite) + 10-byte LSM payload
@@ -212,7 +248,10 @@ class FakeRWMemoryDevice extends KnxConnection {
   writeCount(): number {
     return this.sent.filter((c) => {
       const f = parseCEMI(c);
-      return f && (f.apciName === 'Memory_Write' || f.apciName === 'MemoryExtended_Write');
+      return (
+        f &&
+        (f.apciName === 'Memory_Write' || f.apciName === 'MemoryExtended_Write')
+      );
     }).length;
   }
 }
@@ -240,14 +279,30 @@ describe("downloadDevice() mode='partial' (2026-09-01 rewrite)", () => {
       size: payload.length,
       offset: 0,
     };
-    await dev.downloadDevice('1.1.9', [relSeg, write], null, null, payload, undefined, {
-      resolvedBases: { 4: BASE },
-      mode: 'partial',
-      pendingWriteRanges: {}, // nothing tracked for objIdx 4
-    });
+    await dev.downloadDevice(
+      '1.1.9',
+      [relSeg, write],
+      null,
+      null,
+      payload,
+      undefined,
+      {
+        resolvedBases: { 4: BASE },
+        mode: 'partial',
+        pendingWriteRanges: {}, // nothing tracked for objIdx 4
+      },
+    );
 
-    assert.equal(dev.writeCount(), 0, 'no Memory_Write/MemoryExtended_Write should have been sent');
-    assert.equal(dev.loadDataModeBytes().length, 0, 'no LoadData step should have been sent either - the whole cycle was skipped');
+    assert.equal(
+      dev.writeCount(),
+      0,
+      'no Memory_Write/MemoryExtended_Write should have been sent',
+    );
+    assert.equal(
+      dev.loadDataModeBytes().length,
+      0,
+      'no LoadData step should have been sent either - the whole cycle was skipped',
+    );
   });
 
   it('writes (with the real Partial mode byte 0x00) exactly the pending-write-range bytes, nothing more', async () => {
@@ -270,15 +325,33 @@ describe("downloadDevice() mode='partial' (2026-09-01 rewrite)", () => {
       size: payload.length,
       offset: 0,
     };
-    await dev.downloadDevice('1.1.9', [relSeg, write], null, null, payload, undefined, {
-      resolvedBases: { 4: BASE },
-      mode: 'partial',
-      pendingWriteRanges: { 4: [{ offset: 0, length: payload.length }] },
-    });
+    await dev.downloadDevice(
+      '1.1.9',
+      [relSeg, write],
+      null,
+      null,
+      payload,
+      undefined,
+      {
+        resolvedBases: { 4: BASE },
+        mode: 'partial',
+        pendingWriteRanges: { 4: [{ offset: 0, length: payload.length }] },
+      },
+    );
 
-    assert.ok(dev.writeCount() > 0, 'expected real write chunks - a range was tracked as pending');
-    assert.deepEqual(dev.loadDataModeBytes(), [0x00], 'partial mode must force the LoadData mode byte to 0x00 (real captured Partial semantic), not the model-declared combined shape');
-    assert.deepEqual([...dev.memory.subarray(BASE, BASE + payload.length)], [...payload]);
+    assert.ok(
+      dev.writeCount() > 0,
+      'expected real write chunks - a range was tracked as pending',
+    );
+    assert.deepEqual(
+      dev.loadDataModeBytes(),
+      [0x00],
+      'partial mode must force the LoadData mode byte to 0x00 (real captured Partial semantic), not the model-declared combined shape',
+    );
+    assert.deepEqual(
+      [...dev.memory.subarray(BASE, BASE + payload.length)],
+      [...payload],
+    );
   });
 
   it("mode='full' (the default) is completely unaffected - always writes, mode byte follows the model's own declared combined shape", async () => {
@@ -293,10 +366,20 @@ describe("downloadDevice() mode='partial' (2026-09-01 rewrite)", () => {
     // combined=true, so this test actually exercises "mode byte follows the
     // declared shape" rather than coincidentally landing on 0 either way.
     const relSegFull: DownloadStep = {
-      type: 'RelSegment', objIdx: 4, propId: 0, lsmIdx: 4, size: payload.length, fill: 0,
+      type: 'RelSegment',
+      objIdx: 4,
+      propId: 0,
+      lsmIdx: 4,
+      size: payload.length,
+      fill: 0,
     };
     const relSegPar: DownloadStep = {
-      type: 'RelSegment', objIdx: 4, propId: 0, lsmIdx: 4, size: payload.length, fill: 0,
+      type: 'RelSegment',
+      objIdx: 4,
+      propId: 0,
+      lsmIdx: 4,
+      size: payload.length,
+      fill: 0,
     };
     const write: DownloadStep = {
       type: 'WriteRelMem',
@@ -306,12 +389,27 @@ describe("downloadDevice() mode='partial' (2026-09-01 rewrite)", () => {
       offset: 0,
     };
     // mode omitted entirely - exercises the real default, not an explicit 'full'.
-    await dev.downloadDevice('1.1.9', [relSegFull, relSegPar, write], null, null, payload, undefined, {
-      resolvedBases: { 4: BASE },
-    });
+    await dev.downloadDevice(
+      '1.1.9',
+      [relSegFull, relSegPar, write],
+      null,
+      null,
+      payload,
+      undefined,
+      {
+        resolvedBases: { 4: BASE },
+      },
+    );
 
-    assert.ok(dev.writeCount() > 0, 'full mode must always write, even if the device already matches');
-    assert.deepEqual(dev.loadDataModeBytes(), [0x01], 'a combined (full+par) RelSegment declaration must still produce mode=Full (0x01) unchanged in full mode');
+    assert.ok(
+      dev.writeCount() > 0,
+      'full mode must always write, even if the device already matches',
+    );
+    assert.deepEqual(
+      dev.loadDataModeBytes(),
+      [0x01],
+      'a combined (full+par) RelSegment declaration must still produce mode=Full (0x01) unchanged in full mode',
+    );
   });
 });
 
@@ -350,7 +448,11 @@ describe('FakeRWMemoryDevice.setProperty() - PropertyValue_Read support (2026-08
 
     await dev.downloadDevice('1.1.9', [], gaTable, null, null, undefined, {});
 
-    assert.equal(dev.writeCount(), 0, 'no write should be attempted when the base can\'t be resolved');
+    assert.equal(
+      dev.writeCount(),
+      0,
+      "no write should be attempted when the base can't be resolved",
+    );
   });
 
   it('partial mode: skips the GA table entirely when nothing is pending for objIdx 1 (no PID 7 resolution even attempted)', async () => {
@@ -370,7 +472,11 @@ describe('FakeRWMemoryDevice.setProperty() - PropertyValue_Read support (2026-08
       pendingWriteRanges: {},
     });
 
-    assert.equal(dev.writeCount(), 0, 'partial mode should skip the whole cycle when nothing is pending for this object');
+    assert.equal(
+      dev.writeCount(),
+      0,
+      'partial mode should skip the whole cycle when nothing is pending for this object',
+    );
   });
 
   it('partial mode: writes the GA table when a ga_link change is pending, resolving the base via PID 7 as normal', async () => {
@@ -425,11 +531,19 @@ describe("downloadDevice() mode='partial' surgical write (2026-09-01 rewrite)", 
       size,
       offset: 0,
     };
-    await dev.downloadDevice('1.1.9', [relSeg, write], null, null, target, undefined, {
-      resolvedBases: { 4: BASE },
-      mode: 'partial',
-      pendingWriteRanges: { 4: [{ offset: 500, length: 2 }] },
-    });
+    await dev.downloadDevice(
+      '1.1.9',
+      [relSeg, write],
+      null,
+      null,
+      target,
+      undefined,
+      {
+        resolvedBases: { 4: BASE },
+        mode: 'partial',
+        pendingWriteRanges: { 4: [{ offset: 500, length: 2 }] },
+      },
+    );
 
     assert.equal(
       dev.writeCount(),
@@ -471,16 +585,24 @@ describe("downloadDevice() mode='partial' surgical write (2026-09-01 rewrite)", 
       size,
       offset: 0,
     };
-    await dev.downloadDevice('1.1.9', [relSeg, write], null, null, target, undefined, {
-      resolvedBases: { 4: BASE },
-      mode: 'partial',
-      pendingWriteRanges: {
-        4: [
-          { offset: 10, length: 1 }, // near the start
-          { offset: 900, length: 1 }, // near the end, a separate region
-        ],
+    await dev.downloadDevice(
+      '1.1.9',
+      [relSeg, write],
+      null,
+      null,
+      target,
+      undefined,
+      {
+        resolvedBases: { 4: BASE },
+        mode: 'partial',
+        pendingWriteRanges: {
+          4: [
+            { offset: 10, length: 1 }, // near the start
+            { offset: 900, length: 1 }, // near the end, a separate region
+          ],
+        },
       },
-    });
+    );
 
     assert.equal(
       dev.writeCount(),

@@ -108,9 +108,9 @@ export default function App() {
   // Programming page's operation log - lifted up here (rather than local
   // state in ProgrammingView) so it survives navigating away and back. See
   // the comment on ProgrammingLogCtx for the retention policy.
-  const [programmingLogEntries, setProgrammingLogEntries] = useState<
-    string[]
-  >([]);
+  const [programmingLogEntries, setProgrammingLogEntries] = useState<string[]>(
+    [],
+  );
   // Whether to include server-tagged debug messages in the programming
   // log (see ProgrammingLog's own doc comment, contexts.ts). Read via a
   // ref inside the WebSocket handler below (a `[]`-deps effect - see its

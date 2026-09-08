@@ -34,7 +34,13 @@ interface ChipProps {
   style?: React.CSSProperties;
 }
 
-export const Chip = ({ children, active, onClick, title, style }: ChipProps) => (
+export const Chip = ({
+  children,
+  active,
+  onClick,
+  title,
+  style,
+}: ChipProps) => (
   <button
     onClick={onClick}
     title={title}
@@ -343,7 +349,10 @@ export function DeviceAddr({
   if (!device.has_address) {
     return (
       <span
-        className={[className, onAssignClick ? `pa ${styles.pinAddrClickable}` : '']
+        className={[
+          className,
+          onAssignClick ? `pa ${styles.pinAddrClickable}` : '',
+        ]
           .filter(Boolean)
           .join(' ')}
         style={{

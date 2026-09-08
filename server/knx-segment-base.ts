@@ -53,7 +53,9 @@ export async function resolveRelmemBases(
 ): Promise<{ bases: Record<number, number>; unallocated: number[] }> {
   const objIdxs = [
     ...new Set([
-      ...steps.filter((s) => s.type === 'WriteRelMem').map((s) => s.objIdx ?? 4),
+      ...steps
+        .filter((s) => s.type === 'WriteRelMem')
+        .map((s) => s.objIdx ?? 4),
       ...extraObjIdxs,
     ]),
   ];

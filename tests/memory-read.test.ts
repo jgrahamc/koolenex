@@ -27,7 +27,10 @@ import {
   TPCI,
   APCI_EXT,
 } from '../server/knx-cemi.ts';
-import { KnxConnection, maxChunkFromApduLength } from '../server/knx-connection.ts';
+import {
+  KnxConnection,
+  maxChunkFromApduLength,
+} from '../server/knx-connection.ts';
 
 /**
  * A fake device: answers every A_Memory_Read with the corresponding slice of a
@@ -102,7 +105,10 @@ class FakeMemoryDevice extends KnxConnection {
     // unrelated test keeps its pre-existing chunking behavior and stays
     // fast; a test that explicitly sets `null` opts into the real,
     // deliberately rare "device never answers this property" timeout).
-    if (fullApci === 0x3d5 /* PropertyValue_Read */ && this.maxApduLength != null) {
+    if (
+      fullApci === 0x3d5 /* PropertyValue_Read */ &&
+      this.maxApduLength != null
+    ) {
       const objIdx = frame.apduData[0]!;
       const propId = frame.apduData[1]!;
       if (objIdx === 0 && propId === 56) {
@@ -153,8 +159,7 @@ class FakeMemoryDevice extends KnxConnection {
       // apciName, not the sequence number, so a fixed TPCI (no seq bits) is
       // sufficient here too.
       const word =
-        ((TPCI.DATA_CONNECTED << 10) |
-          APCI_EXT.MemoryExtended_Read_Response) &
+        ((TPCI.DATA_CONNECTED << 10) | APCI_EXT.MemoryExtended_Read_Response) &
         0xffff;
       const respApdu = Buffer.concat([
         Buffer.from([
@@ -292,7 +297,11 @@ describe('apduMemoryExtendedWrite', () => {
   it('encodes the 0x1FB APCI with count + 3-byte address + data (System B/7)', () => {
     // seq=0 → TPCI 0x10; word = (0x10<<10)|0x1FB = 0x41FB → [0x41,0xFB]
     // then count=2 (data.length), address=0x123456, data=[0xAA,0xBB]
-    const apdu = apduMemoryExtendedWrite(0, 0x123456, Buffer.from([0xaa, 0xbb]));
+    const apdu = apduMemoryExtendedWrite(
+      0,
+      0x123456,
+      Buffer.from([0xaa, 0xbb]),
+    );
     assert.deepEqual(
       [...apdu],
       [0x41, 0xfb, 0x02, 0x12, 0x34, 0x56, 0xaa, 0xbb],
@@ -322,10 +331,7 @@ describe('apduMemoryWrite', () => {
     // count=3; address=0x1234. fullApci = (0xA<<6)|3 = 0x283.
     // word = (0x10<<10)|0x283 = 0x4283.
     const apdu = apduMemoryWrite(0, 0x1234, Buffer.from([0xaa, 0xbb, 0xcc]));
-    assert.deepEqual(
-      [...apdu],
-      [0x42, 0x83, 0x12, 0x34, 0xaa, 0xbb, 0xcc],
-    );
+    assert.deepEqual([...apdu], [0x42, 0x83, 0x12, 0x34, 0xaa, 0xbb, 0xcc]);
   });
 
   it('carries the sequence number in the TPCI field', () => {
@@ -516,10 +522,7 @@ describe('KnxConnection.readMemory — addresses above 0xFFFF', () => {
       frames.filter((f) => f?.apciName === 'MemoryExtended_Read').length,
       3,
     );
-    assert.equal(
-      frames.filter((f) => f?.apciName === 'Memory_Read').length,
-      0,
-    );
+    assert.equal(frames.filter((f) => f?.apciName === 'Memory_Read').length, 0);
   });
 
   it('only switches the chunks that actually need it, when a region straddles 0xFFFF', async () => {
@@ -533,10 +536,7 @@ describe('KnxConnection.readMemory — addresses above 0xFFFF', () => {
 
     assert.deepEqual([...out], [...mem.slice(0xfff8, 0xfff8 + 16)]);
     const frames = dev.sent.map((c) => parseCEMI(c));
-    assert.equal(
-      frames.filter((f) => f?.apciName === 'Memory_Read').length,
-      1,
-    );
+    assert.equal(frames.filter((f) => f?.apciName === 'Memory_Read').length, 1);
     assert.equal(
       frames.filter((f) => f?.apciName === 'MemoryExtended_Read').length,
       1,
@@ -632,9 +632,7 @@ describe('KnxConnection.readMemory — a response shorter than requested', () =>
             ]),
             data,
           ]);
-          const resp = parseCEMI(
-            buildCEMI('1.1.9', '1.0.1', respApdu, false),
-          )!;
+          const resp = parseCEMI(buildCEMI('1.1.9', '1.0.1', respApdu, false))!;
           setImmediate(() => this._onCEMI(resp));
           return Promise.resolve();
         }
@@ -705,7 +703,7 @@ describe('maxChunkFromApduLength', () => {
 });
 
 describe('KnxConnection.readMemory — real per-device PID_MAX_APDULENGTH capping', () => {
-  it('caps every legacy chunk to the device\'s own declared real capacity, not the protocol max', async () => {
+  it("caps every legacy chunk to the device's own declared real capacity, not the protocol max", async () => {
     const mem = Buffer.alloc(0x0200);
     for (let i = 0; i < mem.length; i++) mem[i] = i & 0xff;
     const dev = new FakeMemoryDevice('1.1.20', mem);
