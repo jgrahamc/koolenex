@@ -467,7 +467,16 @@ export function BusMonitorView() {
           </Btn>,
           <Btn
             key="clr"
-            onClick={onClear}
+            onClick={() => {
+              // Also empty the paused-mode snapshot; without this, Clear
+              // looked like a no-op while paused because displayTelegrams
+              // reads from `snapshot` and the live buffer never wins.
+              // Keep pause held (setSnapshot([]) not setSnapshot(null))
+              // so the display stays visibly cleared instead of
+              // immediately filling with new telegrams.
+              if (paused) setSnapshot([]);
+              onClear();
+            }}
             color="var(--muted)"
             bg="var(--surface)"
           >
