@@ -779,7 +779,7 @@ interface RelatedComObjectsProps {
 function RelatedComObjects({ comObjects, dpt }: RelatedComObjectsProps) {
   return (
     <div className={styles.coRelated}>
-      <div className={styles.coRelatedLabel}>COMMUNICATION OBJECTS</div>
+      <div className={styles.coRelatedLabel}>RELATED GROUP OBJECTS</div>
       <table className={styles.coRelatedTable}>
         <thead>
           <tr>

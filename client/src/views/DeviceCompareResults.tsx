@@ -453,7 +453,7 @@ export function DeviceCompareResults({
                         'Named, project-configurable parameters' +
                         (gaDecoded.length ? ', group-address links' : '') +
                         (obj3Decoded.length
-                          ? ", and communication objects' flags"
+                          ? ", and group objects' flags"
                           : '') +
                         ' only. Underneath, at the raw byte level, ' +
                         `${result.totalBytes - result.totalDiffering}/${result.totalBytes} ` +
