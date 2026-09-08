@@ -13,6 +13,34 @@ const bus = new KnxBusManager();
 const PORT = process.env.PORT || 4000;
 const CORS_OPEN = process.argv.includes('--cors-open');
 
+// Koolenex is a self-hosted LAN tool: accept requests from localhost, the
+// same origin as the server, RFC1918/link-local IPs, and *.local (mDNS).
+// This covers direct access on :4000 as well as vite dev-server access on
+// :5173, whose proxy rewrites Host to localhost:4000 (changeOrigin: true),
+// which would otherwise defeat a plain same-origin check.
+export function isLocalOrigin(
+  origin: string,
+  host: string | undefined,
+): boolean {
+  let url: URL;
+  try {
+    url = new URL(origin);
+  } catch (_) {
+    return false;
+  }
+  if (host && url.host === host) return true;
+  const h = url.hostname.toLowerCase();
+  if (h === 'localhost' || h === '127.0.0.1' || h === '::1') return true;
+  if (/^10\./.test(h)) return true;
+  if (/^192\.168\./.test(h)) return true;
+  if (/^172\.(1[6-9]|2\d|3[01])\./.test(h)) return true;
+  if (/^169\.254\./.test(h)) return true; // IPv4 link-local
+  if (/^\[?f[cd]/i.test(h)) return true; // IPv6 unique-local fc00::/7
+  if (/^\[?fe[89ab]/i.test(h)) return true; // IPv6 link-local fe80::/10
+  if (/\.local$/i.test(h)) return true; // mDNS
+  return false;
+}
+
 async function start(): Promise<void> {
   // Must init DB before routes can use it
   await db.init();
@@ -33,18 +61,8 @@ async function start(): Promise<void> {
           const origin = req.header('Origin');
           // Allow requests with no origin (same-origin, curl, etc.)
           if (!origin) return callback(null, { origin: true });
-          // Allow localhost on any port (dev server, prod server)
-          if (/^https?:\/\/localhost(:\d+)?$/.test(origin))
+          if (isLocalOrigin(origin, req.header('Host')))
             return callback(null, { origin: true });
-          // Allow when the browser loaded the page from this same server
-          // (e.g. accessing via LAN IP): origin host matches request host.
-          try {
-            const originHost = new URL(origin).host;
-            if (originHost === req.header('Host'))
-              return callback(null, { origin: true });
-          } catch (_) {
-            // fall through to reject
-          }
           callback(new Error('CORS not allowed'));
         }),
   );
