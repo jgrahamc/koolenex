@@ -37,4 +37,5 @@ client/dist/
 # Editor / OS
 .DS_Store
 
-.*
+*.pid
+*~
