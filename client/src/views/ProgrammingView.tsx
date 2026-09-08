@@ -12,7 +12,12 @@ import {
   Badge,
   Chip,
 } from '../primitives.tsx';
-import { DeviceTypeIcon, IconSerial, IconAttention } from '../icons.tsx';
+import {
+  DeviceTypeIcon,
+  IconSerial,
+  IconAttention,
+  IconMagnify,
+} from '../icons.tsx';
 import { api } from '../api.ts';
 import {
   useAppData,
@@ -1010,7 +1015,7 @@ export function ProgrammingView() {
                               disabled={verifying || anyOperationRunning}
                               title="View the last comparison result — no bus read"
                             >
-                              👁
+                              <IconMagnify size={13} />
                             </button>
                           )}
                         </div>

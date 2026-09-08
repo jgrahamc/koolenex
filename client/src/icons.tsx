@@ -486,6 +486,32 @@ export function IconMonitor({ size = 14 }: SizeOnlyProps) {
   );
 }
 
+export function IconMagnify({ size = 14 }: SizeOnlyProps) {
+  // Magnifying glass — used as a compact "view details" glyph, e.g. the
+  // Programming row action that reopens the last verify comparison.
+  return (
+    <_SvgIcon size={size}>
+      <circle
+        cx="6"
+        cy="6"
+        r="4.2"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.2"
+      />
+      <line
+        x1="9.2"
+        y1="9.2"
+        x2="12.8"
+        y2="12.8"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+      />
+    </_SvgIcon>
+  );
+}
+
 export function IconDeviceCompare({ size = 14 }: SizeOnlyProps) {
   // Two side-by-side columns with a checkmark - project vs device comparison
   return (
