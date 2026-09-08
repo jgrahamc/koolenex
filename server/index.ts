@@ -29,15 +29,23 @@ async function start(): Promise<void> {
   app.use(
     CORS_OPEN
       ? cors({ origin: '*' })
-      : cors({
-          origin: (origin, callback) => {
-            // Allow requests with no origin (same-origin, curl, etc.)
-            if (!origin) return callback(null, true);
-            // Allow localhost on any port (dev server, prod server)
-            if (/^https?:\/\/localhost(:\d+)?$/.test(origin))
-              return callback(null, true);
-            callback(new Error('CORS not allowed'));
-          },
+      : cors((req, callback) => {
+          const origin = req.header('Origin');
+          // Allow requests with no origin (same-origin, curl, etc.)
+          if (!origin) return callback(null, { origin: true });
+          // Allow localhost on any port (dev server, prod server)
+          if (/^https?:\/\/localhost(:\d+)?$/.test(origin))
+            return callback(null, { origin: true });
+          // Allow when the browser loaded the page from this same server
+          // (e.g. accessing via LAN IP): origin host matches request host.
+          try {
+            const originHost = new URL(origin).host;
+            if (originHost === req.header('Host'))
+              return callback(null, { origin: true });
+          } catch (_) {
+            // fall through to reject
+          }
+          callback(new Error('CORS not allowed'));
         }),
   );
   if (CORS_OPEN) logger.warn('api', 'CORS open to all origins (--cors-open)');
@@ -143,13 +151,15 @@ async function start(): Promise<void> {
       (db.get<{ value: string }>(
         "SELECT value FROM settings WHERE key='knxip_protocol'",
       )?.value as 'udp' | 'tcp' | 'auto' | undefined) || 'auto';
-    bus.connect(lastHost, lastPort, undefined, lastProtocol).catch((err: Error) => {
-      logger.warn('knx', 'Auto-reconnect to last known host failed on boot', {
-        host: lastHost,
-        port: lastPort,
-        error: err.message,
+    bus
+      .connect(lastHost, lastPort, undefined, lastProtocol)
+      .catch((err: Error) => {
+        logger.warn('knx', 'Auto-reconnect to last known host failed on boot', {
+          host: lastHost,
+          port: lastPort,
+          error: err.message,
+        });
       });
-    });
   }
 
   // Real bug, found live 2026-08-30: this process had no shutdown handler
