@@ -27,7 +27,7 @@ PROCEED AT YOUR OWN RISK.
 - **Bus Monitor** — live telegram feed with decoded values, flow diagrams, and CSV export
 - **Bus Scan** — discover devices on the KNX bus
 - **Bus Connection** — connect via KNXnet/IP tunnelling or USB interface
-- **Device Programming** — download application programs, parameters, group address tables, and association tables to devices (work in progress)
+- **Device Programming** — download application programs, parameters, group address tables, and association tables to devices; verify a device against the project's expected image; assign individual addresses to newly-connected devices (alpha — writes to real hardware)
 - **Device Comparison** — compare two devices side by side, or select multiple devices of the same type for multi-device parameter diff
 - **Floor Plan** — upload floor plan images for each floor and drag devices onto them to visualize your installation layout
 - **Label Printing** — print device address labels on Avery label sheets (L4730, L4731, L4732, L6008, L7636, L7651, L7656) or a full-page legend sheet for distribution board doors; configurable fields, device selection, and print preview
@@ -154,9 +154,9 @@ result navigates directly to it.
 
 ## Requirements
 
-- Node.js 18+
+- Node.js 23.6+ (the server is written in TypeScript and run directly via Node's built-in type stripping — no build step)
 
-No native compilation needed — all dependencies are pure JavaScript.
+No native compilation needed — all dependencies are pure JavaScript. The USB transport optionally uses `node-hid` (installed on demand).
 
 ## Setup
 
@@ -194,7 +194,7 @@ npm start
 
 Two connection methods are supported:
 
-- **KNXnet/IP** — enter your gateway IP address and port in the Project panel
+- **KNXnet/IP** — UDP tunnelling, TCP tunnelling, or multicast routing; enter the gateway IP/port (and protocol) in the Project panel
 - **USB** — plug in a KNX USB interface and scan for devices in the Project panel (requires the optional `node-hid` package: `npm install node-hid`)
 
 koolenex uses its own KNX protocol implementation with no external KNX dependencies.
@@ -219,63 +219,109 @@ device types, and ETS configurations.
 
 ## Project Structure
 
+Source is TypeScript throughout (`.ts` / `.tsx`). The server is run directly by Node with no build step; the client is built by Vite.
+
 ```
 server/
-  index.js            — Express server, WebSocket setup
-  routes.js           — REST API endpoints (~45 routes)
-  db.js               — SQLite database layer with audit logging
-  ets-parser.js       — .knxproj and .knxprod file parser
-  knx-bus.js          — KNX bus connection manager (IP + USB facade)
-  knx-connection.js   — KNX/IP protocol, device management, memory services
-  knx-protocol.js     — KNXnet/IP UDP tunnelling implementation
-  knx-usb.js          — KNX USB HID interface
+  index.ts               — Express server, WebSocket, CORS, graceful shutdown
+  db.ts                  — SQLite (sql.js) database with audit-log triggers
+  validate.ts            — Zod validation helpers for routes
+  log.ts                 — Structured JSON logging (tagged)
+  ets-parser.ts          — .knxproj / .knxprod ZIP parser (handles AES-256-CBC)
+  ets-app.ts             — Application program parsing (params, group objects, channels)
+  ets-hardware.ts        — Product / hardware metadata parsing
+  ets-capture.ts         — Persisted ETS-import capture used by cross-check tests
+  ets-zip.ts             — Encrypted-ZIP handling
+  coverage-report.ts     — Verify-coverage classification shared with the UI
+  knx-bus.ts             — KnxBusManager: facade over IP + USB transports
+  knx-connection.ts      — Base KNX management (CEMI, APDU, memory services, scan)
+  knx-protocol.ts        — KNXnet/IP UDP + TCP tunnelling
+  knx-protocol-routing.ts — KNXnet/IP multicast routing
+  knx-ip-common.ts       — Frame builders/parsers shared by the IP transports
+  knx-usb.ts             — KNX USB HID transport
+  knx-cemi.ts            — CEMI encoding/decoding
+  knx-dpt.ts             — DPT buffer encode/decode
+  knx-download-plan.ts   — Verify/download plan builder (mem + property flavors)
+  knx-segment-base.ts    — PID 7 (LoadStateMachine) base address resolution
+
+  routes/
+    index.ts             — Router registration; shared bus reference
+    projects.ts          — Import, delete, project metadata, audit log
+    devices.ts           — Device CRUD, parameters, comparison
+    gas.ts               — Group addresses (CRUD, tree/flat, inline edits)
+    catalog.ts           — Product catalog browsing + .knxprod import
+    bus.ts               — Bus connect/monitor/scan/program/verify/address
+    knx-tables.ts        — GA / association / group-object table builders
+    settings.ts          — Settings, telegrams, CSV export
+    import-jobs.ts       — Async import job registry
+    shared.ts            — Route helpers (bus + db bridge)
+
+shared/
+  types.ts               — Core entity types used by server and client
+  ga-maps.ts             — Device ↔ GA lookup maps built from group objects
 
 client/src/
-  App.jsx             — main app shell, sidebar, routing, undo system
-  api.js              — REST API client + WebSocket
-  state.js            — app state management (useReducer)
-  theme.js            — dark/light themes, color constants
-  contexts.js         — React contexts (DPT, pin, theme)
-  dpt.js              — DPT info, formatting, and i18n
-  search.jsx          — global search component
-  primitives.jsx      — shared UI components (Btn, Spinner, Toast, etc.)
-  columns.jsx         — table column definitions and CSV export
-  diagram.jsx         — SVG connection diagrams
-  icons.jsx           — SVG icon library
-  rtf.jsx             — RTF-to-HTML rendering and editable fields
-  hex.jsx             — hex display utilities
-  AddDeviceModal.jsx  — add device modal (used from multiple views)
+  main.tsx               — App entry (renders <App/>)
+  App.tsx                — Providers, undo store, WebSocket wiring
+  AppShell.tsx           — Nav sidebar, top bar, alpha-warning modals
+  BusConnectionPanel.tsx — Shared bus connection UI (also used from the top bar)
+  AddDeviceModal.tsx     — Add-device modal (Catalog / device pages)
+  AddressDeviceModal.tsx — Assign individual addresses to unaddressed devices
+  api.ts                 — REST client + WebSocket
+  state.ts               — useReducer store (projects, devices, GAs, telegrams, ...)
+  contexts.ts            — Data/actions/live/verify contexts
+  routes.ts              — URL helpers (viewFromPath, pinUrl, ...)
+  theme.ts               — Dark/light theme contexts + mask-version registry
+  dpt.ts                 — DPT info, formatting, i18n
+  columns.tsx            — Table column definitions and CSV export
+  diagram.tsx            — SVG connection diagrams
+  icons.tsx              — SVG icon library
+  primitives.tsx         — Shared UI (Btn, Spinner, Toast, ConfirmModal, …)
+  rtf.tsx                — RTF-to-HTML rendering + editable fields
+  hex.tsx                — Hex display helpers
+  search.tsx             — Global search
 
   views/
-    ProjectsView.jsx        — project list, import, delete
-    ProjectInfoView.jsx     — bus connection, project metadata, audit log
-    LocationsView.jsx       — building structure tree with device tables
-    FloorPlanView.jsx       — floor plan image with draggable devices
-    TopologyView.jsx        — bus topology diagram (areas/lines/devices)
-    DevicesView.jsx         — searchable/sortable device table
-    GroupAddressesView.jsx  — GA tree and flat views with inline editing
-    ComObjectsView.jsx      — communication objects table
-    ManufacturersView.jsx   — devices grouped by manufacturer/model
-    CatalogView.jsx         — product catalog browser with .knxprod import
-    BusMonitorView.jsx      — live telegram feed with timeline
-    BusScanView.jsx         — bus device discovery
-    ProgrammingView.jsx     — device programming (work in progress)
-    SettingsView.jsx        — theme, DPT format, language
+    ProjectsView.tsx        — Project list, import, delete
+    ProjectInfoView.tsx     — Bus connection, project metadata, audit log
+    LocationsView.tsx       — Building structure tree with device tables
+    FloorPlanView.tsx       — Floor plan image with draggable devices
+    TopologyView.tsx        — Bus topology diagram (areas/lines/devices)
+    DevicesView.tsx         — Searchable/sortable device table
+    GroupAddressesView.tsx  — GA tree and flat views with inline editing
+    ComObjectsView.tsx      — Group objects table
+    ManufacturersView.tsx   — Devices grouped by manufacturer/model
+    CatalogView.tsx         — Product catalog browser (+ .knxprod import)
+    BusMonitorView.tsx      — Live telegram feed with timeline
+    BusScanView.tsx         — Bus device discovery
+    ProgrammingView.tsx     — Device programming + verify (alpha)
+    DeviceCompareResults.tsx — Verify-result comparison panel
+    PrintLabelsView.tsx     — Avery label sheets + legend printer
+    SettingsView.tsx        — Theme, DPT format, language
 
   detail/
-    PinDetailView.jsx       — pin type router and multi-compare panel
-    DevicePinPanel.jsx      — device detail (metadata, COs, linked GAs)
-    DeviceParameters.jsx    — parameter tree editor
-    DeviceProductTab.jsx    — product info and similar devices
-    GAPinPanel.jsx          — group address detail with linked devices
-    ComparePanel.jsx        — two-device comparison
-    PinTelegramFeed.jsx     — per-device/GA telegram feed
+    PinDetailView.tsx       — Pin type router
+    DevicePinPanel.tsx      — Device detail (metadata, group objects, linked GAs)
+    DeviceParameters.tsx    — Parameter tree editor with related group objects
+    DeviceProductTab.tsx    — Product info and similar devices
+    GAPinPanel.tsx          — Group address detail with linked devices
+    ComparePanel.tsx        — Two-device comparison
+    PinTelegramFeed.tsx     — Per-device / per-GA telegram feed
+
+  hooks/
+    useProjectHandlers.ts   — Project-level action handlers (import, undo)
+    useBusHandlers.ts       — Bus connect / write / clear handlers
+    usePersistedState.ts    — useState-with-localStorage helper
+    spaces.ts               — Space-tree helpers
+
+tests/                     — Node built-in test runner (`node --test`), with real
+                             .knxproj / .knxprod fixtures for cross-check tests
 
 data/
-  apps/                 — cached application program models (JSON)
-  floorplans/           — uploaded floor plan images
-  knx_master_*.xml      — per-project KNX master data
+  apps/                    — Cached application program models (JSON)
+  floorplans/              — Uploaded floor plan images
+  knx_master_*.xml         — Per-project KNX master data
 
-research/               — implementation research and planning documents
-scripts/                — utility scripts (anonymize, demo)
+docs/                      — Developer documentation (e.g. write-protocol notes)
+research/                  — Implementation research and planning documents
 ```
