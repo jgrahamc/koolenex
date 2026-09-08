@@ -209,6 +209,7 @@ interface ConfirmModalProps {
   onCancel: () => void;
   confirmLabel?: string;
   confirmColor?: string;
+  cancelLabel?: string;
 }
 
 export const ConfirmModal = ({
@@ -218,6 +219,7 @@ export const ConfirmModal = ({
   onCancel,
   confirmLabel = 'Delete',
   confirmColor,
+  cancelLabel = 'No',
 }: ConfirmModalProps) => (
   <div className={styles.modalOverlay}>
     <div className={styles.modalBox}>
@@ -225,7 +227,7 @@ export const ConfirmModal = ({
       <div className={styles.modalBody}>{children}</div>
       <div className={styles.modalActions}>
         <Btn onClick={onCancel} color="var(--dim)">
-          No
+          {cancelLabel}
         </Btn>
         <Btn onClick={onConfirm} color={confirmColor ?? 'var(--red)'}>
           {confirmLabel}

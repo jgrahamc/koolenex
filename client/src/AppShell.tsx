@@ -19,7 +19,7 @@ import {
   IconOffline,
   IconAttention,
 } from './icons.tsx';
-import { Spinner, Toast, Btn } from './primitives.tsx';
+import { Spinner, Toast, Btn, ConfirmModal } from './primitives.tsx';
 import primStyles from './primitives.module.css';
 import { buildSpaceMap, spacePath as spacePathFn } from './hooks/spaces.ts';
 import { GlobalSearch } from './search.tsx';
@@ -287,6 +287,14 @@ export function AppShell(props: AppShellProps) {
   const [sidebarWidth, setSidebarWidth] = useState<number>(
     () => Number(localStorage.getItem('knx-sidebar-width')) || 150,
   );
+
+  // Programming is alpha and writes to real hardware — warn the user once
+  // per browser session before letting them into it. Acknowledgement lives
+  // in component state (not localStorage) so it resets on reload.
+  const [programmingWarnAcked, setProgrammingWarnAcked] = useState(false);
+  const [pendingProgrammingNav, setPendingProgrammingNav] = useState<
+    string | null
+  >(null);
   useEffect(() => {
     localStorage.setItem('knx-sidebar-width', String(sidebarWidth));
   }, [sidebarWidth]);
@@ -483,9 +491,14 @@ export function AppShell(props: AppShellProps) {
                     <div
                       key={v.id}
                       className={`ni ${activeView === v.id ? 'active' : ''} ${appStyles.navItem}`}
-                      onClick={() =>
-                        navigate(`/projects/${projectId}/${v.slug}`)
-                      }
+                      onClick={() => {
+                        const target = `/projects/${projectId}/${v.slug}`;
+                        if (v.id === 'programming' && !programmingWarnAcked) {
+                          setPendingProgrammingNav(target);
+                          return;
+                        }
+                        navigate(target);
+                      }}
                     >
                       <v.Icon size={15} />
                       <span
@@ -756,6 +769,33 @@ export function AppShell(props: AppShellProps) {
             dispatch({ type: 'IMPORT_RESET' });
           }}
         />
+      )}
+      {pendingProgrammingNav && (
+        <ConfirmModal
+          title="Programming is alpha — proceed with care"
+          confirmLabel="I understand, continue"
+          confirmColor="var(--amber)"
+          cancelLabel="Cancel"
+          onConfirm={() => {
+            const target = pendingProgrammingNav;
+            setProgrammingWarnAcked(true);
+            setPendingProgrammingNav(null);
+            navigate(target);
+          }}
+          onCancel={() => setPendingProgrammingNav(null)}
+        >
+          <div>
+            Device programming writes directly to real KNX hardware. This
+            feature is <strong>alpha</strong> and{' '}
+            <strong>
+              may permanently damage — brick — a device, leaving it unresponsive
+              and unrecoverable even from ETS
+            </strong>
+            . It may also misconfigure devices, disrupt the bus, or corrupt your
+            project. Only continue if you accept these risks and have a backup
+            of your project.
+          </div>
+        </ConfirmModal>
       )}
     </div>
   );

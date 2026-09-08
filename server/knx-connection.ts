@@ -2739,9 +2739,21 @@ export class KnxConnection extends EventEmitter {
             if (data.length > 4) {
               const raw = data.slice(4);
               const nullIdx = raw.indexOf(0);
-              const text = (nullIdx >= 0 ? raw.slice(0, nullIdx) : raw)
-                .toString('ascii')
-                .trim();
+              const body = nullIdx >= 0 ? raw.slice(0, nullIdx) : raw;
+              // Only accept the ASCII rendering when every byte is printable
+              // ASCII (0x20-0x7E). Real devices often store binary here, and
+              // Node's 'ascii' decoder masks the high bit while passing
+              // control chars through - which surfaces as junk like "  ' `"
+              // in the UI. Fall back to hex whenever the content isn't
+              // cleanly printable.
+              let printable = body.length > 0;
+              for (const b of body) {
+                if (b < 0x20 || b > 0x7e) {
+                  printable = false;
+                  break;
+                }
+              }
+              const text = printable ? body.toString('ascii').trim() : '';
               info.orderInfo = text || raw.toString('hex');
             }
           });
