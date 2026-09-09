@@ -30,8 +30,8 @@ jobs:
       - name: Lint
         run: make lint
 
-      - name: Type check (client)
-        run: cd client && npx tsc --noEmit
+      - name: Type check (server + client)
+        run: make typecheck
 
       - name: Test
         run: make test

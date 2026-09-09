@@ -181,11 +181,25 @@ router.delete(
   (req: Request, res: Response): void => {
     const pid = paramId(req, 'pid');
     const gid = paramId(req, 'gid');
+    // Scoped to :pid, not just :gid - a GA id belonging to ANOTHER
+    // project used to delete that project's row here, while writing the
+    // audit entry against the project named in the URL. Every sibling
+    // route already scopes with `AND project_id=?`; this one didn't.
     const gaD = db.get<GroupAddress>(
-      'SELECT address, name FROM group_addresses WHERE id=?',
-      [gid],
+      'SELECT address, name FROM group_addresses WHERE id=? AND project_id=?',
+      [gid, pid],
     );
-    db.run('DELETE FROM group_addresses WHERE id=?', [gid]);
+    // Idempotent 200 for an id this project doesn't own, matching the
+    // sibling device DELETE - the fix here is that it no longer deletes
+    // another project's row, not the status code for a no-op.
+    if (!gaD) {
+      res.json({ ok: true });
+      return;
+    }
+    db.run('DELETE FROM group_addresses WHERE id=? AND project_id=?', [
+      gid,
+      pid,
+    ]);
     invalidateGaDptCache();
     db.audit(
       pid,

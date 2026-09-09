@@ -223,6 +223,15 @@ interface LpWriteRelMem {
   offset: number;
   size: number;
   mode: string;
+  // Real `Verify="true"` attribute off `<LdCtrlWriteRelMem>` - parsed
+  // below and carried on the step (knx-connection.ts's own `verify?:
+  // boolean`), but silently dropped from this type until now: nothing
+  // type-checked server/ until 2026-09-09, so the object literal that
+  // sets it never reported the excess property. Kept rather than
+  // deleted - it records a real, once-seen hardware observation; see
+  // downloadDevice()'s comment for why the download path no longer
+  // branches on it.
+  verify?: boolean;
 }
 interface LpLoadImageProp {
   type: 'LoadImageProp';

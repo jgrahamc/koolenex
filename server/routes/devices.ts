@@ -402,10 +402,15 @@ router.patch(
         status: z.string(),
       }),
     );
+    // Scoped to :pid - see the matching comment on the DELETE route below.
     const devS = db.get<Record<string, unknown>>(
-      'SELECT individual_address, name, status FROM devices WHERE id=?',
-      [did],
+      'SELECT individual_address, name, status FROM devices WHERE id=? AND project_id=?',
+      [did, pid],
     );
+    if (!devS) {
+      res.status(404).json({ error: 'Not found' });
+      return;
+    }
     db.run('UPDATE devices SET status=? WHERE id=?', [b.status, did]);
     db.audit(
       pid,
@@ -424,10 +429,22 @@ router.delete(
   (req: Request, res: Response): void => {
     const pid = paramId(req, 'pid');
     const did = paramId(req, 'did');
+    // Scoped to :pid, not just :did - a device id belonging to ANOTHER
+    // project used to be deleted here (along with its com objects), with
+    // the audit entry written against the project named in the URL rather
+    // than the one that actually lost the device.
     const devD = db.get<Record<string, unknown>>(
-      'SELECT individual_address, name FROM devices WHERE id=?',
-      [did],
+      'SELECT individual_address, name FROM devices WHERE id=? AND project_id=?',
+      [did, pid],
     );
+    // Not found *in this project* is the same as not found at all: the
+    // route's contract is idempotent (see api.test.ts's "DELETE returns ok
+    // for nonexistent device"), so this stays a 200 - it just no longer
+    // deletes another project's device on the way, or audits one.
+    if (!devD) {
+      res.json({ ok: true });
+      return;
+    }
     db.transaction(({ run }) => {
       run('DELETE FROM com_objects WHERE device_id=?', [did]);
       run('DELETE FROM devices WHERE id=?', [did]);

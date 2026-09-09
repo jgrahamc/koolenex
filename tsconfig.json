@@ -1,0 +1,18 @@
+{
+  // Type-checks the backend. Node strips types at runtime without checking
+  // them, and CI only ever ran `tsc --noEmit` inside client/, so server/ and
+  // shared/ went unchecked entirely - a dropped `verify` field on
+  // LdCtrlWriteRelMem (ets-app.ts) sat unnoticed until this was added.
+  //
+  // tests/ is deliberately NOT included yet: it currently reports ~766
+  // errors, nearly all `any` parameters and noUncheckedIndexedAccess
+  // indexing in the test bodies themselves. Worth doing, but as its own
+  // pass - keeping it out means this config can be enforced in CI today.
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "module": "nodenext",
+    "allowImportingTsExtensions": true,
+    "types": ["node"]
+  },
+  "include": ["server/**/*.ts", "shared/**/*.ts"]
+}

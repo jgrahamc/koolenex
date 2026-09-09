@@ -8,7 +8,7 @@ kill-tree = pids="$(1)"; q="$(1)"; while [ -n "$$q" ]; do next=""; for p in $$q;
 kill-pid = [ -f $($(1)_PID) ] && { $(call kill-tree,$$(cat $($(1)_PID))); rm -f $($(1)_PID); } || true
 save-pid = echo $$! > $($(1)_PID)
 
-.PHONY: server server-open stop-server client stop-client start stop test lint format
+.PHONY: server server-open stop-server client stop-client start stop test lint format typecheck
 
 server: stop-server
 	@node server/index.ts & $(call save-pid,SERVER)
@@ -31,6 +31,10 @@ stop: stop-server stop-client
 
 test:
 	node --test tests/*.test.ts
+
+typecheck:
+	npx tsc --noEmit -p tsconfig.json
+	cd client && npx tsc --noEmit
 
 lint:
 	npx eslint --max-warnings 0 server/
