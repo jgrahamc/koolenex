@@ -1,100 +1,28 @@
-import express from 'express';
-import cors from 'cors';
 import http from 'http';
 import { WebSocketServer } from 'ws';
-import path from 'path';
-import fs from 'fs';
 import * as db from './db.ts';
 import KnxBusManager from './knx-bus.ts';
 import { logger } from './log.ts';
-import { ValidationError } from './validate.ts';
+import { createApp } from './app.ts';
 
 const bus = new KnxBusManager();
 const PORT = process.env.PORT || 4000;
 const CORS_OPEN = process.argv.includes('--cors-open');
 
-// Koolenex is a self-hosted LAN tool: accept requests from localhost, the
-// same origin as the server, RFC1918/link-local IPs, and *.local (mDNS).
-// This covers direct access on :4000 as well as vite dev-server access on
-// :5173, whose proxy rewrites Host to localhost:4000 (changeOrigin: true),
-// which would otherwise defeat a plain same-origin check.
-export function isLocalOrigin(
-  origin: string,
-  host: string | undefined,
-): boolean {
-  let url: URL;
-  try {
-    url = new URL(origin);
-  } catch (_) {
-    return false;
-  }
-  if (host && url.host === host) return true;
-  const h = url.hostname.toLowerCase();
-  if (h === 'localhost' || h === '127.0.0.1' || h === '::1') return true;
-  if (/^10\./.test(h)) return true;
-  if (/^192\.168\./.test(h)) return true;
-  if (/^172\.(1[6-9]|2\d|3[01])\./.test(h)) return true;
-  if (/^169\.254\./.test(h)) return true; // IPv4 link-local
-  if (/^\[?f[cd]/i.test(h)) return true; // IPv6 unique-local fc00::/7
-  if (/^\[?fe[89ab]/i.test(h)) return true; // IPv6 link-local fe80::/10
-  if (/\.local$/i.test(h)) return true; // mDNS
-  return false;
-}
-
 async function start(): Promise<void> {
   // Must init DB before routes can use it
   await db.init();
-
-  // Lazy-load routes after DB is ready
-  const { router: routes } = await import('./routes/index.ts');
-  routes.setBus(bus);
 
   // Periodic sweep of stale import jobs (TTL eviction)
   const importJobs = await import('./routes/import-jobs.ts');
   importJobs.startSweeper();
 
-  const app = express();
-  app.use(
-    CORS_OPEN
-      ? cors({ origin: '*' })
-      : cors((req, callback) => {
-          const origin = req.header('Origin');
-          // Allow requests with no origin (same-origin, curl, etc.)
-          if (!origin) return callback(null, { origin: true });
-          if (isLocalOrigin(origin, req.header('Host')))
-            return callback(null, { origin: true });
-          callback(new Error('CORS not allowed'));
-        }),
-  );
-  if (CORS_OPEN) logger.warn('api', 'CORS open to all origins (--cors-open)');
-  app.use(express.json());
-  app.use('/api', routes);
-
-  // Error handling middleware — catch unhandled route errors
-  app.use(
-    (
-      err: Error,
-      _req: express.Request,
-      res: express.Response,
-      _next: express.NextFunction,
-    ) => {
-      if (err instanceof ValidationError) {
-        res.status(400).json({ error: err.errors.join('; ') });
-        return;
-      }
-      logger.error('api', 'Unhandled error', { error: err.message });
-      res.status(500).json({ error: err.message || 'Internal server error' });
-    },
-  );
-
-  // Serve built frontend
-  const frontendDist = path.join(process.cwd(), 'client', 'dist');
-  if (fs.existsSync(frontendDist)) {
-    app.use(express.static(frontendDist));
-    app.get('*path', (_req, res) =>
-      res.sendFile(path.join(frontendDist, 'index.html')),
-    );
-  }
+  // Routes are loaded inside createApp, after the db.init() above
+  const { app } = await createApp({
+    cors: CORS_OPEN ? 'open' : 'local',
+    serveClient: true,
+    bus,
+  });
 
   const server = http.createServer(app);
   const wss = new WebSocketServer({ server });

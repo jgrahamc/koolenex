@@ -1,7 +1,6 @@
 /**
  * Shared test helpers — server setup, HTTP request helper, fixture paths.
  */
-import express from 'express';
 import path from 'path';
 import { type AddressInfo } from 'net';
 import type { Server } from 'http';
@@ -143,26 +142,12 @@ export async function importProject(
 export async function createTestServer(): Promise<TestServer> {
   const db = await import('../server/db.ts');
   await db.init({ inMemory: true });
-  const { router: routes } = await import('../server/routes/index.ts');
-  const { ValidationError } = await import('../server/validate.ts');
-
-  const app = express();
-  app.use(express.json());
-  app.use('/api', routes);
-  app.use(
-    (
-      err: Error,
-      _req: express.Request,
-      res: express.Response,
-      _next: express.NextFunction,
-    ) => {
-      if (err instanceof ValidationError) {
-        res.status(400).json({ error: err.errors.join('; ') });
-        return;
-      }
-      res.status(500).json({ error: err.message || 'Internal server error' });
-    },
-  );
+  // The real app the server ships (server/app.ts) - same routes, same error
+  // middleware - so a change there is visible to these tests. Only the CORS
+  // layer and the static client are left off: tests drive it over loopback
+  // and send no Origin header.
+  const { createApp } = await import('../server/app.ts');
+  const { app } = await createApp({ cors: 'none' });
 
   return new Promise((resolve) => {
     const server = app.listen(0, () => {

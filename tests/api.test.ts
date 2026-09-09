@@ -1,64 +1,31 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import express from 'express';
-import path from 'path';
 import fs from 'fs';
-import { type AddressInfo } from 'net';
+import {
+  createTestServer,
+  req as httpReq,
+  KNXPROD_LSTOUCH,
+  type TestServer,
+} from './helpers.ts';
 
-let server: any;
+let harness: TestServer;
 let baseUrl: string;
-let db: any;
+let db: TestServer['db'];
 
-async function req(method: string, urlPath: string, body?: any) {
-  const url = baseUrl + urlPath;
-  const opts: any = { method, headers: {} };
-  if (body) {
-    opts.headers['Content-Type'] = 'application/json';
-    opts.body = JSON.stringify(body);
-  }
-  const res = await fetch(url, opts);
-  const text = await res.text();
-  let data;
-  try {
-    data = JSON.parse(text);
-  } catch {
-    data = text;
-  }
-  return { status: res.status, data, headers: res.headers };
+// baseUrl-bound shorthand for the shared helper, so the call sites below
+// stay `req('POST', '/projects', body)`.
+function req(method: string, urlPath: string, body?: unknown) {
+  return httpReq(baseUrl, method, urlPath, body);
 }
 
 before(async () => {
-  db = await import('../server/db.ts');
-  await db.init({ inMemory: true });
-  const { router: routes } = await import('../server/routes/index.ts');
-  const { ValidationError } = await import('../server/validate.ts');
-  const app = express();
-  app.use(express.json());
-  app.use('/api', routes);
-  app.use(
-    (
-      err: Error,
-      _req: express.Request,
-      res: express.Response,
-      _next: express.NextFunction,
-    ) => {
-      if (err instanceof ValidationError) {
-        res.status(400).json({ error: err.errors.join('; ') });
-        return;
-      }
-      res.status(500).json({ error: err.message || 'Internal server error' });
-    },
-  );
-  await new Promise<void>((resolve) => {
-    server = app.listen(0, () => {
-      baseUrl = `http://localhost:${(server.address() as AddressInfo).port}/api`;
-      resolve();
-    });
-  });
+  harness = await createTestServer();
+  baseUrl = harness.baseUrl;
+  db = harness.db;
 });
 
 after(() => {
-  server?.close();
+  harness?.close();
 });
 
 // ── Projects ─────────────────────────────────────────────────────────────────
@@ -2279,7 +2246,7 @@ describe('Catalog', () => {
 // ── Catalog .knxprod import ─────────────────────────────────────────────────
 
 describe('Catalog .knxprod import', () => {
-  const KNXPROD = path.join(import.meta.dirname, '4295-LS-Touch-v5.1.knxprod');
+  const KNXPROD = KNXPROD_LSTOUCH;
   let pid: number;
 
   before(async () => {
