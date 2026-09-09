@@ -498,13 +498,13 @@ describe('POST /bus/write', () => {
     assert.equal(mockBus.calls[0].args[0], '1/0/0');
   });
 
-  it('returns 502 when not connected', async () => {
+  it('returns 409 when not connected', async () => {
     mockBus.connected = false;
     const r = await req(ts.baseUrl, 'POST', '/bus/write', {
       ga: '1/0/0',
       value: true,
     });
-    assert.equal(r.status, 502);
+    assert.equal(r.status, 409);
   });
 
   it('rejects missing ga', async () => {
@@ -551,10 +551,14 @@ describe('POST /bus/read', () => {
     assert.equal(mockBus.calls[0].method, 'read');
   });
 
-  it('returns 502 when not connected', async () => {
+  // 409, not 502: a disconnected bus is a conflict with the current state,
+  // not an upstream gateway failure - /bus/read and /bus/write answered 502
+  // here until busRoute() gave every bus route the same mapping the other
+  // 16 already used.
+  it('returns 409 when not connected', async () => {
     mockBus.connected = false;
     const r = await req(ts.baseUrl, 'POST', '/bus/read', { ga: '1/0/0' });
-    assert.equal(r.status, 502);
+    assert.equal(r.status, 409);
   });
 
   it('rejects missing ga', async () => {
@@ -2379,4 +2383,43 @@ describe('POST /bus/verify-device — Object 3 (Group Object Table) fallback', (
       'top-level match must be false when any decoded row (here, Object 3) differs, even if raw parameter bytes match exactly',
     );
   });
+});
+
+// ── Uniform not-connected mapping ───────────────────────────────────────────
+
+// Every bus operation answers 409 on a disconnected bus, and the same 409
+// whichever route you came through. Until busRoute() (server/routes/bus.ts)
+// this was written out per route and four different answers had drifted in:
+// 16 routes returned 409, /bus/read, /bus/write, /bus/connect, /bus/connect-usb
+// and /bus/replay-frames returned 502, /bus/device-info returned 500, and the
+// USB enumeration routes returned 500 - so a client could not tell "reconnect
+// and retry" from "the gateway failed" by status alone. This is table-driven
+// on purpose: a route added without going through busRoute() has to be added
+// here too, or it is simply not covered.
+describe('bus routes: not connected', () => {
+  const CASES: Array<[string, Record<string, unknown>]> = [
+    ['/bus/read', { ga: '1/0/0' }],
+    ['/bus/write', { ga: '1/0/0', value: true }],
+    ['/bus/ping', { gaAddresses: ['1/0/0'] }],
+    ['/bus/identify', { deviceAddress: '1.1.1' }],
+    ['/bus/device-info', { deviceAddress: '1.1.1' }],
+    ['/bus/read-memory', { deviceAddress: '1.1.1', address: 0, length: 4 }],
+    ['/bus/read-property', { deviceAddress: '1.1.1', objIdx: 0, propId: 11 }],
+    ['/bus/program-ia', { newAddr: '1.1.5' }],
+    ['/bus/check-programming-mode', {}],
+    ['/bus/read-serials-in-programming-mode', {}],
+    [
+      '/bus/assign-address-by-serial',
+      { serial: 'aabbccddeeff', newAddress: '1.1.5' },
+    ],
+  ];
+
+  for (const [route, body] of CASES) {
+    it(`${route} returns 409`, async () => {
+      mockBus.connected = false;
+      const r = await req(ts.baseUrl, 'POST', route, body);
+      assert.equal(r.status, 409);
+      assert.match(String((r.data as any).error), /Not connected/);
+    });
+  }
 });

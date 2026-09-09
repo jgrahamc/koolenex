@@ -77,6 +77,72 @@ function requireBus(res: Response): KnxBusManager | null {
   return bus;
 }
 
+type BusHandler<T> = (
+  b: KnxBusManager,
+  body: T,
+  res: Response,
+) => unknown | Promise<unknown>;
+
+/**
+ * Wraps the prologue and epilogue every bus route repeats: require the bus,
+ * validate the body, run the operation, and map a failure onto a status
+ * code and a safe error string.
+ *
+ * Return a value from the handler to send it as JSON; a handler that has
+ * already written to `res` itself returns undefined instead.
+ *
+ * The status mapping is the reason this exists. A disconnected bus is by
+ * far the most common real failure here, and the file had four different
+ * answers for it: 16 routes returned 409, while /bus/read, /bus/write,
+ * /bus/connect, /bus/connect-usb and /bus/replay-frames returned a flat
+ * 502, /bus/device-info a 409-or-500, and the two USB enumeration routes a
+ * flat 500 - so the same disconnected bus answered 409 through
+ * /bus/read-property and 502 through /bus/read. safeErrorOrConnection's own
+ * doc comment in log.ts asserts that "every route in server/routes/bus.ts
+ * already special-cases this exact condition for its HTTP status code",
+ * which is the intent this makes true. Not-connected is now always 409;
+ * `failStatus` covers everything else and stays 502 (bad gateway) except
+ * for the USB enumeration routes, where the failure is local libusb/HID
+ * rather than anything upstream.
+ *
+ * Validation runs outside the try, so a ValidationError still reaches the
+ * app's error middleware as a 400 rather than being reported as a bus
+ * failure.
+ */
+function busRoute<S extends z.ZodTypeAny>(
+  schema: S,
+  context: string,
+  handler: BusHandler<z.infer<S>>,
+  failStatus?: number,
+): (req: Request, res: Response) => Promise<void>;
+function busRoute(
+  schema: null,
+  context: string,
+  handler: BusHandler<undefined>,
+  failStatus?: number,
+): (req: Request, res: Response) => Promise<void>;
+function busRoute(
+  schema: z.ZodTypeAny | null,
+  context: string,
+  handler: BusHandler<never>,
+  failStatus = 502,
+): (req: Request, res: Response) => Promise<void> {
+  return async (req: Request, res: Response): Promise<void> => {
+    const b = requireBus(res);
+    if (!b) return;
+    const body = (schema ? validateBody(req, schema) : undefined) as never;
+    try {
+      const result = await handler(b, body, res);
+      if (result !== undefined && !res.headersSent) res.json(result);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      res
+        .status(msg.includes('Not connected') ? 409 : failStatus)
+        .json({ error: safeErrorOrConnection('bus', context, e) });
+    }
+  };
+}
+
 // ── Demo mode address remapping ──────────────────────────────────────────────
 let _demoDevMap: Record<string, string> | null = null;
 let _demoGaMap: Record<string, string> | null = null;
@@ -374,11 +440,9 @@ router.get('/bus/status', (_req: Request, res: Response) => {
   res.json(b.status());
 });
 
-router.post('/bus/connect', async (req: Request, res: Response) => {
-  const b = requireBus(res);
-  if (!b) return;
-  const body = validateBody(
-    req,
+router.post(
+  '/bus/connect',
+  busRoute(
     z.object({
       host: z.string().min(1),
       port: z.coerce.number().int().positive().optional(),
@@ -390,72 +454,64 @@ router.post('/bus/connect', async (req: Request, res: Response) => {
       // only ever spoke UDP before 2026-08-30).
       protocol: z.enum(['udp', 'tcp', 'auto']).optional(),
     }),
-  );
-  const { host, port, projectId, protocol } = body;
-  try {
-    const result = await b.connect(host, port || 3671, projectId, protocol);
-    db.run("INSERT OR REPLACE INTO settings VALUES ('knxip_host',?)", [host]);
-    db.run("INSERT OR REPLACE INTO settings VALUES ('knxip_port',?)", [
-      String(port || 3671),
-    ]);
-    db.run("INSERT OR REPLACE INTO settings VALUES ('knxip_protocol',?)", [
-      protocol || 'auto',
-    ]);
-    db.scheduleSave();
-    res.json({ ok: true, ...result });
-  } catch (e) {
-    res.status(502).json({
-      error: safeErrorOrConnection('bus', 'Bus connection failed', e),
-    });
-  }
-});
+    'Bus connection failed',
+    async (b, body) => {
+      const { host, port, projectId, protocol } = body;
+      const result = await b.connect(host, port || 3671, projectId, protocol);
+      db.run("INSERT OR REPLACE INTO settings VALUES ('knxip_host',?)", [host]);
+      db.run("INSERT OR REPLACE INTO settings VALUES ('knxip_port',?)", [
+        String(port || 3671),
+      ]);
+      db.run("INSERT OR REPLACE INTO settings VALUES ('knxip_protocol',?)", [
+        protocol || 'auto',
+      ]);
+      db.scheduleSave();
+      return { ok: true, ...result };
+    },
+  ),
+);
 
-router.get('/bus/usb-devices', (_req: Request, res: Response) => {
-  const b = requireBus(res);
-  if (!b) return;
-  try {
-    const devices = b.listUsbDevices();
-    res.json({ devices });
-  } catch (e) {
-    res.status(500).json({
-      error: safeErrorOrConnection('bus', 'Failed to list USB devices', e),
-    });
-  }
-});
+router.get(
+  '/bus/usb-devices',
+  busRoute(
+    null,
+    'Failed to list USB devices',
+    async (b) => {
+      const devices = b.listUsbDevices();
+      return { devices };
+    },
+    500,
+  ),
+);
 
-router.get('/bus/usb-devices/all', (_req: Request, res: Response) => {
-  const b = requireBus(res);
-  if (!b) return;
-  try {
-    const devices = b.listAllHidDevices();
-    res.json({ devices });
-  } catch (e) {
-    res.status(500).json({
-      error: safeErrorOrConnection('bus', 'Failed to list HID devices', e),
-    });
-  }
-});
+router.get(
+  '/bus/usb-devices/all',
+  busRoute(
+    null,
+    'Failed to list HID devices',
+    async (b) => {
+      const devices = b.listAllHidDevices();
+      return { devices };
+    },
+    500,
+  ),
+);
 
-router.post('/bus/connect-usb', async (req: Request, res: Response) => {
-  const b = requireBus(res);
-  if (!b) return;
-  const body = validateBody(
-    req,
+router.post(
+  '/bus/connect-usb',
+  busRoute(
     z.object({
       devicePath: z.string().min(1),
       projectId: z.number().int().optional(),
     }),
-  );
-  const { devicePath, projectId } = body;
-  try {
-    const result = await b.connectUsb(devicePath, projectId);
-    res.json({ ok: true, type: 'usb', ...result });
-  } catch (e) {
-    res.status(502).json({
-      error: safeErrorOrConnection('bus', 'USB connection failed', e),
-    });
-  }
-});
+    'USB connection failed',
+    async (b, body) => {
+      const { devicePath, projectId } = body;
+      const result = await b.connectUsb(devicePath, projectId);
+      return { ok: true, type: 'usb', ...result };
+    },
+  ),
+);
 
 router.post('/bus/project', (req: Request, res: Response) => {
   const b = requireBus(res);
@@ -475,111 +531,92 @@ router.post('/bus/disconnect', (_req: Request, res: Response) => {
   res.json({ ok: true });
 });
 
-router.post('/bus/write', (req: Request, res: Response) => {
-  const b = requireBus(res);
-  if (!b) return;
-  const body = validateBody(
-    req,
+router.post(
+  '/bus/write',
+  busRoute(
     z.object({
       ga: z.string().min(1),
       value: z.unknown(),
       dpt: z.string().optional(),
       projectId: z.number().int().optional(),
     }),
-  );
-  const { ga, value, dpt, projectId } = body;
-  try {
-    const busGa = demoToReal(ga);
-    const result = b.write(busGa, value, dpt);
-    if (projectId) {
-      db.run(
-        'INSERT INTO bus_telegrams (project_id,src,dst,type,raw_value,decoded,priority) VALUES (?,?,?,?,?,?,?)',
-        [
+    'Bus write failed',
+    async (b, body) => {
+      const { ga, value, dpt, projectId } = body;
+      const busGa = demoToReal(ga);
+      const result = b.write(busGa, value, dpt);
+      if (projectId) {
+        db.run(
+          'INSERT INTO bus_telegrams (project_id,src,dst,type,raw_value,decoded,priority) VALUES (?,?,?,?,?,?,?)',
+          [
+            projectId,
+            'local',
+            ga,
+            'GroupValue_Write',
+            String(value),
+            String(value),
+            'low',
+          ],
+        );
+        db.scheduleSave();
+        b.broadcast('knx:telegram', {
+          telegram: {
+            timestamp: new Date().toISOString(),
+            src: 'local',
+            dst: ga,
+            type: 'GroupValue_Write',
+            raw_value: String(value),
+            decoded: String(value),
+          },
           projectId,
-          'local',
-          ga,
-          'GroupValue_Write',
-          String(value),
-          String(value),
-          'low',
-        ],
-      );
-      db.scheduleSave();
-      b.broadcast('knx:telegram', {
-        telegram: {
-          timestamp: new Date().toISOString(),
-          src: 'local',
-          dst: ga,
-          type: 'GroupValue_Write',
-          raw_value: String(value),
-          decoded: String(value),
-        },
-        projectId,
-      });
-    }
-    res.json(result);
-  } catch (e) {
-    res
-      .status(502)
-      .json({ error: safeErrorOrConnection('bus', 'Bus write failed', e) });
-  }
-});
+        });
+      }
+      return result;
+    },
+  ),
+);
 
-router.post('/bus/read', async (req: Request, res: Response) => {
-  const b = requireBus(res);
-  if (!b) return;
-  const body = validateBody(req, z.object({ ga: z.string().min(1) }));
-  try {
-    res.json(await b.read(body.ga));
-  } catch (e) {
-    res
-      .status(502)
-      .json({ error: safeErrorOrConnection('bus', 'Bus read failed', e) });
-  }
-});
+router.post(
+  '/bus/read',
+  busRoute(
+    z.object({ ga: z.string().min(1) }),
+    'Bus read failed',
+    async (b, body) => {
+      return await b.read(body.ga);
+    },
+  ),
+);
 
 // Probe device reachability
-router.post('/bus/ping', async (req: Request, res: Response) => {
-  const b = requireBus(res);
-  if (!b) return;
-  const body = validateBody(
-    req,
+router.post(
+  '/bus/ping',
+  busRoute(
     z.object({
       gaAddresses: z.array(z.string()).optional().default([]),
       deviceAddress: z.string().optional(),
     }),
-  );
-  const { gaAddresses, deviceAddress } = body;
-  try {
-    const result = await b.ping(gaAddresses, deviceAddress || null);
-    res.json(result);
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    res
-      .status(msg.includes('Not connected') ? 409 : 502)
-      .json({ error: safeErrorOrConnection('bus', 'Ping failed', e) });
-  }
-});
+    'Ping failed',
+    async (b, body) => {
+      const { gaAddresses, deviceAddress } = body;
+      const result = await b.ping(gaAddresses, deviceAddress || null);
+      return result;
+    },
+  ),
+);
 
 // Flash programming LED on device
-router.post('/bus/identify', async (req: Request, res: Response) => {
-  const b = requireBus(res);
-  if (!b) return;
-  const body = validateBody(
-    req,
+router.post(
+  '/bus/identify',
+  busRoute(
     z.object({ deviceAddress: z.string().min(1) }),
-  );
-  const { deviceAddress } = body;
-  try {
-    await b.identify(deviceAddress);
-    res.json({ ok: true });
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    res
-      .status(msg.includes('Not connected') ? 409 : 502)
-      .json({ error: safeErrorOrConnection('bus', 'Identify failed', e) });
-  }
-});
+    'Identify failed',
+    async (b, body) => {
+      const { deviceAddress } = body;
+      await b.identify(deviceAddress);
+      return { ok: true };
+    },
+  ),
+);
 
 // Bus scan -- streams progress via WebSocket, returns immediately
 let _activeScan: Promise<void> | null = null;
@@ -625,31 +662,23 @@ router.post('/bus/scan/abort', (_req: Request, res: Response) => {
 });
 
 // ── Device info ──────────────────────────────────────────────────────────────
-router.post('/bus/device-info', async (req: Request, res: Response) => {
-  const b = requireBus(res);
-  if (!b) return;
-  const body = validateBody(
-    req,
+router.post(
+  '/bus/device-info',
+  busRoute(
     z.object({ deviceAddress: z.string().min(1) }),
-  );
-  const { deviceAddress } = body;
-  try {
-    const info = await b.readDeviceInfo(deviceAddress);
-    res.json(info);
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    res.status(msg.includes('Not connected') ? 409 : 500).json({
-      error: safeErrorOrConnection('bus', 'Failed to read device info', e),
-    });
-  }
-});
+    'Failed to read device info',
+    async (b, body) => {
+      const { deviceAddress } = body;
+      const info = await b.readDeviceInfo(deviceAddress);
+      return info;
+    },
+  ),
+);
 
 // Read raw device memory over the bus (non-destructive; read-first validation).
-router.post('/bus/read-memory', async (req: Request, res: Response) => {
-  const b = requireBus(res);
-  if (!b) return;
-  const body = validateBody(
-    req,
+router.post(
+  '/bus/read-memory',
+  busRoute(
     z
       .object({
         deviceAddress: z.string().min(1),
@@ -675,23 +704,24 @@ router.post('/bus/read-memory', async (req: Request, res: Response) => {
         message: 'address + length exceeds the 24-bit memory space (0x1000000)',
         path: ['length'],
       }),
-  );
-  const { deviceAddress, address, length, chunkSize } = body;
-  try {
-    const data = await b.readMemory(deviceAddress, address, length, chunkSize);
-    res.json({
-      deviceAddress,
-      address,
-      length: data.length,
-      hex: data.toString('hex'),
-    });
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    res
-      .status(msg.includes('Not connected') ? 409 : 502)
-      .json({ error: safeErrorOrConnection('bus', 'Memory read failed', e) });
-  }
-});
+    'Memory read failed',
+    async (b, body) => {
+      const { deviceAddress, address, length, chunkSize } = body;
+      const data = await b.readMemory(
+        deviceAddress,
+        address,
+        length,
+        chunkSize,
+      );
+      return {
+        deviceAddress,
+        address,
+        length: data.length,
+        hex: data.toString('hex'),
+      };
+    },
+  ),
+);
 
 // Write an exact byte sequence to an absolute memory address. Debug-only
 // helper (unlike everything else in this file, this ONE writes to real
@@ -711,11 +741,9 @@ router.post('/bus/read-memory', async (req: Request, res: Response) => {
 // itself declares for this object - not the size of `hex`, which can be a
 // small, fast, targeted slice) so the device accepts the write exactly
 // like a real ETS load, without needing to blind-write the entire segment.
-router.post('/bus/write-memory', async (req: Request, res: Response) => {
-  const b = requireBus(res);
-  if (!b) return;
-  const body = validateBody(
-    req,
+router.post(
+  '/bus/write-memory',
+  busRoute(
     z.object({
       deviceAddress: z.string().min(1),
       address: z.number().int().min(0).max(0xffffff),
@@ -732,79 +760,75 @@ router.post('/bus/write-memory', async (req: Request, res: Response) => {
         })
         .optional(),
     }),
-  );
-  const { deviceAddress, address, hex, relSegment } = body;
-  const data = Buffer.from(hex, 'hex');
-  const objIdx = relSegment?.objIdx ?? 0;
-  const steps = relSegment
-    ? [
+    'Memory write failed',
+    async (b, body) => {
+      const { deviceAddress, address, hex, relSegment } = body;
+      const data = Buffer.from(hex, 'hex');
+      const objIdx = relSegment?.objIdx ?? 0;
+      const steps = relSegment
+        ? [
+            {
+              type: 'RelSegment' as const,
+              objIdx,
+              propId: 0,
+              lsmIdx: objIdx,
+              size: relSegment.size,
+              fill: relSegment.fill,
+              mode: relSegment.combined ? 'full,par' : 'full',
+            },
+            ...(relSegment.combined
+              ? [
+                  {
+                    type: 'RelSegment' as const,
+                    objIdx,
+                    propId: 0,
+                    lsmIdx: objIdx,
+                    size: relSegment.size,
+                    fill: relSegment.fill,
+                    mode: 'par',
+                  },
+                ]
+              : []),
+            {
+              type: 'WriteRelMem',
+              objIdx,
+              propId: 0,
+              size: data.length,
+              offset: 0,
+            },
+          ]
+        : [
+            {
+              type: 'WriteRelMem',
+              objIdx,
+              propId: 0,
+              size: data.length,
+              offset: 0,
+            },
+          ];
+      const result = await b.downloadDevice(
+        deviceAddress,
+        steps,
+        null,
+        null,
+        data,
+        undefined,
         {
-          type: 'RelSegment' as const,
-          objIdx,
-          propId: 0,
-          lsmIdx: objIdx,
-          size: relSegment.size,
-          fill: relSegment.fill,
-          mode: relSegment.combined ? 'full,par' : 'full',
+          resolvedBases: { [objIdx]: address },
         },
-        ...(relSegment.combined
-          ? [
-              {
-                type: 'RelSegment' as const,
-                objIdx,
-                propId: 0,
-                lsmIdx: objIdx,
-                size: relSegment.size,
-                fill: relSegment.fill,
-                mode: 'par',
-              },
-            ]
-          : []),
-        {
-          type: 'WriteRelMem',
-          objIdx,
-          propId: 0,
-          size: data.length,
-          offset: 0,
-        },
-      ]
-    : [
-        {
-          type: 'WriteRelMem',
-          objIdx,
-          propId: 0,
-          size: data.length,
-          offset: 0,
-        },
-      ];
-  try {
-    const result = await b.downloadDevice(
-      deviceAddress,
-      steps,
-      null,
-      null,
-      data,
-      undefined,
-      {
-        resolvedBases: { [objIdx]: address },
-      },
-    );
-    res.json({
-      deviceAddress,
-      address,
-      hex,
-      byteCount: data.length,
-      loadSequence: !!relSegment,
-      unconfirmedWrites: result.unconfirmedWrites,
-      unconfirmedDetails: result.unconfirmedDetails,
-    });
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    res
-      .status(msg.includes('Not connected') ? 409 : 502)
-      .json({ error: safeErrorOrConnection('bus', 'Memory write failed', e) });
-  }
-});
+      );
+      return {
+        deviceAddress,
+        address,
+        hex,
+        byteCount: data.length,
+        loadSequence: !!relSegment,
+        unconfirmedWrites: result.unconfirmedWrites,
+        unconfirmedDetails: result.unconfirmedDetails,
+      };
+    },
+  ),
+);
 
 // Replay a literal sequence of raw CEMI frames, verbatim - no APDU
 // reconstruction, no automatic Connect/Disconnect. Debug-only, writes to
@@ -814,11 +838,9 @@ router.post('/bus/write-memory', async (req: Request, res: Response) => {
 // missing-load-sequence.md). Caller supplies the real captured frames
 // (including any Connect/Disconnect control frames) as an ordered array of
 // hex strings, extracted straight from a real capture.
-router.post('/bus/replay-frames', async (req: Request, res: Response) => {
-  const b = requireBus(res);
-  if (!b) return;
-  const body = validateBody(
-    req,
+router.post(
+  '/bus/replay-frames',
+  busRoute(
     z.object({
       deviceAddress: z.string().min(1),
       frames: z
@@ -827,103 +849,85 @@ router.post('/bus/replay-frames', async (req: Request, res: Response) => {
         .max(500),
       delayMs: z.number().int().min(0).max(5000).default(30),
     }),
-  );
-  const { deviceAddress, frames, delayMs } = body;
-  try {
-    const buffers = frames.map((h) => Buffer.from(h, 'hex'));
-    await b.replayFrames(deviceAddress, buffers, delayMs);
-    res.json({ deviceAddress, frameCount: buffers.length });
-  } catch (e) {
-    res
-      .status(502)
-      .json({ error: safeErrorOrConnection('bus', 'Frame replay failed', e) });
-  }
-});
+    'Frame replay failed',
+    async (b, body) => {
+      const { deviceAddress, frames, delayMs } = body;
+      const buffers = frames.map((h) => Buffer.from(h, 'hex'));
+      await b.replayFrames(deviceAddress, buffers, delayMs);
+      return { deviceAddress, frameCount: buffers.length };
+    },
+  ),
+);
 
 // Read an arbitrary interface-object property. Read-only debug helper - built
 // to check whether other interface objects (e.g. the Address/Association
 // tables, objIdx 1/2) resolve their own PID 7 (PID_TABLE_REFERENCE) base to a
 // specific address, the same way resolveRelmemBases() does for WriteRelMem's
 // own objIdx. Not used by the download/verify pipeline itself.
-router.post('/bus/read-property', async (req: Request, res: Response) => {
-  const b = requireBus(res);
-  if (!b) return;
-  const body = validateBody(
-    req,
+router.post(
+  '/bus/read-property',
+  busRoute(
     z.object({
       deviceAddress: z.string().min(1),
       objIdx: z.number().int().min(0).max(255),
       propId: z.number().int().min(0).max(255),
     }),
-  );
-  const { deviceAddress, objIdx, propId } = body;
-  try {
-    const [data] = await b.readPropertyMany(deviceAddress, [
-      { objIdx, propId },
-    ]);
-    res.json({
-      deviceAddress,
-      objIdx,
-      propId,
-      hex: (data ?? Buffer.alloc(0)).toString('hex'),
-    });
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    res
-      .status(msg.includes('Not connected') ? 409 : 502)
-      .json({ error: safeErrorOrConnection('bus', 'Property read failed', e) });
-  }
-});
+    'Property read failed',
+    async (b, body) => {
+      const { deviceAddress, objIdx, propId } = body;
+      const [data] = await b.readPropertyMany(deviceAddress, [
+        { objIdx, propId },
+      ]);
+      return {
+        deviceAddress,
+        objIdx,
+        propId,
+        hex: (data ?? Buffer.alloc(0)).toString('hex'),
+      };
+    },
+  ),
+);
 
 // ── KNX Programming ───────────────────────────────────────────────────────────
 
 // Write individual address (device must be in programming mode)
-router.post('/bus/program-ia', async (req: Request, res: Response) => {
-  const b = requireBus(res);
-  if (!b) return;
-  const body = validateBody(req, z.object({ newAddr: z.string().min(1) }));
-  const { newAddr } = body;
-  try {
-    const result = await b.programIA(newAddr);
-    res.json(result);
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    res
-      .status(msg.includes('Not connected') ? 409 : 502)
-      .json({ error: safeErrorOrConnection('bus', 'Program IA failed', e) });
-  }
-});
+router.post(
+  '/bus/program-ia',
+  busRoute(
+    z.object({ newAddr: z.string().min(1) }),
+    'Program IA failed',
+    async (b, body) => {
+      const { newAddr } = body;
+      const result = await b.programIA(newAddr);
+      return result;
+    },
+  ),
+);
 
 // Direct A_Restart trigger against an already-addressed device - no
 // address write involved. Added 2026-08-31 as a real diagnostic tool
 // (docs/knx-device-write-protocol.md §9.5): lets Restart be tested in
 // isolation from the write path, to check whether a given device visibly
 // reboots on A_Restart at all, independent of anything else in flight.
-router.post('/bus/restart-device', async (req: Request, res: Response) => {
-  const b = requireBus(res);
-  if (!b) return;
-  const body = validateBody(
-    req,
+router.post(
+  '/bus/restart-device',
+  busRoute(
     z.object({
       deviceAddress: z.string().min(1),
       settleMs: z.number().int().min(0).max(10000).optional(),
       postRestartDelayMs: z.number().int().min(0).max(10000).optional(),
     }),
-  );
-  try {
-    await b.restartDevice(
-      body.deviceAddress,
-      body.settleMs,
-      body.postRestartDelayMs,
-    );
-    res.json({ ok: true });
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    res.status(msg.includes('Not connected') ? 409 : 502).json({
-      error: safeErrorOrConnection('bus', 'Restart device failed', e),
-    });
-  }
-});
+    'Restart device failed',
+    async (b, body) => {
+      await b.restartDevice(
+        body.deviceAddress,
+        body.settleMs,
+        body.postRestartDelayMs,
+      );
+      return { ok: true };
+    },
+  ),
+);
 
 // Detect a device currently in physical programming mode (button held
 // down) - broadcasts A_IndividualAddress_Read and reports whether/what
@@ -931,23 +935,14 @@ router.post('/bus/restart-device', async (req: Request, res: Response) => {
 // (not the same mechanism as) /bus/assign-address-by-serial below.
 router.post(
   '/bus/check-programming-mode',
-  async (req: Request, res: Response) => {
-    const b = requireBus(res);
-    if (!b) return;
-    const body = validateBody(
-      req,
-      z.object({ timeoutMs: z.number().int().min(100).max(30000).optional() }),
-    );
-    try {
+  busRoute(
+    z.object({ timeoutMs: z.number().int().min(100).max(30000).optional() }),
+    'Check programming mode failed',
+    async (b, body) => {
       const result = await b.checkProgrammingMode(body.timeoutMs);
-      res.json(result);
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      res.status(msg.includes('Not connected') ? 409 : 502).json({
-        error: safeErrorOrConnection('bus', 'Check programming mode failed', e),
-      });
-    }
-  },
+      return result;
+    },
+  ),
 );
 
 // Real KNX network-management procedure NM_Read_SerialNumber_By_
@@ -961,29 +956,16 @@ router.post(
 // default) but whose serials are always unique.
 router.post(
   '/bus/read-serials-in-programming-mode',
-  async (req: Request, res: Response) => {
-    const b = requireBus(res);
-    if (!b) return;
-    const body = validateBody(
-      req,
-      z.object({ timeoutMs: z.number().int().min(100).max(30000).optional() }),
-    );
-    try {
+  busRoute(
+    z.object({ timeoutMs: z.number().int().min(100).max(30000).optional() }),
+    'Read serials in programming mode failed',
+    async (b, body) => {
       const devices = await b.readSerialNumbersInProgrammingMode(
         body.timeoutMs,
       );
-      res.json({ devices });
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      res.status(msg.includes('Not connected') ? 409 : 502).json({
-        error: safeErrorOrConnection(
-          'bus',
-          'Read serials in programming mode failed',
-          e,
-        ),
-      });
-    }
-  },
+      return { devices };
+    },
+  ),
 );
 
 // Assign an individual address via the device's own serial number
@@ -994,36 +976,23 @@ router.post(
 // address) - see docs/knx-device-write-protocol.md §9.2.
 router.post(
   '/bus/assign-address-by-serial',
-  async (req: Request, res: Response) => {
-    const b = requireBus(res);
-    if (!b) return;
-    const body = validateBody(
-      req,
-      z.object({
-        serial: z
-          .string()
-          .regex(/^[0-9a-fA-F]{12}$/, 'serial must be 12 hex chars (6 bytes)'),
-        newAddress: z.string().min(1),
-      }),
-    );
-    const { serial, newAddress } = body;
-    try {
+  busRoute(
+    z.object({
+      serial: z
+        .string()
+        .regex(/^[0-9a-fA-F]{12}$/, 'serial must be 12 hex chars (6 bytes)'),
+      newAddress: z.string().min(1),
+    }),
+    'Assign address by serial failed',
+    async (b, body) => {
+      const { serial, newAddress } = body;
       const result = await b.assignIndividualAddressBySerial(
         Buffer.from(serial, 'hex'),
         newAddress,
       );
-      res.json(result);
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      res.status(msg.includes('Not connected') ? 409 : 502).json({
-        error: safeErrorOrConnection(
-          'bus',
-          'Assign address by serial failed',
-          e,
-        ),
-      });
-    }
-  },
+      return result;
+    },
+  ),
 );
 
 // Real-only-read counterpart to /bus/assign-address-by-serial above - ask
