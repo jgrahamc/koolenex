@@ -10,6 +10,7 @@
  */
 
 import { logger } from './log.ts';
+import { etsTestMatch } from '../shared/ets-dyn.ts';
 import {
   xmlParser,
   orderedXmlParser,
@@ -1363,26 +1364,6 @@ export function buildAppIndex(buf: Buffer): AppIndex | null {
       number,
       { corId: string; channel: string }[]
     >(); // objectNumber → [{corId, channel}] in walk order
-
-    function etsTestMatch(val: string, tests: string[]): boolean {
-      const n = parseFloat(val);
-      for (const t of tests) {
-        const rm =
-          typeof t === 'string' && t.match(/^(!=|=|[<>]=?)(-?\d+(?:\.\d+)?)$/);
-        if (rm) {
-          if (isNaN(n)) continue;
-          const rv = parseFloat(rm[2]!);
-          const op = rm[1];
-          if (op === '<' && n < rv) return true;
-          if (op === '>' && n > rv) return true;
-          if (op === '<=' && n <= rv) return true;
-          if (op === '>=' && n >= rv) return true;
-          if (op === '=' && n === rv) return true;
-          if (op === '!=' && n !== rv) return true;
-        } else if (String(t) === val) return true;
-      }
-      return false;
-    }
 
     function isTypeNone(prId: string): boolean {
       const pr = paramRefDefs[prId];

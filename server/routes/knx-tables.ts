@@ -1,5 +1,10 @@
 // ── KNX table builders ────────────────────────────────────────────────────────
 
+// Shared with the client's parameter UI - see shared/ets-dyn.ts. Re-exported
+// because routes/index.ts (and its test importers) take it from here.
+import { etsTestMatch } from '../../shared/ets-dyn.ts';
+export { etsTestMatch };
+
 // ── ETS dynamic tree types (matches ets-app.ts DynItem emission) ────────────
 // The stored model shape is a single recursive `items` array of tagged
 // DynItems: dynTree.main.items -> DynItem[], where each item's `type` is one
@@ -523,32 +528,6 @@ export function decodeGroupObjectEntryFlags(entry: {
       GROUP_OBJECT_SIZE_NAMES[entry.sizeCodeByte] ??
       `code ${entry.sizeCodeByte}`,
   };
-}
-
-// Test whether a numeric/string value matches an ETS when-test condition.
-export function etsTestMatch(
-  val: string | number,
-  tests: (string | number)[] | null | undefined,
-): boolean {
-  const n = parseFloat(String(val));
-  for (const t of tests || []) {
-    const rm =
-      typeof t === 'string' && t.match(/^(!=|=|[<>]=?)(-?\d+(?:\.\d+)?)$/);
-    if (rm) {
-      if (isNaN(n)) continue;
-      const rv = parseFloat(rm[2]!);
-      const op = rm[1];
-      if (op === '<' && n < rv) return true;
-      if (op === '>' && n > rv) return true;
-      if (op === '<=' && n <= rv) return true;
-      if (op === '>=' && n >= rv) return true;
-      if (op === '=' && n === rv) return true;
-      if (op === '!=' && n !== rv) return true;
-    } else if (String(t) === val) {
-      return true;
-    }
-  }
-  return false;
 }
 
 const CONTAINER_TYPES = new Set(['block', 'channel', 'cib']);

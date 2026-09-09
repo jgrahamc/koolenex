@@ -4,6 +4,7 @@
  */
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
+import { evalActiveParams } from '../client/src/detail/paramUI.ts';
 import path from 'path';
 import fs from 'fs';
 
@@ -19,77 +20,10 @@ const { parseKnxproj } = await import('../server/ets-parser.ts');
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-function etsTestMatch(val: string, tests: any[]) {
-  const n = parseFloat(val);
-  for (const t of tests || []) {
-    const rm =
-      typeof t === 'string' && t.match(/^(!=|=|[<>]=?)(-?\d+(?:\.\d+)?)$/);
-    if (rm) {
-      if (isNaN(n)) continue;
-      const rv = parseFloat(rm[2]);
-      const op = rm[1];
-      if (op === '<' && n < rv) return true;
-      if (op === '>' && n > rv) return true;
-      if (op === '<=' && n <= rv) return true;
-      if (op === '>=' && n >= rv) return true;
-      if (op === '=' && n === rv) return true;
-      if (op === '!=' && n !== rv) return true;
-    } else if (String(t) === val) return true;
-  }
-  return false;
-}
-
 /** Evaluate the Dynamic tree and return the set of active paramRef IDs. */
+// The real, shipped evaluator - no longer replicated here.
 function getActiveParams(model: any) {
-  const { params, dynTree } = model;
-  const values: Record<string, any> = {};
-  for (const [k, v] of Object.entries(model.currentValues || {})) values[k] = v;
-  const getVal = (prKey: string) =>
-    values[prKey] ?? params[prKey]?.defaultValue ?? '';
-
-  const active = new Set<string>();
-  function evalChoice(c: any) {
-    if (
-      c.paramRefId &&
-      !c.accessNone &&
-      params[c.paramRefId] &&
-      !active.has(c.paramRefId)
-    )
-      return;
-    const raw = getVal(c.paramRefId);
-    const val = String(
-      raw !== '' && raw != null ? raw : (c.defaultValue ?? ''),
-    );
-    let matched = false,
-      defItems: any = null;
-    for (const w of c.whens || []) {
-      if (w.isDefault) {
-        defItems = w.items;
-        continue;
-      }
-      if (etsTestMatch(val, w.test)) {
-        matched = true;
-        walk(w.items);
-      }
-    }
-    if (!matched && defItems) walk(defItems);
-  }
-  function walk(items: any[]) {
-    if (!items) return;
-    for (const item of items) {
-      if (item.type === 'paramRef') active.add(item.refId);
-      else if (
-        item.type === 'block' ||
-        item.type === 'channel' ||
-        item.type === 'cib'
-      )
-        walk(item.items);
-      else if (item.type === 'choose') evalChoice(item);
-    }
-  }
-  walk(dynTree?.main?.items);
-  for (const md of dynTree?.moduleDefs || []) walk(md.items);
-  return active;
+  return evalActiveParams(model, { ...(model.currentValues || {}) });
 }
 
 /** Build the set of params that appear in UI sections (active + in model.params). */

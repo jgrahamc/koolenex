@@ -7,6 +7,7 @@
  */
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
+import { buildParamUI as realBuildParamUI } from '../client/src/detail/paramUI.ts';
 import path from 'path';
 import fs from 'fs';
 
@@ -20,187 +21,35 @@ if (!fs.existsSync(SMOKE_PROJECT)) {
 
 const { parseKnxproj } = await import('../server/ets-parser.ts');
 
-// ── Helpers (replicate client logic) ─────────────────────────────────────────
+// ── Helpers ──────────────────────────────────────────────────────────────────
 
-function etsTestMatch(val: string, tests: any[]) {
-  const n = parseFloat(val);
-  for (const t of tests || []) {
-    const rm =
-      typeof t === 'string' && t.match(/^(!=|=|[<>]=?)(-?\d+(?:\.\d+)?)$/);
-    if (rm) {
-      if (isNaN(n)) continue;
-      const rv = parseFloat(rm[2]);
-      const op = rm[1];
-      if (op === '<' && n < rv) return true;
-      if (op === '>' && n > rv) return true;
-      if (op === '<=' && n <= rv) return true;
-      if (op === '>=' && n >= rv) return true;
-      if (op === '=' && n === rv) return true;
-      if (op === '!=' && n !== rv) return true;
-    } else if (String(t) === val) return true;
-  }
-  return false;
-}
+// etsTestMatch is NOT replicated - it is the real shipped predicate, shared
+// by the server's download-image builder and the client's parameter UI.
 
+// The real, shipped builder - no longer replicated here. These tests
+// assert a simplified projection of it (sections keyed by plain label,
+// items reduced to label + kind), which `projectUI` derives below.
 function buildParamUI(model: any) {
-  const { params, dynTree } = model;
-  const values: Record<string, any> = {};
-  for (const [k, v] of Object.entries(model.currentValues || {})) values[k] = v;
-  const getVal = (prKey: string) =>
-    values[prKey] ?? params[prKey]?.defaultValue ?? '';
-
-  // Phase 1: determine active params
-  const active = new Set<string>();
-  function evalChoiceActive(c: any) {
-    if (c.paramRefId && !c.accessNone && !active.has(c.paramRefId)) return;
-    const raw = getVal(c.paramRefId);
-    const val = String(
-      raw !== '' && raw != null ? raw : (c.defaultValue ?? ''),
-    );
-    let matched = false,
-      defItems: any = null;
-    for (const w of c.whens || []) {
-      if (w.isDefault) {
-        defItems = w.items;
-        continue;
-      }
-      if (etsTestMatch(val, w.test)) {
-        matched = true;
-        walkActive(w.items);
-      }
-    }
-    if (!matched && defItems) walkActive(defItems);
-  }
-  function walkActive(items: any[]) {
-    if (!items) return;
-    for (const item of items) {
-      if (item.type === 'paramRef') active.add(item.refId);
-      else if (
-        item.type === 'block' ||
-        item.type === 'channel' ||
-        item.type === 'cib'
-      )
-        walkActive(item.items);
-      else if (item.type === 'choose') evalChoiceActive(item);
-    }
-  }
-  walkActive(dynTree?.main?.items);
-
-  // Phase 2: build sections
+  const ui = realBuildParamUI(model, { ...(model.currentValues || {}) });
   const sections: string[] = [];
   const secMap: Record<string, any[]> = {};
-  const blockRenames: Record<string, string> = {};
-
-  function collectRenames(items: any[]) {
-    if (!items) return;
-    for (const item of items) {
-      if (item.type === 'rename' && item.refId && item.text)
-        blockRenames[item.refId] = item.text;
-      else if (item.type === 'choose') {
-        if (item.paramRefId && !item.accessNone && !active.has(item.paramRefId))
-          continue;
-        const raw = getVal(item.paramRefId);
-        const val = String(
-          raw !== '' && raw != null ? raw : (item.defaultValue ?? ''),
-        );
-        let matched = false,
-          defItems: any = null;
-        for (const w of item.whens || []) {
-          if (w.isDefault) {
-            defItems = w.items;
-            continue;
-          }
-          if (etsTestMatch(val, w.test)) {
-            matched = true;
-            collectRenames(w.items);
-          }
-        }
-        if (!matched && defItems) collectRenames(defItems);
-      } else if (item.items) collectRenames(item.items);
-    }
-  }
-
-  function addItem(sec: string, label: string, type?: string) {
-    if (!secMap[sec]) {
-      secMap[sec] = [];
-      sections.push(sec);
-    }
-    secMap[sec].push({ label, type: type || 'param' });
-  }
-
-  function evalChooseUI(item: any, secLabel: string, walkFn: Function) {
-    if (item.paramRefId && !item.accessNone && !active.has(item.paramRefId))
-      return;
-    const raw = getVal(item.paramRefId);
-    const val = String(
-      raw !== '' && raw != null ? raw : (item.defaultValue ?? ''),
-    );
-    let matched = false,
-      defItems: any = null;
-    for (const w of item.whens || []) {
-      if (w.isDefault) {
-        defItems = w.items;
-        continue;
+  for (const key of ui.sections) {
+    const label = ui.secLabelMap[key] ?? '';
+    for (const it of ui.secMap[key] ?? []) {
+      if (!secMap[label]) {
+        secMap[label] = [];
+        sections.push(label);
       }
-      if (etsTestMatch(val, w.test)) {
-        matched = true;
-        walkFn(w.items, secLabel);
-      }
-    }
-    if (!matched && defItems) walkFn(defItems, secLabel);
-  }
-
-  function walkItems(items: any[], secLabel: string) {
-    if (!items) return;
-    for (const item of items) {
-      if (item.type === 'paramRef') {
-        if (!params[item.refId] || !active.has(item.refId)) continue;
-        addItem(
-          secLabel,
-          params[item.refId].label,
-          item.cell ? 'cell:' + item.cell : 'param',
-        );
-      } else if (item.type === 'separator') {
-        addItem(secLabel, item.text || '', 'sep:' + item.uiHint);
-      } else if (item.type === 'block') {
-        collectRenames(item.items);
-        if (item.access === 'None') {
-          /* hidden */
-        } else if (item.inline) walkItems(item.items, secLabel);
-        else {
-          const renamed = item.id ? blockRenames[item.id] : null;
-          const blockLabel = renamed || item.text || item.name || secLabel;
-          walkItems(item.items, blockLabel);
-        }
-      } else if (item.type === 'choose') {
-        evalChooseUI(item, secLabel, walkItems);
-      } else if (item.type === 'channel') {
-        collectRenames(item.items);
-        walkChannelItems(item.items, item.label);
-      } else if (item.type === 'cib') {
-        walkItems(item.items, '');
-      }
+      secMap[label].push(
+        it.type === 'separator'
+          ? { label: it.text ?? '', type: 'sep:' + it.uiHint }
+          : {
+              label: it.label,
+              type: it.cell ? 'cell:' + it.cell : 'param',
+            },
+      );
     }
   }
-
-  function walkChannelItems(items: any[], chLabel: string) {
-    if (!items) return;
-    for (const item of items) {
-      if (item.type === 'block' && item.access === 'None') {
-        collectRenames(item.items);
-      } else if (item.type === 'block' && !item.inline) {
-        collectRenames(item.items);
-        const renamed = item.id ? blockRenames[item.id] : null;
-        const blockLabel = renamed || item.text || item.name || chLabel;
-        walkItems(item.items, blockLabel);
-      } else if (item.type === 'choose') {
-        evalChooseUI(item, chLabel, walkChannelItems);
-      }
-    }
-  }
-
-  walkItems(dynTree?.main?.items, '');
-
   return { sections, secMap };
 }
 
