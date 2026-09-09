@@ -5,7 +5,11 @@ import { z } from 'zod';
 import * as db from '../db.ts';
 import { parseKnxproj } from '../ets-parser.ts';
 import type { ParsedProject } from '../ets-parser.ts';
-import { saveModelsAndMasterXml, MAX_UPLOAD_BYTES } from './shared.ts';
+import {
+  saveModelsAndMasterXml,
+  clearMasterDataCaches,
+  MAX_UPLOAD_BYTES,
+} from './shared.ts';
 import { invalidateGaDptCache } from './bus.ts';
 import * as importJobs from './import-jobs.ts';
 import type { ImportJob } from './import-jobs.ts';
@@ -434,6 +438,10 @@ router.delete('/projects/:id', (req: Request, res: Response) => {
     run('DELETE FROM projects WHERE id=?', [pid]);
   });
   invalidateGaDptCache();
+  // The project's knx_master_<id>.xml is left on disk (ids are AUTOINCREMENT,
+  // so nothing can inherit it), but its parsed form should not sit in memory
+  // for the rest of the process.
+  clearMasterDataCaches(pid);
   res.json({ ok: true });
 });
 

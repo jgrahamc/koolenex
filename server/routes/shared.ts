@@ -23,6 +23,11 @@ export function saveMasterXml(
 ): void {
   if (!xml) return;
   fs.writeFileSync(masterXmlPath(projectId), xml);
+  // Everything parsed out of this file for this project is now stale. Doing
+  // it here rather than at the call sites means a reimport, a catalog
+  // import, or any future writer cannot forget it - this is the one place
+  // the file changes.
+  clearMasterDataCaches(projectId);
 }
 
 export function readMasterXml(
@@ -64,6 +69,36 @@ export const _maskVersionCache: Record<
   string | number,
   Record<string, MaskVersionEntry>
 > = {};
+
+/**
+ * Drop everything cached from one project's master XML (or from every
+ * project's, with no argument).
+ *
+ * The caches above are populated on first read and were never cleared: a
+ * reimport into an existing project id rewrites knx_master_<id>.xml, but
+ * /dpt-info, /space-usages, /translations, /medium-types and /mask-versions
+ * went on serving the previous import's data for the life of the process.
+ * saveMasterXml calls this, so the caches follow the file.
+ *
+ * Numeric and string project ids land on the same JS object key, so
+ * clearing by either form clears both.
+ */
+export function clearMasterDataCaches(projectId?: string | number): void {
+  const caches: Record<string | number, unknown>[] = [
+    _dptInfoCache,
+    _spaceUsageCache,
+    _translationCache,
+    _mediumTypeCache,
+    _maskVersionCache,
+  ];
+  for (const cache of caches) {
+    if (projectId === undefined) {
+      for (const key of Object.keys(cache)) delete cache[key];
+    } else {
+      delete cache[projectId];
+    }
+  }
+}
 
 export const toArr = <T>(v: T | T[] | null | undefined): T[] =>
   v == null ? [] : Array.isArray(v) ? v : [v];
