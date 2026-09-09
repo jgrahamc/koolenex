@@ -100,77 +100,109 @@ interface XmlElement {
   [key: string]: unknown;
 }
 
+/**
+ * Read-parse-cache wrapper around a project's ETS master XML.
+ *
+ * Every master-data lookup (DPT info, space usages, translations, medium
+ * types, mask versions) opened with the same six lines: cache probe,
+ * readMasterXml, parseMasterXml, drill into KNX.MasterData, and a fallback
+ * for a project with no master XML on record. `extract` receives that
+ * MasterData node and returns the finished, cacheable value; `empty` builds
+ * the value used when the project has no master XML.
+ *
+ * Note the caches are per-project and never invalidated - a value computed
+ * here is served for the lifetime of the process.
+ */
+export function cachedMasterData<T>(
+  cache: Record<string | number, T>,
+  projectId: string | number,
+  empty: () => T,
+  extract: (masterData: Record<string, unknown>) => T,
+): T {
+  const hit = cache[projectId];
+  if (hit) return hit;
+  const xml = readMasterXml(projectId);
+  if (!xml) return (cache[projectId] = empty());
+  const root = parseMasterXml(xml);
+  const knx = root?.KNX as Record<string, unknown> | undefined;
+  const md = (knx?.MasterData as Record<string, unknown> | undefined) ?? {};
+  return (cache[projectId] = extract(md));
+}
+
 export function getDptInfo(
   projectId: string | number,
 ): Record<string, DptInfoEntry> {
-  if (_dptInfoCache[projectId]) return _dptInfoCache[projectId]!;
-  const xml = readMasterXml(projectId);
-  if (!xml) return (_dptInfoCache[projectId] = {});
-  const root = parseMasterXml(xml) as {
-    KNX?: {
-      MasterData?: { DatapointTypes?: { DatapointType?: XmlElement[] } };
-    };
-  };
-  const dptTypes = root?.KNX?.MasterData?.DatapointTypes?.DatapointType ?? [];
-  const result: Record<string, DptInfoEntry> = {};
-  for (const dpt of dptTypes) {
-    const mainNum = dpt['@_Number'] as string;
-    const sizeInBit = parseInt(dpt['@_SizeInBit'] as string, 10) || 0;
-    for (const sub of toArr(
-      (dpt as { DatapointSubtypes?: { DatapointSubtype?: XmlElement[] } })
-        ?.DatapointSubtypes?.DatapointSubtype,
-    )) {
-      const key = `${mainNum}.${String((sub as XmlElement)['@_Number']).padStart(3, '0')}`;
-      const fmt = ((sub as XmlElement)?.Format ?? {}) as XmlElement;
-      let unit = '';
-      let enums: Record<number, string> | undefined;
-      let coefficient: number | undefined;
-
-      for (const tag of ['Float', 'UnsignedInteger', 'SignedInteger']) {
-        const arr = toArr(fmt[tag] as XmlElement[] | XmlElement | null);
-        if (arr.length) {
-          unit = ((arr[0] as XmlElement)['@_Unit'] as string) || '';
-          const coeff = (arr[0] as XmlElement)['@_Coefficient'];
-          if (coeff) coefficient = parseFloat(coeff as string);
-          break;
-        }
-      }
-
-      const bits = toArr(fmt.Bit as XmlElement[] | XmlElement | null);
-      if (bits.length) {
-        const b = bits[0] as XmlElement;
-        enums = {
-          0: (b['@_Cleared'] as string) || '0',
-          1: (b['@_Set'] as string) || '1',
-        };
-      }
-
-      const enumEl = toArr(fmt.Enumeration as XmlElement[] | XmlElement | null);
-      if (enumEl.length) {
-        enums = {};
-        for (const ev of toArr(
-          (enumEl[0] as XmlElement).EnumValue as
-            | XmlElement[]
-            | XmlElement
-            | null,
+  return cachedMasterData(
+    _dptInfoCache,
+    projectId,
+    () => ({}),
+    (md) => {
+      const dptTypes =
+        (md as { DatapointTypes?: { DatapointType?: XmlElement[] } })
+          ?.DatapointTypes?.DatapointType ?? [];
+      const result: Record<string, DptInfoEntry> = {};
+      for (const dpt of dptTypes) {
+        const mainNum = dpt['@_Number'] as string;
+        const sizeInBit = parseInt(dpt['@_SizeInBit'] as string, 10) || 0;
+        for (const sub of toArr(
+          (dpt as { DatapointSubtypes?: { DatapointSubtype?: XmlElement[] } })
+            ?.DatapointSubtypes?.DatapointSubtype,
         )) {
-          const e = ev as XmlElement;
-          enums[Number(e['@_Value'])] =
-            (e['@_Text'] as string) || String(e['@_Value']);
+          const key = `${mainNum}.${String((sub as XmlElement)['@_Number']).padStart(3, '0')}`;
+          const fmt = ((sub as XmlElement)?.Format ?? {}) as XmlElement;
+          let unit = '';
+          let enums: Record<number, string> | undefined;
+          let coefficient: number | undefined;
+
+          for (const tag of ['Float', 'UnsignedInteger', 'SignedInteger']) {
+            const arr = toArr(fmt[tag] as XmlElement[] | XmlElement | null);
+            if (arr.length) {
+              unit = ((arr[0] as XmlElement)['@_Unit'] as string) || '';
+              const coeff = (arr[0] as XmlElement)['@_Coefficient'];
+              if (coeff) coefficient = parseFloat(coeff as string);
+              break;
+            }
+          }
+
+          const bits = toArr(fmt.Bit as XmlElement[] | XmlElement | null);
+          if (bits.length) {
+            const b = bits[0] as XmlElement;
+            enums = {
+              0: (b['@_Cleared'] as string) || '0',
+              1: (b['@_Set'] as string) || '1',
+            };
+          }
+
+          const enumEl = toArr(
+            fmt.Enumeration as XmlElement[] | XmlElement | null,
+          );
+          if (enumEl.length) {
+            enums = {};
+            for (const ev of toArr(
+              (enumEl[0] as XmlElement).EnumValue as
+                | XmlElement[]
+                | XmlElement
+                | null,
+            )) {
+              const e = ev as XmlElement;
+              enums[Number(e['@_Value'])] =
+                (e['@_Text'] as string) || String(e['@_Value']);
+            }
+          }
+
+          result[key] = {
+            name: ((sub as XmlElement)['@_Name'] as string) || '',
+            text: ((sub as XmlElement)['@_Text'] as string) || '',
+            unit,
+            sizeInBit,
+            ...(coefficient != null ? { coefficient } : {}),
+            ...(enums ? { enums } : {}),
+          };
         }
       }
-
-      result[key] = {
-        name: ((sub as XmlElement)['@_Name'] as string) || '',
-        text: ((sub as XmlElement)['@_Text'] as string) || '',
-        unit,
-        sizeInBit,
-        ...(coefficient != null ? { coefficient } : {}),
-        ...(enums ? { enums } : {}),
-      };
-    }
-  }
-  return (_dptInfoCache[projectId] = result);
+      return result;
+    },
+  );
 }
 
 export interface UpdateBuilder {

@@ -7,8 +7,7 @@ import * as db from '../db.ts';
 import { validateBody, validateQuery, paramId } from '../validate.ts';
 import {
   getDptInfo,
-  readMasterXml,
-  parseMasterXml,
+  cachedMasterData,
   toArr,
   makeUpdateBuilder,
   _spaceUsageCache,
@@ -29,6 +28,24 @@ const rtfToHTML = require_('@iarna/rtf-to-html') as (
 ) => NodeJS.WritableStream;
 
 const router = express.Router();
+
+/**
+ * The five master-data lookups below (/dpt-info, /space-usages,
+ * /translations, /medium-types, /mask-versions) are the same route: an
+ * optional ?projectId, straight through to a cached getter. The getters are
+ * what differ; the plumbing is not worth writing five times.
+ */
+function masterDataRoute<T>(
+  get: (projectId: string) => T,
+): (req: Request, res: Response) => void {
+  return (req: Request, res: Response): void => {
+    const query = validateQuery(
+      req,
+      z.object({ projectId: z.string().optional().default('') }),
+    );
+    res.json(get(query.projectId));
+  };
+}
 
 // ── RTF to HTML conversion ────────────────────────────────────────────────────
 router.post(
@@ -68,45 +85,28 @@ router.get('/health', (_req: Request, res: Response): void => {
 });
 
 // ── DPT info ──────────────────────────────────────────────────────────────────
-router.get('/dpt-info', (req: Request, res: Response): void => {
-  const query = validateQuery(
-    req,
-    z.object({
-      projectId: z.string().optional().default(''),
-    }),
-  );
-  res.json(getDptInfo(query.projectId));
-});
+router.get('/dpt-info', masterDataRoute(getDptInfo));
 
 // ── SpaceUsage info ───────────────────────────────────────────────────────────
 function getSpaceUsages(projectId: string | number): SpaceUsageEntry[] {
-  const cache = _spaceUsageCache;
-  if (cache[projectId]) return cache[projectId]!;
-  const xml = readMasterXml(projectId);
-  if (!xml) return (cache[projectId] = []);
-  const root = parseMasterXml(xml) as Record<string, unknown>;
-  const knx = root?.KNX as Record<string, unknown> | undefined;
-  const md = knx?.MasterData as Record<string, unknown> | undefined;
-  const sus = md?.SpaceUsages as Record<string, unknown> | undefined;
-  const raw = (sus?.SpaceUsage || []) as Record<string, unknown>[];
-  const arr = Array.isArray(raw) ? raw : [raw];
-  cache[projectId] = arr.map((su) => ({
-    id: su['@_Id'] as string,
-    number: Number(su['@_Number']),
-    text: (su['@_Text'] as string) || '',
-  }));
-  return cache[projectId]!;
+  return cachedMasterData(
+    _spaceUsageCache,
+    projectId,
+    () => [],
+    (md) => {
+      const sus = md.SpaceUsages as Record<string, unknown> | undefined;
+      const raw = (sus?.SpaceUsage || []) as Record<string, unknown>[];
+      const arr = Array.isArray(raw) ? raw : [raw];
+      return arr.map((su) => ({
+        id: su['@_Id'] as string,
+        number: Number(su['@_Number']),
+        text: (su['@_Text'] as string) || '',
+      }));
+    },
+  );
 }
 
-router.get('/space-usages', (req: Request, res: Response): void => {
-  const query = validateQuery(
-    req,
-    z.object({
-      projectId: z.string().optional().default(''),
-    }),
-  );
-  res.json(getSpaceUsages(query.projectId));
-});
+router.get('/space-usages', masterDataRoute(getSpaceUsages));
 
 // ── Translations ─────────────────────────────────────────────────────────────
 const LANG_NAMES: Record<string, string> = {
@@ -131,173 +131,155 @@ const LANG_NAMES: Record<string, string> = {
 };
 
 function getTranslations(projectId: string | number): TranslationResult {
-  const cache = _translationCache;
-  if (cache[projectId]) return cache[projectId]!;
-  const xml = readMasterXml(projectId);
-  if (!xml) return (cache[projectId] = { languages: [], translations: {} });
-  const root = parseMasterXml(xml) as Record<string, unknown>;
-  const knx = root?.KNX as Record<string, unknown> | undefined;
-  const md = knx?.MasterData as Record<string, unknown> | undefined;
-
-  const en: Record<string, string> = {};
-  const dptTypes = md?.DatapointTypes as Record<string, unknown> | undefined;
-  for (const dpt of toArr(
-    dptTypes?.DatapointType as Record<string, unknown>[] | undefined,
-  )) {
-    if (dpt['@_Id'] && dpt['@_Text'])
-      en[dpt['@_Id'] as string] = dpt['@_Text'] as string;
-    const dptSubs = dpt?.DatapointSubtypes as
-      | Record<string, unknown>
-      | undefined;
-    for (const sub of toArr(
-      dptSubs?.DatapointSubtype as Record<string, unknown>[] | undefined,
-    )) {
-      if (sub['@_Id'] && sub['@_Text'])
-        en[sub['@_Id'] as string] = sub['@_Text'] as string;
-    }
-  }
-  const spaceUsages = md?.SpaceUsages as Record<string, unknown> | undefined;
-  for (const su of toArr(
-    spaceUsages?.SpaceUsage as Record<string, unknown>[] | undefined,
-  )) {
-    if (su['@_Id'] && su['@_Text'])
-      en[su['@_Id'] as string] = su['@_Text'] as string;
-  }
-  const mediumTypes = md?.MediumTypes as Record<string, unknown> | undefined;
-  for (const mt of toArr(
-    mediumTypes?.MediumType as Record<string, unknown>[] | undefined,
-  )) {
-    if (mt['@_Id'] && mt['@_Text'])
-      en[mt['@_Id'] as string] = mt['@_Text'] as string;
-  }
-  const functionTypes = md?.FunctionTypes as
-    | Record<string, unknown>
-    | undefined;
-  for (const ft of toArr(
-    functionTypes?.FunctionType as Record<string, unknown>[] | undefined,
-  )) {
-    if (ft['@_Id'] && ft['@_Text'])
-      en[ft['@_Id'] as string] = ft['@_Text'] as string;
-    for (const fp of toArr(
-      ft?.FunctionPoint as Record<string, unknown>[] | undefined,
-    )) {
-      if (fp['@_Id'] && fp['@_Text'])
-        en[fp['@_Id'] as string] = fp['@_Text'] as string;
-    }
-  }
-
-  const translations: Record<string, Record<string, string>> = { 'en-US': en };
-  const languages: Array<{ id: string; name: string }> = [
-    { id: 'en-US', name: 'English' },
-  ];
-  const langs = md?.Languages as Record<string, unknown> | undefined;
-  for (const lang of toArr(
-    langs?.Language as Record<string, unknown>[] | undefined,
-  )) {
-    const langId = lang['@_Identifier'] as string | undefined;
-    if (!langId) continue;
-    languages.push({ id: langId, name: LANG_NAMES[langId] || langId });
-    const langTexts: Record<string, string> = {};
-    for (const tu of toArr(
-      lang?.TranslationUnit as Record<string, unknown>[] | undefined,
-    )) {
-      for (const te of toArr(
-        tu?.TranslationElement as Record<string, unknown>[] | undefined,
+  return cachedMasterData(
+    _translationCache,
+    projectId,
+    () => ({ languages: [], translations: {} }),
+    (md) => {
+      const en: Record<string, string> = {};
+      const dptTypes = md?.DatapointTypes as
+        | Record<string, unknown>
+        | undefined;
+      for (const dpt of toArr(
+        dptTypes?.DatapointType as Record<string, unknown>[] | undefined,
       )) {
-        const refId = te['@_RefId'] as string | undefined;
-        if (!refId) continue;
-        for (const tr of toArr(
-          te?.Translation as Record<string, unknown>[] | undefined,
+        if (dpt['@_Id'] && dpt['@_Text'])
+          en[dpt['@_Id'] as string] = dpt['@_Text'] as string;
+        const dptSubs = dpt?.DatapointSubtypes as
+          | Record<string, unknown>
+          | undefined;
+        for (const sub of toArr(
+          dptSubs?.DatapointSubtype as Record<string, unknown>[] | undefined,
         )) {
-          if (tr['@_AttributeName'] === 'Text' && tr['@_Text'])
-            langTexts[refId] = tr['@_Text'] as string;
+          if (sub['@_Id'] && sub['@_Text'])
+            en[sub['@_Id'] as string] = sub['@_Text'] as string;
         }
       }
-    }
-    translations[langId] = langTexts;
-  }
+      const spaceUsages = md?.SpaceUsages as
+        | Record<string, unknown>
+        | undefined;
+      for (const su of toArr(
+        spaceUsages?.SpaceUsage as Record<string, unknown>[] | undefined,
+      )) {
+        if (su['@_Id'] && su['@_Text'])
+          en[su['@_Id'] as string] = su['@_Text'] as string;
+      }
+      const mediumTypes = md?.MediumTypes as
+        | Record<string, unknown>
+        | undefined;
+      for (const mt of toArr(
+        mediumTypes?.MediumType as Record<string, unknown>[] | undefined,
+      )) {
+        if (mt['@_Id'] && mt['@_Text'])
+          en[mt['@_Id'] as string] = mt['@_Text'] as string;
+      }
+      const functionTypes = md?.FunctionTypes as
+        | Record<string, unknown>
+        | undefined;
+      for (const ft of toArr(
+        functionTypes?.FunctionType as Record<string, unknown>[] | undefined,
+      )) {
+        if (ft['@_Id'] && ft['@_Text'])
+          en[ft['@_Id'] as string] = ft['@_Text'] as string;
+        for (const fp of toArr(
+          ft?.FunctionPoint as Record<string, unknown>[] | undefined,
+        )) {
+          if (fp['@_Id'] && fp['@_Text'])
+            en[fp['@_Id'] as string] = fp['@_Text'] as string;
+        }
+      }
 
-  cache[projectId] = { languages, translations };
-  return cache[projectId]!;
+      const translations: Record<string, Record<string, string>> = {
+        'en-US': en,
+      };
+      const languages: Array<{ id: string; name: string }> = [
+        { id: 'en-US', name: 'English' },
+      ];
+      const langs = md?.Languages as Record<string, unknown> | undefined;
+      for (const lang of toArr(
+        langs?.Language as Record<string, unknown>[] | undefined,
+      )) {
+        const langId = lang['@_Identifier'] as string | undefined;
+        if (!langId) continue;
+        languages.push({ id: langId, name: LANG_NAMES[langId] || langId });
+        const langTexts: Record<string, string> = {};
+        for (const tu of toArr(
+          lang?.TranslationUnit as Record<string, unknown>[] | undefined,
+        )) {
+          for (const te of toArr(
+            tu?.TranslationElement as Record<string, unknown>[] | undefined,
+          )) {
+            const refId = te['@_RefId'] as string | undefined;
+            if (!refId) continue;
+            for (const tr of toArr(
+              te?.Translation as Record<string, unknown>[] | undefined,
+            )) {
+              if (tr['@_AttributeName'] === 'Text' && tr['@_Text'])
+                langTexts[refId] = tr['@_Text'] as string;
+            }
+          }
+        }
+        translations[langId] = langTexts;
+      }
+
+      return { languages, translations };
+    },
+  );
 }
 
-router.get('/translations', (req: Request, res: Response): void => {
-  const query = validateQuery(
-    req,
-    z.object({
-      projectId: z.string().optional().default(''),
-    }),
-  );
-  res.json(getTranslations(query.projectId));
-});
+router.get('/translations', masterDataRoute(getTranslations));
 
 // ── MediumType info ──────────────────────────────────────────────────────────
 function getMediumTypes(projectId: string | number): Record<string, string> {
-  const cache = _mediumTypeCache;
-  if (cache[projectId]) return cache[projectId]!;
-  const xml = readMasterXml(projectId);
-  if (!xml) return (cache[projectId] = {});
-  const root = parseMasterXml(xml) as Record<string, unknown>;
-  const knx = root?.KNX as Record<string, unknown> | undefined;
-  const md = knx?.MasterData as Record<string, unknown> | undefined;
-  const mts = md?.MediumTypes as Record<string, unknown> | undefined;
-  const raw = (mts?.MediumType || []) as Record<string, unknown>[];
-  const arr = Array.isArray(raw) ? raw : [raw];
-  const result: Record<string, string> = {};
-  for (const mt of arr)
-    result[(mt['@_Name'] as string) || ''] = (mt['@_Text'] as string) || '';
-  return (cache[projectId] = result);
+  return cachedMasterData(
+    _mediumTypeCache,
+    projectId,
+    () => ({}),
+    (md) => {
+      const mts = md.MediumTypes as Record<string, unknown> | undefined;
+      const raw = (mts?.MediumType || []) as Record<string, unknown>[];
+      const arr = Array.isArray(raw) ? raw : [raw];
+      const result: Record<string, string> = {};
+      for (const mt of arr)
+        result[(mt['@_Name'] as string) || ''] = (mt['@_Text'] as string) || '';
+      return result;
+    },
+  );
 }
 
-router.get('/medium-types', (req: Request, res: Response): void => {
-  const query = validateQuery(
-    req,
-    z.object({
-      projectId: z.string().optional().default(''),
-    }),
-  );
-  res.json(getMediumTypes(query.projectId));
-});
+router.get('/medium-types', masterDataRoute(getMediumTypes));
 
 // ── Mask version info ────────────────────────────────────────────────────────
 function getMaskVersions(
   projectId: string | number,
 ): Record<string, MaskVersionEntry> {
-  const cache = _maskVersionCache;
-  if (cache[projectId]) return cache[projectId]!;
-  const xml = readMasterXml(projectId);
-  if (!xml) return (cache[projectId] = {});
-  const root = parseMasterXml(xml) as Record<string, unknown>;
-  const knx = root?.KNX as Record<string, unknown> | undefined;
-  const md = knx?.MasterData as Record<string, unknown> | undefined;
-  const mvs = md?.MaskVersions as Record<string, unknown> | undefined;
-  const raw = (mvs?.MaskVersion || []) as Record<string, unknown>[];
-  const arr = Array.isArray(raw) ? raw : [raw];
-  const result: Record<string, MaskVersionEntry> = {};
-  for (const mv of arr) {
-    const num = parseInt(mv['@_MaskVersion'] as string, 10);
-    if (isNaN(num)) continue;
-    const hex = num.toString(16).padStart(4, '0');
-    if (!result[hex]) {
-      result[hex] = {
-        name: (mv['@_Name'] as string) || '',
-        managementModel: (mv['@_ManagementModel'] as string) || '',
-        medium: (mv['@_MediumTypeRefId'] as string) || '',
-      };
-    }
-  }
-  return (cache[projectId] = result);
+  return cachedMasterData(
+    _maskVersionCache,
+    projectId,
+    () => ({}),
+    (md) => {
+      const mvs = md.MaskVersions as Record<string, unknown> | undefined;
+      const raw = (mvs?.MaskVersion || []) as Record<string, unknown>[];
+      const arr = Array.isArray(raw) ? raw : [raw];
+      const result: Record<string, MaskVersionEntry> = {};
+      for (const mv of arr) {
+        const num = parseInt(mv['@_MaskVersion'] as string, 10);
+        if (isNaN(num)) continue;
+        const hex = num.toString(16).padStart(4, '0');
+        if (!result[hex]) {
+          result[hex] = {
+            name: (mv['@_Name'] as string) || '',
+            managementModel: (mv['@_ManagementModel'] as string) || '',
+            medium: (mv['@_MediumTypeRefId'] as string) || '',
+          };
+        }
+      }
+      return result;
+    },
+  );
 }
 
-router.get('/mask-versions', (req: Request, res: Response): void => {
-  const query = validateQuery(
-    req,
-    z.object({
-      projectId: z.string().optional().default(''),
-    }),
-  );
-  res.json(getMaskVersions(query.projectId));
-});
+router.get('/mask-versions', masterDataRoute(getMaskVersions));
 
 // ── Settings ──────────────────────────────────────────────────────────────────
 router.get('/settings', (_req: Request, res: Response): void => {
