@@ -473,6 +473,7 @@ export function parseKnxproj(
       const virtualEntry: ZipEntry = {
         entryName: prefix + f.entryName,
         getData: () => f.getData(),
+        release: () => f.release(),
       };
       entries.push(virtualEntry);
       byName[virtualEntry.entryName] = virtualEntry;
@@ -514,38 +515,68 @@ export function parseKnxproj(
   });
 
   // ── Application program indexes ────────────────────────────────────────────
-  // Keyed by "M-00FA_A-2504-10-C071" (appId without path/extension)
-  const appByAppId: Record<string, AppIndex> = {};
+  // Keyed by "M-00FA_A-2504-10-C071" (appId without path/extension).
+  //
+  // Loaded on demand, not up front. A .knxproj carries every application
+  // program its manufacturers ship, not just the ones this installation uses
+  // - on a real 33 MB project that is hundreds of programs and ~540 MB of
+  // XML, where the 275 devices actually reference a handful. Indexing them
+  // all extracted every one into a Buffer the entry list then held for the
+  // whole parse, turned each into a UTF-16 string, and built two object
+  // trees from it, which is enough to exhaust memory before 0.xml is even
+  // read (reported symptom: the import dies silently right after the zip
+  // messages). xknxproject avoids this the same way - read the installation
+  // first, load only what it references.
+  //
+  // The entry for an appId is found by filename, so nothing is extracted
+  // until a device asks for it; the parsed index is then keyed by the appId
+  // the XML itself declares as well, in case the two ever disagree.
   const appEntries = entries.filter((e) =>
     /M-[^/]+\/M-[^/]+_A-[^/]+\.xml$/i.test(e.entryName),
   );
-  const tApp = Date.now();
-  logger.info('ets', 'app index loop start', { count: appEntries.length });
+  const appEntryByAppId: Record<string, ZipEntry> = {};
+  for (const e of appEntries) {
+    const appId = (e.entryName.split('/').pop() || '').replace(/\.xml$/i, '');
+    if (appId) appEntryByAppId[appId] = e;
+  }
+  logger.info('ets', 'app programs available', { count: appEntries.length });
+
+  // Declared appId -> its parsed index. Same key the rest of the parse and
+  // the written param models use, exactly as the eager version produced.
+  const appByAppId: Record<string, AppIndex> = {};
+  // Filename-derived id -> what loading it produced, so a program that has
+  // already been read (or failed, or has no index) is never read twice.
+  const loadedByEntry: Record<string, AppIndex | null> = {};
   let appOk = 0;
   let appErr = 0;
-  for (let i = 0; i < appEntries.length; i++) {
-    const e = appEntries[i]!;
+  let appMs = 0;
+
+  const loadApp = (appId: string): AppIndex | null => {
+    if (appId in loadedByEntry) return loadedByEntry[appId] ?? null;
+    const e = appEntryByAppId[appId];
+    if (!e) return null;
     const tEntry = Date.now();
+    let idx: AppIndex | null = null;
     try {
-      const buf = e.getData();
-      const idx = buildAppIndex(buf);
-      if (idx?.appId) appByAppId[idx.appId] = idx;
-      appOk++;
+      idx = buildAppIndex(e.getData());
+      if (idx) appOk++;
     } catch (err: unknown) {
       appErr++;
       logger.error('ets', 'app XML parse error', {
         name: e.entryName,
-        index: i,
         ms: Date.now() - tEntry,
         error: (err as Error).message,
       });
+    } finally {
+      appMs += Date.now() - tEntry;
+      // One-shot: nothing reads an application program's bytes twice, and
+      // holding on to them is what made a large project run out of memory.
+      e.release();
     }
-  }
-  logger.info('ets', 'app index loop done', {
-    ms: Date.now() - tApp,
-    ok: appOk,
-    err: appErr,
-  });
+    loadedByEntry[appId] = idx;
+    if (idx?.appId) appByAppId[idx.appId] = idx;
+    return idx;
+  };
 
   // Given a Hardware2ProgramRefId like "M-00FA_H-xxx_HP-2504-10-C071"
   // the matching appId is "M-00FA_A-2504-10-C071".
@@ -557,7 +588,8 @@ export function parseKnxproj(
     const parts = hp.split('-');
     for (let i = parts.length; i >= 1; i--) {
       const key = `${mfr}_A-${parts.slice(0, i).join('-')}`;
-      if (appByAppId[key]) return appByAppId[key]!;
+      const idx = loadApp(key);
+      if (idx) return idx;
     }
     return null;
   };
@@ -1278,7 +1310,29 @@ export function parseKnxproj(
     return seen.has(k) ? false : (seen.add(k), true);
   });
 
-  // Build param models for all app programs found
+  // A .knxprod is a product catalogue, not an installation: it has no devices,
+  // so nothing references an application program, and the programs ARE the
+  // payload of the import. Load them all in that case - the by-reference rule
+  // above exists to skip the hundreds of unused programs a real .knxproj
+  // carries, and an archive with no installation has none to skip.
+  if (!installEntries.length) {
+    logger.info('ets', 'no installation - loading every app program', {
+      count: appEntries.length,
+    });
+    for (const appId of Object.keys(appEntryByAppId)) loadApp(appId);
+  }
+
+  logger.info('ets', 'app programs loaded', {
+    // Loaded, not available: only the programs this installation's devices
+    // actually reference are ever read. See loadApp() above.
+    loaded: appOk,
+    failed: appErr,
+    available: appEntries.length,
+    ms: appMs,
+  });
+
+  // Build param models for every app program that was actually loaded - a
+  // program no device references has no model worth writing.
   const paramModels: Record<string, ParamModel> = {};
   for (const [aid, idx] of Object.entries(appByAppId)) {
     try {

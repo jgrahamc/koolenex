@@ -523,8 +523,21 @@ function assertParserOutput(
   });
 
   describe(`${label}: param models`, () => {
-    it('extracts 7 application program models', () => {
-      assert.equal(Object.keys(getParsed().paramModels).length, 7);
+    // 4, not the 7 programs the archive ships: a .knxproj carries every
+    // application program its manufacturers publish, and only the ones a
+    // device actually references are read (see loadApp() in ets-parser.ts).
+    // The other three belong to no device in this project.
+    it('extracts a model for each referenced application program', () => {
+      const models = Object.keys(getParsed().paramModels).sort();
+      assert.equal(models.length, 4);
+      const referenced = [
+        ...new Set(
+          getParsed()
+            .devices.map((d) => d.app_ref)
+            .filter(Boolean),
+        ),
+      ].sort();
+      assert.deepEqual(models, referenced);
     });
 
     it('SAH/S8.6.7.1 model has 3285 params and 15 load procedures', () => {

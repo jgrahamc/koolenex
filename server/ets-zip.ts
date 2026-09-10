@@ -23,6 +23,17 @@ export interface MinizipInstance {
 export interface ZipEntry {
   entryName: string;
   getData(): Buffer;
+  /**
+   * Drop the cached extracted Buffer.
+   *
+   * getData() memoises, which is right for the handful of entries read more
+   * than once (0.xml, project.xml) and very wrong for the application
+   * programs: a large project holds hundreds of them, they are read exactly
+   * once each, and the entry list outlives the whole parse - so without this
+   * every extracted program stays resident until the import finishes. Call
+   * it as soon as a one-shot entry has been consumed.
+   */
+  release(): void;
 }
 
 const require_ = createRequire(import.meta.url);
@@ -39,6 +50,9 @@ export function openZip(buffer: Buffer, password?: string): ZipEntry[] {
     let cached: Buffer | null = null;
     return {
       entryName: f.filepath,
+      release: () => {
+        cached = null;
+      },
       getData: () => {
         if (cached) return cached;
         const t0 = Date.now();
