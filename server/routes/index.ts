@@ -1,5 +1,4 @@
 import express from 'express';
-import type { Request, Response, NextFunction } from 'express';
 import { router as settingsRouter, setRebuildDemoMap } from './settings.ts';
 import { router as catalogRouter } from './catalog.ts';
 import { router as devicesRouter } from './devices.ts';
@@ -29,87 +28,13 @@ interface AppRouter extends express.Router {
 
 const router = express.Router() as AppRouter;
 
-// Validate numeric route params — reject non-numeric :id, :pid, :did with 400
-router.param(
-  'id',
-  (_req: Request, res: Response, next: NextFunction, val: string): void => {
-    if (!/^\d+$/.test(val)) {
-      res.status(400).json({ error: 'Invalid ID' });
-      return;
-    }
-    next();
-  },
-);
-router.param(
-  'pid',
-  (_req: Request, res: Response, next: NextFunction, val: string): void => {
-    if (!/^\d+$/.test(val)) {
-      res.status(400).json({ error: 'Invalid ID' });
-      return;
-    }
-    next();
-  },
-);
-router.param(
-  'did',
-  (_req: Request, res: Response, next: NextFunction, val: string): void => {
-    if (!/^\d+$/.test(val)) {
-      res.status(400).json({ error: 'Invalid ID' });
-      return;
-    }
-    next();
-  },
-);
-router.param(
-  'gid',
-  (_req: Request, res: Response, next: NextFunction, val: string): void => {
-    if (!/^\d+$/.test(val)) {
-      res.status(400).json({ error: 'Invalid ID' });
-      return;
-    }
-    next();
-  },
-);
-router.param(
-  'sid',
-  (_req: Request, res: Response, next: NextFunction, val: string): void => {
-    if (!/^\d+$/.test(val)) {
-      res.status(400).json({ error: 'Invalid ID' });
-      return;
-    }
-    next();
-  },
-);
-router.param(
-  'tid',
-  (_req: Request, res: Response, next: NextFunction, val: string): void => {
-    if (!/^\d+$/.test(val)) {
-      res.status(400).json({ error: 'Invalid ID' });
-      return;
-    }
-    next();
-  },
-);
-router.param(
-  'coid',
-  (_req: Request, res: Response, next: NextFunction, val: string): void => {
-    if (!/^\d+$/.test(val)) {
-      res.status(400).json({ error: 'Invalid ID' });
-      return;
-    }
-    next();
-  },
-);
-router.param(
-  'spaceId',
-  (_req: Request, res: Response, next: NextFunction, val: string): void => {
-    if (!/^\d+$/.test(val)) {
-      res.status(400).json({ error: 'Invalid ID' });
-      return;
-    }
-    next();
-  },
-);
+// Numeric route parameters are validated by paramId() in validate.ts, at
+// the point of use. Eight identical `router.param` validators used to live
+// here instead - and never ran: Express scopes param callbacks to the
+// router that declares them, and every route carrying an id is in one of
+// the sub-routers mounted below. Nothing asserted them, so the dead code
+// sat here while malformed ids reached the handlers. See
+// tests/param-validation.test.ts.
 
 // Mount sub-routers
 router.use('/', settingsRouter);

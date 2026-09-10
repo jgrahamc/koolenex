@@ -124,19 +124,31 @@ Deliberately duplicated (client `dpt.ts` vs server `bus.ts`), with
 moving**: the two have since diverged in name and signature (`normalizeDpt` vs
 `normalizeDptKey`), so this is no longer the simple hoist the original review described.
 
-### 15. REST coverage
+### 15. REST coverage — partly done
 
-Still-untested routes: `POST /bus/replay-frames`, `/bus/restart-device`,
-`/bus/read-address-by-serial`, `/bus/read-serials-in-programming-mode`. (`/rtf-to-html`,
-catalog import and the floor-plan POST have gained tests since the review.) `MockBus` in
-`bus-routes.test.ts` has no `writeMemory`, `replayFrames` or `restartDevice`, which is what
-keeps three of those out of the table-driven not-connected test.
+**Done.** The four routes that no test reached now have some:
+`POST /bus/replay-frames`, `/bus/restart-device`, `/bus/read-address-by-serial`
+and `/bus/read-serials-in-programming-mode` - happy path, argument
+pass-through, their validation edges, and all four added to the table-driven
+not-connected test. `MockBus` gained `replayFrames`, `restartDevice` and
+`readIndividualAddressBySerial`, whose absence is most of why they had been
+skipped.
 
-Then, in order of value: a table-driven test for `router.param`'s 400 on non-numeric
-`:id`/`:pid`/`:did`/... (eight identical handlers, none asserted, and the test would let
-them collapse into a loop); 404/400 pairs for every CRUD `PUT`/`DELETE`/`PATCH`; and the
-never-asserted error codes (`address_write_unconfirmed`, `ambiguous_programming_mode`,
-`no_ldctrl`, `segment_unallocated`, ...).
+`tests/param-validation.test.ts` covers every `:id`-style parameter, and
+writing it found a real bug: the eight `router.param` validators in
+`routes/index.ts` never ran, because Express scopes param callbacks to the
+router that declares them and every route with an id lives in a mounted
+sub-router. A non-numeric id reached the handler and `paramId()` threw a
+plain Error, so the API answered **500**; and `paramId` accepted anything
+`Number()` could parse, so `-1`, `1.5`, `1e3` and `' '` all passed - the
+last two silently addressing project 1000 and project 0. `paramId` now
+enforces digits and throws `ValidationError` (400), and the dead validators
+are gone.
+
+**Still to do.** 404/400 pairs for every CRUD `PUT`/`DELETE`/`PATCH` on a
+nonexistent id, and the "No fields to update" 400. Then the never-asserted
+error codes: `address_write_unconfirmed`, `ambiguous_programming_mode`,
+`no_ldctrl`, `segment_unallocated`.
 
 ## A note on the line-count claims
 

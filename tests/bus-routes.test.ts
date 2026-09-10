@@ -240,6 +240,48 @@ class MockBus extends EventEmitter {
   memImage: Map<number, number> | null = null;
   propImage: Map<string, Buffer> | null = null;
 
+  // Added 2026-09-10 with the first tests for the routes that call them -
+  // /bus/replay-frames, /bus/restart-device and /bus/read-address-by-serial
+  // had no coverage at all, partly because the mock could not answer them.
+  async replayFrames(
+    deviceAddr: string,
+    frames: Buffer[],
+    delayMs?: number,
+  ): Promise<void> {
+    this.calls.push({
+      method: 'replayFrames',
+      args: [deviceAddr, frames, delayMs],
+    });
+    if (!this.connected) throw new Error('Not connected to KNX bus');
+  }
+
+  async restartDevice(
+    deviceAddr: string,
+    settleMs?: number,
+    postRestartDelayMs?: number,
+  ): Promise<void> {
+    this.calls.push({
+      method: 'restartDevice',
+      args: [deviceAddr, settleMs, postRestartDelayMs],
+    });
+    if (!this.connected) throw new Error('Not connected to KNX bus');
+  }
+
+  // null when no device answers in the timeout - the route turns that into
+  // { address: null } rather than a 404.
+  addressBySerial: { address: string } | null = { address: '1.1.20' };
+  async readIndividualAddressBySerial(
+    serial: Buffer,
+    timeoutMs?: number,
+  ): Promise<{ address: string } | null> {
+    this.calls.push({
+      method: 'readIndividualAddressBySerial',
+      args: [serial, timeoutMs],
+    });
+    if (!this.connected) throw new Error('Not connected to KNX bus');
+    return this.addressBySerial;
+  }
+
   async readMemory(
     deviceAddr: string,
     address: number,
@@ -2416,6 +2458,9 @@ describe('bus routes: not connected', () => {
       '/bus/assign-address-by-serial',
       { serial: 'aabbccddeeff', newAddress: '1.1.5' },
     ],
+    ['/bus/replay-frames', { deviceAddress: '1.1.1', frames: ['aa'] }],
+    ['/bus/restart-device', { deviceAddress: '1.1.1' }],
+    ['/bus/read-address-by-serial', { serial: 'aabbccddeeff' }],
   ];
 
   for (const [route, body] of CASES) {
@@ -2547,5 +2592,174 @@ describe('runVerifyDevice / loadProgrammableDevice without HTTP', () => {
     });
     assert.equal(loaded.ok, true);
     if (loaded.ok) assert.equal(loaded.dev.individual_address, '1.1.80');
+  });
+});
+
+// ── Routes that had no coverage at all ──────────────────────────────────────
+
+// These four were reachable from nowhere in the suite until 2026-09-10.
+// Three of them needed MockBus methods that did not exist, which is most of
+// why they had been skipped.
+describe('POST /bus/replay-frames', () => {
+  it('replays the frames it is given, decoded from hex', async () => {
+    mockBus.connected = true;
+    const r = await req(ts.baseUrl, 'POST', '/bus/replay-frames', {
+      deviceAddress: '1.1.1',
+      frames: ['1100b4', '2200c5'],
+      delayMs: 0,
+    });
+    assert.equal(r.status, 200);
+    assert.deepEqual(r.data, { deviceAddress: '1.1.1', frameCount: 2 });
+    const call = mockBus.calls.find((c) => c.method === 'replayFrames')!;
+    assert.equal(call.args[0], '1.1.1');
+    const frames = call.args[1] as Buffer[];
+    assert.equal(frames.length, 2);
+    assert.equal(frames[0]!.toString('hex'), '1100b4');
+    assert.equal(call.args[2], 0);
+  });
+
+  it('defaults delayMs to 30', async () => {
+    mockBus.connected = true;
+    await req(ts.baseUrl, 'POST', '/bus/replay-frames', {
+      deviceAddress: '1.1.1',
+      frames: ['aa'],
+    });
+    assert.equal(
+      mockBus.calls.find((c) => c.method === 'replayFrames')!.args[2],
+      30,
+    );
+  });
+
+  it('rejects a non-hex frame', async () => {
+    mockBus.connected = true;
+    const r = await req(ts.baseUrl, 'POST', '/bus/replay-frames', {
+      deviceAddress: '1.1.1',
+      frames: ['nothex'],
+    });
+    assert.equal(r.status, 400);
+  });
+
+  it('rejects an empty frame list', async () => {
+    mockBus.connected = true;
+    const r = await req(ts.baseUrl, 'POST', '/bus/replay-frames', {
+      deviceAddress: '1.1.1',
+      frames: [],
+    });
+    assert.equal(r.status, 400);
+  });
+});
+
+describe('POST /bus/restart-device', () => {
+  it('restarts the device, passing the timing knobs through', async () => {
+    mockBus.connected = true;
+    const r = await req(ts.baseUrl, 'POST', '/bus/restart-device', {
+      deviceAddress: '1.1.5',
+      settleMs: 100,
+      postRestartDelayMs: 250,
+    });
+    assert.equal(r.status, 200);
+    assert.deepEqual(r.data, { ok: true });
+    const call = mockBus.calls.find((c) => c.method === 'restartDevice')!;
+    assert.deepEqual(call.args, ['1.1.5', 100, 250]);
+  });
+
+  it('leaves the timing knobs undefined when not given', async () => {
+    mockBus.connected = true;
+    await req(ts.baseUrl, 'POST', '/bus/restart-device', {
+      deviceAddress: '1.1.5',
+    });
+    const call = mockBus.calls.find((c) => c.method === 'restartDevice')!;
+    assert.deepEqual(call.args, ['1.1.5', undefined, undefined]);
+  });
+
+  it('rejects a settleMs over the 10s cap', async () => {
+    mockBus.connected = true;
+    const r = await req(ts.baseUrl, 'POST', '/bus/restart-device', {
+      deviceAddress: '1.1.5',
+      settleMs: 10001,
+    });
+    assert.equal(r.status, 400);
+  });
+});
+
+describe('POST /bus/read-address-by-serial', () => {
+  it('returns the address the device answered with', async () => {
+    mockBus.connected = true;
+    mockBus.addressBySerial = { address: '1.1.20' };
+    const r = await req(ts.baseUrl, 'POST', '/bus/read-address-by-serial', {
+      serial: 'aabbccddeeff',
+    });
+    assert.equal(r.status, 200);
+    assert.deepEqual(r.data, { address: '1.1.20' });
+    const call = mockBus.calls.find(
+      (c) => c.method === 'readIndividualAddressBySerial',
+    )!;
+    assert.equal((call.args[0] as Buffer).toString('hex'), 'aabbccddeeff');
+  });
+
+  it('answers { address: null } when nothing replies, not a 404', async () => {
+    mockBus.connected = true;
+    mockBus.addressBySerial = null;
+    const r = await req(ts.baseUrl, 'POST', '/bus/read-address-by-serial', {
+      serial: 'aabbccddeeff',
+    });
+    assert.equal(r.status, 200);
+    assert.deepEqual(r.data, { address: null });
+    mockBus.addressBySerial = { address: '1.1.20' };
+  });
+
+  it('rejects a serial that is not 12 hex chars', async () => {
+    mockBus.connected = true;
+    for (const serial of ['aabbccddee', 'aabbccddeeffaa', 'zzbbccddeeff']) {
+      const r = await req(ts.baseUrl, 'POST', '/bus/read-address-by-serial', {
+        serial,
+      });
+      assert.equal(r.status, 400, serial);
+    }
+  });
+});
+
+describe('POST /bus/read-serials-in-programming-mode', () => {
+  it('returns every serial that answered', async () => {
+    mockBus.connected = true;
+    mockBus.serialsInProgrammingMode = [
+      { serial: 'aabbccddeeff', src: '1.1.1' },
+      { serial: '001122334455', src: '1.1.2' },
+    ];
+    const r = await req(
+      ts.baseUrl,
+      'POST',
+      '/bus/read-serials-in-programming-mode',
+      { timeoutMs: 500 },
+    );
+    assert.equal(r.status, 200);
+    assert.deepEqual(r.data, {
+      devices: mockBus.serialsInProgrammingMode,
+    });
+    mockBus.serialsInProgrammingMode = [];
+  });
+
+  it('returns an empty list when no device is in programming mode', async () => {
+    mockBus.connected = true;
+    mockBus.serialsInProgrammingMode = [];
+    const r = await req(
+      ts.baseUrl,
+      'POST',
+      '/bus/read-serials-in-programming-mode',
+      {},
+    );
+    assert.equal(r.status, 200);
+    assert.deepEqual(r.data, { devices: [] });
+  });
+
+  it('rejects a timeoutMs below the 100ms floor', async () => {
+    mockBus.connected = true;
+    const r = await req(
+      ts.baseUrl,
+      'POST',
+      '/bus/read-serials-in-programming-mode',
+      { timeoutMs: 50 },
+    );
+    assert.equal(r.status, 400);
   });
 });
