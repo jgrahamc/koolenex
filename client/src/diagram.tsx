@@ -1263,7 +1263,14 @@ export function GANetworkDiagram({
     const srcNode = devNodes.find(
       (n) => n.dev.individual_address === latest.src,
     );
-    if (!srcNode) return;
+    // src 'local' is a telegram this app sent (server/routes/bus.ts's
+    // /bus/write broadcast) - it has no sending device, so there is no node
+    // to start a pulse from and this used to bail out with no animation at
+    // all. It does have receivers though: everything listening on this GA.
+    // So light the GA and fan out to them, which is the second half of the
+    // normal animation without a first leg.
+    const fromApp = !srcNode && latest.src === 'local';
+    if (!srcNode && !fromApp) return;
 
     const tids: ReturnType<typeof setTimeout>[] = [];
     const flashDev = (addr: string, atMs: number) =>
@@ -1289,33 +1296,70 @@ export function GANetworkDiagram({
         }, atMs),
       );
 
-    // device → GA pulse
-    const seg = {
-      x0: devLeft,
-      y0: srcNode.y,
-      cx1: mx,
-      cy1: srcNode.y,
-      cx2: mx,
-      cy2: gaY,
-      x1: gaRight,
-      y1: gaY,
-      color: 'var(--accent)',
-      delayMs: 0,
-    };
-    flashDev(srcNode.dev.individual_address, 0);
-    flashGANode(durMs);
-
+    const stamp = Date.now();
     const bubble = {
       x: COL_GA,
       y: gaY,
       dptStr: ga.dpt,
       rawDecoded: latest.decoded,
-      arriveMs: durMs,
+      // The value is already at the GA when the app is the sender - there
+      // is no travel time to wait out first.
+      arriveMs: fromApp ? 0 : durMs,
     };
-    const key = `${ga.address}-${Date.now()}`;
-    setFlashes((prev) => [...prev.slice(-8), { key, seg, bubble }]);
+
+    const newFlashes: Flash[] = [];
+    if (fromApp) {
+      flashGANode(0);
+      // GA -> every device that receives on it, one pulse each. Amber is
+      // the receive colour the edges themselves use.
+      devNodes
+        .filter((n) => n.receive)
+        .forEach((n, i) => {
+          flashDev(n.dev.individual_address, durMs);
+          newFlashes.push({
+            key: `${ga.address}-${stamp}-rx${i}`,
+            seg: {
+              x0: gaRight,
+              y0: gaY,
+              cx1: mx,
+              cy1: gaY,
+              cx2: mx,
+              cy2: n.y,
+              x1: devLeft,
+              y1: n.y,
+              color: 'var(--amber)',
+              delayMs: 0,
+            },
+          });
+        });
+      // Nothing listens on this GA - still show the value landing on it.
+      newFlashes.push({ key: `${ga.address}-${stamp}-bubble`, bubble });
+    } else {
+      // device → GA pulse
+      flashDev(srcNode!.dev.individual_address, 0);
+      flashGANode(durMs);
+      newFlashes.push({
+        key: `${ga.address}-${stamp}`,
+        seg: {
+          x0: devLeft,
+          y0: srcNode!.y,
+          cx1: mx,
+          cy1: srcNode!.y,
+          cx2: mx,
+          cy2: gaY,
+          x1: gaRight,
+          y1: gaY,
+          color: 'var(--accent)',
+          delayMs: 0,
+        },
+        bubble,
+      });
+    }
+
+    const keys = new Set(newFlashes.map((f) => f.key));
+    setFlashes((prev) => [...prev.slice(-8), ...newFlashes]);
     const tid = setTimeout(
-      () => setFlashes((prev) => prev.filter((f) => f.key !== key)),
+      () => setFlashes((prev) => prev.filter((f) => !keys.has(f.key))),
       durMs + 500 + 3000,
     );
     tids.push(tid);
