@@ -197,6 +197,11 @@ export interface DownloadExtra {
   // TESTING before being trusted as a settled rule - don't cite it as
   // confirmed elsewhere.
   isSecureEnabled?: boolean;
+  // 🟡 See AppIndex.supportsExtendedMemoryServices's own doc comment
+  // (ets-app.ts) for the full evidence. Checked first, ahead of
+  // PID_MCB_TABLE, inside `downloadDevice()`'s memory-write-service
+  // resolution.
+  supportsExtendedMemoryServices?: boolean;
   // 🟢 CONFIRMED real, 2026-08-31 - this device's own cached
   // `LastUsedAPDULength` from the project file (`Device.apdu_length`,
   // shared/types.ts), preferred over a live `PID_MAX_APDULENGTH`
@@ -1779,48 +1784,137 @@ export class KnxConnection extends EventEmitter {
       // that genuinely doesn't fit in 16 bits always needs extended,
       // regardless of what either signal above says.
       //
-      // PID_MCB_TABLE (property 27) byte 5, previously used here as the
-      // highest-priority write-service signal, was DISPROVEN 2026-09-01: a
-      // real device (Weinzierl KNX IO 534 CV (4D)) declares a non-0xFF byte
-      // 5 on every object (matching a live read exactly) yet genuinely
-      // requires the LEGACY service - the opposite of what this rule
-      // predicted. Removed entirely rather than left as a silently-wrong
-      // priority signal; see docs/knx-device-write-protocol.md §4.1 for the
-      // full evidence trail. `IsSecureEnabled` is the current best inferred
-      // signal (still unconfirmed from any primary KNX source - see its own
-      // doc comment below).
+      // PID_MCB_TABLE (property 27) byte 5, restored as a write-service
+      // signal, in a tightened form. History: originally used here as
+      // "non-0xFF -> extended", disproven by a real device (Weinzierl KNX
+      // IO 534 CV (4D)) whose declared byte 5 is `0x32` (non-`0xFF`, so the
+      // original rule predicted extended) but which requires legacy -
+      // removed entirely rather than left as a silently incorrect priority
+      // signal, handing the primary role to `IsSecureEnabled` below.
+      //
+      // `IsSecureEnabled` subsequently produced its own counter-example: an
+      // application program (Zennio KLIC-DI v2) declares
+      // `IsSecureEnabled=false` but requires the extended service -
+      // confirmed against real captures: a Full Download to this device
+      // uses `MemExtWrite` throughout, reproduced across repeated downloads
+      // to a factory-reset, re-addressed instance of the same device.
+      //
+      // Re-examining `PID_MCB_TABLE` byte 5 for this device found `0x33` -
+      // matching every other real "extended" device checked (two Albrecht
+      // Jung application programs, both declaring literal byte 5 = `0x33`),
+      // while the Weinzierl falsifying case is `0x32` - close to, but not
+      // equal to, `0x33`. Tightening the rule from "byte 5 != 0xFF" to
+      // "byte 5 == 0x33 exactly" resolves every real case checked so far,
+      // including the two devices that separately broke the previous
+      // single-signal rules:
+      //
+      //   device                     mask   byte 5   ==0x33?  actual service
+      //   Albrecht Jung (x2)         07B0   0x33     yes      extended
+      //   HDL (live-read value)      07B0   0xFF     no       legacy
+      //   Weinzierl                  07B0   0x32     no       legacy   (the falsifier above)
+      //   Zennio KLIC-DI v2          07B0   0x33     yes      extended (the IsSecureEnabled falsifier)
+      //
+      // Still only a small number of data points, drawn from three distinct
+      // byte-5 values observed (`0x33`/`0x32`/`0xFF`) - 🔴 not confirmed
+      // from any primary KNX source, and untested against a fourth distinct
+      // byte-5 value. `IsSecureEnabled` is kept as the next-priority
+      // signal, ahead of a live mask read as a last-resort fallback. The
+      // address-size heuristic remains a hard floor underneath all of these
+      // (see `useExtendedForThisChunk`'s own computation below) - an
+      // address that does not fit in 16 bits always requires extended,
+      // regardless of what any of these signals indicate.
+      //
+      // `SupportsExtendedMemoryServices`, a literal boolean on the app's
+      // own `<Static><Options>` element, is checked before PID_MCB_TABLE
+      // below - see AppIndex.supportsExtendedMemoryServices's own doc
+      // comment (ets-app.ts) for the full evidence. Unlike either signal
+      // above, this is a literal, KNX-Association-documented property (the
+      // ETS6 SDK's own documentation defines
+      // `Knx.Ets.Sdk.Product.ApplicationOptions.
+      // SupportsExtendedMemoryServices` as "Gets a value indicating whether
+      // extended memory services are supported"), not an inferred proxy.
+      // Always statically declared when present, so this check requires no
+      // bus round-trip - if it resolves, the PID_MCB_TABLE check below
+      // (which may require a live read) is skipped entirely for this
+      // device. Kept as an additional check ahead of PID_MCB_TABLE rather
+      // than a replacement for it - the chain below is unchanged and still
+      // runs for any application program that does not declare this
+      // attribute, so this can only resolve additional devices correctly
+      // and cannot regress one that already resolves correctly via the
+      // fallback chain. 🟡 See AppIndex.supportsExtendedMemoryServices's
+      // own doc comment for sample size and confidence caveats.
       let useExtendedMemory: boolean | null = null;
-      if (extra?.isSecureEnabled !== undefined) {
-        useExtendedMemory = extra.isSecureEnabled;
+      if (extra?.supportsExtendedMemoryServices !== undefined) {
+        useExtendedMemory = extra.supportsExtendedMemoryServices;
         logDebug(
-          `IsSecureEnabled=${extra?.isSecureEnabled} (${useExtendedMemory ? 'extended' : 'legacy'} memory writes - 🔴 speculative, unconfirmed rule, see code comment)`,
+          `SupportsExtendedMemoryServices=${extra.supportsExtendedMemoryServices} (${useExtendedMemory ? 'extended' : 'legacy'} memory writes - see code comment)`,
         );
       } else {
-        const apdu = apduGroup('DeviceDescriptor_Read');
-        const cemi = buildCEMI(this.localAddr, deviceAddr, apdu, false, {
-          priority: 'system',
-        });
-        const respP = waitResponse('DeviceDescriptor_Response', 3000);
-        await this.sendCEMI(cemi);
-        try {
-          const resp = await respP;
-          const mask =
-            resp.apduData.length >= 2
-              ? (resp.apduData[0]! << 8) | resp.apduData[1]!
-              : null;
-          if (mask != null) {
-            useExtendedMemory = (mask & 0xff) === 0xb0;
+        const mcbWriteStep = steps.find(
+          (s): s is DownloadStep & { data: Buffer } =>
+            s.type === 'WriteProp' &&
+            s.objIdx === 4 &&
+            s.propId === 27 &&
+            !!s.data &&
+            s.data.length > 5,
+        );
+        let mcbByte5 = mcbWriteStep?.data[5];
+        // No static declaration (e.g. the Zennio and HDL application
+        // programs above - both declare only the read-only
+        // `LdCtrlLoadImageProp` for PropId=27, never `LdCtrlWriteProp`):
+        // fall back to a live read, issued here deliberately early, before
+        // any data write, unlike real ETS's own incidental late-session
+        // LoadImageProp read (too late in the session to inform this
+        // decision, per docs/knx-device-write-protocol.md §4.1). Without
+        // this fallback, any application program that does not statically
+        // declare property 27 skips this signal entirely and falls through
+        // to `IsSecureEnabled` - confirmed against a real device that used
+        // legacy writes under the static-only form of this rule, because
+        // its application program has no static declaration. Tolerant of
+        // no response (the property may not exist for this application
+        // program at all) - `propRead` already returns `null` on timeout
+        // rather than throwing.
+        if (mcbByte5 === undefined) {
+          const live = await propRead(4, 27);
+          if (live && live.length > 5) mcbByte5 = live[5];
+        }
+        if (mcbByte5 !== undefined) {
+          useExtendedMemory = mcbByte5 === 0x33;
+          logDebug(
+            `PID_MCB_TABLE byte5=0x${mcbByte5.toString(16).padStart(2, '0')} (${mcbWriteStep ? 'static declaration' : 'live read'}; ${useExtendedMemory ? 'extended' : 'legacy'} memory writes - "==0x33" rule, see code comment)`,
+          );
+        } else if (extra?.isSecureEnabled !== undefined) {
+          useExtendedMemory = extra.isSecureEnabled;
+          logDebug(
+            `IsSecureEnabled=${extra?.isSecureEnabled} (${useExtendedMemory ? 'extended' : 'legacy'} memory writes - 🔴 speculative, unconfirmed rule, see code comment; PID_MCB_TABLE unavailable for this app)`,
+          );
+        } else {
+          const apdu = apduGroup('DeviceDescriptor_Read');
+          const cemi = buildCEMI(this.localAddr, deviceAddr, apdu, false, {
+            priority: 'system',
+          });
+          const respP = waitResponse('DeviceDescriptor_Response', 3000);
+          await this.sendCEMI(cemi);
+          try {
+            const resp = await respP;
+            const mask =
+              resp.apduData.length >= 2
+                ? (resp.apduData[0]! << 8) | resp.apduData[1]!
+                : null;
+            if (mask != null) {
+              useExtendedMemory = (mask & 0xff) === 0xb0;
+              logDebug(
+                `DeviceDescriptor mask=0x${mask.toString(16).padStart(4, '0')} ` +
+                  `(${useExtendedMemory ? 'SystemB family - extended memory writes' : 'legacy family - address-size heuristic applies'} - PID_MCB_TABLE and IsSecureEnabled both unavailable, falling back to mask)`,
+              );
+            }
+          } catch (_e) {
             logDebug(
-              `DeviceDescriptor mask=0x${mask.toString(16).padStart(4, '0')} ` +
-                `(${useExtendedMemory ? 'SystemB family - extended memory writes' : 'legacy family - address-size heuristic applies'} - IsSecureEnabled unavailable, falling back to mask)`,
+              'No DeviceDescriptor_Response received (falling back to address-size heuristic for memory writes)',
             );
           }
-        } catch (_e) {
-          logDebug(
-            'No DeviceDescriptor_Response received (falling back to address-size heuristic for memory writes)',
-          );
         }
-      }
+      } // end else (SupportsExtendedMemoryServices unresolved - fell through to the PID_MCB_TABLE/IsSecureEnabled/mask chain)
 
       // Real request, 2026-08-31, after a real Full Download stalled
       // silently: cap MEM_CHUNK to this device's own declared real

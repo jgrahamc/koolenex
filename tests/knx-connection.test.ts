@@ -1082,16 +1082,22 @@ describe('KnxConnection.downloadDevice', () => {
     assert.ok(progress.includes('Download complete'));
   });
 
-  it('does NOT resolve the write service from a declared WriteProp[PropId=27] InlineData byte (disproven rule, removed 2026-09-01)', async () => {
-    // Byte 5 of PID_MCB_TABLE (property 27) was previously the
-    // highest-priority write-service signal. Disproven by a real device
-    // (Weinzierl KNX IO 534 CV (4D)) that declares/reads a non-0xFF byte 5
-    // on every object yet genuinely requires the LEGACY service - the
-    // opposite of what the rule predicted. This test locks in the removal:
-    // a WriteProp[PropId=27] step must not influence `useExtendedMemory`
-    // at all - resolution falls through to IsSecureEnabled/mask/heuristic
-    // as if the step weren't there. See docs/knx-device-write-protocol.md
-    // §4.1 for the full evidence trail.
+  it('resolves the write service from a declared WriteProp[PropId=27] InlineData byte, tightened to ==0x33 (restored, see knx-connection-write-service.test.ts)', async () => {
+    // History: byte 5 of PID_MCB_TABLE (property 27) was the highest-priority
+    // write-service signal, then disproven by a real device (Weinzierl KNX
+    // IO 534 CV (4D)) that declares/reads a non-0xFF byte 5 on every object
+    // yet requires the legacy service - the opposite of the "!=0xFF" rule.
+    // Removed entirely for a time (this test previously locked in that
+    // removal) - then restored in a tightened "==0x33" form once a real
+    // device (Zennio KLIC-DI v2) falsified `IsSecureEnabled` (the signal
+    // that had taken over as primary) and re-examining its own MCB byte 5
+    // found `0x33`, matching every other known "extended" device, while
+    // the Weinzierl falsifying case is `0x32` - close, but not `0x33`.
+    // See the "Update 2026-09-10" block in docs/knx-device-write-
+    // protocol.md §4.1 for the full evidence trail, and
+    // knx-connection-write-service.test.ts for the dedicated suite covering
+    // every branch of this resolution chain (this test just confirms the
+    // declared-WriteProp path specifically, in situ inside downloadDevice()).
     const conn = new TestKnxConnection();
     conn.connected = true;
     conn.localAddr = '1.0.1';
@@ -1111,18 +1117,20 @@ describe('KnxConnection.downloadDevice', () => {
     );
 
     assert.ok(
-      !progress.some(
-        (m) => m.includes('byte5=') || m.includes('PID_MCB_TABLE'),
+      progress.some(
+        (m) =>
+          m.includes('PID_MCB_TABLE byte5=0x33') &&
+          m.includes('static declaration'),
       ),
-      'a WriteProp[PropId=27] step must not be read as a write-service signal any more',
+      'a declared WriteProp[PropId=27] byte 5 == 0x33 must resolve extended memory writes via the restored PID_MCB_TABLE signal',
     );
-    // With no IsSecureEnabled and this fake device never answering
-    // DeviceDescriptor_Read, resolution should fall through to the live
-    // mask-read attempt (and then the address-size heuristic) exactly as
-    // if the WriteProp step didn't exist.
+    // Must NOT fall through to a live mask read - the static declaration
+    // should resolve this on its own, with no bus round-trip at all.
     assert.ok(
-      progress.some((m) => m.includes('No DeviceDescriptor_Response received')),
-      'must fall through to the live mask read now that the static signal is gone',
+      !progress.some((m) =>
+        m.includes('No DeviceDescriptor_Response received'),
+      ),
+      'a resolved static PID_MCB_TABLE signal must short-circuit the mask-read fallback entirely',
     );
   });
 

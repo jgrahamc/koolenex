@@ -1050,6 +1050,9 @@ interface DeviceModel {
   // comment for the full real-hardware evidence and status before
   // trusting this for anything real.
   isSecureEnabled?: boolean;
+  // 🟡 See ets-app.ts's ParamModel.supportsExtendedMemoryServices's own
+  // doc comment.
+  supportsExtendedMemoryServices?: boolean;
 }
 
 type DeviceProgramming =
@@ -1066,6 +1069,7 @@ type DeviceProgramming =
       paramMemLayout: Record<string, unknown>;
       params: Record<string, unknown> | null;
       isSecureEnabled?: boolean;
+      supportsExtendedMemoryServices?: boolean;
       // Real request, 2026-08-31: this device's own cached
       // `LastUsedAPDULength` (from `Device.apdu_length`) - see that
       // field's own doc comment (shared/types.ts) for the real evidence.
@@ -1299,6 +1303,7 @@ function buildDeviceProgramming(dev: Device): DeviceProgramming {
     paramMemLayout: model.paramMemLayout ?? {},
     params: model.params ?? null,
     isSecureEnabled: model.isSecureEnabled,
+    supportsExtendedMemoryServices: model.supportsExtendedMemoryServices,
     // Real request, 2026-08-31: parses `dev.apdu_length` (the project's
     // own cached `LastUsedAPDULength`, see shared/types.ts's own doc
     // comment) - empty string / non-numeric / non-positive all correctly
@@ -1453,6 +1458,7 @@ export async function runProgramDevice(
     absSegData,
     appId,
     isSecureEnabled,
+    supportsExtendedMemoryServices,
     cachedMaxApduLength,
   } = built;
 
@@ -1866,6 +1872,7 @@ export async function runProgramDevice(
         mode,
         groupObjectTable,
         isSecureEnabled,
+        supportsExtendedMemoryServices,
         cachedMaxApduLength,
         pendingWriteRanges,
       },
