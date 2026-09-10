@@ -474,6 +474,27 @@ function normalizePriority(raw: string | undefined | null): ComObjectPriority {
   }
 }
 
+/**
+ * The `<Dynamic>…</Dynamic>` slice of an application program, or null when
+ * the program is not the simple shape this is safe for: exactly one Dynamic
+ * section (so the slice is the whole of it) and no ModuleDefs (whose own
+ * Dynamic sections are identified by an enclosing element the slice would
+ * lose). See buildAppIndex's own comment for why this exists.
+ */
+function dynamicOnly(rawXml: string): string | null {
+  if (rawXml.includes('<ModuleDef ') || rawXml.includes('<ModuleDefs')) {
+    return null;
+  }
+  const open = rawXml.indexOf('<Dynamic');
+  const close = rawXml.indexOf('</Dynamic>');
+  if (open < 0 || close < open) return null;
+  // More than one section: indexOf/lastIndexOf would span the gap between
+  // them, which is not a balanced element.
+  if (rawXml.lastIndexOf('</Dynamic>') !== close) return null;
+  if (rawXml.indexOf('<Dynamic', open + 1) !== -1) return null;
+  return rawXml.slice(open, close + '</Dynamic>'.length);
+}
+
 // ─── Build per-application-program index ─────────────────────────────────────
 export function buildAppIndex(buf: Buffer): AppIndex | null {
   const rawXml = buf.toString('utf8');
@@ -499,14 +520,30 @@ export function buildAppIndex(buf: Buffer): AppIndex | null {
   // evidence and what's still needed to actually confirm this.
   const isSecureEnabled = attr(ap, 'IsSecureEnabled') === 'true';
 
-  // Parse entire app XML with order-preserving parser to extract Dynamic sections
-  // and ParameterBlock indent levels (leading spaces in Text attributes that the
-  // main parser trims).
+  // Parse the app XML a second time with the order-preserving parser, which
+  // exists for two things the main parse cannot carry: document order across
+  // heterogeneous siblings (what the stored Dynamic tree is built from) and
+  // untrimmed attribute text (ETS encodes ParameterBlock hierarchy as leading
+  // spaces, which the main parser strips).
+  //
+  // Both live entirely inside <Dynamic>, so when the program has exactly one
+  // Dynamic section and no ModuleDefs - every program in every fixture, and
+  // the common shape - only that slice is parsed. It is a single balanced
+  // element, so it stands alone as a document, and the walks below are
+  // unchanged: findDynamic() already returns the children of a root Dynamic.
+  // On the 6.3 MB program in the smoke project the ordered parse costs about
+  // as much as the main one (913 ms vs 880 ms), and Dynamic is roughly a
+  // quarter of the file.
+  //
+  // A program with ModuleDefs falls back to parsing the whole document.
+  // ModuleDef Dynamic sections are found by findModDefs() below, which needs
+  // the enclosing <ModuleDef Id="..."> that a slice would cut away, and no
+  // fixture here has one to check a smarter rule against.
   let orderedDynamic: OrdXmlNode[] | null = null;
   const orderedModDynamics: Record<string, OrdXmlNode[]> = {};
   const pbIndentMap: Record<string, number> = {};
   try {
-    const orderedXml = orderedXmlParser.parse(rawXml);
+    const orderedXml = orderedXmlParser.parse(dynamicOnly(rawXml) ?? rawXml);
 
     // Walk ordered tree to collect ParameterBlock Text indent levels.
     // ETS uses leading spaces in ParameterBlock Text to encode visual hierarchy.
