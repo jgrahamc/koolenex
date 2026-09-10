@@ -15,6 +15,7 @@ import { DeviceTypeIcon } from '../icons.tsx';
 import { dlCSV } from '../columns.tsx';
 import type { Device } from '../../../shared/types.ts';
 import { AddDeviceModal } from '../AddDeviceModal.tsx';
+import type { DeviceDefaults } from '../AddDeviceModal.tsx';
 import { usePersistedState } from '../hooks/usePersistedState.ts';
 import { useAppData, useProjectActions } from '../contexts.ts';
 import styles from './ManufacturersView.module.css';
@@ -24,7 +25,7 @@ export function ManufacturersView() {
   const { addDevice: onAddDevice } = useProjectActions();
   const navigate = useNavigate();
   const { devices = [], spaces = [], deviceGAMap = {} } = data || {};
-  const [addDefaults, setAddDefaults] = useState<any>(null);
+  const [addDefaults, setAddDefaults] = useState<DeviceDefaults | null>(null);
   const [expanded, setExpanded] = usePersistedState<Record<string, boolean>>(
     'knx-mfr-expanded',
     {},

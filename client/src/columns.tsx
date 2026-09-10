@@ -8,6 +8,18 @@ export interface Column {
   visible?: boolean;
 }
 
+/**
+ * Read a column's value off a row by column id.
+ *
+ * Column ids are chosen at runtime (the user picks and reorders them), so
+ * the lookup is inherently dynamic even though the rows themselves are
+ * typed - this is the one place that says so, instead of each view
+ * annotating its rows as `any` to make the indexing go away.
+ */
+export function field(row: object, id: string): unknown {
+  return (row as Record<string, unknown>)[id];
+}
+
 export function useColumns(
   viewId: string,
   defaults: Column[],

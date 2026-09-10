@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useContext } from 'react';
+import type { EnrichedGA } from '../../../shared/types.ts';
 import { useLocation } from 'react-router-dom';
 import {
   useDpt,
@@ -60,15 +61,23 @@ export function GroupAddressesView() {
   const [newName, setNewName] = useState('');
   const [newDpt, setNewDpt] = useState('');
   const [newSaving, setNewSaving] = useState(false);
-  const [deleteConfirm, setDeleteConfirm] = useState<any>(null); // GA object to confirm delete
+  const [deleteConfirm, setDeleteConfirm] = useState<EnrichedGA | null>(null);
   const [deleteInProgress, setDeleteInProgress] = useState(false);
-  const [inlineCreate, setInlineCreate] = useState<any>(null); // { main, mid } mid=null for main-level
+  // mid=null creates at main-group level
+  const [inlineCreate, setInlineCreate] = useState<{
+    main: number;
+    mid: number | null;
+  } | null>(null);
   const [inlineAddr, setInlineAddr] = useState('');
   const [inlineName, setInlineName] = useState('');
   const [inlineDpt, setInlineDpt] = useState('');
   const [inlineSaving, setInlineSaving] = useState(false);
-  const [editGroup, setEditGroup] = useState<any>(null); // { main, middle (null for main) }
-  const [editGAId, setEditGAId] = useState<any>(null);
+  // middle=null edits the main group itself
+  const [editGroup, setEditGroup] = useState<{
+    main: number;
+    middle: number | null;
+  } | null>(null);
+  const [editGAId, setEditGAId] = useState<number | null>(null);
   const { gas = [], devices = [], gaDeviceMap = {} } = data || {};
 
   const GA_COLS = useMemo(
@@ -86,14 +95,14 @@ export function GroupAddressesView() {
   );
   const [gaCols, saveGaCols] = useColumns('groups', GA_COLS);
   const gcv = (id: string) =>
-    gaCols.find((c: any) => c.id === id)?.visible !== false;
+    gaCols.find((c) => c.id === id)?.visible !== false;
 
   const exportGACSV = () =>
     dlCSV(
       'koolenex-group-addresses.csv',
       gaCols,
       filtered,
-      (id: string, g: any) =>
+      (id: string, g: EnrichedGA) =>
         ({
           address: g.address,
           name: g.name,
@@ -140,19 +149,15 @@ export function GroupAddressesView() {
   };
 
   const nextAddrForMain = (main: number) => {
-    const mids = gas
-      .filter((g: any) => g.main_g === main)
-      .map((g: any) => g.middle_g);
+    const mids = gas.filter((g) => g.main_g === main).map((g) => g.middle_g);
     const maxMid = mids.length ? Math.max(...mids) : -1;
     return `${main}/${maxMid + 1}`;
   };
 
   const nextAddrForMid = (main: number, mid: number) => {
     const subs = gas
-      .filter(
-        (g: any) => g.main_g === main && g.middle_g === mid && g.sub_g != null,
-      )
-      .map((g: any) => g.sub_g);
+      .filter((g) => g.main_g === main && g.middle_g === mid && g.sub_g != null)
+      .map((g) => g.sub_g);
     const maxSub = subs.length ? Math.max(...subs) : -1;
     return `${main}/${mid}/${maxSub + 1}`;
   };
@@ -194,7 +199,7 @@ export function GroupAddressesView() {
     setEditGroup({ main, middle });
   };
 
-  const startEditGA = (e: React.MouseEvent, ga: any) => {
+  const startEditGA = (e: React.MouseEvent, ga: EnrichedGA) => {
     e.stopPropagation();
     setEditGAId(ga.id);
   };
@@ -205,7 +210,7 @@ export function GroupAddressesView() {
     } catch {}
   }, [expand]);
 
-  const filtered = gas.filter((g: any) => {
+  const filtered = gas.filter((g) => {
     const s = search.toLowerCase();
     return (
       !s ||
@@ -214,19 +219,19 @@ export function GroupAddressesView() {
       g.dpt.toLowerCase().includes(s)
     );
   });
-  const mains: any[] = [...new Set(filtered.map((g: any) => g.main_g))].sort(
-    (a: any, b: any) => a - b,
+  const mains: number[] = [...new Set(filtered.map((g) => g.main_g))].sort(
+    (a, b) => a - b,
   );
 
   const toggleMain = (m: number) =>
-    setExpand((p: any) => ({ ...p, [m]: !(p[m] ?? true) }));
+    setExpand((p) => ({ ...p, [m]: !(p[m] ?? true) }));
   const toggleMid = (m: number, mi: number) =>
-    setExpand((p: any) => ({
+    setExpand((p) => ({
       ...p,
       [`${m}/${mi}`]: !(p[`${m}/${mi}`] ?? false),
     }));
 
-  const GARow = ({ g, indent = 0 }: { g: any; indent?: number }) => {
+  const GARow = ({ g, indent = 0 }: { g: EnrichedGA; indent?: number }) => {
     const [hovered, setHovered] = useState(false);
     return (
       <tr
@@ -356,9 +361,9 @@ export function GroupAddressesView() {
                 device association{assocDevices.length !== 1 ? 's' : ''}:
               </div>
               <ul className={styles.assocList}>
-                {assocDevices.map((addr: any) => {
+                {assocDevices.map((addr) => {
                   const dev = devices.find(
-                    (d: any) => d.individual_address === addr,
+                    (d) => d.individual_address === addr,
                   );
                   return (
                     <li key={addr} className={styles.assocItem}>
@@ -458,8 +463,8 @@ export function GroupAddressesView() {
               <thead>
                 <tr>
                   {gaCols
-                    .filter((c: any) => c.visible !== false)
-                    .map((col: any) => (
+                    .filter((c) => c.visible !== false)
+                    .map((col) => (
                       <TH
                         key={col.id}
                         className={
@@ -478,17 +483,17 @@ export function GroupAddressesView() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((g: any) => (
+                {filtered.map((g) => (
                   <GARow key={g.id} g={g} />
                 ))}
               </tbody>
             </table>
           ) : (
-            mains.map((main: any) => {
-              const mainGAs = filtered.filter((g: any) => g.main_g === main);
-              const middles: any[] = [
-                ...new Set(mainGAs.map((g: any) => g.middle_g)),
-              ].sort((a: any, b: any) => a - b);
+            mains.map((main) => {
+              const mainGAs = filtered.filter((g) => g.main_g === main);
+              const middles: number[] = [
+                ...new Set(mainGAs.map((g) => g.middle_g)),
+              ].sort((a, b) => a - b);
               const mainExpanded = search ? true : expand[main] !== false;
               const mainName = mainGAs[0]?.main_group_name;
               return (
@@ -578,22 +583,20 @@ export function GroupAddressesView() {
                     </div>
                   )}
                   {mainExpanded &&
-                    middles.map((mid: any) => {
+                    middles.map((mid) => {
                       const allInGroup = filtered.filter(
-                        (g: any) => g.main_g === main && g.middle_g === mid,
+                        (g) => g.main_g === main && g.middle_g === mid,
                       );
                       const placeholder2 = allInGroup.find(
-                        (g: any) => g.sub_g === null,
+                        (g) => g.sub_g === null,
                       );
-                      const subs = allInGroup.filter(
-                        (g: any) => g.sub_g !== null,
-                      );
+                      const subs = allInGroup.filter((g) => g.sub_g !== null);
                       const midKey = `${main}/${mid}`;
                       const midExpanded = search
                         ? true
                         : expand[midKey] === true;
                       const midName =
-                        allInGroup.find((g: any) => g.middle_group_name)
+                        allInGroup.find((g) => g.middle_group_name)
                           ?.middle_group_name ||
                         placeholder2?.name ||
                         undefined;
@@ -706,8 +709,8 @@ export function GroupAddressesView() {
                               <thead>
                                 <tr>
                                   {gaCols
-                                    .filter((c: any) => c.visible !== false)
-                                    .map((col: any) => (
+                                    .filter((c) => c.visible !== false)
+                                    .map((col) => (
                                       <TH
                                         key={col.id}
                                         className={
@@ -728,7 +731,7 @@ export function GroupAddressesView() {
                                 </tr>
                               </thead>
                               <tbody>
-                                {subs.map((g: any) => (
+                                {subs.map((g) => (
                                   <GARow key={g.id} g={g} indent={30} />
                                 ))}
                               </tbody>

@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useContext } from 'react';
+import type { Device } from '../../../shared/types.ts';
 import { useNavigate, useLocation, useParams } from 'react-router-dom';
 import { STATUS_COLOR } from '../theme.ts';
 import { localizedModel } from '../dpt.ts';
@@ -15,13 +16,14 @@ import {
   DeviceAddr,
   SpacePath,
 } from '../primitives.tsx';
-import { useColumns, ColumnPicker, dlCSV } from '../columns.tsx';
+import { field, useColumns, ColumnPicker, dlCSV } from '../columns.tsx';
 import { RtfText } from '../rtf.tsx';
 import { AddDeviceModal } from '../AddDeviceModal.tsx';
 import { useSpacePath } from '../hooks/spaces.ts';
 import { usePersistedState } from '../hooks/usePersistedState.ts';
 import { useAppData, useProjectActions, PinContext } from '../contexts.ts';
 import styles from './DevicesView.module.css';
+import { DEVICE_COLUMNS, deviceColClass } from '../deviceColumns.ts';
 
 export function DevicesView() {
   const { projectData: data } = useAppData();
@@ -47,36 +49,15 @@ export function DevicesView() {
     spaces = [],
   } = data || {};
 
-  const DEV_COLS = useMemo(
-    () => [
-      { id: 'individual_address', label: 'Address', visible: true },
-      { id: 'name', label: 'Name', visible: true },
-      { id: 'device_type', label: 'Type', visible: true },
-      { id: 'location', label: 'Location', visible: true },
-      { id: 'manufacturer', label: 'Manufacturer', visible: true },
-      { id: 'model', label: 'Model', visible: true },
-      { id: 'order_number', label: 'Order #', visible: false },
-      { id: 'serial_number', label: 'Serial', visible: true },
-      { id: 'status', label: 'Status', visible: true },
-      { id: 'gas', label: 'GAs', visible: true },
-      { id: 'description', label: 'Description', visible: false },
-      { id: 'comment', label: 'Comment', visible: false },
-      { id: 'area', label: 'Area', visible: false },
-      { id: 'line', label: 'Line', visible: false },
-      { id: 'last_download', label: 'Last Download', visible: false },
-    ],
-    [],
-  );
-  const [cols, saveCols] = useColumns('devices', DEV_COLS);
-  const cv = (id: string) =>
-    cols.find((c: any) => c.id === id)?.visible !== false;
+  const [cols, saveCols] = useColumns('devices', DEVICE_COLUMNS);
+  const cv = (id: string) => cols.find((c) => c.id === id)?.visible !== false;
 
   const { spacePath } = useSpacePath(spaces);
 
   useEffect(() => {
     if (!jumpTo) return;
     const addr = typeof jumpTo === 'string' ? jumpTo : jumpTo.address;
-    const d = devices.find((d: any) => d.individual_address === addr);
+    const d = devices.find((d) => d.individual_address === addr);
     if (d) {
       onPin?.('device', d.individual_address);
       setSearch('');
@@ -85,7 +66,7 @@ export function DevicesView() {
   }, [jumpTo]);
 
   const cmpAddr = (x: string, y: string) => {
-    const p = (s: any) => s.split(/[./]/).map(Number);
+    const p = (s: string) => s.split(/[./]/).map(Number);
     const [ax, bx] = [p(x), p(y)];
     for (let i = 0; i < Math.max(ax.length, bx.length); i++) {
       const d = (ax[i] ?? 0) - (bx[i] ?? 0);
@@ -94,7 +75,7 @@ export function DevicesView() {
     return 0;
   };
   const filtered = devices
-    .filter((d: any) => {
+    .filter((d) => {
       if (filterStatus !== 'all' && d.status !== filterStatus) return false;
       const s = search.toLowerCase();
       if (!s) return true;
@@ -114,12 +95,13 @@ export function DevicesView() {
         gaCount === s
       );
     })
-    .sort((a: any, b: any) => {
+    .sort((a, b) => {
       if (sort.col === 'individual_address')
         return cmpAddr(a.individual_address, b.individual_address) * sort.dir;
       return (
-        String(a[sort.col] ?? '').localeCompare(String(b[sort.col] ?? '')) *
-        sort.dir
+        String(field(a, sort.col) ?? '').localeCompare(
+          String(field(b, sort.col) ?? ''),
+        ) * sort.dir
       );
     });
 
@@ -157,7 +139,7 @@ export function DevicesView() {
       'koolenex-devices.csv',
       cols,
       filtered,
-      (id: string, d: any) =>
+      (id: string, d: Device) =>
         ({
           individual_address: d.individual_address,
           name: d.name,
@@ -178,7 +160,7 @@ export function DevicesView() {
     );
 
   const sortBy = (col: string) =>
-    setSort((s: any) => ({ col, dir: s.col === col ? -s.dir : 1 }));
+    setSort((s) => ({ col, dir: s.col === col ? -s.dir : 1 }));
   const SortTH = ({
     col,
     children,
@@ -186,7 +168,8 @@ export function DevicesView() {
   }: {
     col: string;
     children: React.ReactNode;
-    [key: string]: any;
+    // Everything else is forwarded straight to TH (className, style, ...).
+    [key: string]: unknown;
   }) => (
     <TH {...rest}>
       <span onClick={() => sortBy(col)} className={styles.sortHeader}>
@@ -314,29 +297,18 @@ export function DevicesView() {
                                 <thead>
                                   <tr>
                                     {cols
-                                      .filter((c: any) => c.visible !== false)
-                                      .map((col: any) => {
+                                      .filter((c) => c.visible !== false)
+                                      .map((col) => {
                                         if (
                                           col.id === 'location' &&
                                           !spaces.length
                                         )
                                           return null;
-                                        const cls =
-                                          col.id === 'individual_address'
-                                            ? styles.colAddrIndented
-                                            : col.id === 'device_type'
-                                              ? styles.colType
-                                              : col.id === 'manufacturer'
-                                                ? styles.colMfr
-                                                : col.id === 'model'
-                                                  ? styles.colModel
-                                                  : col.id === 'serial_number'
-                                                    ? styles.colSerial
-                                                    : col.id === 'status'
-                                                      ? styles.colStatus
-                                                      : col.id === 'gas'
-                                                        ? styles.colGas
-                                                        : undefined;
+                                        const cls = deviceColClass(
+                                          styles,
+                                          col.id,
+                                          { indentedAddress: true },
+                                        );
                                         return (
                                           <TH key={col.id} className={cls}>
                                             {col.label
@@ -534,8 +506,8 @@ export function DevicesView() {
               <thead>
                 <tr>
                   {cols
-                    .filter((c: any) => c.visible !== false)
-                    .map((col: any) => {
+                    .filter((c) => c.visible !== false)
+                    .map((col) => {
                       if (col.id === 'location' && !spaces.length) return null;
                       const sortable = [
                         'individual_address',
@@ -546,22 +518,7 @@ export function DevicesView() {
                         'serial_number',
                         'status',
                       ].includes(col.id);
-                      const cls =
-                        col.id === 'individual_address'
-                          ? styles.colAddr
-                          : col.id === 'device_type'
-                            ? styles.colType
-                            : col.id === 'manufacturer'
-                              ? styles.colMfr
-                              : col.id === 'model'
-                                ? styles.colModel
-                                : col.id === 'serial_number'
-                                  ? styles.colSerial
-                                  : col.id === 'status'
-                                    ? styles.colStatus
-                                    : col.id === 'gas'
-                                      ? styles.colGas
-                                      : undefined;
+                      const cls = deviceColClass(styles, col.id);
                       if (sortable) {
                         return (
                           <SortTH key={col.id} col={col.id} className={cls}>
@@ -578,7 +535,7 @@ export function DevicesView() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((d: any) => (
+                {filtered.map((d) => (
                   <tr
                     key={d.id}
                     className={`rh ${styles.rowClickable}`}
@@ -735,7 +692,7 @@ export function DevicesView() {
               style={{ color: filterStatus === s ? c : 'var(--dim)' }}
             >
               <span style={{ color: c }}>●</span>{' '}
-              {devices.filter((d: any) => d.status === s).length} {s}
+              {devices.filter((d) => d.status === s).length} {s}
             </span>
           ))}
         </div>

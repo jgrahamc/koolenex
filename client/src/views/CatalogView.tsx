@@ -9,6 +9,7 @@ import {
 } from '../primitives.tsx';
 import { api } from '../api.ts';
 import { AddDeviceModal } from '../AddDeviceModal.tsx';
+import type { DeviceDefaults } from '../AddDeviceModal.tsx';
 import { useAppData, useProjectActions, PinContext } from '../contexts.ts';
 import styles from './CatalogView.module.css';
 
@@ -28,7 +29,7 @@ export function CatalogView() {
     Record<string, boolean>
   >({});
   const [importing, setImporting] = useState(false);
-  const [addDefaults, setAddDefaults] = useState<any>(null);
+  const [addDefaults, setAddDefaults] = useState<DeviceDefaults | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const load = () => {
@@ -80,11 +81,13 @@ export function CatalogView() {
   };
 
   const handleAddFromCatalog = (item: any) => {
+    // order_number/product_ref are deliberately not passed: AddDeviceModal
+    // looks both up from the catalog entry for the chosen manufacturer and
+    // model, and never read them from `defaults` - passing them here was
+    // dead data.
     setAddDefaults({
       manufacturer: item.manufacturer,
       model: item.model || item.name,
-      order_number: item.order_number,
-      product_ref: item.product_ref,
     });
   };
 

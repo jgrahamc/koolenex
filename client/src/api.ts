@@ -8,7 +8,6 @@ import type {
   Space,
   Topology,
   BusTelegram,
-  Setting,
   DptInfoEntry,
   ComObjectWithDevice,
   CatalogSection,
@@ -130,13 +129,27 @@ export interface ImportStatusSnapshot {
 
 const BASE = '/api';
 
-class ApiError extends Error {
+export class ApiError extends Error {
   code?: string;
   // Raw parsed error body, for routes that attach extra fields beyond
   // error/message/code (e.g. /bus/program-device's canUseSerial) - see
   // req()'s own handling below for why code/message are split the way
   // they are.
   data?: Record<string, unknown>;
+}
+
+/**
+ * A caught value's message. TypeScript types a catch binding as `unknown`,
+ * and the views were annotating theirs as `any` to get at `.message`; this
+ * says the same thing once, honestly.
+ */
+export function errMessage(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
+
+/** The API error code on a caught value, when it came from this layer. */
+export function errCode(e: unknown): string | undefined {
+  return e instanceof ApiError ? e.code : undefined;
 }
 
 async function req<T = unknown>(
@@ -545,7 +558,11 @@ export const api = {
     ),
 
   // Settings
-  getSettings: () => req<Setting[]>('GET', '/settings'),
+  // GET /settings is Object.fromEntries over the settings table - a
+  // key->value map, never the row array the Setting[] here claimed. Nothing
+  // was broken by it (every caller reads it as a map), but the declared type
+  // said otherwise, so the views had to annotate around it.
+  getSettings: () => req<Record<string, string>>('GET', '/settings'),
   saveSettings: (body: Record<string, string>) =>
     req<{ ok: boolean }>('PATCH', '/settings', body),
 

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
+import type { Device } from '../../../shared/types.ts';
 import { createPortal } from 'react-dom';
 import { STATUS_COLOR } from '../theme.ts';
 import {
@@ -18,7 +19,7 @@ import {
   IconAttention,
   IconMagnify,
 } from '../icons.tsx';
-import { api } from '../api.ts';
+import { errMessage, errCode, api } from '../api.ts';
 import {
   useAppData,
   useBusActions,
@@ -87,9 +88,7 @@ export function ProgrammingView() {
   useEffect(() => {
     api
       .getSettings()
-      .then((s: any) =>
-        setAutoAddressBySerial(s.auto_address_by_serial === 'true'),
-      )
+      .then((s) => setAutoAddressBySerial(s.auto_address_by_serial === 'true'))
       .catch(() => {});
   }, []);
   const toggleAutoAddressBySerial = async () => {
@@ -97,10 +96,10 @@ export function ProgrammingView() {
     setAutoAddressBySerial(next); // optimistic - this is a low-stakes preference toggle
     try {
       await api.saveSettings({ auto_address_by_serial: next ? 'true' : '' });
-    } catch (e: any) {
+    } catch (e) {
       setAutoAddressBySerial(!next); // revert on failure
       addLog(
-        `[${new Date().toLocaleTimeString()}] Failed to save "Auto-program by Serial No." setting → ${e.message}`,
+        `[${new Date().toLocaleTimeString()}] Failed to save "Auto-program by Serial No." setting → ${errMessage(e)}`,
       );
     }
   };
@@ -130,7 +129,7 @@ export function ProgrammingView() {
     toggleShowDebug,
   } = useProgrammingLog();
   const [verifyingIds, setVerifyingIds] = useState<Set<number>>(new Set());
-  const [slideOverDevice, setSlideOverDevice] = useState<any | null>(null);
+  const [slideOverDevice, setSlideOverDevice] = useState<Device | null>(null);
   const { devices = [] } = data || {};
 
   // ── Log sidebar: width-resizable via a drag handle on its left edge.
@@ -263,13 +262,13 @@ export function ProgrammingView() {
   // (see server/routes/bus.ts's 'address_needs_confirmation' response) -
   // drives the choice modal below. null when no choice is pending.
   const [addressChoiceFor, setAddressChoiceFor] = useState<{
-    deviceId: any;
+    deviceId: number;
     devAddr: string;
     mode: 'full' | 'partial';
   } | null>(null);
 
   const programDevice = async (
-    deviceId: any,
+    deviceId: number,
     devAddr: string,
     mode: 'full' | 'partial' = 'full',
     // How to locate/(re)address the device if it doesn't currently answer
@@ -365,7 +364,7 @@ export function ProgrammingView() {
         if (result.serialNumber) patch.serial_number = result.serialNumber;
         try {
           await updateDevice(deviceId, patch);
-        } catch (e: any) {
+        } catch (e) {
           // Real, defensive fix: this previously swallowed any failure
           // silently (fire-and-forget with an empty .catch()) - the
           // server-side write already succeeded at this point, so a
@@ -374,7 +373,7 @@ export function ProgrammingView() {
           // correctly, since the DB write already happened) rather than
           // vanishing with no trace.
           addLog(
-            `[${new Date().toLocaleTimeString()}] Download recorded on the device, but the project record didn't refresh locally → ${e.message} (a reload will show it correctly)`,
+            `[${new Date().toLocaleTimeString()}] Download recorded on the device, but the project record didn't refresh locally → ${errMessage(e)} (a reload will show it correctly)`,
           );
         }
       }
@@ -386,8 +385,8 @@ export function ProgrammingView() {
       // if nothing had happened. Drop it so the page reverts to "not yet
       // verified" rather than silently-stale data.
       clearVerifyResult(deviceId);
-    } catch (err: any) {
-      if (err.code === 'aborted') {
+    } catch (err) {
+      if (errCode(err) === 'aborted') {
         // Reverts the button to its normal (non-error) state, based on
         // the device's own real `status` - a cancel isn't a failure, so
         // it shouldn't leave a "Retry" button behind.
@@ -399,7 +398,7 @@ export function ProgrammingView() {
         addLog(
           `[${new Date().toLocaleTimeString()}] Cancelled → ${devAddr} — no address was written, nothing else attempted`,
         );
-      } else if (err.code === 'address_needs_confirmation') {
+      } else if (errCode(err) === 'address_needs_confirmation') {
         // Not a failure - the device genuinely isn't answering at its
         // assigned address (e.g. a factory reset) and a serial is on
         // record, so there's a real choice to offer instead of forcing
@@ -416,7 +415,7 @@ export function ProgrammingView() {
       } else {
         setProgress((p) => ({ ...p, [deviceId]: { state: 'error' } }));
         addLog(
-          `[${new Date().toLocaleTimeString()}] Download failed (${mode}) → ${devAddr} — ${err.message}`,
+          `[${new Date().toLocaleTimeString()}] Download failed (${mode}) → ${devAddr} — ${errMessage(err)}`,
         );
       }
     }
@@ -425,11 +424,11 @@ export function ProgrammingView() {
 
   // Wired to the "press the button" modal's own Cancel button (see the
   // modal's own render block below) - real request, 2026-08-31.
-  const cancelProgramDevice = (deviceId: any) => {
+  const cancelProgramDevice = (deviceId: number) => {
     programAbortRef.current[deviceId]?.abort();
   };
 
-  const verifyDevice = async (deviceId: any, devAddr: string) => {
+  const verifyDevice = async (deviceId: number, devAddr: string) => {
     setLogOpen(true);
     setVerifyingIds((s) => new Set(s).add(deviceId));
     addLog(
@@ -469,9 +468,9 @@ export function ProgrammingView() {
             unconfirmed_writes_count: 0,
             unconfirmed_writes_detail: '[]',
           });
-        } catch (e: any) {
+        } catch (e) {
           addLog(
-            `[${new Date().toLocaleTimeString()}] Verify cleared the unconfirmed-writes flag on the device, but the project record didn't refresh locally → ${e.message} (a reload will show it correctly)`,
+            `[${new Date().toLocaleTimeString()}] Verify cleared the unconfirmed-writes flag on the device, but the project record didn't refresh locally → ${errMessage(e)} (a reload will show it correctly)`,
           );
         }
       }
@@ -548,12 +547,12 @@ export function ProgrammingView() {
       // auto-closing the log panel (per explicit request) so the slide-over
       // isn't fighting the log for the same screen space right after it's
       // the thing the user actually wants to look at.
-      const dev = devices.find((d: any) => d.id === deviceId) ?? null;
+      const dev = devices.find((d) => d.id === deviceId) ?? null;
       setSlideOverDevice(dev);
       if (dev) setLogOpen(false);
-    } catch (err: any) {
+    } catch (err) {
       addLog(
-        `[${new Date().toLocaleTimeString()}] Verify failed → ${devAddr} — ${err.message}`,
+        `[${new Date().toLocaleTimeString()}] Verify failed → ${devAddr} — ${errMessage(err)}`,
       );
     } finally {
       setVerifyingIds((s) => {
@@ -564,8 +563,8 @@ export function ProgrammingView() {
     }
   };
 
-  const openComparison = (deviceId: any) => {
-    const dev = devices.find((d: any) => d.id === deviceId) ?? null;
+  const openComparison = (deviceId: number) => {
+    const dev = devices.find((d) => d.id === deviceId) ?? null;
     setSlideOverDevice(dev);
     if (dev) setLogOpen(false);
   };
@@ -601,13 +600,12 @@ export function ProgrammingView() {
   // they're not bus operations and blocking them would only get in the way
   // of someone watching progress on a device that's actively downloading.
   const anyOperationRunning =
-    Object.values(progress).some((p: any) => p?.state === 'running') ||
+    Object.values(progress).some((p) => p?.state === 'running') ||
     verifyingIds.size > 0;
   const programmAll = async (mode: 'full' | 'partial') => {
     if (programmingAll) return;
     const targets = devices.filter(
-      (d: any) =>
-        d.status === 'modified' && d.individual_address && d.has_address,
+      (d) => d.status === 'modified' && d.individual_address && d.has_address,
     );
     if (!targets.length) return;
     setProgrammingAll(true);
@@ -701,7 +699,7 @@ export function ProgrammingView() {
       programmAll(mode);
       return;
     }
-    const dev = devices.find((d: any) => d.id === target);
+    const dev = devices.find((d) => d.id === target);
     if (dev) programDevice(dev.id, dev.individual_address, mode);
   };
 
@@ -802,17 +800,17 @@ export function ProgrammingView() {
             {[
               [
                 'Programmed',
-                devices.filter((d: any) => d.status === 'programmed').length,
+                devices.filter((d) => d.status === 'programmed').length,
                 STATUS_COLOR.programmed,
               ],
               [
                 'Modified',
-                devices.filter((d: any) => d.status === 'modified').length,
+                devices.filter((d) => d.status === 'modified').length,
                 STATUS_COLOR.modified,
               ],
               [
                 'Unassigned',
-                devices.filter((d: any) => d.status === 'unassigned').length,
+                devices.filter((d) => d.status === 'unassigned').length,
                 STATUS_COLOR.unassigned,
               ],
             ].map(([label, count, col]) => (
@@ -832,7 +830,7 @@ export function ProgrammingView() {
               </tr>
             </thead>
             <tbody>
-              {devices.map((d: any) => {
+              {devices.map((d) => {
                 const prog = progress[d.id];
                 const verifying = verifyingIds.has(d.id);
                 const liveVerifyProgress = verifyProgress[d.individual_address];
@@ -1585,7 +1583,7 @@ export function ProgrammingView() {
           // that IS the discovery step.
           const rowDevice =
             typeof addressModalFor === 'number'
-              ? devices.find((d: any) => d.id === addressModalFor)
+              ? devices.find((d) => d.id === addressModalFor)
               : undefined;
           const known = !!rowDevice?.serial_number;
           return (
@@ -1625,8 +1623,8 @@ export function ProgrammingView() {
             // than assuming that invariant can never drift.
             partialDisabled={
               downloadModePopoverFor !== 'all' &&
-              devices.find((d: any) => d.id === downloadModePopoverFor)
-                ?.status !== 'modified'
+              devices.find((d) => d.id === downloadModePopoverFor)?.status !==
+                'modified'
             }
             onChoose={chooseDownloadMode}
           />,
@@ -1647,7 +1645,7 @@ export function ProgrammingView() {
       {Object.keys(progress)
         .filter((idStr) => progress[idStr]?.state === 'running')
         .map((idStr) => {
-          const d = devices.find((dev: any) => String(dev.id) === idStr);
+          const d = devices.find((dev) => String(dev.id) === idStr);
           if (!d) return null;
           const pp = programProgress[d.individual_address];
           if (!pp?.awaitingButton) return null;
@@ -1681,9 +1679,7 @@ export function ProgrammingView() {
           server just picks serial automatically and this never fires. */}
       {addressChoiceFor &&
         (() => {
-          const d = devices.find(
-            (dev: any) => dev.id === addressChoiceFor.deviceId,
-          );
+          const d = devices.find((dev) => dev.id === addressChoiceFor.deviceId);
           if (!d) return null;
           return (
             <div className={primStyles.modalOverlay}>

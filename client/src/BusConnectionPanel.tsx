@@ -43,10 +43,17 @@ export function BusConnectionPanel({
     if (busStatus.connected) return;
     api
       .getSettings()
-      .then((s: any) => {
+      .then((s) => {
         if (s.knxip_host) setHost(s.knxip_host);
         if (s.knxip_port) setPort(s.knxip_port);
-        if (s.knxip_protocol) setProtocol(s.knxip_protocol);
+        // The settings table stores plain strings; only the three the
+        // picker knows about are meaningful here.
+        if (
+          s.knxip_protocol === 'udp' ||
+          s.knxip_protocol === 'tcp' ||
+          s.knxip_protocol === 'auto'
+        )
+          setProtocol(s.knxip_protocol);
       })
       .catch(() => {});
   }, []);

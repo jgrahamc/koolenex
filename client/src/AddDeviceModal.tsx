@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react';
 import { Btn } from './primitives.tsx';
 import { DeviceTypeIcon } from './icons.tsx';
 import styles from './AddDeviceModal.module.css';
+import type { Medium, ProjectFull } from '../../shared/types.ts';
 
 // Compute next available device number on a line
 function nextDeviceNum(devices: any[], area: number, line: number) {
@@ -59,10 +60,28 @@ function flattenSpaces(spaces: SpaceNode[]): FlatSpace[] {
   return result;
 }
 
+/**
+ * Fields pre-filled from wherever the "add device" was started: the
+ * topology view knows the area/line/medium, the locations and floor-plan
+ * views know the space, the catalog and manufacturer views know the
+ * product. Everything else the modal asks for or derives - notably
+ * order_number and product_ref, which it looks up from the catalog entry
+ * for the chosen manufacturer/model rather than taking them from here.
+ */
+export interface DeviceDefaults {
+  area?: number;
+  line?: number;
+  medium?: Medium;
+  manufacturer?: string;
+  model?: string;
+  name?: string;
+  space_id?: number;
+}
+
 interface AddDeviceModalProps {
-  data: any;
-  defaults?: any;
-  onAdd: (body: any) => Promise<any>;
+  data: ProjectFull | null;
+  defaults?: DeviceDefaults;
+  onAdd: (body: Record<string, unknown>) => Promise<unknown>;
   onClose: () => void;
 }
 

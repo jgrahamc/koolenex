@@ -1,4 +1,4 @@
-import { useState, useContext, useMemo } from 'react';
+import { useState, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { STATUS_COLOR, I18nCtx } from '../theme.ts';
 import { PinContext, useAppData, useProjectActions } from '../contexts.ts';
@@ -18,8 +18,16 @@ import { useColumns, ColumnPicker, dlCSV } from '../columns.tsx';
 import { spaceUsageMap, localizedModel } from '../dpt.ts';
 import type { Space, Device } from '../../../shared/types.ts';
 import { AddDeviceModal } from '../AddDeviceModal.tsx';
+import type { DeviceDefaults } from '../AddDeviceModal.tsx';
 import { usePersistedSet } from '../hooks/usePersistedState.ts';
 import styles from './LocationsView.module.css';
+import { LOCATION_COLUMNS, deviceColClass } from '../deviceColumns.ts';
+
+/** A space with its child spaces and the devices placed in it. */
+interface SpaceNode extends Space {
+  children: SpaceNode[];
+  devs: Device[];
+}
 
 export function LocationsView() {
   const { projectData: data, activeProjectId: projectId } = useAppData();
@@ -41,20 +49,21 @@ export function LocationsView() {
   };
   const { spaces = [], devices = [], deviceGAMap = {} } = data || {};
   const [search, setSearch] = useState('');
-  const [addDefaults, setAddDefaults] = useState<any>(null);
+  const [addDefaults, setAddDefaults] = useState<DeviceDefaults | null>(null);
   const [filterStatus, setFilterStatus] = useState('all');
   const [spaceSort, setSpaceSort] = useState(
     () => localStorage.getItem('knx-loc-sort') || 'import',
   );
-  const [editSpaceId, setEditSpaceId] = useState<any>(null);
-  const [editDevId, setEditDevId] = useState<any>(null);
-  const [addSpaceParent, setAddSpaceParent] = useState<any>(null); // null = not adding, { parentId, defaultType }
+  const [editSpaceId, setEditSpaceId] = useState<number | null>(null);
+  const [editDevId, setEditDevId] = useState<number | null>(null);
+  // null = not adding
+  const [addSpaceParent, setAddSpaceParent] = useState<{
+    parentId: number | null;
+    defaultType: string;
+  } | null>(null);
   const [collapsed, setCollapsed] = usePersistedSet(
     'knx-loc-collapsed',
-    () =>
-      new Set(
-        spaces.filter((s: any) => s.parent_id).map((s: any) => String(s.id)),
-      ),
+    () => new Set(spaces.filter((s) => s.parent_id).map((s) => String(s.id))),
   );
   const toggleCollapse = (id: string) =>
     setCollapsed((prev) => {
@@ -64,23 +73,10 @@ export function LocationsView() {
       return n;
     });
 
-  const LOC_COLS = useMemo(
-    () => [
-      { id: 'individual_address', label: 'Address', visible: true },
-      { id: 'name', label: 'Name', visible: true },
-      { id: 'device_type', label: 'Type', visible: true },
-      { id: 'manufacturer', label: 'Manufacturer', visible: true },
-      { id: 'model', label: 'Model', visible: true },
-      { id: 'serial_number', label: 'Serial', visible: false },
-      { id: 'status', label: 'Status', visible: true },
-      { id: 'gas', label: 'GAs', visible: true },
-    ],
-    [],
-  );
-  const [locCols, saveLocCols] = useColumns('locations', LOC_COLS);
+  const [locCols, saveLocCols] = useColumns('locations', LOCATION_COLUMNS);
   const lcv = (id: string) =>
-    locCols.find((c: any) => c.id === id)?.visible !== false;
-  const visibleLocCols = locCols.filter((c: any) => c.visible !== false);
+    locCols.find((c) => c.id === id)?.visible !== false;
+  const visibleLocCols = locCols.filter((c) => c.visible !== false);
 
   if (!spaces.length)
     return (
@@ -94,10 +90,6 @@ export function LocationsView() {
     );
 
   // Build tree
-  interface SpaceNode extends Space {
-    children: SpaceNode[];
-    devs: Device[];
-  }
   const nodeMap: Record<string, SpaceNode> = {};
   for (const s of spaces)
     nodeMap[s.id] = { ...s, children: [], devs: [] } as SpaceNode;
@@ -142,7 +134,7 @@ export function LocationsView() {
 
   const exportLocCSV = () => {
     const allDevs = devices.filter(
-      (d: any) =>
+      (d) =>
         (filterStatus === 'all' || d.status === filterStatus) &&
         (!sq ||
           d.name.toLowerCase().includes(sq) ||
@@ -152,7 +144,7 @@ export function LocationsView() {
       'koolenex-locations.csv',
       locCols,
       allDevs,
-      (id: string, d: any) =>
+      (id: string, d: Device) =>
         ({
           individual_address: d.individual_address,
           name: d.name,
@@ -166,12 +158,17 @@ export function LocationsView() {
     );
   };
 
-  const renderSpace = (node: any, depth: number): React.ReactNode => {
+  const renderSpace = (node: SpaceNode, depth: number): React.ReactNode => {
     if (!matchesSearch(node)) return null;
-    const isCollapsed = sq ? false : collapsed.has(node.id);
+    // String, not the raw numeric id: the collapsed set is persisted to
+    // localStorage as JSON and comes back as strings, and its own default
+    // (every child space collapsed) is built with String(s.id). Passing the
+    // number here made has() always miss - the default never applied, and a
+    // node collapsed by hand came back expanded after a reload.
+    const isCollapsed = sq ? false : collapsed.has(String(node.id));
     const hasChildren = node.children.length > 0 || node.devs.length > 0;
     const filteredDevs = node.devs.filter(
-      (d: any) =>
+      (d) =>
         (filterStatus === 'all' || d.status === filterStatus) &&
         (!sq ||
           d.name.toLowerCase().includes(sq) ||
@@ -192,7 +189,7 @@ export function LocationsView() {
                   : 'transparent',
             cursor: hasChildren ? 'pointer' : 'default',
           }}
-          onClick={() => hasChildren && toggleCollapse(node.id)}
+          onClick={() => hasChildren && toggleCollapse(String(node.id))}
         >
           {hasChildren ? (
             <span className={styles.chevronSmall}>
@@ -309,7 +306,10 @@ export function LocationsView() {
             <span className={styles.countLabel}>
               ·{' '}
               {filteredDevs.length +
-                node.children.reduce((s: any, c: any) => s + c.devs.length, 0)}
+                node.children.reduce(
+                  (n: number, c: SpaceNode) => n + c.devs.length,
+                  0,
+                )}
             </span>
           )}
         </div>
@@ -330,18 +330,10 @@ export function LocationsView() {
               <table className={styles.table}>
                 <thead>
                   <tr>
-                    {visibleLocCols.map((col: any) => (
+                    {visibleLocCols.map((col) => (
                       <TH
                         key={col.id}
-                        className={
-                          col.id === 'individual_address'
-                            ? styles.colAddr
-                            : col.id === 'gas'
-                              ? styles.colGas
-                              : col.id === 'status'
-                                ? styles.colStatus
-                                : undefined
-                        }
+                        className={deviceColClass(styles, col.id)}
                         style={
                           col.id === 'individual_address'
                             ? { paddingLeft: 14 + depth * 18 + 28 }
@@ -354,7 +346,7 @@ export function LocationsView() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredDevs.map((d: any) => (
+                  {filteredDevs.map((d) => (
                     <tr key={d.id} className={`rh ${styles.rowBorder}`}>
                       {lcv('individual_address') && (
                         <TD style={{ paddingLeft: 14 + depth * 18 + 28 }}>
@@ -458,7 +450,7 @@ export function LocationsView() {
                 </tbody>
               </table>
             )}
-            {node.children.map((child: any) => renderSpace(child, depth + 1))}
+            {node.children.map((child) => renderSpace(child, depth + 1))}
           </>
         )}
       </div>
@@ -466,9 +458,9 @@ export function LocationsView() {
   };
 
   const unplaced = devices
-    .filter((d: any) => !d.space_id)
+    .filter((d) => !d.space_id)
     .filter(
-      (d: any) =>
+      (d) =>
         (filterStatus === 'all' || d.status === filterStatus) &&
         (!sq ||
           d.name.toLowerCase().includes(sq) ||
@@ -554,18 +546,12 @@ export function LocationsView() {
             <table className={styles.table}>
               <thead>
                 <tr>
-                  {visibleLocCols.map((col: any) => (
+                  {visibleLocCols.map((col) => (
                     <TH
                       key={col.id}
-                      className={
-                        col.id === 'individual_address'
-                          ? styles.colAddrIndented
-                          : col.id === 'gas'
-                            ? styles.colGas
-                            : col.id === 'status'
-                              ? styles.colStatus
-                              : undefined
-                      }
+                      className={deviceColClass(styles, col.id, {
+                        indentedAddress: true,
+                      })}
                     >
                       {col.label.toUpperCase().replace('GAS', 'GAs')}
                     </TH>
@@ -573,7 +559,7 @@ export function LocationsView() {
                 </tr>
               </thead>
               <tbody>
-                {unplaced.map((d: any) => (
+                {unplaced.map((d) => (
                   <tr key={d.id} className={`rh ${styles.rowBorder}`}>
                     {lcv('individual_address') && (
                       <TD className={styles.tdIndented}>
@@ -685,7 +671,7 @@ export function LocationsView() {
             style={{ color: filterStatus === s ? c : 'var(--dim)' }}
           >
             <span style={{ color: c }}>●</span>{' '}
-            {devices.filter((d: any) => d.status === s).length} {s}
+            {devices.filter((d) => d.status === s).length} {s}
           </span>
         ))}
       </div>
@@ -708,9 +694,9 @@ function AddMenu({
   onAddDevice,
   onAddSpace,
 }: {
-  nodeId: any;
-  nodeType: any;
-  nodeName: any;
+  nodeId: number;
+  nodeType: string;
+  nodeName: string;
   onAddDevice: (() => void) | null;
   onAddSpace: (() => void) | null;
 }) {
@@ -788,9 +774,9 @@ function AddSpaceForm({
   onSave,
   onCancel,
 }: {
-  parentId: any;
+  parentId: number | null;
   defaultType: string;
-  onSave: (body: any) => Promise<void>;
+  onSave: (body: Record<string, unknown>) => Promise<void>;
   onCancel: () => void;
 }) {
   const { t: i18t } = useContext(I18nCtx);

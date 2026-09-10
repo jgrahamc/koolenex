@@ -1,6 +1,7 @@
-import { useState, useContext, useMemo } from 'react';
+import { useState, useContext } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { MediumCtx, STATUS_COLOR } from '../theme.ts';
+import type { Device, Topology } from '../../../shared/types.ts';
 import { localizedModel } from '../dpt.ts';
 import {
   Badge,
@@ -17,9 +18,11 @@ import { api } from '../api.ts';
 import { useAppData, useLiveData, useProjectActions } from '../contexts.ts';
 
 import { AddDeviceModal } from '../AddDeviceModal.tsx';
+import type { DeviceDefaults } from '../AddDeviceModal.tsx';
 import { useSpacePath } from '../hooks/spaces.ts';
 import { usePersistedState } from '../hooks/usePersistedState.ts';
 import styles from './TopologyView.module.css';
+import { TOPOLOGY_COLUMNS, deviceColClass } from '../deviceColumns.ts';
 
 export function TopologyView() {
   const { projectData: data } = useAppData();
@@ -39,8 +42,8 @@ export function TopologyView() {
     {},
   );
   const [statusFilter, setStatusFilter] = useState('all');
-  const [addDefaults, setAddDefaults] = useState<any>(null);
-  const [editTopoId, setEditTopoId] = useState<any>(null);
+  const [addDefaults, setAddDefaults] = useState<DeviceDefaults | null>(null);
+  const [editTopoId, setEditTopoId] = useState<number | null>(null);
   const {
     devices = [],
     deviceGAMap = {},
@@ -48,51 +51,39 @@ export function TopologyView() {
     topology = [],
   } = data || {};
 
-  const TOPO_COLS = useMemo(
-    () => [
-      { id: 'individual_address', label: 'Address', visible: true },
-      { id: 'name', label: 'Name', visible: true },
-      { id: 'device_type', label: 'Type', visible: true },
-      { id: 'location', label: 'Location', visible: true },
-      { id: 'manufacturer', label: 'Manufacturer', visible: true },
-      { id: 'model', label: 'Model', visible: true },
-      { id: 'order_number', label: 'Order #', visible: false },
-      { id: 'serial_number', label: 'Serial', visible: true },
-      { id: 'status', label: 'Status', visible: true },
-      { id: 'gas', label: 'GAs', visible: true },
-    ],
-    [],
-  );
-  const [topoCols, saveTopoCols] = useColumns('topology', TOPO_COLS);
+  const [topoCols, saveTopoCols] = useColumns('topology', TOPOLOGY_COLUMNS);
   const tcv = (id: string) =>
-    topoCols.find((c: any) => c.id === id)?.visible !== false;
-  const visibleTopoCols = topoCols.filter((c: any) => c.visible !== false);
+    topoCols.find((c) => c.id === id)?.visible !== false;
+  const visibleTopoCols = topoCols.filter((c) => c.visible !== false);
 
   const { spacePath } = useSpacePath(spaces);
 
   const areaRows = topology
-    .filter((t: any) => t.line === null)
-    .sort((a: any, b: any) => a.area - b.area);
-  const lineRows = topology.filter((t: any) => t.line !== null);
-  const allAreas: any[] = [
-    ...new Set([
-      ...areaRows.map((t: any) => t.area),
-      ...devices.map((d: any) => d.area),
-    ]),
-  ].sort((a: any, b: any) => a - b);
+    .filter((t) => t.line === null)
+    .sort((a, b) => a.area - b.area);
+  // The predicate, not just a filter: every use below treats a line row's
+  // `line` as a real number (sorting it, keying on it), which the Topology
+  // type alone can't say - `line` is null exactly for the area rows this
+  // filter removes.
+  const lineRows = topology.filter(
+    (t): t is Topology & { line: number } => t.line !== null,
+  );
+  const allAreas: number[] = [
+    ...new Set([...areaRows.map((t) => t.area), ...devices.map((d) => d.area)]),
+  ].sort((a, b) => a - b);
 
   const toggleLine = (area: number, line: number) =>
     setCollapsed((p) => ({ ...p, [`${area}.${line}`]: !p[`${area}.${line}`] }));
 
   const exportTopoCSV = () => {
     const filtered = devices.filter(
-      (d: any) => statusFilter === 'all' || d.status === statusFilter,
+      (d) => statusFilter === 'all' || d.status === statusFilter,
     );
     dlCSV(
       'koolenex-topology.csv',
       topoCols,
       filtered,
-      (id: string, d: any) =>
+      (id: string, d: Device) =>
         ({
           individual_address: d.individual_address,
           name: d.name,
@@ -146,21 +137,17 @@ export function TopologyView() {
         ]}
       />
       <div className={styles.scrollArea}>
-        {allAreas.map((area: any) => {
-          const areaRow = areaRows.find((t: any) => t.area === area);
+        {allAreas.map((area) => {
+          const areaRow = areaRows.find((t) => t.area === area);
           const areaName = areaRow?.name || '';
-          const lines: any[] = [
+          const lines: number[] = [
             ...new Set([
-              ...lineRows
-                .filter((t: any) => t.area === area)
-                .map((t: any) => t.line),
-              ...devices
-                .filter((d: any) => d.area === area)
-                .map((d: any) => d.line),
+              ...lineRows.filter((t) => t.area === area).map((t) => t.line),
+              ...devices.filter((d) => d.area === area).map((d) => d.line),
             ]),
-          ].sort((a: any, b: any) => a - b);
+          ].sort((a, b) => a - b);
           const areaDevs = devices.filter(
-            (d: any) =>
+            (d) =>
               d.area === area &&
               (statusFilter === 'all' || d.status === statusFilter),
           );
@@ -235,13 +222,13 @@ export function TopologyView() {
                   </span>
                 )}
               </div>
-              {lines.map((line: any) => {
+              {lines.map((line) => {
                 const lineRow = lineRows.find(
-                  (t: any) => t.area === area && t.line === line,
+                  (t) => t.area === area && t.line === line,
                 );
                 const lineName = lineRow?.name || '';
                 const devs = devices.filter(
-                  (d: any) =>
+                  (d) =>
                     d.area === area &&
                     d.line === line &&
                     (statusFilter === 'all' || d.status === statusFilter),
@@ -249,7 +236,7 @@ export function TopologyView() {
                 const isCollapsed = !!collapsed[`${area}.${line}`];
                 const medium =
                   lineRow?.medium ||
-                  devices.find((d: any) => d.area === area && d.line === line)
+                  devices.find((d) => d.area === area && d.line === line)
                     ?.medium ||
                   'TP';
                 const mediumColor =
@@ -323,7 +310,7 @@ export function TopologyView() {
                       <span className={styles.countLabel}>· {devs.length}</span>
                       {(() => {
                         const mA = devs.reduce(
-                          (s: any, d: any) => s + (d.bus_current || 0),
+                          (s, d) => s + (d.bus_current || 0),
                           0,
                         );
                         return mA > 0 ? (
@@ -366,28 +353,10 @@ export function TopologyView() {
                       <table className={styles.table}>
                         <thead>
                           <tr>
-                            {visibleTopoCols.map((col: any) => (
+                            {visibleTopoCols.map((col) => (
                               <TH
                                 key={col.id}
-                                className={
-                                  col.id === 'individual_address'
-                                    ? styles.colAddr
-                                    : col.id === 'device_type'
-                                      ? styles.colType
-                                      : col.id === 'manufacturer'
-                                        ? styles.colMfr
-                                        : col.id === 'model'
-                                          ? styles.colModel
-                                          : col.id === 'order_number'
-                                            ? styles.colOrder
-                                            : col.id === 'serial_number'
-                                              ? styles.colSerial
-                                              : col.id === 'status'
-                                                ? styles.colStatus
-                                                : col.id === 'gas'
-                                                  ? styles.colGas
-                                                  : undefined
-                                }
+                                className={deviceColClass(styles, col.id)}
                               >
                                 {col.label.toUpperCase().replace('GAS', 'GAs')}
                               </TH>
@@ -395,7 +364,7 @@ export function TopologyView() {
                           </tr>
                         </thead>
                         <tbody>
-                          {devs.map((d: any) => (
+                          {devs.map((d) => (
                             <tr
                               key={d.id}
                               className={`rh ${styles.rowTransparentBorder}`}
@@ -509,7 +478,7 @@ export function TopologyView() {
             }}
           >
             <span style={{ color: c }}>●</span>{' '}
-            {devices.filter((d: any) => d.status === s).length} {s}
+            {devices.filter((d) => d.status === s).length} {s}
           </span>
         ))}
       </div>
