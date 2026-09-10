@@ -65,10 +65,19 @@ lint script gains `tests/` and the ban is repo-wide.
 means editing both, with nothing enforcing it. Either one `PROJECT_TABLES` const or lean on
 `ON DELETE CASCADE` (foreign keys are already on, `db.ts:58`).
 
-### 10. Import/reimport handler factory
+### 10. Import/reimport handler factory — done
 
-`projects.ts` - the two handlers are ~95% identical: file check, project lookup,
-`importBodySchema`, IMPORT_BUSY check, `createJob`, log, respond, `setImmediate`.
+`importRoute(mode)` in `projects.ts` builds both upload handlers.
+`/projects/import` and `/projects/:id/reimport` differed only in resolving
+and checking the project, passing its id into the job, and naming themselves
+in the log line; everything else - both 400s, the 409 `IMPORT_BUSY` body, the
+job creation, the immediate response and the `setImmediate` hand-off - was
+the same forty lines twice.
+
+Check order is preserved exactly, including that a reimport posted with no
+file to a project that does not exist answers "No file uploaded" rather than
+404. `tests/smoke.test.ts` pins that, since it is the kind of thing a later
+refactor of the factory could quietly reorder.
 
 ### 11. Catalog insert exists twice — done
 

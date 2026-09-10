@@ -459,34 +459,67 @@ router.delete('/projects/:id', (req: Request, res: Response) => {
 // (`import:done` / `import:failed` / `import:password-required`) or by polling
 // GET /projects/import/:importId/status.
 
-router.post(
-  '/projects/import',
-  upload.single('file'),
-  (req: Request, res: Response) => {
-    if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
-    if (!req.file.originalname.toLowerCase().endsWith('.knxproj'))
-      return res.status(400).json({ error: 'File must be a .knxproj file' });
+/**
+ * The upload handler for both /projects/import and
+ * /projects/:id/reimport. The two differ by three things - reimport
+ * resolves and checks the project, passes its id into the job, and names
+ * itself in the log line - and were otherwise the same forty lines twice
+ * over, down to the 409 body and both 400 messages.
+ *
+ * Check order is preserved exactly as each route had it: the id resolves
+ * first (so a bad :id is a 400 before anything reads the upload), then the
+ * file and its extension, then the project's own existence. A reimport
+ * posted with no file to a project that does not exist still answers "No
+ * file uploaded", not 404.
+ */
+function importRoute(mode: 'import' | 'reimport') {
+  return (req: Request, res: Response): void => {
+    const pid = mode === 'reimport' ? paramId(req, 'id') : null;
+
+    if (!req.file) {
+      res.status(400).json({ error: 'No file uploaded' });
+      return;
+    }
+    if (!req.file.originalname.toLowerCase().endsWith('.knxproj')) {
+      res.status(400).json({ error: 'File must be a .knxproj file' });
+      return;
+    }
+
+    if (pid != null) {
+      const project = db.get<Project>('SELECT * FROM projects WHERE id=?', [
+        pid,
+      ]);
+      if (!project) {
+        res.status(404).json({ error: 'Project not found' });
+        return;
+      }
+    }
 
     const body = validateBody(req, importBodySchema);
 
+    // One at a time: a second parse would fight the first for memory on a
+    // large project, and the job registry only tracks one active import.
     const activeId = importJobs.getActiveImportId();
     if (activeId) {
-      return res.status(409).json({
+      res.status(409).json({
         error: 'An import is already in progress',
         code: 'IMPORT_BUSY',
         activeImportId: activeId,
       });
+      return;
     }
 
     const job = importJobs.createJob({
-      mode: 'import',
+      mode,
+      ...(pid != null ? { reimportProjectId: pid } : {}),
       fileName: req.file.originalname,
       fileBuffer: req.file.buffer,
       password: body.password,
     });
 
-    logger.info('api', 'import: received', {
+    logger.info('api', `${mode}: received`, {
       importId: job.importId,
+      ...(pid != null ? { pid } : {}),
       name: job.fileName,
       bytes: req.file.buffer.length,
       hasPassword: !!body.password,
@@ -496,53 +529,15 @@ router.post(
     setImmediate(() => {
       void runImportJob(job);
     });
-  },
-);
+  };
+}
+
+router.post('/projects/import', upload.single('file'), importRoute('import'));
 
 router.post(
   '/projects/:id/reimport',
   upload.single('file'),
-  (req: Request, res: Response) => {
-    const pid = paramId(req, 'id');
-    if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
-    if (!req.file.originalname.toLowerCase().endsWith('.knxproj'))
-      return res.status(400).json({ error: 'File must be a .knxproj file' });
-
-    const project = db.get<Project>('SELECT * FROM projects WHERE id=?', [pid]);
-    if (!project) return res.status(404).json({ error: 'Project not found' });
-
-    const body = validateBody(req, importBodySchema);
-
-    const activeId = importJobs.getActiveImportId();
-    if (activeId) {
-      return res.status(409).json({
-        error: 'An import is already in progress',
-        code: 'IMPORT_BUSY',
-        activeImportId: activeId,
-      });
-    }
-
-    const job = importJobs.createJob({
-      mode: 'reimport',
-      reimportProjectId: pid,
-      fileName: req.file.originalname,
-      fileBuffer: req.file.buffer,
-      password: body.password,
-    });
-
-    logger.info('api', 'reimport: received', {
-      importId: job.importId,
-      pid,
-      name: job.fileName,
-      bytes: req.file.buffer.length,
-      hasPassword: !!body.password,
-    });
-
-    res.json({ ok: true, importId: job.importId });
-    setImmediate(() => {
-      void runImportJob(job);
-    });
-  },
+  importRoute('reimport'),
 );
 
 // ── Import job control (password retry, status polling) ────────────────────

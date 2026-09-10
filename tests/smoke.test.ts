@@ -817,6 +817,21 @@ describe('Import/Reimport Error Paths', () => {
     assert.equal(status, 404);
   });
 
+  // Order matters and is deliberate: the upload is checked before the
+  // project is looked up, so this is 400, not 404. Pinned because both
+  // upload routes are built from one factory (importRoute in projects.ts)
+  // and the checks could easily be reordered while refactoring it.
+  it('POST /reimport with no file to a nonexistent project returns 400', async () => {
+    const { status, data } = await req(
+      'POST',
+      '/projects/99999/reimport',
+      new FormData(),
+      true,
+    );
+    assert.equal(status, 400);
+    assert.equal((data as { error: string }).error, 'No file uploaded');
+  });
+
   it('POST /reimport with corrupt .knxproj surfaces failure via /status', async () => {
     const { data: proj } = await req('POST', '/projects', {
       name: 'Reimport Error Test',
