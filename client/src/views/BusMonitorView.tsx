@@ -34,7 +34,7 @@ import type {
   EnrichedGA,
   ComObjectWithDevice,
 } from '../../../shared/types.ts';
-import { dptInfo } from '../dpt.ts';
+import { dptInput, sendDptOptions, dptInfo } from '../dpt.ts';
 import { useSpacePath } from '../hooks/spaces.ts';
 import styles from './BusMonitorView.module.css';
 
@@ -287,7 +287,10 @@ export function BusMonitorView() {
   );
   const [sendGa, setSendGa] = useState('');
   const [sendVal, setSendVal] = useState('');
-  const [sendDpt, setSendDpt] = useState('1');
+  // Empty until a known GA is chosen, at which point it becomes that GA's
+  // own DPT (see the effect below). It used to be a hardcoded '1', so
+  // sending to a 9.007 humidity GA silently offered a bool.
+  const [sendDpt, setSendDpt] = useState('');
   const [sending, setSending] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const prevLenRef = useRef(telegrams.length);
@@ -397,6 +400,17 @@ export function BusMonitorView() {
       (id, r) => field(r, id) ?? '',
     );
   };
+
+  // Follow the GA: picking one from the datalist (or typing a known
+  // address) sets the DPT to whatever the project says that GA is. A DPT
+  // chosen by hand afterwards stands until the GA changes again.
+  const sendGaDpt = gaMap[sendGa]?.dpt || '';
+  useEffect(() => {
+    setSendDpt(sendGaDpt || '1.001');
+    setSendVal('');
+  }, [sendGa, sendGaDpt]);
+
+  const sendInput = dptInput(sendDpt);
 
   const doSend = async (val: string = sendVal) => {
     if (!sendGa || !onWrite) return;
@@ -530,11 +544,13 @@ export function BusMonitorView() {
             onChange={(e) => setSendDpt(e.target.value)}
             className={styles.sendSelect}
           >
-            <option value="1">DPT 1 — Bool</option>
-            <option value="5">DPT 5 — 0–255</option>
-            <option value="9">DPT 9 — Float</option>
+            {sendDptOptions(sendGaDpt).map(([v, l]) => (
+              <option key={v} value={v}>
+                {l}
+              </option>
+            ))}
           </select>
-          {sendDpt === '1' ? (
+          {sendInput.kind === 'bool' ? (
             <div className={styles.boolRow}>
               <Btn
                 onClick={() => doSend('1')}
@@ -555,12 +571,33 @@ export function BusMonitorView() {
             </div>
           ) : (
             <>
-              <input
-                value={sendVal}
-                onChange={(e) => setSendVal(e.target.value)}
-                placeholder="Value"
-                className={styles.sendInputNarrow}
-              />
+              {sendInput.kind === 'enum' ? (
+                <select
+                  value={sendVal}
+                  onChange={(e) => setSendVal(e.target.value)}
+                  className={styles.sendSelect}
+                >
+                  <option value="">value…</option>
+                  {Object.entries(sendInput.enums || {}).map(([v, label]) => (
+                    <option key={v} value={v}>
+                      {v} — {label}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  value={sendVal}
+                  onChange={(e) => setSendVal(e.target.value)}
+                  type={sendInput.kind === 'text' ? 'text' : 'number'}
+                  min={sendInput.min}
+                  max={sendInput.max}
+                  step={sendInput.kind === 'float' ? 0.01 : 1}
+                  placeholder={
+                    sendInput.unit ? `Value (${sendInput.unit})` : 'Value'
+                  }
+                  className={styles.sendInputNarrow}
+                />
+              )}
               <Btn onClick={() => doSend()} disabled={!sendGa || sending}>
                 {sending ? <Spinner /> : '▷ Send'}
               </Btn>

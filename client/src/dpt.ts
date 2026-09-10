@@ -223,6 +223,85 @@ export function dptInfo(dpt: string | number | null | undefined): DptInfoEntry {
   );
 }
 
+/**
+ * How to ask a person for a value of this DPT.
+ *
+ * The send-telegram panels used to offer a fixed three- or five-entry list
+ * of main numbers and a plain text box, and neither took the DPT from the
+ * group address it was about to write to - so sending to a 9.007 humidity
+ * GA defaulted to DPT 1 and a bool. This derives the control from the DPT
+ * itself, including the real enumeration for an enum DPT, which the master
+ * XML already gives us (DptInfoEntry.enums).
+ *
+ * `kind` is what the caller renders:
+ *   bool  - on/off, DPT 1 and 2
+ *   enum  - a select of `enums`
+ *   int   - a number input, bounded by `min`/`max`
+ *   float - a number input, unbounded
+ *   text  - a string, DPT 16
+ */
+export interface DptInput {
+  kind: 'bool' | 'enum' | 'int' | 'float' | 'text';
+  min?: number;
+  max?: number;
+  unit: string;
+  enums?: Record<number, string>;
+}
+
+/** Bounds of the integer DPTs the server can encode (server/knx-dpt.ts). */
+const INT_RANGES: Record<string, [number, number]> = {
+  '5': [0, 255],
+  '6': [-128, 127],
+  '7': [0, 65535],
+  '8': [-32768, 32767],
+  '12': [0, 4294967295],
+  '13': [-2147483648, 2147483647],
+  '17': [0, 255],
+  '18': [0, 255],
+  '20': [0, 255],
+};
+
+export function dptInput(dpt: string | number | null | undefined): DptInput {
+  const info = dptInfo(dpt);
+  const main = String(normalizeDpt(dpt || '1.001')).split('.')[0] || '1';
+  const unit = info.unit || '';
+  // An enum wins over its numeric range: picking "Heating" is better than
+  // knowing the byte is 0-255.
+  if (info.enums && Object.keys(info.enums).length)
+    return { kind: 'enum', enums: info.enums, unit };
+  if (main === '1' || main === '2') return { kind: 'bool', unit };
+  if (main === '16') return { kind: 'text', unit };
+  if (main === '9' || main === '14') return { kind: 'float', unit };
+  const range = INT_RANGES[main];
+  if (range) return { kind: 'int', min: range[0], max: range[1], unit };
+  // Anything else the server can encode but we have no shape for - let the
+  // person type it rather than refusing.
+  return { kind: 'text', unit };
+}
+
+/**
+ * The DPT choices a send panel offers: the group address's own DPT first
+ * (so the default is the right one and is visibly the right one), then the
+ * handful people reach for when overriding it deliberately.
+ */
+export function sendDptOptions(
+  gaDpt: string | null | undefined,
+): [string, string][] {
+  const common: [string, string][] = [
+    ['1.001', 'DPT 1 — Bool'],
+    ['2.001', 'DPT 2 — Bool + control'],
+    ['5.001', 'DPT 5 — 0-255'],
+    ['9.001', 'DPT 9 — Float 16'],
+    ['14.000', 'DPT 14 — Float 32'],
+    ['16.000', 'DPT 16 — Text'],
+  ];
+  if (!gaDpt) return common;
+  const own = normalizeDpt(gaDpt);
+  const info = dptInfo(own);
+  const label = info.text ? `${own} — ${info.text}` : `DPT ${own}`;
+  return [[own, label], ...common.filter(([v]) => v !== own)];
+}
+
 export function dptUnit(dpt: string | number): string {
   return dptInfo(dpt).unit;
 }

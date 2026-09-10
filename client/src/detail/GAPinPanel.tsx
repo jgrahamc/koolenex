@@ -1,4 +1,5 @@
 import { useState, useEffect, useContext } from 'react';
+import { dptInput, sendDptOptions } from '../dpt.ts';
 import type {
   Device,
   EnrichedGA,
@@ -49,7 +50,11 @@ export function GAPinPanel({
   const pin = useContext(PinContext);
   const dpt = useDpt();
   const [writeVal, setWriteVal] = useState('');
-  const [writeDpt, setWriteDpt] = useState(ga.dpt?.split('.')[0] || '1');
+  // The GA's own DPT, in full ('9.007', not '9') so an enum DPT can offer
+  // its real values. useState alone was not enough: this panel stays mounted
+  // when a different GA is pinned, so it kept the first GA's DPT - which is
+  // what "the send box isn't picking up the DPT" was.
+  const [writeDpt, setWriteDpt] = useState(ga.dpt || '1.001');
   const [sending, setSending] = useState(false);
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState(ga.name);
@@ -64,7 +69,12 @@ export function GAPinPanel({
   };
   useEffect(() => {
     setEditing(false);
-  }, [ga.address]);
+    setWriteDpt(ga.dpt || '1.001');
+    setWriteVal('');
+  }, [ga.address, ga.dpt]);
+  // What control the value takes, from the DPT actually selected.
+  const writeInput = dptInput(writeDpt);
+
   const handleSend = async (val?: string) => {
     const v = val ?? writeVal;
     if ((!v && v !== '0') || !onWrite) return;
@@ -235,21 +245,13 @@ export function GAPinPanel({
                     }
                     className={styles.sendSelect}
                   >
-                    {(
-                      [
-                        ['1', 'DPT 1 — Bool'],
-                        ['2', 'DPT 2 — Bool+C'],
-                        ['5', 'DPT 5 — 0–255'],
-                        ['9', 'DPT 9 — Float'],
-                        ['14', 'DPT 14 — Float32'],
-                      ] as [string, string][]
-                    ).map(([v, l]) => (
+                    {sendDptOptions(ga.dpt).map(([v, l]) => (
                       <option key={v} value={v}>
                         {l}
                       </option>
                     ))}
                   </select>
-                  {writeDpt === '1' ? (
+                  {writeInput.kind === 'bool' ? (
                     <div className={styles.boolBtns}>
                       <Btn
                         onClick={() => handleSend('1')}
@@ -274,21 +276,44 @@ export function GAPinPanel({
                     </div>
                   ) : (
                     <>
-                      <input
-                        value={writeVal}
-                        onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                          setWriteVal(e.target.value)
-                        }
-                        onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) =>
-                          e.key === 'Enter' && handleSend()
-                        }
-                        type="number"
-                        min={writeDpt === '5' ? 0 : undefined}
-                        max={writeDpt === '5' ? 255 : undefined}
-                        step={['9', '14'].includes(writeDpt) ? 0.01 : 1}
-                        placeholder="value"
-                        className={styles.sendInput}
-                      />
+                      {writeInput.kind === 'enum' ? (
+                        <select
+                          value={writeVal}
+                          onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
+                            setWriteVal(e.target.value)
+                          }
+                          className={styles.sendSelect}
+                        >
+                          <option value="">value…</option>
+                          {Object.entries(writeInput.enums || {}).map(
+                            ([v, label]) => (
+                              <option key={v} value={v}>
+                                {v} — {label}
+                              </option>
+                            ),
+                          )}
+                        </select>
+                      ) : (
+                        <input
+                          value={writeVal}
+                          onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                            setWriteVal(e.target.value)
+                          }
+                          onKeyDown={(
+                            e: React.KeyboardEvent<HTMLInputElement>,
+                          ) => e.key === 'Enter' && handleSend()}
+                          type={writeInput.kind === 'text' ? 'text' : 'number'}
+                          min={writeInput.min}
+                          max={writeInput.max}
+                          step={writeInput.kind === 'float' ? 0.01 : 1}
+                          placeholder={
+                            writeInput.unit
+                              ? `value (${writeInput.unit})`
+                              : 'value'
+                          }
+                          className={styles.sendInput}
+                        />
+                      )}
                       <Btn
                         onClick={() => handleSend()}
                         disabled={sending || writeVal === ''}

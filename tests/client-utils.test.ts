@@ -14,6 +14,7 @@ import {
   LOCATION_COLUMNS,
 } from '../client/src/deviceColumns.ts';
 import type { Column } from '../client/src/columns.tsx';
+import { dptInput, sendDptOptions } from '../client/src/dpt.ts';
 
 function makeSpace(
   id: number,
@@ -184,5 +185,56 @@ describe('deviceColClass', () => {
       'ai',
     );
     assert.equal(deviceColClass(styles, 'gas', { indentedAddress: true }), 'g');
+  });
+});
+
+// ── DPT input controls ───────────────────────────────────────────────────────
+
+describe('dptInput', () => {
+  it('asks for a bool for the switching DPTs', () => {
+    assert.equal(dptInput('1.001').kind, 'bool');
+    assert.equal(dptInput('2.001').kind, 'bool');
+  });
+
+  it('bounds the integer DPTs by what the encoder accepts', () => {
+    assert.deepEqual(
+      { ...dptInput('5.010'), unit: '' },
+      { kind: 'int', min: 0, max: 255, unit: '' },
+    );
+    assert.equal(dptInput('6.001').min, -128);
+    assert.equal(dptInput('7.001').max, 65535);
+    assert.equal(dptInput('8.001').min, -32768);
+  });
+
+  it('asks for a float for the float DPTs, and text for a string', () => {
+    assert.equal(dptInput('9.007').kind, 'float');
+    assert.equal(dptInput('14.056').kind, 'float');
+    assert.equal(dptInput('16.000').kind, 'text');
+  });
+
+  it('falls back to a bool when nothing is known', () => {
+    // No DPT at all is the "1.001" default every send panel starts from.
+    assert.equal(dptInput(null).kind, 'bool');
+    assert.equal(dptInput('').kind, 'bool');
+  });
+});
+
+describe('sendDptOptions', () => {
+  it('puts the GA’s own DPT first so it is the default', () => {
+    const opts = sendDptOptions('9.007');
+    assert.equal(opts[0]![0], '9.007');
+  });
+
+  it('does not offer the same DPT twice', () => {
+    const ids = sendDptOptions('1.001').map(([v]) => v);
+    assert.deepEqual(ids, [...new Set(ids)]);
+    assert.equal(ids[0], '1.001');
+  });
+
+  it('offers the common list when the GA has no DPT', () => {
+    const ids = sendDptOptions(null).map(([v]) => v);
+    assert.ok(ids.includes('1.001'));
+    assert.ok(ids.includes('9.001'));
+    assert.equal(ids.length, new Set(ids).size);
   });
 });
