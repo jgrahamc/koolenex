@@ -625,35 +625,33 @@ export function transaction<T>(fn: (helpers: TransactionHelpers) => T): T {
 
 // ── Higher-level helpers ──────────────────────────────────────────────────────
 
-export function getProjectFull(projectId: number): ProjectFull | null {
-  const project = get<Project>('SELECT * FROM projects WHERE id=?', [
-    projectId,
-  ]);
-  if (!project) return null;
-
-  // Real bug, found live 2026-09-01: this hand-maintained column list had
-  // silently fallen 5 columns behind the real `Device` interface
-  // (`apdu_length`, `unconfirmed_writes_count`, `unconfirmed_writes_detail`,
-  // `last_verify_match`, `last_verify_at`) - a genuine live verify result
-  // was correctly persisted server-side, then vanished from the UI on the
-  // very next page refresh, because THIS is the query a refresh actually
-  // calls (the sibling devices-list route, GET /projects/:pid/devices in
-  // devices.ts, already used `SELECT *` and was unaffected - only this
-  // one, less-visited path had drifted). An explicit column list needs a
-  // matching edit here every time a column is added anywhere else in the
-  // codebase, with nothing to enforce that at compile time (TypeScript's
-  // own `all<Device>()` cast doesn't check the query actually returns
-  // every field the type promises) - switched to `SELECT *`, matching the
-  // sibling route's own convention, so this can't drift out of sync again.
-  const devices = all<Device>(
+/**
+ * A project's devices, in the order every device list shows them: by area,
+ * then line, then the device number parsed out of the individual address
+ * (so 1.1.2 sorts before 1.1.10, which a plain string sort would not).
+ *
+ * SELECT *, deliberately. Real bug, found live 2026-09-01: getProjectFull
+ * had a hand-maintained column list that had silently fallen five columns
+ * behind the Device interface (`apdu_length`, `unconfirmed_writes_count`,
+ * `unconfirmed_writes_detail`, `last_verify_match`, `last_verify_at`), so a
+ * genuine live verify result was persisted and then vanished from the UI on
+ * the next refresh - because this is the query a refresh calls. An explicit
+ * list needs a matching edit every time a column is added anywhere else,
+ * with nothing to enforce it (all<Device>() is a cast, not a check).
+ */
+export function getDevices(projectId: number): Device[] {
+  return all<Device>(
     `SELECT * FROM devices WHERE project_id=? ORDER BY area, line, CAST(REPLACE(individual_address, area||'.'||line||'.', '') AS INTEGER)`,
     [projectId],
   );
-  const gas = all<GroupAddress>(
-    'SELECT * FROM group_addresses WHERE project_id=? ORDER BY main_g, middle_g, sub_g',
-    [projectId],
-  );
-  const comObjects = all<ComObjectWithDevice>(
+}
+
+/**
+ * A project's com objects with their device's address and name joined on,
+ * ordered by device (as above) then object number.
+ */
+export function getComObjects(projectId: number): ComObjectWithDevice[] {
+  return all<ComObjectWithDevice>(
     `
     SELECT co.*, d.individual_address as device_address, d.name as device_name
     FROM com_objects co JOIN devices d ON co.device_id=d.id
@@ -661,9 +659,32 @@ export function getProjectFull(projectId: number): ProjectFull | null {
   `,
     [projectId],
   );
-  const { deviceGAMap, gaDeviceMap } = buildGAMaps(comObjects);
+}
 
-  // Build group-name lookup from ga_group_names table
+/**
+ * A project's group addresses with the main/middle group names and the list
+ * of devices linked to each - what every GA list actually renders.
+ *
+ * `comObjects` lets a caller that has already loaded them (getProjectFull)
+ * reuse that list; on its own this reads only the three columns the
+ * device<->GA map needs rather than the full joined rows.
+ */
+export function getEnrichedGAs(
+  projectId: number,
+  comObjects?: ComObjectWithDevice[],
+): EnrichedGA[] {
+  const gas = all<GroupAddress>(
+    'SELECT * FROM group_addresses WHERE project_id=? ORDER BY main_g, middle_g, sub_g',
+    [projectId],
+  );
+  const cos =
+    comObjects ??
+    all<ComObjectWithDevice>(
+      `SELECT co.ga_address, d.individual_address as device_address, d.name as device_name FROM com_objects co JOIN devices d ON co.device_id=d.id WHERE co.project_id=?`,
+      [projectId],
+    );
+  const { gaDeviceMap } = buildGAMaps(cos);
+
   const groupNames = all<GaGroupName>(
     'SELECT main_g, middle_g, name FROM ga_group_names WHERE project_id=?',
     [projectId],
@@ -671,17 +692,31 @@ export function getProjectFull(projectId: number): ProjectFull | null {
   const mainNameMap: Record<number, string> = {};
   const midNameMap: Record<string, string> = {};
   for (const gn of groupNames) {
+    // middle_g -1 is the main-group row's own name; anything else names a
+    // middle group.
     if (gn.middle_g === -1) mainNameMap[gn.main_g] = gn.name;
     else midNameMap[`${gn.main_g}/${gn.middle_g}`] = gn.name;
   }
 
-  // Attach group names and device lists to GAs
-  const normGas: EnrichedGA[] = gas.map((g) => ({
+  return gas.map((g) => ({
     ...g,
     main_group_name: mainNameMap[g.main_g] ?? '',
     middle_group_name: midNameMap[`${g.main_g}/${g.middle_g}`] ?? '',
     devices: gaDeviceMap[g.address] ?? [],
   }));
+}
+
+export function getProjectFull(projectId: number): ProjectFull | null {
+  const project = get<Project>('SELECT * FROM projects WHERE id=?', [
+    projectId,
+  ]);
+  if (!project) return null;
+
+  const devices = getDevices(projectId);
+  const comObjects = getComObjects(projectId);
+  const { deviceGAMap, gaDeviceMap } = buildGAMaps(comObjects);
+  // Reuses the com objects just loaded rather than re-joining for the map.
+  const normGas = getEnrichedGAs(projectId, comObjects);
 
   const spaces = all<Space>(
     'SELECT * FROM spaces WHERE project_id=? ORDER BY id',

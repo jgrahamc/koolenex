@@ -25,12 +25,7 @@ const upload = multer({
 
 // ── Devices ───────────────────────────────────────────────────────────────────
 router.get('/projects/:id/devices', (req: Request, res: Response): void => {
-  res.json(
-    db.all(
-      `SELECT * FROM devices WHERE project_id=? ORDER BY area, line, CAST(REPLACE(individual_address, area||'.'||line||'.', '') AS INTEGER)`,
-      [paramId(req, 'id')],
-    ),
-  );
+  res.json(db.getDevices(paramId(req, 'id')));
 });
 
 router.post('/projects/:id/devices', (req: Request, res: Response): void => {

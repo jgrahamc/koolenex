@@ -77,12 +77,22 @@ means editing both, with nothing enforcing it. Either one `PROJECT_TABLES` const
 `saveModelsAndMasterXml`. `projects.ts` already exports `insertParsedData` for exactly this
 reason.
 
-### 12. Three copies of the enriched-project queries
+### 12. Three copies of the enriched-project queries — done
 
-`db.ts:getProjectFull` re-implements the GA enrichment from `gas.ts`, the com-objects join
-from `gas.ts`, and the device ordering from `devices.ts`. The comment at `db.ts:634`
-documents a live bug caused by exactly this drift; the fix applied there (`SELECT *`) did
-not remove the duplication.
+`db.ts` now exports `getDevices()`, `getComObjects()` and
+`getEnrichedGAs()`, and `getProjectFull()` is built from them, as are
+`GET /projects/:id/devices`, `/comobjects` and `/gas`. `getEnrichedGAs`
+takes an optional com-object list so `getProjectFull` reuses the rows it has
+already loaded, and on its own still reads only the three columns the
+device<->GA map needs rather than the full joined rows - neither call site
+does more work than before.
+
+The drift this closes is documented in `getProjectFull`'s own comment: its
+hand-maintained device column list had fallen five columns behind the
+`Device` interface, so a live verify result was persisted and then vanished
+on the next page refresh. `tests/api.test.ts` now asserts the list routes and
+`getProjectFull` return the same rows, so a re-inlined query fails the suite
+(checked by re-inlining one).
 
 ### 13. `shared/address.ts`
 

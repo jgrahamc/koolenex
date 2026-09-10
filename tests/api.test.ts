@@ -784,6 +784,27 @@ describe('Group Addresses', () => {
     assert.equal(ga.main_group_name, 'Test Group');
     assert(ga.devices.includes('1.1.1'), 'should include linked device');
 
+    // The list routes and the whole-project load must agree. They used to
+    // be separate hand-written queries and they drifted: getProjectFull's
+    // device column list fell five columns behind the Device interface, so
+    // a live verify result vanished on the next page refresh (see that
+    // function's own comment). Both go through db.getEnrichedGAs /
+    // getComObjects now, and this fails if either route re-inlines a query
+    // of its own.
+    const full = db.getProjectFull(pid);
+    assert.deepEqual(data, full.gas);
+    const { data: cos } = await req('GET', `/projects/${pid}/comobjects`);
+    assert.deepEqual(cos, full.comObjects);
+    const { data: devs } = await req('GET', `/projects/${pid}/devices`);
+    // getProjectFull additionally attaches each device's area/line names
+    // from the topology table, so compare the rows the query itself
+    // returns rather than the enriched copies.
+    assert.deepEqual(
+      devs.map((d: { id: number }) => d.id),
+      full.devices.map((d: { id: number }) => d.id),
+    );
+    assert.deepEqual(devs, db.getDevices(pid));
+
     // Cleanup
     await req('DELETE', `/projects/${pid}/devices/${dev.id}`);
   });

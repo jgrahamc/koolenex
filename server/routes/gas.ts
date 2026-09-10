@@ -2,7 +2,6 @@ import express from 'express';
 import type { Request, Response } from 'express';
 import { z } from 'zod';
 import * as db from '../db.ts';
-import { buildGAMaps } from '../../shared/ga-maps.ts';
 import { validateBody, paramId } from '../validate.ts';
 import { makeUpdateBuilder, markDeviceModifiedIfProgrammed } from './shared.ts';
 import type { PendingChangeInput } from './shared.ts';
@@ -11,7 +10,6 @@ import { buildFlags } from '../ets-parser.ts';
 import type {
   GroupAddress,
   GaGroupName,
-  EnrichedGA,
   ComObjectWithDevice,
 } from '../../shared/types.ts';
 
@@ -19,37 +17,7 @@ const router = express.Router();
 
 // ── Group Addresses ───────────────────────────────────────────────────────────
 router.get('/projects/:id/gas', (req: Request, res: Response): void => {
-  const pid = paramId(req, 'id');
-  const gas = db.all<GroupAddress>(
-    'SELECT * FROM group_addresses WHERE project_id=? ORDER BY main_g,middle_g,sub_g',
-    [pid],
-  );
-  // Derive device<->GA map from com_objects
-  const cos = db.all<ComObjectWithDevice>(
-    `SELECT co.ga_address, d.individual_address as device_address, d.name as device_name FROM com_objects co JOIN devices d ON co.device_id=d.id WHERE co.project_id=?`,
-    [pid],
-  );
-  const { gaDeviceMap } = buildGAMaps(cos);
-
-  // Attach group names from dedicated table
-  const groupNames = db.all<GaGroupName>(
-    'SELECT main_g, middle_g, name FROM ga_group_names WHERE project_id=?',
-    [pid],
-  );
-  const mainNameMap: Record<number, string> = {};
-  const midNameMap: Record<string, string> = {};
-  for (const gn of groupNames) {
-    if (gn.middle_g === -1) mainNameMap[gn.main_g] = gn.name;
-    else midNameMap[`${gn.main_g}/${gn.middle_g}`] = gn.name;
-  }
-
-  const enriched: EnrichedGA[] = gas.map((g) => ({
-    ...g,
-    main_group_name: mainNameMap[g.main_g] || '',
-    middle_group_name: midNameMap[`${g.main_g}/${g.middle_g}`] || '',
-    devices: gaDeviceMap[g.address] || [],
-  }));
-  res.json(enriched);
+  res.json(db.getEnrichedGAs(paramId(req, 'id')));
 });
 
 router.post('/projects/:id/gas', (req: Request, res: Response): void => {
@@ -215,16 +183,7 @@ router.delete(
 
 // ── Com Objects ───────────────────────────────────────────────────────────────
 router.get('/projects/:id/comobjects', (req: Request, res: Response): void => {
-  res.json(
-    db.all(
-      `
-    SELECT co.*, d.individual_address as device_address, d.name as device_name
-    FROM com_objects co JOIN devices d ON co.device_id=d.id
-    WHERE co.project_id=? ORDER BY d.area, d.line, CAST(REPLACE(d.individual_address, d.area||'.'||d.line||'.', '') AS INTEGER), co.object_number
-  `,
-      [paramId(req, 'id')],
-    ),
-  );
+  res.json(db.getComObjects(paramId(req, 'id')));
 });
 
 // Update GA associations on a com object
