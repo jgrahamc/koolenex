@@ -880,15 +880,21 @@ describe('KnxConnection.assignIndividualAddressBySerial', () => {
 
     // No mgmt frame is ever simulated - readIndividualAddressBySerial()
     // times out with a null result on every retry, so verified stays
-    // false. verifyDeadlineMs matches timeoutMs here (both 50) so the
-    // retry loop's own elapsed-time check exits after exactly one attempt,
-    // same real behavior as before the retry loop existed - a real test
-    // for the retry itself is below.
+    // false. A real test for the retry itself is below.
+    //
+    // verifyDeadlineMs is 1, not 50. It used to match timeoutMs so that
+    // the retry loop's `Date.now() - verifyStart < verifyDeadlineMs` check
+    // would exit after exactly one attempt - but that made the number of
+    // attempts a coin flip on a 1 ms boundary: a 50 ms setTimeout measures
+    // as 49 ms by Date.now() about 1% of the time on this hardware (the
+    // timer's own clock and the wall clock are not the same clock), and
+    // then 49 < 50 buys a second attempt. That is the whole story behind an
+    // intermittent `sent.length 3, expected 2` here.
     const result = await conn.assignIndividualAddressBySerial(
       serial,
       '1.1.20',
       50,
-      50,
+      1,
     );
     assert.deepEqual(result, {
       ok: true,
@@ -896,9 +902,17 @@ describe('KnxConnection.assignIndividualAddressBySerial', () => {
       address: null,
       restarted: false,
     });
-    // Just Write + Read - no management session opened for a restart that
-    // was correctly never attempted.
-    assert.equal(conn.sent.length, 2);
+    // What this test is actually about: no management session was opened
+    // for a restart that was correctly never attempted. Asserted by where
+    // the frames are addressed rather than by counting them - the write and
+    // the read-back are broadcasts to 0/0/0, and a restart would have
+    // opened a session against the device's new address (1.1.20), as the
+    // successful-verify test above checks. Counting frames would put the
+    // retry loop's timing back into the assertion.
+    assert.ok(conn.sent.length >= 2, 'expected at least the write and a read');
+    for (const frame of conn.sent) {
+      assert.equal(parseCEMI(frame)?.dst, '0/0/0');
+    }
   });
 
   it('retries the read-back verification when the first attempt times out, real bug fixed 2026-09-01', async () => {
