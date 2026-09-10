@@ -7,6 +7,7 @@ import * as db from '../db.ts';
 import { APPS_DIR, getDptInfo } from './shared.ts';
 import { getPendingChanges, clearPendingChanges } from './shared.ts';
 import { logger, safeErrorOrConnection } from '../log.ts';
+import { normalizeDptKey } from '../../shared/dpt-key.ts';
 import { resolveRelmemBases } from '../knx-segment-base.ts';
 import { validateBody } from '../validate.ts';
 import {
@@ -214,16 +215,7 @@ function demoToReal(demoAddr: string): string {
 }
 
 // ── DPT-aware telegram decoding ──────────────────────────────────────────────
-export function normalizeDptKey(dpt: string | null | undefined): string | null {
-  if (!dpt) return null;
-  const m = dpt.match(/^DPS?T-(\d+)-(\d+)$/i);
-  if (m) return `${m[1]}.${m[2]!.padStart(3, '0')}`;
-  if (dpt.includes('.')) {
-    const [a, b] = dpt.split('.');
-    return `${a}.${b!.padStart(3, '0')}`;
-  }
-  return null;
-}
+export { normalizeDptKey };
 
 // Pure DPT-aware decode: takes raw hex string, normalized DPT key, and optional
 // DPT info (enums, coefficient). Returns decoded string or null if no decoding applied.

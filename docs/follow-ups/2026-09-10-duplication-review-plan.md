@@ -117,12 +117,22 @@ server with ad-hoc `Number()` and `.split()`. Would also settle the inconsistenc
 `POST /projects/:id/gas` accepts `99/99/999` while `PATCH .../gas/group-name` enforces
 0-31/0-7.
 
-### 14. `normalizeDpt`
+### 14. `normalizeDpt` — done
 
-Deliberately duplicated (client `dpt.ts` vs server `bus.ts`), with
-`tests/normalize-consistency.test.ts` existing purely to keep the two equal. **Check before
-moving**: the two have since diverged in name and signature (`normalizeDpt` vs
-`normalizeDptKey`), so this is no longer the simple hoist the original review described.
+`shared/dpt-key.ts` holds `normalizeDptKey()`, and both sides use it. The
+review's "hoist it and delete the test" was not quite right: the two copies
+agreed on the transform but differed deliberately at the edges, and still
+do. The server wants `null` for "no usable key" so the decoder skips; the
+client wants the input back, because `dptInfo()` resolves a bare main number
+to its family's `.001` entry. Those are now thin adapters over one core
+rather than two implementations.
+
+The old consistency test passed unchanged against the refactor, which is the
+evidence that nothing moved. It is kept - retargeted at the two adapters,
+which is what still needs pinning - rather than deleted.
+
+One behaviour change: the shared version trims. The server's copy did not,
+so `' 9.1'` normalised to `' 9.001'` and matched nothing.
 
 ### 15. REST coverage — partly done
 

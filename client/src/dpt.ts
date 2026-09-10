@@ -1,3 +1,4 @@
+import { normalizeDptKey } from '../../shared/dpt-key.ts';
 // ── DPT (Data Point Type) module ──────────────────────────────────────────────
 
 export interface DptInfoEntry {
@@ -198,20 +199,19 @@ export function setDptInfo(data: Record<string, DptInfoEntry>): void {
   DPT_INFO = data;
 }
 
-export function normalizeDpt(dpt: string | number): string {
-  if (!dpt) return '';
-  const s = dpt.toString().trim();
-  // ETS format: 'DPT-9-1' or 'DPST-9-1' → '9.001'
-  const m = s.match(/^DPS?T-(\d+)-(\d+)$/i);
-  if (m) return `${m[1]}.${m[2]!.padStart(3, '0')}`;
-  // Already dotted: '9.1' → '9.001', '9.001' stays
-  if (s.includes('.')) {
-    const parts = s.split('.');
-    const main = parts[0]!;
-    const sub = parts[1] ?? '000';
-    return `${main}.${sub.padStart(3, '0')}`;
-  }
-  return s;
+/**
+ * The dotted DPT key for display and lookups, or the input unchanged when
+ * there is no key to be had.
+ *
+ * The normalising itself is shared/dpt-key.ts, which the server uses too.
+ * What is client-specific is the fallback: '' for nothing, and a bare main
+ * number ('9') passed straight through, because dptInfo() below resolves
+ * that to the family's '.001' entry rather than giving up.
+ */
+export function normalizeDpt(dpt: string | number | null | undefined): string {
+  const key = normalizeDptKey(dpt);
+  if (key) return key;
+  return dpt == null ? '' : String(dpt).trim();
 }
 
 export function dptInfo(dpt: string | number | null | undefined): DptInfoEntry {
