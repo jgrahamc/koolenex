@@ -1075,6 +1075,67 @@ type DeviceProgramming =
     }
   | { ok: false; status: number; body: Record<string, unknown> };
 
+/** A response a route body decided on but has not sent: `status` and the
+ * JSON `body` to send with it. Lets the long programming/verify operations
+ * be called and asserted on directly, instead of only through HTTP. */
+interface RouteResult {
+  status: number;
+  body: unknown;
+}
+
+type ProgrammableDevice =
+  | { ok: true; dev: Device }
+  | { ok: false; status: number; body: Record<string, unknown> };
+
+/**
+ * Look up the device a programming request names, and refuse the ones that
+ * must never be written to. /bus/program-device and /bus/verify-device took
+ * the same body and carried a verbatim copy of this each - same query, same
+ * 404, same device_unaddressed 409 down to the wording.
+ *
+ * The `deviceId` lookup is scoped by `projectId` when the request carries
+ * one (the client always sends both), so a device id belonging to another
+ * project reads as not found rather than being programmed against the named
+ * project - the same scoping the project-owned routes got in 1be98b6.
+ */
+export function loadProgrammableDevice(body: {
+  deviceAddress: string;
+  projectId?: number;
+  deviceId?: number;
+}): ProgrammableDevice {
+  const { deviceAddress, projectId, deviceId } = body;
+  const dev = deviceId
+    ? projectId
+      ? db.get<Device>('SELECT * FROM devices WHERE id=? AND project_id=?', [
+          +deviceId,
+          +projectId,
+        ])
+      : db.get<Device>('SELECT * FROM devices WHERE id=?', [+deviceId])
+    : db.get<Device>(
+        'SELECT * FROM devices WHERE individual_address=? AND project_id=?',
+        [deviceAddress, +(projectId ?? 0)],
+      );
+  if (!dev)
+    return { ok: false, status: 404, body: { error: 'Device not found' } };
+  // A device imported with no real address (see ets-parser.ts) carries a
+  // synthetic individual_address (device number >= 256) purely to have a
+  // stable DB key - never a real, writable KNX address. Refuse to program
+  // it rather than encoding an out-of-range device number onto the wire,
+  // where it could silently wrap into a real device's actual address.
+  if (!dev.has_address) {
+    return {
+      ok: false,
+      status: 409,
+      body: {
+        error: 'device_unaddressed',
+        message:
+          'This device has no individual address assigned yet - use "Address New Device" to give it a real one first.',
+      },
+    };
+  }
+  return { ok: true, dev };
+}
+
 /**
  * Build the download artifacts (load-procedure steps, GA/association tables,
  * parameter memory image) for a device from its imported app model + current
@@ -1355,74 +1416,33 @@ export const _resolvePendingWriteRanges = resolvePendingWriteRanges;
 // is a new, best-effort code path (see DownloadExtra.mode's doc comment in
 // knx-connection.ts) - only exercised so far against 1.1.9's RelSegment-
 // style app (mask 07B0).
-router.post('/bus/program-device', async (req: Request, res: Response) => {
-  const b = requireBus(res);
-  if (!b) return;
-  // Real request, 2026-08-31: a modal "press the button" prompt (client-
-  // side) needs a real Cancel action, and this route's own pre-flight can
-  // now genuinely wait up to 30s for a physical button press - checked at
-  // each polling round below rather than only at the very start, so
-  // cancelling actually stops the wait promptly instead of only being
-  // honored before the first round begins.
-  //
-  // Real bug, caught before ever reaching real hardware: req.on('close')
-  // is NOT a reliable "the client disconnected" signal in Express - it
-  // can fire once the REQUEST body has been fully read, which can happen
-  // well before a response is sent, even while the client is still very
-  // much there waiting. Using it made every test suddenly think it had
-  // been cancelled instantly, hitting the new `if (aborted) return;`
-  // guards with no response ever sent - hanging every test client
-  // indefinitely (confirmed live: the whole test file, previously a ~3.4s
-  // run, exceeded a 45s timeout with zero output). res.on('close'),
-  // gated on res.writableEnded, is the standard, correct pattern - it
-  // fires when the underlying connection actually closes, and
-  // writableEnded distinguishes "closed because we already finished
-  // responding normally" from a genuine client-side disconnect.
-  let aborted = false;
-  res.on('close', () => {
-    if (!res.writableEnded) aborted = true;
-  });
-  const body = validateBody(
-    req,
-    z.object({
-      deviceAddress: z.string().min(1),
-      projectId: z.number().int().optional(),
-      deviceId: z.number().int().optional(),
-      mode: z.enum(['full', 'partial']).optional().default('full'),
-      // How to locate/(re)address the device when it doesn't currently
-      // answer at `deviceAddress` and a serial is on record - see the
-      // 'address_needs_confirmation' response below. Omitted on a fresh
-      // request (the client hasn't chosen yet); set on the client's
-      // follow-up call once the user (or the 'auto_address_by_serial'
-      // setting) has decided.
-      addressMethod: z.enum(['button', 'serial']).optional(),
-    }),
-  );
-  const { deviceAddress, projectId, deviceId, mode, addressMethod } = body;
-
-  // Load device data
-  const dev = deviceId
-    ? db.get<Device>('SELECT * FROM devices WHERE id=?', [+deviceId])
-    : db.get<Device>(
-        'SELECT * FROM devices WHERE individual_address=? AND project_id=?',
-        [deviceAddress, +(projectId ?? 0)],
-      );
-  if (!dev) return res.status(404).json({ error: 'Device not found' });
-  // A device imported with no real address (see ets-parser.ts) carries a
-  // synthetic individual_address (device number >= 256) purely to have a
-  // stable DB key - never a real, writable KNX address. Refuse to program
-  // it rather than encoding an out-of-range device number onto the wire,
-  // where it could silently wrap into a real device's actual address.
-  if (!dev.has_address) {
-    return res.status(409).json({
-      error: 'device_unaddressed',
-      message:
-        'This device has no individual address assigned yet - use "Address New Device" to give it a real one first.',
-    });
-  }
+/**
+ * The real body of `/bus/program-device` - the address pre-flight, the
+ * download itself, and the DB/broadcast bookkeeping around them. Extracted
+ * from the route so the operation can be called and asserted on directly:
+ * it returns the status and body to send, or null when the client
+ * disconnected mid-operation (Cancel) and there is nobody left to answer.
+ *
+ * `isAborted` is checked at each point the operation could return early;
+ * the route feeds it from res.on('close') - see the route's own comment on
+ * why that, and not req.on('close'), is the reliable signal.
+ */
+export async function runProgramDevice(
+  b: KnxBusManager,
+  dev: Device,
+  body: {
+    deviceAddress: string;
+    projectId?: number;
+    deviceId?: number;
+    mode: 'full' | 'partial';
+    addressMethod?: 'button' | 'serial';
+  },
+  isAborted: () => boolean,
+): Promise<RouteResult | null> {
+  const { deviceAddress, mode, addressMethod } = body;
 
   const built = buildDeviceProgramming(dev);
-  if (!built.ok) return res.status(built.status).json(built.body);
+  if (!built.ok) return { status: built.status, body: built.body };
   const {
     steps,
     gaTable,
@@ -1499,13 +1519,16 @@ router.post('/bus/program-device', async (req: Request, res: Response) => {
     await b.forceReconnect();
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    return res.status(msg.includes('Not connected') ? 409 : 502).json({
-      error: safeErrorOrConnection(
-        'bus',
-        'Failed to reconnect before programming',
-        e,
-      ),
-    });
+    return {
+      status: msg.includes('Not connected') ? 409 : 502,
+      body: {
+        error: safeErrorOrConnection(
+          'bus',
+          'Failed to reconnect before programming',
+          e,
+        ),
+      },
+    };
   }
 
   // A download can run long enough for the gateway's own idle timeout to
@@ -1616,7 +1639,7 @@ router.post('/bus/program-device', async (req: Request, res: Response) => {
       while (
         !confirmedInfo &&
         Date.now() - confirmStart < confirmDeadlineMs &&
-        !aborted
+        !isAborted()
       ) {
         attempt++;
         if (attempt > 1) await delay(2000);
@@ -1670,11 +1693,14 @@ router.post('/bus/program-device', async (req: Request, res: Response) => {
         if (autoSetting?.value === 'true') {
           useSerial = true;
         } else {
-          return res.status(409).json({
-            error: 'address_needs_confirmation',
-            message: `Device not found at ${deviceAddress} with a matching serial - choose how to locate/address it.`,
-            canUseSerial: true,
-          });
+          return {
+            status: 409,
+            body: {
+              error: 'address_needs_confirmation',
+              message: `Device not found at ${deviceAddress} with a matching serial - choose how to locate/address it.`,
+              canUseSerial: true,
+            },
+          };
         }
       }
 
@@ -1690,19 +1716,25 @@ router.post('/bus/program-device', async (req: Request, res: Response) => {
           );
         } catch (e) {
           const msg = e instanceof Error ? e.message : String(e);
-          return res.status(msg.includes('Not connected') ? 409 : 502).json({
-            error: safeErrorOrConnection(
-              'bus',
-              'Locate device by serial failed',
-              e,
-            ),
-          });
+          return {
+            status: msg.includes('Not connected') ? 409 : 502,
+            body: {
+              error: safeErrorOrConnection(
+                'bus',
+                'Locate device by serial failed',
+                e,
+              ),
+            },
+          };
         }
         if (!bySerial.verified) {
-          return res.status(409).json({
-            error: 'serial_address_failed',
-            message: `No device with serial ${dev.serial_number} answered, or the address write to ${deviceAddress} could not be verified. Try Press Programming Button instead.`,
-          });
+          return {
+            status: 409,
+            body: {
+              error: 'serial_address_failed',
+              message: `No device with serial ${dev.serial_number} answered, or the address write to ${deviceAddress} could not be verified. Try Press Programming Button instead.`,
+            },
+          };
         }
         // The write itself is verified (assignIndividualAddressBySerial's
         // own read-back), but the device still restarts after this -
@@ -1710,12 +1742,15 @@ router.post('/bus/program-device', async (req: Request, res: Response) => {
         // press path already has, see waitForDeviceBackUp's own doc
         // comment for the real live failure this fixes.
         const confirmedInfo = await waitForDeviceBackUp();
-        if (aborted) return;
+        if (isAborted()) return null;
         if (!confirmedInfo) {
-          return res.status(502).json({
-            error: 'address_write_unconfirmed',
-            message: `Address ${deviceAddress} was written by serial, but the device did not answer afterward - the write could not be confirmed, so the rest of the download was not attempted.`,
-          });
+          return {
+            status: 502,
+            body: {
+              error: 'address_write_unconfirmed',
+              message: `Address ${deviceAddress} was written by serial, but the device did not answer afterward - the write could not be confirmed, so the rest of the download was not attempted.`,
+            },
+          };
         }
         onProgress({
           msg: `Confirmed device at ${deviceAddress} via serial - continuing with the rest of the download`,
@@ -1737,7 +1772,7 @@ router.post('/bus/program-device', async (req: Request, res: Response) => {
       const roundMs = 3000;
       const deadline = Date.now() + 30000;
       const bySrc = new Map<string, string>(); // src -> serial ('' if unknown)
-      while (bySrc.size === 0 && Date.now() < deadline && !aborted) {
+      while (bySrc.size === 0 && Date.now() < deadline && !isAborted()) {
         const thisRound = Math.min(
           roundMs,
           Math.max(deadline - Date.now(), 100),
@@ -1751,24 +1786,31 @@ router.post('/bus/program-device', async (req: Request, res: Response) => {
           bySrc.set(addrCheck.address, '');
         }
       }
-      // The client already disconnected (Cancel) - res.json() below would
-      // throw on a destroyed socket; nothing left to do or respond to.
-      if (aborted) return;
+      // The client already disconnected (Cancel) - there is nobody left to
+      // answer, so return null rather than a response the route would try
+      // to write to a destroyed socket.
+      if (isAborted()) return null;
       if (bySrc.size === 0) {
-        return res.status(409).json({
-          error: 'no_device_in_programming_mode',
-          message:
-            'No device answered the programming-mode scan - press and release the programming button on the target device, then try again.',
-        });
+        return {
+          status: 409,
+          body: {
+            error: 'no_device_in_programming_mode',
+            message:
+              'No device answered the programming-mode scan - press and release the programming button on the target device, then try again.',
+          },
+        };
       }
       if (bySrc.size > 1) {
         const ids = [...bySrc.entries()]
           .map(([addr, serial]) => (serial ? `${serial} @ ${addr}` : addr))
           .join(', ');
-        return res.status(409).json({
-          error: 'ambiguous_programming_mode',
-          message: `${bySrc.size} devices are in programming mode at once (${ids}) - this write would be ambiguous. Press the button on only the one device you mean to program, then try again.`,
-        });
+        return {
+          status: 409,
+          body: {
+            error: 'ambiguous_programming_mode',
+            message: `${bySrc.size} devices are in programming mode at once (${ids}) - this write would be ambiguous. Press the button on only the one device you mean to program, then try again.`,
+          },
+        };
       }
       // This message (no awaitingButton flag) is the client's cue to
       // dismiss the modal - a real device was found, the wait is over.
@@ -1784,12 +1826,15 @@ router.post('/bus/program-device', async (req: Request, res: Response) => {
       // (above) is on TOP of that built-in wait, not instead of it.
       await b.programIA(deviceAddress);
       const confirmedInfo = await waitForDeviceBackUp();
-      if (aborted) return;
+      if (isAborted()) return null;
       if (!confirmedInfo) {
-        return res.status(502).json({
-          error: 'address_write_unconfirmed',
-          message: `Address ${deviceAddress} was written, but the device did not answer afterward - the write could not be confirmed, so the rest of the download was not attempted.`,
-        });
+        return {
+          status: 502,
+          body: {
+            error: 'address_write_unconfirmed',
+            message: `Address ${deviceAddress} was written, but the device did not answer afterward - the write could not be confirmed, so the rest of the download was not attempted.`,
+          },
+        };
       }
       if (confirmedInfo.serialNumber) {
         db.run('UPDATE devices SET serial_number=?, has_address=1 WHERE id=?', [
@@ -1805,7 +1850,7 @@ router.post('/bus/program-device', async (req: Request, res: Response) => {
         });
       }
     }
-    if (aborted) return;
+    if (isAborted()) return null;
 
     const downloadResult = await b.downloadDevice(
       deviceAddress,
@@ -1927,15 +1972,18 @@ router.post('/bus/program-device', async (req: Request, res: Response) => {
     // the download attempt), but the client can use `unconfirmedWrites` to
     // show a "completed with N unconfirmed writes - verify recommended"
     // state instead of an unconditional success.
-    res.json({
-      ok: true,
-      deviceAddress,
-      mode,
-      serialNumber,
-      totalBytes,
-      unconfirmedWrites: downloadResult.unconfirmedWrites,
-      unconfirmedDetails: downloadResult.unconfirmedDetails,
-    });
+    return {
+      status: 200,
+      body: {
+        ok: true,
+        deviceAddress,
+        mode,
+        serialNumber,
+        totalBytes,
+        unconfirmedWrites: downloadResult.unconfirmedWrites,
+        unconfirmedDetails: downloadResult.unconfirmedDetails,
+      },
+    };
   } catch (e) {
     const errMsg = e instanceof Error ? e.message : String(e);
     b.broadcast('program:progress', {
@@ -1944,12 +1992,66 @@ router.post('/bus/program-device', async (req: Request, res: Response) => {
       pct: -1,
       error: true,
     });
-    res.status(errMsg.includes('Not connected') ? 409 : 502).json({
-      error: safeErrorOrConnection('bus', 'Device programming failed', e),
-    });
+    return {
+      status: errMsg.includes('Not connected') ? 409 : 502,
+      body: {
+        error: safeErrorOrConnection('bus', 'Device programming failed', e),
+      },
+    };
   } finally {
     releaseKeepAlive();
   }
+}
+
+router.post('/bus/program-device', async (req: Request, res: Response) => {
+  const b = requireBus(res);
+  if (!b) return;
+  // Real request, 2026-08-31: a modal "press the button" prompt (client-
+  // side) needs a real Cancel action, and runProgramDevice's address
+  // pre-flight can wait up to 30s for a physical button press - checked at each
+  // polling round rather than only at the very start, so cancelling
+  // actually stops the wait promptly.
+  //
+  // Real bug, caught before ever reaching real hardware: req.on('close')
+  // is NOT a reliable "the client disconnected" signal in Express - it
+  // can fire once the REQUEST body has been fully read, which can happen
+  // well before a response is sent, even while the client is still very
+  // much there waiting. Using it made every test suddenly think it had
+  // been cancelled instantly, hitting the `isAborted()` guards with no
+  // response ever sent - hanging every test client indefinitely
+  // (confirmed live: the whole test file, previously a ~3.4s run,
+  // exceeded a 45s timeout with zero output). res.on('close'), gated on
+  // res.writableEnded, is the standard, correct pattern - it fires when
+  // the underlying connection actually closes, and writableEnded
+  // distinguishes "closed because we already finished responding
+  // normally" from a genuine client-side disconnect.
+  let aborted = false;
+  res.on('close', () => {
+    if (!res.writableEnded) aborted = true;
+  });
+  const body = validateBody(
+    req,
+    z.object({
+      deviceAddress: z.string().min(1),
+      projectId: z.number().int().optional(),
+      deviceId: z.number().int().optional(),
+      mode: z.enum(['full', 'partial']).optional().default('full'),
+      // How to locate/(re)address the device when it doesn't currently
+      // answer at `deviceAddress` and a serial is on record - see the
+      // 'address_needs_confirmation' response in runProgramDevice. Omitted on a fresh
+      // request (the client hasn't chosen yet); set on the client's
+      // follow-up call once the user (or the 'auto_address_by_serial'
+      // setting) has decided.
+      addressMethod: z.enum(['button', 'serial']).optional(),
+    }),
+  );
+
+  const loaded = loadProgrammableDevice(body);
+  if (!loaded.ok) return res.status(loaded.status).json(loaded.body);
+
+  const result = await runProgramDevice(b, loaded.dev, body, () => aborted);
+  // null means the client disconnected mid-operation - nobody to answer.
+  if (result) res.status(result.status).json(result.body);
 });
 
 // Read-only verification: compute the parameter-memory image for a device and
@@ -1986,23 +2088,11 @@ router.post('/bus/verify-device', async (req: Request, res: Response) => {
       deviceId: z.number().int().optional(),
     }),
   );
-  const { deviceAddress, projectId, deviceId } = body;
+  const { deviceAddress } = body;
 
-  const dev = deviceId
-    ? db.get<Device>('SELECT * FROM devices WHERE id=?', [+deviceId])
-    : db.get<Device>(
-        'SELECT * FROM devices WHERE individual_address=? AND project_id=?',
-        [deviceAddress, +(projectId ?? 0)],
-      );
-  if (!dev) return res.status(404).json({ error: 'Device not found' });
-  // See the matching comment/guard in /bus/program-device above.
-  if (!dev.has_address) {
-    return res.status(409).json({
-      error: 'device_unaddressed',
-      message:
-        'This device has no individual address assigned yet - use "Address New Device" to give it a real one first.',
-    });
-  }
+  const loaded = loadProgrammableDevice(body);
+  if (!loaded.ok) return res.status(loaded.status).json(loaded.body);
+  const dev = loaded.dev;
 
   // See the matching comment in /bus/program-device above - forces a
   // fresh connection before starting rather than reusing whatever's left
@@ -2029,7 +2119,8 @@ router.post('/bus/verify-device', async (req: Request, res: Response) => {
   try {
     for (let attempt = 1; attempt <= VERIFY_TRANSIENT_MAX_ATTEMPTS; attempt++) {
       try {
-        await runVerifyDevice(b, dev, deviceAddress, res);
+        const result = await runVerifyDevice(b, dev, deviceAddress);
+        res.status(result.status).json(result.body);
         return;
       } catch (e) {
         if (
@@ -2057,20 +2148,19 @@ router.post('/bus/verify-device', async (req: Request, res: Response) => {
 
 /** The real body of `/bus/verify-device` - extracted so the route above can
  * retry it whole on a transient timeout (§ above) without duplicating this
- * logic. Sends the response itself (success or an "expected" 4xx) and
- * returns normally; throws for anything the caller's retry loop should
- * catch (a real bus-communication failure). */
-async function runVerifyDevice(
+ * logic. Returns the status and body to send, whether that is the successful
+ * comparison or an "expected" 4xx; throws for anything the caller's retry
+ * loop should catch (a real bus-communication failure).
+ *
+ * It used to take `res` and write the response itself, which meant every
+ * test of a verify comparison had to go through HTTP to see its result. */
+export async function runVerifyDevice(
   b: KnxBusManager,
   dev: Device,
   deviceAddress: string,
-  res: Response,
-): Promise<void> {
+): Promise<RouteResult> {
   const built = buildDeviceProgramming(dev);
-  if (!built.ok) {
-    res.status(built.status).json(built.body);
-    return;
-  }
+  if (!built.ok) return { status: built.status, body: built.body };
   const {
     steps,
     gaTable,
@@ -2156,11 +2246,13 @@ async function runVerifyDevice(
     extraObjIdxs,
   );
   if (unallocated.length) {
-    res.status(409).json({
-      error: 'segment_unallocated',
-      message: `Interface object(s) ${unallocated.join(', ')} report an unallocated segment (PID 7 = 0); device is not in a verifiable state.`,
-    });
-    return;
+    return {
+      status: 409,
+      body: {
+        error: 'segment_unallocated',
+        message: `Interface object(s) ${unallocated.join(', ')} report an unallocated segment (PID 7 = 0); device is not in a verifiable state.`,
+      },
+    };
   }
 
   const plan = planVerify(
@@ -2176,12 +2268,14 @@ async function runVerifyDevice(
   );
 
   if (plan.family === 'none' || (!plan.mem.length && !plan.props.length)) {
-    res.status(400).json({
-      error: 'nothing_to_verify',
-      message:
-        'Device exposes no downloadable memory image or comparable properties to verify.',
-    });
-    return;
+    return {
+      status: 400,
+      body: {
+        error: 'nothing_to_verify',
+        message:
+          'Device exposes no downloadable memory image or comparable properties to verify.',
+      },
+    };
   }
 
   const segments = [];
@@ -2563,19 +2657,22 @@ async function runVerifyDevice(
     [match ? 1 : 0, new Date().toISOString(), dev.id],
   );
   db.scheduleSave();
-  res.json({
-    deviceAddress,
-    family: plan.family,
-    match,
-    totalBytes,
-    totalDiffering,
-    segments,
-    props,
-    ...(decoded ? { decoded } : {}),
-    ...(flagsTotalBytes !== undefined
-      ? { flagsTotalBytes, flagsDifferingBytes }
-      : {}),
-  });
+  return {
+    status: 200,
+    body: {
+      deviceAddress,
+      family: plan.family,
+      match,
+      totalBytes,
+      totalDiffering,
+      segments,
+      props,
+      ...(decoded ? { decoded } : {}),
+      ...(flagsTotalBytes !== undefined
+        ? { flagsTotalBytes, flagsDifferingBytes }
+        : {}),
+    },
+  };
 }
 
 // Recomputes a verify comparison's PROJECT/expected side fresh from current

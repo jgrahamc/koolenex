@@ -20,6 +20,10 @@ import {
 } from '../server/routes/knx-tables.ts';
 import type { GroupObjectFlags } from '../server/routes/knx-tables.ts';
 import { APPS_DIR } from '../server/routes/shared.ts';
+import {
+  runVerifyDevice,
+  loadProgrammableDevice,
+} from '../server/routes/bus.ts';
 
 // ── Mock KnxBusManager ───────────────────────────────────────────────────────
 
@@ -2422,4 +2426,126 @@ describe('bus routes: not connected', () => {
       assert.match(String((r.data as any).error), /Not connected/);
     });
   }
+});
+
+// ── Cross-project scoping of the programming routes ─────────────────────────
+
+// /bus/program-device and /bus/verify-device both accept a deviceId and a
+// projectId. The deviceId lookup ignored the projectId, so a device id
+// belonging to another project was programmed or verified against the
+// project named in the request. loadProgrammableDevice() scopes the lookup
+// whenever the request carries a projectId, which the client always sends.
+describe('programming routes: cross-project device ids', () => {
+  let projectA: number;
+  let projectB: number;
+  let deviceInB: number;
+  let addrInB: string;
+
+  before(() => {
+    ts.db.run("INSERT INTO projects (name) VALUES ('scope A')");
+    projectA = ts.db.get<{ id: number }>(
+      'SELECT last_insert_rowid() AS id',
+    )!.id;
+    ts.db.run("INSERT INTO projects (name) VALUES ('scope B')");
+    projectB = ts.db.get<{ id: number }>(
+      'SELECT last_insert_rowid() AS id',
+    )!.id;
+    addrInB = '1.1.77';
+    ts.db.run(
+      "INSERT INTO devices (project_id, individual_address, name, app_ref, param_values) VALUES (?,?,'scoped','M-0001_A-0001','{}')",
+      [projectB, addrInB],
+    );
+    deviceInB = ts.db.get<{ id: number }>(
+      'SELECT last_insert_rowid() AS id',
+    )!.id;
+  });
+
+  for (const route of ['/bus/program-device', '/bus/verify-device']) {
+    it(`${route} 404s for a device id owned by another project`, async () => {
+      mockBus.connected = true;
+      const r = await req(ts.baseUrl, 'POST', route, {
+        deviceAddress: addrInB,
+        projectId: projectA,
+        deviceId: deviceInB,
+      });
+      assert.equal(r.status, 404);
+      assert.equal((r.data as any).error, 'Device not found');
+    });
+
+    it(`${route} still finds the device for its own project`, async () => {
+      mockBus.connected = true;
+      const r = await req(ts.baseUrl, 'POST', route, {
+        deviceAddress: addrInB,
+        projectId: projectB,
+        deviceId: deviceInB,
+      });
+      // Gets past the lookup - it fails later on the seeded app_ref having
+      // no model on disk, which is a 400 'no_app', not a 404.
+      assert.notEqual(r.status, 404);
+    });
+  }
+
+  it('leaves the victim project’s device row intact', () => {
+    const row = ts.db.get<{ id: number; project_id: number }>(
+      'SELECT id, project_id FROM devices WHERE id=?',
+      [deviceInB],
+    );
+    assert.equal(row?.project_id, projectB);
+  });
+});
+
+// ── The extracted operations, called directly ───────────────────────────────
+
+// runVerifyDevice and runProgramDevice used to take `res` and write the
+// response themselves, so every test of a verify or a download had to go
+// through HTTP to see what they decided. They return { status, body } now.
+describe('runVerifyDevice / loadProgrammableDevice without HTTP', () => {
+  let pid: number;
+
+  before(() => {
+    ts.db.run("INSERT INTO projects (name) VALUES ('direct call')");
+    pid = ts.db.get<{ id: number }>('SELECT last_insert_rowid() AS id')!.id;
+  });
+
+  it('returns 400 no_app for a device with no application program', async () => {
+    ts.db.run(
+      "INSERT INTO devices (project_id, individual_address, name, param_values) VALUES (?,'1.1.80','no app','{}')",
+      [pid],
+    );
+    const dev = ts.db.get<any>(
+      'SELECT * FROM devices WHERE id=last_insert_rowid()',
+    )!;
+    const result = await runVerifyDevice(mockBus as any, dev, '1.1.80');
+    assert.equal(result.status, 400);
+    assert.equal((result.body as any).error, 'no_app');
+  });
+
+  it('refuses a device with no individual address', () => {
+    ts.db.run(
+      "INSERT INTO devices (project_id, individual_address, name, param_values, has_address) VALUES (?,'1.1.81','unaddressed','{}',0)",
+      [pid],
+    );
+    const id = ts.db.get<{ id: number }>(
+      'SELECT last_insert_rowid() AS id',
+    )!.id;
+    const loaded = loadProgrammableDevice({
+      deviceAddress: '1.1.81',
+      projectId: pid,
+      deviceId: id,
+    });
+    assert.equal(loaded.ok, false);
+    if (!loaded.ok) {
+      assert.equal(loaded.status, 409);
+      assert.equal(loaded.body.error, 'device_unaddressed');
+    }
+  });
+
+  it('finds an addressed device by address alone', () => {
+    const loaded = loadProgrammableDevice({
+      deviceAddress: '1.1.80',
+      projectId: pid,
+    });
+    assert.equal(loaded.ok, true);
+    if (loaded.ok) assert.equal(loaded.dev.individual_address, '1.1.80');
+  });
 });
