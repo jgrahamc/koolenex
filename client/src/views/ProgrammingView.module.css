@@ -54,7 +54,8 @@
    not a change to primitives.module.css's shared .badge class - Badge
    doesn't take a className prop, so this is the only way to scope it to
    just this one row without touching every other badge in the app). */
-.statBadgeRow span {
+/* span or button - the status lozenges are buttons when they filter. */
+.statBadgeRow > * {
   font-size: 11px;
 }
 .table {

@@ -6,21 +6,39 @@ interface BadgeProps {
   label: string;
   color: string;
   title?: string;
+  /** Makes the badge a button - used for click-to-filter status lozenges. */
+  onClick?: () => void;
+  /** Renders it as the currently selected filter. */
+  active?: boolean;
 }
 
-export const Badge = ({ label, color, title }: BadgeProps) => (
-  <span
-    title={title}
-    className={styles.badge}
-    style={{
-      background: `color-mix(in srgb, ${color} 9%, transparent)`,
-      color,
-      border: `1px solid color-mix(in srgb, ${color} 19%, transparent)`,
-    }}
-  >
-    {label}
-  </span>
-);
+export const Badge = ({ label, color, title, onClick, active }: BadgeProps) => {
+  // A selected filter badge fills more strongly in its own colour rather
+  // than switching to the accent, so the row still reads as one scale.
+  const style = {
+    background: `color-mix(in srgb, ${color} ${active ? 24 : 9}%, transparent)`,
+    color,
+    border: `1px solid color-mix(in srgb, ${color} ${active ? 55 : 19}%, transparent)`,
+  };
+  if (!onClick)
+    return (
+      <span title={title} className={styles.badge} style={style}>
+        {label}
+      </span>
+    );
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={title}
+      aria-pressed={!!active}
+      className={`${styles.badge} ${styles.badgeButton}`}
+      style={style}
+    >
+      {label}
+    </button>
+  );
+};
 
 interface ChipProps {
   children: React.ReactNode;

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
-import type { Device } from '../../../shared/types.ts';
+import type { Device, DeviceStatus } from '../../../shared/types.ts';
 import { createPortal } from 'react-dom';
 import { STATUS_COLOR } from '../theme.ts';
 import {
@@ -130,7 +130,15 @@ export function ProgrammingView() {
   } = useProgrammingLog();
   const [verifyingIds, setVerifyingIds] = useState<Set<number>>(new Set());
   const [slideOverDevice, setSlideOverDevice] = useState<Device | null>(null);
+  // Which status lozenge is selected, or 'all'. Clicking the selected one
+  // clears it, so the row doubles as its own "show everything" control -
+  // there is no separate All chip the way DevicesView's toolbar has one.
+  const [filterStatus, setFilterStatus] = useState<DeviceStatus | 'all'>('all');
   const { devices = [] } = data || {};
+  const visibleDevices =
+    filterStatus === 'all'
+      ? devices
+      : devices.filter((d) => d.status === filterStatus);
 
   // ── Log sidebar: width-resizable via a drag handle on its left edge.
   // Width persists in localStorage so it survives reloads/navigation.
@@ -796,30 +804,35 @@ export function ProgrammingView() {
               to the app's standard small Badge pills, per explicit request
               2026-08-29 - this row was disproportionately large next to
               everything else on the page. */}
+          {/* Also the view's filter: each lozenge shows only its own status,
+              and clicking the selected one goes back to all. The counts stay
+              whole-project whatever is filtered - they are the summary, and
+              moving them as you click would make them useless. */}
           <div className={styles.statBadgeRow}>
-            {[
+            {(
               [
-                'Programmed',
-                devices.filter((d) => d.status === 'programmed').length,
-                STATUS_COLOR.programmed,
-              ],
-              [
-                'Modified',
-                devices.filter((d) => d.status === 'modified').length,
-                STATUS_COLOR.modified,
-              ],
-              [
-                'Unassigned',
-                devices.filter((d) => d.status === 'unassigned').length,
-                STATUS_COLOR.unassigned,
-              ],
-            ].map(([label, count, col]) => (
-              <Badge
-                key={label as string}
-                label={`${count} ${label}`}
-                color={col as string}
-              />
-            ))}
+                ['Programmed', 'programmed'],
+                ['Modified', 'modified'],
+                ['Unassigned', 'unassigned'],
+              ] as [string, DeviceStatus][]
+            ).map(([label, status]) => {
+              const count = devices.filter((d) => d.status === status).length;
+              const active = filterStatus === status;
+              return (
+                <Badge
+                  key={status}
+                  label={`${count} ${label}`}
+                  color={STATUS_COLOR[status]}
+                  active={active}
+                  title={
+                    active
+                      ? 'Showing only these — click to show all devices'
+                      : `Show only ${label.toLowerCase()} devices`
+                  }
+                  onClick={() => setFilterStatus(active ? 'all' : status)}
+                />
+              );
+            })}
           </div>
           <table className={styles.table}>
             <thead>
@@ -830,7 +843,7 @@ export function ProgrammingView() {
               </tr>
             </thead>
             <tbody>
-              {devices.map((d) => {
+              {visibleDevices.map((d) => {
                 const prog = progress[d.id];
                 const verifying = verifyingIds.has(d.id);
                 const liveVerifyProgress = verifyProgress[d.individual_address];

@@ -1,10 +1,14 @@
 import { createContext } from 'react';
-import type { MaskVersionEntry } from '../../shared/types.ts';
+import type { DeviceStatus, MaskVersionEntry } from '../../shared/types.ts';
 
-export const STATUS_COLOR: Record<string, string> = {
+/** One colour per DeviceStatus. Keyed by the union rather than
+ *  Record<string, string> so a lookup is known to resolve, and so a new
+ *  status has to be given a colour here. */
+export const STATUS_COLOR: Record<DeviceStatus, string> = {
   programmed: '#22c55e',
   modified: '#3b82f6',
   unassigned: '#f59e0b',
+  deleted: '#6b7280',
   error: '#ef4444',
 };
 

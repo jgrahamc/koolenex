@@ -8,6 +8,13 @@
   white-space: nowrap;
 }
 
+/* Only when the badge is a filter button (Badge's onClick) - a plain badge
+   stays a span. Resets the <button> defaults the .badge rule doesn't set. */
+.badgeButton {
+  font-family: inherit;
+  cursor: pointer;
+}
+
 .chip {
   padding: 3px 10px;
   border-radius: 20px;
