@@ -137,32 +137,27 @@
   font-size: 9px;
   white-space: nowrap;
 }
-/* Address pill, folded into the DEVICE cell in place of its own column
-   (see .table's min-width comment). Small/monospace/accent, same visual
-   language as .accentMono used to be, just pill-shaped so it doesn't read
-   as running straight into the device name next to it. */
+/* The device address, folded into the DEVICE cell in place of its own
+   column (see .table's min-width comment). Plain small monospace, like
+   every other address in the app - it was a pill until 2026-09-10, which
+   was the only place that boxed an address, and the box clipped anything
+   longer than about five characters ("1.4.100" spilled out of it).
+   
+   Still a fixed width, which is what the box was really doing for the
+   layout: added 2026-08-30 on a real request, because a real address and
+   the "-.-.-" placeholder aren't the same length, so without it the device
+   name after it started at a different x per row and read as a misaligned
+   column. Sized in ch against the monospace font rather than the old 46px,
+   which only left room for five characters inside its padding; 9ch is the
+   longest an individual address can be ("15.15.255"). */
 .addrBadge {
   flex-shrink: 0;
   font-family: monospace;
   font-size: 10px;
-  /* Fixed width (not just padding) - added 2026-08-30, real request: a
-     real address ("1.1.10") and the "-.-.-" placeholder aren't the same
-     length, so without this the device name/manufacturer text after the
-     badge started at a different x per row, reading as misaligned columns
-     even though the table's own grid was fine. Centered within it so
-     shorter values ("1.1.0") don't look lopsided. */
-  width: 46px;
-  text-align: center;
-  /* color defaults here but is overridden inline per-state by DeviceAddr
-     (primitives.tsx) - background/border follow currentColor rather than
-     a hardcoded --accent so the whole pill (not just the text) reflects
-     an overridden color, e.g. the amber "pending, not yet written to
-     hardware" state. */
+  min-width: 9ch;
+  /* color is overridden inline per-state by DeviceAddr (primitives.tsx) -
+     e.g. the amber "pending, not yet written to hardware" state. */
   color: var(--accent);
-  background: color-mix(in srgb, currentColor 12%, transparent);
-  border: 1px solid color-mix(in srgb, currentColor 30%, transparent);
-  border-radius: 999px;
-  padding: 1px 7px;
 }
 .serialIcon {
   flex-shrink: 0;
