@@ -70,12 +70,19 @@ means editing both, with nothing enforcing it. Either one `PROJECT_TABLES` const
 `projects.ts` - the two handlers are ~95% identical: file check, project lookup,
 `importBodySchema`, IMPORT_BUSY check, `createJob`, log, respond, `setImmediate`.
 
-### 11. Catalog insert exists twice
+### 11. Catalog insert exists twice — done
 
-`catalog.ts` duplicates the `catalog_sections`/`catalog_items` insert loops in
-`projects.ts`, and the paramModels-write loop duplicates `shared.ts`'s
-`saveModelsAndMasterXml`. `projects.ts` already exports `insertParsedData` for exactly this
-reason.
+`insertCatalog(run, projectId, sections, items)` lives in `routes/shared.ts`
+and both writers use it: `insertParsedData` (a full .knxproj import) and
+`POST /projects/:id/catalog/import` (a .knxprod catalogue). The .knxprod
+handler's param-model write is `saveModelsAndMasterXml(paramModels, null,
+pid)` now rather than its own copy of that loop.
+
+Noted while doing it: `CatalogSection`/`CatalogItem` exist twice under the
+same names - the parsed shapes in `server/ets-hardware.ts` and the stored
+rows in `shared/types.ts`, which add `project_id`. The insert takes the
+parsed ones. Worth collapsing, but they are genuinely different shapes, so
+it is not a rename.
 
 ### 12. Three copies of the enriched-project queries — done
 

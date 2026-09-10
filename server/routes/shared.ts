@@ -2,6 +2,9 @@ import path from 'path';
 import fs from 'fs';
 import { XMLParser } from 'fast-xml-parser';
 import type { DptInfoEntry, MaskVersionEntry } from '../../shared/types.ts';
+// The PARSED catalogue shapes (no project_id yet), not the stored rows of
+// the same name in shared/types.ts - this is what inserts them.
+import type { CatalogSection, CatalogItem } from '../ets-hardware.ts';
 export type { MaskVersionEntry };
 import { logger } from '../log.ts';
 import * as db from '../db.ts';
@@ -442,6 +445,63 @@ export function markDeviceModifiedIfProgrammed(
     return { status: 'programmed', verifyCleared };
   }
   return { status: dev.status, verifyCleared };
+}
+
+/**
+ * Insert a parsed catalogue's sections and items for a project.
+ *
+ * Shared because two paths write the same two tables from the same parsed
+ * shape: a full .knxproj import (insertParsedData in projects.ts) and a
+ * .knxprod catalogue import (POST /projects/:id/catalog/import). Both loops
+ * were written out in full in each place, seventeen bound columns apiece.
+ *
+ * INSERT OR REPLACE: a catalogue import over an existing project updates the
+ * products it knows about and leaves the rest alone.
+ */
+export function insertCatalog(
+  run: (sql: string, params?: unknown[]) => unknown,
+  projectId: number,
+  catalogSections: CatalogSection[] | null | undefined,
+  catalogItems: CatalogItem[] | null | undefined,
+): void {
+  for (const sec of catalogSections || []) {
+    run(
+      'INSERT OR REPLACE INTO catalog_sections (id,project_id,name,number,parent_id,mfr_id,manufacturer) VALUES (?,?,?,?,?,?,?)',
+      [
+        sec.id,
+        projectId,
+        sec.name,
+        sec.number || '',
+        sec.parent_id || null,
+        sec.mfr_id || '',
+        sec.manufacturer || '',
+      ],
+    );
+  }
+  for (const item of catalogItems || []) {
+    run(
+      'INSERT OR REPLACE INTO catalog_items (id,project_id,name,number,description,section_id,product_ref,h2p_ref,order_number,manufacturer,mfr_id,model,bus_current,width_mm,is_power_supply,is_coupler,is_rail_mounted) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+      [
+        item.id,
+        projectId,
+        item.name,
+        item.number || '',
+        item.description || '',
+        item.section_id || '',
+        item.product_ref || '',
+        item.h2p_ref || '',
+        item.order_number || '',
+        item.manufacturer || '',
+        item.mfr_id || '',
+        item.model || '',
+        item.bus_current || 0,
+        item.width_mm || 0,
+        item.is_power_supply ? 1 : 0,
+        item.is_coupler ? 1 : 0,
+        item.is_rail_mounted ? 1 : 0,
+      ],
+    );
+  }
 }
 
 export function saveModelsAndMasterXml(

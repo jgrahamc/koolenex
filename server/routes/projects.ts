@@ -6,6 +6,7 @@ import * as db from '../db.ts';
 import { parseKnxproj } from '../ets-parser.ts';
 import type { ParsedProject } from '../ets-parser.ts';
 import {
+  insertCatalog,
   saveModelsAndMasterXml,
   clearMasterDataCaches,
   MAX_UPLOAD_BYTES,
@@ -254,45 +255,7 @@ export function insertParsedData(
     );
   }
 
-  // Insert catalog sections and items
-  for (const sec of catalogSections || []) {
-    run(
-      'INSERT OR REPLACE INTO catalog_sections (id,project_id,name,number,parent_id,mfr_id,manufacturer) VALUES (?,?,?,?,?,?,?)',
-      [
-        sec.id,
-        pid,
-        sec.name,
-        sec.number || '',
-        sec.parent_id || null,
-        sec.mfr_id || '',
-        sec.manufacturer || '',
-      ],
-    );
-  }
-  for (const item of catalogItems || []) {
-    run(
-      'INSERT OR REPLACE INTO catalog_items (id,project_id,name,number,description,section_id,product_ref,h2p_ref,order_number,manufacturer,mfr_id,model,bus_current,width_mm,is_power_supply,is_coupler,is_rail_mounted) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
-      [
-        item.id,
-        pid,
-        item.name,
-        item.number || '',
-        item.description || '',
-        item.section_id || '',
-        item.product_ref || '',
-        item.h2p_ref || '',
-        item.order_number || '',
-        item.manufacturer || '',
-        item.mfr_id || '',
-        item.model || '',
-        item.bus_current || 0,
-        item.width_mm || 0,
-        item.is_power_supply ? 1 : 0,
-        item.is_coupler ? 1 : 0,
-        item.is_rail_mounted ? 1 : 0,
-      ],
-    );
-  }
+  insertCatalog(run, pid, catalogSections, catalogItems);
 
   return { deviceIdMap, gaIdMap };
 }
