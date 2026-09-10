@@ -2763,3 +2763,78 @@ describe('POST /bus/read-serials-in-programming-mode', () => {
     assert.equal(r.status, 400);
   });
 });
+
+// ── Error codes that nothing asserted ───────────────────────────────────────
+
+// Four codes the API can return had no test at all. Two are reachable
+// without simulating hardware and are covered here; the other two
+// (address_write_unconfirmed, segment_unallocated) need a device image and
+// a PID 7 read to be driven, and are recorded in the plan instead.
+describe('bus error codes', () => {
+  it('no_ldctrl when the app model has no load procedures', async () => {
+    const app = 'M-00FA_A-0001-01-NOLD';
+    // A model that parses fine and declares nothing to load - a real
+    // symptom of a project imported before load procedures were parsed.
+    writeModel(app, { appId: app, loadProcedures: [], params: {} });
+    ts.db.run("INSERT INTO projects (name) VALUES ('no_ldctrl')");
+    const pid = ts.db.get<{ id: number }>(
+      'SELECT last_insert_rowid() AS id',
+    )!.id;
+    const did = seedDevice(ts.db, pid, '1.1.30', app, [], []);
+    mockBus.connected = true;
+
+    const r = await req(ts.baseUrl, 'POST', '/bus/program-device', {
+      deviceAddress: '1.1.30',
+      projectId: pid,
+      deviceId: did,
+    });
+    assert.equal(r.status, 400);
+    assert.equal((r.data as { error: string }).error, 'no_ldctrl');
+    assert.match(
+      (r.data as { message: string }).message,
+      /Re-import the project/,
+    );
+  });
+
+  it('ambiguous_programming_mode when two devices answer the scan', async () => {
+    const app = 'M-00FA_A-0001-01-AMBI';
+    writeModel(app, {
+      appId: app,
+      loadProcedures: [{ type: 'Connect' }],
+      params: {},
+    });
+    ts.db.run("INSERT INTO projects (name) VALUES ('ambiguous')");
+    const pid = ts.db.get<{ id: number }>(
+      'SELECT last_insert_rowid() AS id',
+    )!.id;
+    const did = seedDevice(ts.db, pid, '1.1.31', app, [], []);
+    mockBus.connected = true;
+    // The device does not answer at its address with a matching serial, so
+    // the route falls into the press-the-button flow...
+    mockBus.deviceInfoSerialOverride = null;
+    // ...and two devices are holding their buttons down at once.
+    mockBus.serialsInProgrammingMode = [
+      { serial: 'aabbccddeeff', src: '1.1.1' },
+      { serial: '001122334455', src: '1.1.2' },
+    ];
+
+    const r = await req(ts.baseUrl, 'POST', '/bus/program-device', {
+      deviceAddress: '1.1.31',
+      projectId: pid,
+      deviceId: did,
+      addressMethod: 'button',
+    });
+
+    mockBus.deviceInfoSerialOverride = undefined;
+    mockBus.serialsInProgrammingMode = [];
+
+    assert.equal(r.status, 409);
+    assert.equal(
+      (r.data as { error: string }).error,
+      'ambiguous_programming_mode',
+    );
+    // The message names both, so the operator knows which buttons to release.
+    assert.match((r.data as { message: string }).message, /1\.1\.1/);
+    assert.match((r.data as { message: string }).message, /1\.1\.2/);
+  });
+});

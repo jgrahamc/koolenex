@@ -94,10 +94,14 @@ describe('Projects', () => {
     assert.equal(row.name, 'Renamed');
   });
 
-  it('PUT /projects/:id silently succeeds for nonexistent ID (no 404 check)', async () => {
+  // Was "silently succeeds for nonexistent ID (no 404 check)" - a
+  // characterisation of a known gap rather than a contract. It ran the
+  // UPDATE against nothing, wrote an audit row against a project that does
+  // not exist, and answered 200 with a null body. Every sibling PUT 404s.
+  it('PUT /projects/:id is 404 for a nonexistent ID', async () => {
     const { status, data } = await req('PUT', '/projects/99999', { name: 'x' });
-    assert.equal(status, 200);
-    assert.equal(data, null, 'should return null for nonexistent project');
+    assert.equal(status, 404);
+    assert.equal((data as { error: string }).error, 'Not found');
   });
 
   it('DELETE /projects/:id removes the row from the database', async () => {

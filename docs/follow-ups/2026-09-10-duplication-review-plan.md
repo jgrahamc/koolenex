@@ -145,10 +145,25 @@ last two silently addressing project 1000 and project 0. `paramId` now
 enforces digits and throws `ValidationError` (400), and the dead validators
 are gone.
 
-**Still to do.** 404/400 pairs for every CRUD `PUT`/`DELETE`/`PATCH` on a
-nonexistent id, and the "No fields to update" 400. Then the never-asserted
-error codes: `address_write_unconfirmed`, `ambiguous_programming_mode`,
-`no_ldctrl`, `segment_unallocated`.
+**Also done.** `tests/not-found.test.ts` covers every mutating route with an
+id that does not exist, plus the "No fields to update" 400s. That found one
+more of the same shape as item 2's: `PUT /projects/:id` ran its UPDATE
+against nothing, wrote an audit row against a project that does not exist,
+and answered 200 with a null body. It 404s now. The existing test had
+recorded that as "silently succeeds for nonexistent ID (no 404 check)" -
+a characterisation of a known gap, not a contract.
+
+The same table shows DELETE is not uniform: devices, GAs, floor plans and
+projects answer an idempotent 200, while spaces and topology 404. Both
+behaviours are defensible; having both is the odd part. Pinned as-is rather
+than changed, since picking one is an API decision.
+
+Two of the four never-asserted error codes now have tests: `no_ldctrl` (a
+model with no load procedures) and `ambiguous_programming_mode` (two devices
+holding their buttons at once).
+
+**Still to do.** `address_write_unconfirmed` and `segment_unallocated`, which
+need a device image and a PID 7 read driven through the mock to reach.
 
 ## A note on the line-count claims
 

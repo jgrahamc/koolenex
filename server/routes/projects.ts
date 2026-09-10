@@ -424,6 +424,14 @@ router.put('/projects/:id', (req: Request, res: Response) => {
     'SELECT name FROM projects WHERE id=?',
     [id],
   );
+  // Every sibling PUT 404s on an unknown id. This one used to run the
+  // UPDATE against nothing, write an audit row against the project that
+  // does not exist, and answer 200 with a null body - the same shape the
+  // device status PATCH was fixed out of in 1be98b6.
+  if (!oldProj) {
+    res.status(404).json({ error: 'Not found' });
+    return;
+  }
   db.run("UPDATE projects SET name=?, updated_at=datetime('now') WHERE id=?", [
     name,
     id,
@@ -433,7 +441,7 @@ router.put('/projects/:id', (req: Request, res: Response) => {
     'update',
     'project',
     name,
-    `name: "${oldProj?.name ?? ''}" → "${name}"`,
+    `name: "${oldProj.name}" → "${name}"`,
   );
   db.scheduleSave();
   res.json(db.get<Project>('SELECT * FROM projects WHERE id=?', [id]));
