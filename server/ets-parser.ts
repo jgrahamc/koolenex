@@ -1351,6 +1351,9 @@ export function parseKnxproj(
         // 🔴 SPECULATIVE - see ParamModel.isSecureEnabled's own doc
         // comment (ets-app.ts) before trusting this for anything real.
         m.isSecureEnabled = idx.isSecureEnabled;
+        // 🟡 See ParamModel.supportsExtendedMemoryServices's own doc
+        // comment (ets-app.ts).
+        m.supportsExtendedMemoryServices = idx.supportsExtendedMemoryServices;
         paramModels[aid] = m;
       }
     } catch (e) {

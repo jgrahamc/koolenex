@@ -389,6 +389,14 @@ export interface ParamModel {
   // "Genuinely open questions" section - both should carry this same
   // caveat; update both if this gets confirmed OR disproven later.
   isSecureEnabled?: boolean;
+  // See AppIndex.supportsExtendedMemoryServices's own doc comment for the
+  // full evidence. Checked before `isSecureEnabled` above (and before the
+  // PID_MCB_TABLE check in knx-connection.ts's resolution chain) because it
+  // is a literal, KNX-Association-documented boolean ("Gets a value
+  // indicating whether extended memory services are supported" - ETS6 SDK,
+  // `Knx.Ets.Sdk.Product.ApplicationOptions.SupportsExtendedMemoryServices`),
+  // not an inferred correlate like `isSecureEnabled`.
+  supportsExtendedMemoryServices?: boolean;
 }
 
 // ─── AppIndex return type ───────────────────────────────────────────────────
@@ -448,6 +456,36 @@ export interface AppIndex {
   // real-hardware evidence this is based on and what still needs testing
   // before this can be trusted as a real rule.
   isSecureEnabled: boolean;
+  // 🟡 Memory-write-service signal, well-supported but not yet exhaustively
+  // confirmed - a literal `<Options
+  // SupportsExtendedMemoryServices="true">` attribute on the app's own
+  // `<Static>` element (`xmlns="http://knx.org/xml/project/23"`), identified
+  // by a systematic review of element/attribute pairs across a sample of
+  // real application-program XML files. Across the devices reviewed
+  // (8 application programs from 4 manufacturers - 3 confirmed to require
+  // the extended memory-write service, 5 confirmed to require the legacy
+  // service), the attribute is present and `"true"` on every device
+  // requiring extended and absent on every device requiring legacy,
+  // including the two devices that separately falsified the previous
+  // candidate signals: a device requiring extended but declaring
+  // `IsSecureEnabled=false` (see `isSecureEnabled` above), and a device
+  // declaring a non-`0xFF` `PID_MCB_TABLE` byte 5 but requiring legacy (see
+  // the matching comment on the restored `PID_MCB_TABLE` check in
+  // knx-connection.ts). Unlike either of those, this is a literal,
+  // KNX-Association-documented property, not an inferred correlate: the
+  // ETS6 SDK's own documentation defines
+  // `Knx.Ets.Sdk.Product.ApplicationOptions.SupportsExtendedMemoryServices`
+  // as "Gets a value indicating whether extended memory services are
+  // supported". Always statically declared when present, requiring no live
+  // bus read, unlike the `PID_MCB_TABLE` fallback this takes priority over.
+  // Sample size is still small (8 apps, 3 devices requiring extended) and
+  // no device has been found where this signal disagrees with the
+  // `PID_MCB_TABLE` rule - kept as an additional check ahead of that rule
+  // rather than a replacement for it, so an incorrect resolution here
+  // cannot regress a device that already resolves correctly via the
+  // fallback chain underneath it. Further testing against a wider sample
+  // of devices/manufacturers would strengthen confidence in this signal.
+  supportsExtendedMemoryServices: boolean;
   paramRefKeys: string[];
   moduleKeys: string[];
   getDefault: (prKey: string) => string | null;
@@ -519,6 +557,13 @@ export function buildAppIndex(buf: Buffer): AppIndex | null {
   // AppIndex.isSecureEnabled's own doc comment for the full real-hardware
   // evidence and what's still needed to actually confirm this.
   const isSecureEnabled = attr(ap, 'IsSecureEnabled') === 'true';
+  // See AppIndex.supportsExtendedMemoryServices's own doc comment for the
+  // full evidence. Real XML shape: `<Static>...
+  // <Options SupportsExtendedMemoryServices="true" .../></Static>` - a
+  // single `<Options>` element directly under the app's root `<Static>`
+  // (not per-module, not per-ComObject).
+  const supportsExtendedMemoryServices =
+    attr(el(ap.Static).Options, 'SupportsExtendedMemoryServices') === 'true';
 
   // Parse the app XML a second time with the order-preserving parser, which
   // exists for two things the main parse cannot carry: document order across
@@ -1870,6 +1915,7 @@ export function buildAppIndex(buf: Buffer): AppIndex | null {
     appId,
     maxComObjectNumber,
     isSecureEnabled,
+    supportsExtendedMemoryServices,
     paramRefKeys: Object.keys(paramRefDefs),
     moduleKeys: Object.keys(modArgs), // "{appId}_MD-n_M-k" — one per instantiated module
     getDefault,

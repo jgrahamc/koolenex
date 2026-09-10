@@ -351,6 +351,76 @@ device. **Demoted — byte 5 of `PID_MCB_TABLE` is not a reliable write-service 
 updated `IsSecureEnabled` discussion above (candidate rule #1), which has since absorbed the
 leading-signal role this rule briefly held.
 
+**Update 2026-09-10 — `PID_MCB_TABLE` byte 5 restored as a write-service signal, tightened to `==0x33`, and
+a new signal (`SupportsExtendedMemoryServices`) added ahead of it.**
+
+`IsSecureEnabled` (candidate rule #1) produced its own counter-example: an application program
+(Zennio KLIC-DI v2) declares `IsSecureEnabled=false` but requires the extended service — confirmed
+against real captures: a Full Download to this device uses `MemExtWrite` throughout, reproduced
+across repeated downloads to a factory-reset, re-addressed instance of the same device.
+
+Re-examining this device's `PID_MCB_TABLE` byte 5 found `0x33` — matching every other confirmed
+"extended" device checked (two Albrecht Jung application programs, both declaring literal byte 5
+= `0x33`), while the Weinzierl falsifying case above is `0x32` — close to, but not equal to,
+`0x33`. Tightening the rule from "byte 5 != 0xFF" to "byte 5 == 0x33 exactly" resolves every real
+case checked so far, including both devices that broke the two previous single-signal rules:
+
+| device                      | mask (System version) | byte 5 | `==0x33`? | actual service |
+|---|---|---|---|---|
+| Albrecht Jung (×2)          | `07B0` (System B) | `0x33` | yes | Extended |
+| HDL (live-read value)       | `07B0` (System B) | `0xFF` | no  | Legacy |
+| Weinzierl                   | `07B0` (System B) | `0x32` | no  | Legacy — the falsifier above |
+| Zennio KLIC-DI v2            | `07B0` (System B) | `0x33` | yes | Extended — the `IsSecureEnabled` falsifier |
+
+Still a small number of data points, drawn from three distinct byte-5 values observed
+(`0x33`/`0x32`/`0xFF`) — 🔴 not confirmed from any primary KNX source, and untested against a
+fourth distinct value. `IsSecureEnabled` is kept as the next-priority signal underneath this,
+ahead of the live mask read as a last-resort fallback.
+
+A related gap was found and fixed at the same time: the Zennio application program declares no
+`LdCtrlWriteProp` for property 27 at all — only the read-only `LdCtrlLoadImageProp`, the same
+shape as HDL's application program. The static-declaration-only form of this rule silently skipped
+such application programs entirely and fell through to `IsSecureEnabled`. Fixed by adding a live
+`PropertyValue_Read` fallback, issued deliberately early, before any data write, when no static
+declaration exists — the "live read used as a fallback correlate" this document already
+anticipated for application programs like HDL's (§4.1's "Apps with no `LdCtrlWriteProp`" bullet
+above), but which had not previously been wired into the write-service decision itself (only into
+the trailing verification-pass reads already described there).
+
+**New signal, checked before `PID_MCB_TABLE` above: `SupportsExtendedMemoryServices` 🟡
+well-supported, not yet fully confirmed.** A literal boolean on the app's own `<Static><Options>`
+element (`<Static>...<Options SupportsExtendedMemoryServices="true" .../></Static>`), identified by
+a systematic review of element/attribute pairs across a sample of real application-program XML
+files (over 280 distinct pairs, 8-9 application programs across 4-5 manufacturers).
+
+Result: present and `"true"` on every confirmed-extended application program in the sample,
+completely absent from every confirmed-legacy one — a clean separator with no exceptions in the
+sample, resolving both known falsifiers of the two previous signals (Zennio's counter-example to
+`IsSecureEnabled`; Weinzierl's counter-example to the `!=0xFF` MCB rule). Unlike either of those,
+this is a literal, KNX-Association-documented property, not an inferred correlate: the ETS6 SDK's
+own documentation defines `Knx.Ets.Sdk.Product.ApplicationOptions.SupportsExtendedMemoryServices`
+as "Gets a value indicating whether extended memory services are supported". Always statically
+declared when present, so — unlike `PID_MCB_TABLE` — it requires no live bus read for any device
+seen so far.
+
+**Caveat**: still a small sample (8-9 application programs, 3-4 confirmed-extended) and no device
+has been found where this signal disagrees with the `PID_MCB_TABLE` rule underneath it — kept as
+an additional check ahead of that rule rather than a replacement for it, so an incorrect
+resolution here cannot regress a device that already resolves correctly via the fallback chain.
+Treat as well-supported (a primary-source definition, a clean fit against the sample checked) but
+not fully proven until tested against devices outside this sample — consistent with this whole
+section's history, where each prior signal was eventually found to disagree with exactly one new
+device.
+
+**Implementation** (`server/ets-app.ts`, `server/ets-parser.ts`, `server/knx-connection.ts`):
+`AppIndex.supportsExtendedMemoryServices`/`ParamModel.supportsExtendedMemoryServices` parsed from
+`attr(ap.Static?.Options, 'SupportsExtendedMemoryServices')`, threaded through
+`DownloadExtra.supportsExtendedMemoryServices` into `downloadDevice()`'s resolution chain — checked
+first; if undefined, falls through unchanged to the `PID_MCB_TABLE`/`IsSecureEnabled`/mask chain
+above. Test coverage: `tests/knx-connection-write-service.test.ts` (protocol-level fake-device
+harness, one case per resolution-chain branch, plus a golden-capture replay against the real
+57,076-byte Zennio image — see `tests/fixtures/1140-zennio-real-blank-device-write-README.md`).
+
 ### 4.1a Real per-device memory-chunk size ceiling (`PID_MAX_APDULENGTH`) 🟢
 
 **A device's own declared max APDU length — not a fixed protocol-theoretical constant — is the

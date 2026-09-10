@@ -7,11 +7,16 @@
  * a KnxIpConnection directly and feeds _onTcpData() raw bytes, spying on
  * _onMsg() to record what full messages it reassembled.
  */
-import { describe, it } from 'node:test';
+import { describe, it, mock } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { KnxConnection as KnxIpConnection } from '../server/knx-protocol.ts';
-import { _hdr as hdr, _SVC as SVC } from '../server/knx-protocol.ts';
+import {
+  _hdr as hdr,
+  _SVC as SVC,
+  _pktConnState as pktConnState,
+  _HOST_PROTOCOL as HOST_PROTOCOL,
+} from '../server/knx-protocol.ts';
 
 function makeMsg(svc: number, body: Buffer = Buffer.alloc(0)): Buffer {
   return Buffer.concat([hdr(svc, 6 + body.length), body]);
@@ -118,13 +123,29 @@ describe('KnxIpConnection._sendCEMIOnce: TCP ACK skip', () => {
   });
 });
 
-// ── KnxIpConnection._onConnectRes: TCP skips the CONNSTATE heartbeat ─────────
-// Real, confirmed 2026-08-30: TCP's own connection liveness (close/error
-// events) already covers what the heartbeat exists for over UDP - matches
-// Calimero's real client, which never even starts its heartbeat monitor for
-// a stream/TCP connection. Sending it anyway was a real bug found via
-// real-hardware testing (the connection dropped shortly after the first
-// one fired, sent with a mismatched HPAI protocol-code byte).
+// ── KnxIpConnection._onConnectRes: CONNSTATE heartbeat over UDP and TCP ──────
+// Sending the CONNECTIONSTATE_REQUEST heartbeat over TCP was previously
+// believed unnecessary and was disabled for TCP connections, on the
+// assumption that TCP's own connection liveness (close/error events)
+// already covers what the heartbeat provides over UDP - matching
+// Calimero's client, which never starts its heartbeat monitor for a
+// stream/TCP connection.
+//
+// See the matching comment in knx-protocol.ts's `_onConnectRes` for the
+// full evidence: a real KNXnet/IP gateway was observed closing a genuinely
+// idle TCP tunnel after approximately 120 seconds with no heartbeat
+// running, and a byte-level parse of a real ETS capture confirmed ETS
+// itself sends a genuine CONNECTIONSTATE_REQUEST over its own TCP tunnel
+// approximately every 30.2 seconds. An earlier attempt to send this over
+// TCP had closed the tunnel - traced to a call-site bug, not a protocol
+// restriction: the call omitted the `hostProtocol` argument to
+// `pktConnState()`, silently defaulting to `HOST_PROTOCOL.UDP` and
+// producing a self-contradictory HPAI (UDP protocol byte, TCP's
+// placeholder 0.0.0.0:0 address) that the gateway rejected by closing the
+// tunnel. Fixed by passing `HOST_PROTOCOL.TCP` explicitly for TCP
+// connections - confirmed against real hardware: a TCP tunnel held
+// genuinely idle for over 540 seconds with zero disconnects, and
+// separately across repeated real Full Downloads with zero disconnects.
 
 function makeConnectRes(channelId: number): Buffer {
   // header(6) + channelId(1) + reserved(1) + status(1) = 8 bytes minimum
@@ -143,11 +164,56 @@ describe('KnxIpConnection._onConnectRes: heartbeat', () => {
     clearInterval(conn._hbTimer);
   });
 
-  it('does NOT start the CONNSTATE heartbeat for TCP', () => {
-    const conn = new (KnxIpConnection as any)();
-    conn.transport = 'tcp';
-    conn._onConnectRes(makeConnectRes(0x01));
-    assert.equal(conn._hbTimer, null);
+  it('also starts the CONNSTATE heartbeat for TCP, sending the TCP HPAI protocol byte every 30s', (t) => {
+    t.mock.timers.enable({ apis: ['setInterval'] });
+    try {
+      const conn = new (KnxIpConnection as any)();
+      conn.transport = 'tcp';
+      conn.localIp = '0.0.0.0';
+      conn.localPort = 0;
+      const sent: Buffer[] = [];
+      conn._sendRaw = (buf: Buffer) => sent.push(buf);
+      conn._onConnectRes(makeConnectRes(0x01));
+      assert.ok(conn._hbTimer !== null);
+      assert.equal(
+        sent.length,
+        0,
+        'nothing sent yet - the interval has not fired',
+      );
+
+      // Actually advance the mocked interval rather than hand-constructing
+      // what the callback "should" send - this is the same fake-HPAI-byte
+      // bug (an omitted hostProtocol argument silently defaulting to UDP)
+      // that killed a real router's TCP tunnel, so the test needs to
+      // observe the real call site's output, not a parallel computation of
+      // what it's expected to produce.
+      t.mock.timers.tick(30000);
+      assert.equal(sent.length, 1);
+      // byte 1 of the HPAI (offset 9 in the full CONNECTIONSTATE_REQUEST
+      // packet: 6-byte header + 1-byte channel ID + 1-byte reserved + 1-byte
+      // HPAI length) must be the TCP protocol code, not the UDP default the
+      // original bug sent.
+      assert.equal(
+        sent[0]![9],
+        HOST_PROTOCOL.TCP,
+        'HPAI protocol byte must be TCP (0x02), not the UDP default',
+      );
+      assert.deepEqual(
+        [...sent[0]!],
+        [
+          ...pktConnState(
+            conn.channelId,
+            conn.localIp,
+            conn.localPort,
+            HOST_PROTOCOL.TCP,
+          ),
+        ],
+      );
+
+      clearInterval(conn._hbTimer);
+    } finally {
+      t.mock.timers.reset();
+    }
   });
 });
 
