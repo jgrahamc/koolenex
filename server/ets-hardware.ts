@@ -6,7 +6,7 @@
  */
 
 import { logger } from './log.ts';
-import { xmlParser, toArr, attr, type XmlNode } from './ets-parser.ts';
+import { el, xmlParser, toArr, attr, type XmlNode } from './ets-parser.ts';
 import type { ZipEntry } from './ets-zip.ts';
 import type { HwInfo } from './ets-app.ts';
 
@@ -88,7 +88,7 @@ export function parseHardware(
         // hwTransAll: refId → { langId: text } (all languages, stored for runtime lookup)
         const hwTrans: Record<string, string> = {};
         const hwTransAll: Record<string, Record<string, string>> = {};
-        const hwLangs = toArr(mNode?.Languages?.Language);
+        const hwLangs = toArr(el(mNode?.Languages).Language);
         const hwEnLangs = hwLangs.filter((l: XmlNode) =>
           /^en/i.test(attr(l, 'Identifier')),
         );
@@ -137,7 +137,7 @@ export function parseHardware(
             const widthMm =
               parseFloat(
                 attr(hw, 'WidthInMillimeter') ||
-                  attr(toArr(hw?.Products?.Product)[0], 'WidthInMillimeter'),
+                  attr(toArr(el(hw?.Products).Product)[0], 'WidthInMillimeter'),
               ) || 0;
             const isPowerSupply =
               attr(hw, 'IsPowerSupply') === 'true' ||
@@ -145,9 +145,9 @@ export function parseHardware(
             const isCoupler =
               attr(hw, 'IsCoupler') === 'true' || attr(hw, 'IsCoupler') === '1';
             const isRailMounted =
-              attr(toArr(hw?.Products?.Product)[0], 'IsRailMounted') ===
+              attr(toArr(el(hw?.Products).Product)[0], 'IsRailMounted') ===
                 'true' ||
-              attr(toArr(hw?.Products?.Product)[0], 'IsRailMounted') === '1';
+              attr(toArr(el(hw?.Products).Product)[0], 'IsRailMounted') === '1';
             const hwExtra = {
               busCurrent,
               widthMm,
@@ -163,7 +163,7 @@ export function parseHardware(
               ...hwExtra,
             });
             for (const p of [
-              ...toArr(hw?.Products?.Product),
+              ...toArr(el(hw?.Products).Product),
               ...toArr(hw?.Product),
             ]) {
               const pId = attr(p, 'Id');
@@ -183,7 +183,7 @@ export function parseHardware(
                 };
             }
             for (const h of [
-              ...toArr(hw?.Hardware2Programs?.Hardware2Program),
+              ...toArr(el(hw?.Hardware2Programs).Hardware2Program),
               ...toArr(hw?.Hardware2Program),
             ])
               if (attr(h, 'Id')) hwByH2P[attr(h, 'Id')] = info(hwName);
@@ -233,7 +233,7 @@ export function parseCatalog(
       for (const mNode of toArr(cx?.KNX?.ManufacturerData?.Manufacturer)) {
         // Build translation map for catalog names
         const catTrans: Record<string, string> = {};
-        for (const lang of toArr(mNode?.Languages?.Language).filter(
+        for (const lang of toArr(el(mNode?.Languages).Language).filter(
           (l: XmlNode) => /^en/i.test(attr(l, 'Identifier')),
         )) {
           for (const tu of toArr(lang?.TranslationUnit)) {
@@ -296,7 +296,7 @@ export function parseCatalog(
           }
         };
         const catalog = mNode?.Catalog;
-        walkSections(toArr(catalog?.CatalogSection), null);
+        walkSections(toArr(el(catalog).CatalogSection), null);
       }
       logger.info('ets', 'catalog entry done', {
         index: cIdx,

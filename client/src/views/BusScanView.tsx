@@ -1,11 +1,24 @@
 import { useState, useEffect, useContext } from 'react';
+import type { MaskVersionEntry } from '../../../shared/types.ts';
 import { MaskCtx } from '../theme.ts';
 import { Btn, TH, TD, SectionHeader, PinAddr } from '../primitives.tsx';
 import { api } from '../api.ts';
 import { useAppData, useLiveData, useProjectActions } from '../contexts.ts';
 import styles from './BusScanView.module.css';
 
-function decodeMask(descriptor: string | undefined, maskVersions: any) {
+/** The subset of /bus/device-info this table shows. */
+interface ScannedInfo {
+  descriptor?: string;
+  serialNumber?: string | null;
+  manufacturerId?: number;
+  orderInfo?: string;
+  error?: string;
+}
+
+function decodeMask(
+  descriptor: string | undefined,
+  maskVersions: Record<string, MaskVersionEntry>,
+) {
   if (!descriptor) return null;
   const key = descriptor.slice(0, 4).toLowerCase();
   return maskVersions[key] || null;
@@ -27,11 +40,14 @@ export function BusScanView({ scan, dispatch }: BusScanViewProps) {
   const [area, setArea] = useState('1');
   const [line, setLine] = useState('1');
   const [scanTimeout, setScanTimeout] = useState('200');
-  const [deviceInfos, setDeviceInfos] = useState<Record<string, any>>({});
+  // What POST /bus/device-info reports for a scanned device.
+  const [deviceInfos, setDeviceInfos] = useState<Record<string, ScannedInfo>>(
+    {},
+  );
   const [readingAddr, setReadingAddr] = useState<string | null>(null);
 
   const knownAddrs = new Set(
-    (projectData?.devices || []).map((d: any) => d.individual_address),
+    (projectData?.devices || []).map((d) => d.individual_address),
   );
 
   const handleReadInfo = async (addr: string) => {
@@ -163,7 +179,7 @@ export function BusScanView({ scan, dispatch }: BusScanViewProps) {
                 const scanA = parseInt(area),
                   scanL = parseInt(line);
                 const missing = (projectData?.devices || []).filter(
-                  (d: any) => d.area === scanA && d.line === scanL,
+                  (d) => d.area === scanA && d.line === scanL,
                 );
                 if (missing.length === 0)
                   return (
@@ -174,33 +190,35 @@ export function BusScanView({ scan, dispatch }: BusScanViewProps) {
                 return null;
               })()}
             {(() => {
-              const foundAddrs = new Set(
-                scan.results.map((r: any) => r.address),
-              );
+              const foundAddrs = new Set(scan.results.map((r) => r.address));
               const scanA = parseInt(area),
                 scanL = parseInt(line);
               const missingDevs =
                 !scan.running && (scan.results.length > 0 || pct === 100)
                   ? (projectData?.devices || []).filter(
-                      (d: any) =>
+                      (d) =>
                         d.area === scanA &&
                         d.line === scanL &&
                         !foundAddrs.has(d.individual_address),
                     )
                   : [];
-              const rows: any[] = [
-                ...scan.results.map((r: any) => ({
+              const rows: {
+                address: string;
+                found: boolean;
+                descriptor?: string;
+              }[] = [
+                ...scan.results.map((r) => ({
                   address: r.address,
                   descriptor: r.descriptor,
                   found: true,
                 })),
-                ...missingDevs.map((d: any) => ({
+                ...missingDevs.map((d) => ({
                   address: d.individual_address,
                   found: false,
                 })),
               ];
               if (rows.length === 0) return null;
-              const cmp = (a: any, b: any) => {
+              const cmp = (a: { address: string }, b: { address: string }) => {
                 const pa = a.address.split('.').map(Number),
                   pb = b.address.split('.').map(Number);
                 for (let i = 0; i < 3; i++) {
@@ -229,7 +247,7 @@ export function BusScanView({ scan, dispatch }: BusScanViewProps) {
                       const inProject = knownAddrs.has(r.address);
                       const projDev = inProject
                         ? (projectData?.devices || []).find(
-                            (d: any) => d.individual_address === r.address,
+                            (d) => d.individual_address === r.address,
                           )
                         : null;
                       const di = deviceInfos[r.address];

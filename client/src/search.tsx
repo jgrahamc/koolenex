@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
+import type { ProjectFull } from '../../shared/types.ts';
 import styles from './search.module.css';
 
 interface SearchResult {
@@ -12,7 +13,7 @@ interface SearchResult {
 }
 
 interface GlobalSearchProps {
-  projectData: any;
+  projectData: ProjectFull | null;
   onPin: (wtype: string, address: string) => void;
 }
 

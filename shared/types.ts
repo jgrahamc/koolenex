@@ -13,8 +13,16 @@ export type DeviceStatus =
   | 'deleted'
   | 'error';
 export type ComObjectDirection = 'input' | 'output' | 'both';
+/**
+ * The <Space Type="..."> values seen in real ETS projects. The parser stores
+ * whatever ETS writes (`attr(sp, 'Type') || 'Room'`), so this is the list we
+ * have evidence for rather than a closed enumeration - 'BuildingPart' was
+ * missing until 2026-09-10, which made FloorPlanView's own check for it look
+ * like dead code.
+ */
 export type SpaceType =
   | 'Building'
+  | 'BuildingPart'
   | 'Floor'
   | 'Stairway'
   | 'Corridor'
@@ -271,6 +279,16 @@ export interface ProjectFull {
 export interface RunResult {
   lastInsertRowid: number | null;
   changes: number;
+}
+
+/**
+ * One entry of GET /mask-versions, keyed by the 4-hex-digit mask version.
+ * Shared because the client renders these against a device's descriptor.
+ */
+export interface MaskVersionEntry {
+  name: string;
+  managementModel: string;
+  medium: string;
 }
 
 // DPT info entry from parsed KNX master XML

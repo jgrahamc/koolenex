@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { api } from '../api.ts';
+import type { DeviceStatus } from '../../../shared/types.ts';
+import { errMessage, api } from '../api.ts';
 import type { AppState, Action } from '../state.ts';
 import type {
   EnrichedGA,
@@ -45,8 +46,8 @@ export function useProjectHandlers(
       try {
         await item.undo();
         descs.push(item.desc);
-      } catch (e: any) {
-        setToast(`Undo failed: ${e.message}`);
+      } catch (e) {
+        setToast(`Undo failed: ${errMessage(e)}`);
         break;
       }
     }
@@ -352,7 +353,7 @@ export function useProjectHandlers(
   );
 
   const handleCreateGA = useCallback(
-    async (body: any) => {
+    async (body: Record<string, unknown>) => {
       if (!state.activeProjectId) return null;
       const ga = await api.createGA(state.activeProjectId, body);
       dispatch({ type: 'ADD_GA', ga });
@@ -384,7 +385,7 @@ export function useProjectHandlers(
   );
 
   const handleAddDevice = useCallback(
-    async (body: any) => {
+    async (body: Record<string, unknown>) => {
       if (!state.activeProjectId) return null;
       const device = await api.createDevice(state.activeProjectId, body);
       dispatch({ type: 'ADD_DEVICE', device });
@@ -431,7 +432,7 @@ export function useProjectHandlers(
   );
 
   const handleUpdateComObjectGAs = useCallback(
-    async (coId: number, body: any) => {
+    async (coId: number, body: Record<string, unknown>) => {
       if (!state.activeProjectId) return;
       const updated = (await api.updateComObjectGAs(
         state.activeProjectId,
@@ -479,7 +480,7 @@ export function useProjectHandlers(
         dispatch({
           type: 'SET_DEVICE_STATUS',
           deviceId: updated.device_id,
-          status: updated.device_status as any,
+          status: updated.device_status as DeviceStatus,
         });
         // The Compare page (DeviceCompareResults.tsx) and the Programming
         // slide-over both read the SAME cached verify result
@@ -502,7 +503,7 @@ export function useProjectHandlers(
   );
 
   const handleUpdateComObjectFlags = useCallback(
-    async (coId: number, body: any) => {
+    async (coId: number, body: Record<string, unknown>) => {
       if (!state.activeProjectId) return;
       const updated = (await api.updateComObjectFlags(
         state.activeProjectId,
@@ -550,7 +551,7 @@ export function useProjectHandlers(
         dispatch({
           type: 'SET_DEVICE_STATUS',
           deviceId: updated.device_id,
-          status: updated.device_status as any,
+          status: updated.device_status as DeviceStatus,
         });
         void refreshVerifyCache(updated.device_id);
       }
@@ -560,7 +561,11 @@ export function useProjectHandlers(
 
   const applyDeviceStatus = useCallback(
     (deviceId: number, status: string) => {
-      dispatch({ type: 'SET_DEVICE_STATUS', deviceId, status: status as any });
+      dispatch({
+        type: 'SET_DEVICE_STATUS',
+        deviceId,
+        status: status as DeviceStatus,
+      });
       // Same local-recompute reasoning as handleUpdateComObjectGAs/Flags
       // above - every caller of applyDeviceStatus (currently just
       // DeviceParameters.tsx's save) only calls it when the server

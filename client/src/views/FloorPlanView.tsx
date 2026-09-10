@@ -7,6 +7,9 @@ import {
   useCallback,
 } from 'react';
 import { useLocation } from 'react-router-dom';
+import type { Device, ProjectFull } from '../../../shared/types.ts';
+import type { ProjectActions, PinFn } from '../contexts.ts';
+import type { Space } from '../../../shared/types.ts';
 import { PinContext, useAppData, useProjectActions } from '../contexts.ts';
 import { DeviceTypeIcon } from '../icons.tsx';
 import { Btn, Empty } from '../primitives.tsx';
@@ -22,6 +25,11 @@ const COLMAP: Record<string, string> = {
 import { AddDeviceModal } from '../AddDeviceModal.tsx';
 import styles from './FloorPlanView.module.css';
 
+/** A space with its child spaces - the floor tree this view walks. */
+interface SpaceTreeNode extends Space {
+  children: SpaceTreeNode[];
+}
+
 export function FloorPlanView() {
   const { projectData: data, activeProjectId } = useAppData();
   const { updateDevice: onUpdateDevice, addDevice: onAddDevice } =
@@ -30,23 +38,24 @@ export function FloorPlanView() {
   const locState = location.state as { jumpTo?: number } | null;
   const jumpTo =
     locState?.jumpTo != null
-      ? { spaceId: locState.jumpTo as any, ts: Date.now() }
+      ? { spaceId: locState.jumpTo, ts: Date.now() }
       : undefined;
   const pin = useContext(PinContext);
   const { spaces = [], devices = [] } = data || {};
 
   // Build space tree to find floors and their descendant devices
   const { floors, floorDevices } = useMemo(() => {
-    const nodeMap: Record<string, any> = {};
+    const nodeMap: Record<string, SpaceTreeNode> = {};
     for (const s of spaces) nodeMap[s.id] = { ...s, children: [] };
-    const roots: any[] = [];
+    const roots: SpaceTreeNode[] = [];
     for (const s of spaces) {
-      if (s.parent_id && nodeMap[s.parent_id])
-        nodeMap[s.parent_id].children.push(nodeMap[s.id]);
-      else roots.push(nodeMap[s.id]);
+      const node = nodeMap[s.id]!;
+      const parent = s.parent_id ? nodeMap[s.parent_id] : undefined;
+      if (parent) parent.children.push(node);
+      else roots.push(node);
     }
-    const floors: any[] = [];
-    const collectFloors = (nodes: any[]) => {
+    const floors: SpaceTreeNode[] = [];
+    const collectFloors = (nodes: SpaceTreeNode[]) => {
       for (const n of nodes) {
         if (n.type === 'Floor' || n.type === 'BuildingPart') floors.push(n);
         else collectFloors(n.children);
@@ -54,41 +63,45 @@ export function FloorPlanView() {
     };
     collectFloors(roots);
     const locSort = localStorage.getItem('knx-loc-sort') || 'import';
-    floors.sort((a: any, b: any) =>
+    floors.sort((a, b) =>
       locSort === 'name'
         ? a.name.localeCompare(b.name)
         : (a.sort_order ?? 0) - (b.sort_order ?? 0) ||
           a.name.localeCompare(b.name),
     );
 
-    const floorDevices: Record<string, any[]> = {};
+    const floorDevices: Record<string, Device[]> = {};
     for (const floor of floors) {
-      const spaceIds = new Set<string>();
-      const walk = (node: any) => {
+      // Space ids are numbers, and so is Device.space_id - the set was
+      // declared Set<string> but only ever held and was only ever probed
+      // with numbers.
+      const spaceIds = new Set<number>();
+      const walk = (node: SpaceTreeNode) => {
         spaceIds.add(node.id);
         node.children.forEach(walk);
       };
       walk(floor);
       floorDevices[floor.id] = devices.filter(
-        (d: any) => d.space_id && spaceIds.has(d.space_id),
+        (d) => d.space_id && spaceIds.has(d.space_id),
       );
     }
     return { floors, floorDevices };
   }, [spaces, devices]);
 
-  const [activeFloor, setActiveFloor] = useState<string | null>(null);
+  // Space ids are numbers; this held numbers all along.
+  const [activeFloor, setActiveFloor] = useState<number | null>(null);
   useEffect(() => {
     if (
       floors.length > 0 &&
-      (!activeFloor || !floors.find((f: any) => f.id === activeFloor))
+      (!activeFloor || !floors.find((f) => f.id === activeFloor))
     ) {
-      setActiveFloor(floors[0].id);
+      setActiveFloor(floors[0]!.id);
     }
   }, [floors]);
 
   // Jump to a specific floor when navigated from another view
   useEffect(() => {
-    if (jumpTo?.spaceId && floors.find((f: any) => f.id === jumpTo.spaceId)) {
+    if (jumpTo?.spaceId && floors.find((f) => f.id === jumpTo.spaceId)) {
       setActiveFloor(jumpTo.spaceId);
     }
   }, [jumpTo?.ts]);
@@ -107,14 +120,14 @@ export function FloorPlanView() {
       </div>
     );
 
-  const floor = floors.find((f: any) => f.id === activeFloor);
+  const floor = floors.find((f) => f.id === activeFloor);
   const devs = floorDevices[activeFloor!] || [];
 
   return (
     <div className={styles.root}>
       {/* Tab bar */}
       <div className={styles.tabBar}>
-        {floors.map((f: any) => (
+        {floors.map((f) => (
           <div
             key={f.id}
             onClick={() => setActiveFloor(f.id)}
@@ -143,14 +156,14 @@ export function FloorPlanView() {
 }
 
 interface FloorPlanCanvasProps {
-  floor: any;
-  devices: any[];
-  spaces: any[];
-  projectId: any;
-  onUpdateDevice?: ((id: any, updates: any) => void) | null;
-  onAddDevice?: ((body: any) => Promise<any>) | null;
-  data: any;
-  pin: any;
+  floor: SpaceTreeNode;
+  devices: Device[];
+  spaces: Space[];
+  projectId: number | null;
+  onUpdateDevice?: ProjectActions['updateDevice'] | null;
+  onAddDevice?: ProjectActions['addDevice'] | null;
+  data: ProjectFull | null;
+  pin: PinFn;
 }
 
 function FloorPlanCanvas({
@@ -164,7 +177,8 @@ function FloorPlanCanvas({
   pin: _pin,
 }: FloorPlanCanvasProps) {
   const [imgUrl, setImgUrl] = useState<string | null>(null);
-  const [dragging, setDragging] = useState<any>(null); // deviceId being dragged
+  // The device id currently being dragged.
+  const [dragging, setDragging] = useState<number | null>(null);
   const [dragPos, setDragPos] = useState<{ x: number; y: number } | null>(null); // { x, y } in 0..1 fractions
   const [showAdd, setShowAdd] = useState(false);
   const dragOffsetRef = useRef<{ dx: number; dy: number } | null>(null); // { dx, dy } offset from cursor to device center in fractions
@@ -182,6 +196,7 @@ function FloorPlanCanvas({
 
   // Load floor plan image
   useEffect(() => {
+    if (projectId == null) return;
     const url = api.getFloorPlanUrl(projectId, floor.id);
     fetch(url)
       .then((r) => {
@@ -210,12 +225,14 @@ function FloorPlanCanvas({
     if (!file) return;
     const fd = new FormData();
     fd.append('file', file);
+    if (projectId == null) return;
     await api.uploadFloorPlan(projectId, floor.id, fd);
     setImgUrl(api.getFloorPlanUrl(projectId, floor.id) + '?t=' + Date.now());
     e.target.value = '';
   };
 
   const handleDelete = async () => {
+    if (projectId == null) return;
     await api.deleteFloorPlan(projectId, floor.id);
     setImgUrl(null);
   };
@@ -229,9 +246,9 @@ function FloorPlanCanvas({
 
   // Group devices by room (for unplaced sidebar)
   const devicesByRoom = useMemo(() => {
-    const m: Record<string, any[]> = {};
+    const m: Record<string, Device[]> = {};
     for (const d of devices) {
-      const room = roomMap[d.space_id] || 'Unassigned';
+      const room = roomMap[d.space_id ?? ''] || 'Unassigned';
       if (!m[room]) m[room] = [];
       m[room]!.push(d);
     }
@@ -254,7 +271,7 @@ function FloorPlanCanvas({
     };
   }, []);
 
-  const startDrag = (e: React.MouseEvent, deviceId: any) => {
+  const startDrag = (e: React.MouseEvent, deviceId: number) => {
     e.preventDefault();
     e.stopPropagation();
     const dev = devices.find((d) => d.id === deviceId);
@@ -354,7 +371,7 @@ function FloorPlanCanvas({
               <div
                 key={d.id}
                 onMouseDown={(e) => startDrag(e, d.id)}
-                title={`${d.individual_address} — ${d.name}\n${roomMap[d.space_id] || ''}`}
+                title={`${d.individual_address} — ${d.name}\n${roomMap[d.space_id ?? ''] || ''}`}
                 className={styles.placedDev}
                 style={{
                   left: `${x * 100}%`,
@@ -441,13 +458,13 @@ function FloorPlanCanvas({
           </div>
           {Object.entries(devicesByRoom).map(([room, roomDevs]) => {
             const unplacedInRoom = roomDevs.filter(
-              (d: any) => d.floor_x < 0 || d.floor_y < 0,
+              (d) => d.floor_x < 0 || d.floor_y < 0,
             );
             if (!unplacedInRoom.length) return null;
             return (
               <div key={room} className={styles.roomGroup}>
                 <div className={styles.roomName}>{room}</div>
-                {unplacedInRoom.map((d: any) => (
+                {unplacedInRoom.map((d) => (
                   <div
                     key={d.id}
                     onMouseDown={(e) => startDrag(e, d.id)}

@@ -46,7 +46,7 @@ import {
   loadVerifyCache,
   saveVerifyCache,
 } from './state.ts';
-import type { BusTelegram } from '../../shared/types.ts';
+import type { MaskVersionEntry, BusTelegram } from '../../shared/types.ts';
 import { useProjectHandlers } from './hooks/useProjectHandlers.ts';
 import { useBusHandlers } from './hooks/useBusHandlers.ts';
 import { AppShell } from './AppShell.tsx';
@@ -132,14 +132,16 @@ export default function App() {
       return next;
     });
   };
-  const [mediumTypes, setMediumTypes] = useState<Record<string, any>>({});
-  const [maskVersions, setMaskVersions] = useState<Record<string, any>>({});
+  const [mediumTypes, setMediumTypes] = useState<Record<string, string>>({});
+  const [maskVersions, setMaskVersions] = useState<
+    Record<string, MaskVersionEntry>
+  >({});
   const [i18nLang, setI18nLang] = useState<string>(
     () => localStorage.getItem('knx-lang') || 'en-US',
   );
   const [i18nData, setI18nData] = useState<{
-    languages: any[];
-    translations: Record<string, any>;
+    languages: { id: string; name: string }[];
+    translations: Record<string, Record<string, string>>;
   }>({ languages: [], translations: {} });
   const handleLangChange = (l: string) => {
     setI18nLang(l);
@@ -161,7 +163,7 @@ export default function App() {
       console.warn(`[app] ${label} failed`, e.message);
     api
       .getDptInfo(pid)
-      .then((data: any) => {
+      .then((data) => {
         if (data && Object.keys(data).length > 0) {
           setDptInfo(data);
           dispatch({ type: 'DPT_LOADED' });
@@ -170,23 +172,26 @@ export default function App() {
       .catch(warn('getDptInfo'));
     api
       .getSpaceUsages(pid)
-      .then((data: any) => {
+      .then((data) => {
         if (data?.length) setSpaceUsages(data);
       })
       .catch(warn('getSpaceUsages'));
     api
       .getMediumTypes(pid)
-      .then((d) => setMediumTypes(d as Record<string, any>))
+      .then((d) => setMediumTypes(d as Record<string, string>))
       .catch(warn('getMediumTypes'));
     api
       .getMaskVersions(pid)
-      .then((d) => setMaskVersions(d as Record<string, any>))
+      .then((d) => setMaskVersions(d as Record<string, MaskVersionEntry>))
       .catch(warn('getMaskVersions'));
     api
       .getTranslations(pid)
       .then((d) =>
         setI18nData(
-          d as { languages: any[]; translations: Record<string, any> },
+          d as {
+            languages: { id: string; name: string }[];
+            translations: Record<string, Record<string, string>>;
+          },
         ),
       )
       .catch(warn('getTranslations'));

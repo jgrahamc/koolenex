@@ -1,4 +1,5 @@
 import { createContext } from 'react';
+import type { MaskVersionEntry } from '../../shared/types.ts';
 
 export const STATUS_COLOR: Record<string, string> = {
   programmed: '#22c55e',
@@ -18,11 +19,17 @@ export const SPACE_COLOR = {
 } as const;
 
 export const MediumCtx = createContext<Record<string, string>>({});
-export const MaskCtx = createContext<Record<string, string>>({});
+// The entry, not just its name: GET /mask-versions returns
+// { name, managementModel, medium } per mask, and the device panel reads all
+// three. Declared as Record<string, string> until 2026-09-10, which is why
+// its readers had to be typed `any`.
+export const MaskCtx = createContext<Record<string, MaskVersionEntry>>({});
 
 export interface I18nContextValue {
   lang: string;
-  languages: string[];
+  /** From GET /translations: each language's id and display name. Declared
+   *  as string[] until 2026-09-10, though it always held these objects. */
+  languages: { id: string; name: string }[];
   t: (refId: string) => string | null;
 }
 

@@ -13,37 +13,97 @@
  *
  * Returns plain data - no JSX; the component renders from it.
  */
-import { etsTestMatch } from '../../../shared/ets-dyn.ts';
+import {
+  etsTestMatch,
+  type DynItem,
+  type DynTree,
+  type TableCellSpec,
+} from '../../../shared/ets-dyn.ts';
+
+/**
+ * One parameter's display metadata, as the stored app model records it.
+ * Read only for rendering here - the model is produced by
+ * server/ets-app.ts's parameter extraction.
+ */
+export interface ParamMeta {
+  label?: string;
+  group?: string;
+  typeKind?: string;
+  enums?: Record<string, string>;
+  min?: number;
+  max?: number;
+  step?: number;
+  uiHint?: string;
+  unit?: string;
+  defaultValue?: string;
+  readOnly?: boolean;
+  section?: string;
+  [key: string]: unknown;
+}
+
+/** One editable parameter row. */
+export interface ParamUIParam {
+  type?: undefined;
+  instanceKey: string;
+  prKey: string;
+  label?: string;
+  typeKind?: string;
+  enums?: Record<string, string>;
+  min?: number;
+  max?: number;
+  step?: number;
+  uiHint: string;
+  unit: string;
+  defaultValue?: string;
+  readOnly?: boolean;
+  cell?: string;
+}
+
+/** A separator between parameter rows. */
+export interface ParamUISeparator {
+  type: 'separator';
+  text?: string;
+  uiHint?: string;
+}
+
+/** A row the UI renders: a parameter, or a separator between them. */
+export type ParamUIItem = ParamUIParam | ParamUISeparator;
+
+/** A Table-layout block's grid, as the app model declares it. */
+export interface TableLayout {
+  rows: TableCellSpec[];
+  columns: TableCellSpec[];
+}
 
 export interface ParamUIModel {
-  params: Record<string, any>;
-  dynTree?: any;
-  modArgs?: Record<string, any>;
+  params: Record<string, ParamMeta>;
+  dynTree?: DynTree;
+  modArgs?: Record<string, string>;
 }
 
 export interface ParamUI {
   /** Section keys, in document order. Key is `${group}\0${label}`. */
   sections: string[];
   /** Section key -> its items (parameter descriptors and separators). */
-  secMap: Record<string, any[]>;
+  secMap: Record<string, ParamUIItem[]>;
   secGroupMap: Record<string, string>;
   secIndentMap: Record<string, number>;
   secLabelMap: Record<string, string>;
   /** Section key -> `{ rows, columns }` for Table-layout blocks. */
-  secTableLayouts: Record<string, any>;
+  secTableLayouts: Record<string, TableLayout>;
   /** paramRefs reachable through the currently-active `choose` branches. */
   activeParams: Set<string>;
 }
 
 // -- Client-side Dynamic condition evaluator --
 function evalDynTree(
-  dynTree: any,
-  _modArgs: any,
-  getVal: (key: string) => any,
-  params: Record<string, any>,
+  dynTree: DynTree | undefined,
+  _modArgs: Record<string, string> | undefined,
+  getVal: (key: string) => unknown,
+  params: Record<string, ParamMeta>,
 ) {
   const active = new Set<string>();
-  function evalChoice(choice: any) {
+  function evalChoice(choice: DynItem) {
     if (
       choice.paramRefId &&
       !choice.accessNone &&
@@ -51,15 +111,15 @@ function evalDynTree(
       !active.has(choice.paramRefId)
     )
       return;
-    const raw = getVal(choice.paramRefId);
+    const raw = getVal(choice.paramRefId ?? '');
     const val = String(
       raw !== '' && raw != null ? raw : (choice.defaultValue ?? ''),
     );
     let matched = false,
-      defItems: any[] | null = null;
+      defItems: DynItem[] | null = null;
     for (const w of choice.whens || []) {
       if (w.isDefault) {
-        defItems = w.items;
+        defItems = w.items ?? null;
         continue;
       }
       if (etsTestMatch(val, w.test)) {
@@ -69,10 +129,10 @@ function evalDynTree(
     }
     if (!matched && defItems) walkItems(defItems);
   }
-  function walkItems(items: any[] | undefined) {
+  function walkItems(items: DynItem[] | undefined) {
     if (!items) return;
     for (const item of items) {
-      if (item.type === 'paramRef') active.add(item.refId);
+      if (item.type === 'paramRef' && item.refId) active.add(item.refId);
       else if (
         item.type === 'block' ||
         item.type === 'channel' ||
@@ -87,7 +147,7 @@ function evalDynTree(
   return active;
 }
 
-function interpTpl(tpl: string | undefined, args: Record<string, any>) {
+function interpTpl(tpl: string | undefined, args: Record<string, string>) {
   if (!tpl) return '';
   if (!args) return tpl;
   return tpl
@@ -110,9 +170,9 @@ function interpTpl(tpl: string | undefined, args: Record<string, any>) {
  */
 function makeGetVal(
   model: ParamUIModel,
-  values: Record<string, any>,
-): (prKey: string) => any {
-  const strippedValues: Record<string, any> = {};
+  values: Record<string, unknown>,
+): (prKey: string) => unknown {
+  const strippedValues: Record<string, unknown> = {};
   for (const [iKey, val] of Object.entries(values)) {
     const sk = iKey.replace(/_M-\d+_MI-\d+/g, '');
     if (!(sk in strippedValues)) strippedValues[sk] = val;
@@ -127,7 +187,7 @@ function makeGetVal(
  */
 export function evalActiveParams(
   model: ParamUIModel,
-  values: Record<string, any>,
+  values: Record<string, unknown>,
 ): Set<string> {
   return evalDynTree(
     model.dynTree,
@@ -143,7 +203,7 @@ export function evalActiveParams(
  */
 export function buildParamUI(
   model: ParamUIModel,
-  values: Record<string, any>,
+  values: Record<string, unknown>,
 ): ParamUI {
   const { params, dynTree } = model;
   // Defaulted here rather than at each use: `Object.keys(modArgs || {})`
@@ -155,12 +215,12 @@ export function buildParamUI(
   const activeParams = evalDynTree(dynTree, modArgs, getVal, params);
 
   const sections: string[] = [];
-  const secMap: Record<string, any[]> = {};
+  const secMap: Record<string, ParamUIItem[]> = {};
   const secGroupMap: Record<string, string> = {};
   const secIndentMap: Record<string, number> = {};
   const secLabelMap: Record<string, string> = {};
 
-  const secTableLayouts: Record<string, any> = {};
+  const secTableLayouts: Record<string, TableLayout> = {};
 
   function ensureSection(secLabel: string, grp: string | undefined) {
     const key = `${grp || ''}\0${secLabel}`;
@@ -178,7 +238,7 @@ export function buildParamUI(
     secLabel: string,
     instanceKey: string,
     prKey: string,
-    args: Record<string, any>,
+    args: Record<string, string>,
     cell: string | undefined,
     grp: string | undefined,
   ) {
@@ -191,7 +251,11 @@ export function buildParamUI(
           ? interpTpl(meta.group, args) || meta.group
           : '';
     const key = ensureSection(secLabel, effectiveGrp);
-    if (!secMap[key]!.some((x: any) => x.instanceKey === instanceKey)) {
+    if (
+      !secMap[key]!.some(
+        (x) => x.type !== 'separator' && x.instanceKey === instanceKey,
+      )
+    ) {
       secMap[key]!.push({
         instanceKey,
         prKey,
@@ -210,7 +274,11 @@ export function buildParamUI(
     }
   }
 
-  function addSeparator(secLabel: string, item: any, grp: string | undefined) {
+  function addSeparator(
+    secLabel: string,
+    item: DynItem & { text?: string; uiHint?: string },
+    grp: string | undefined,
+  ) {
     const key = ensureSection(secLabel, grp);
     secMap[key]!.push({
       type: 'separator',
@@ -223,7 +291,7 @@ export function buildParamUI(
   const blockRenames: Record<string, string> = {};
 
   // Pre-scan items for active Renames, evaluating choose/when to find which branch fires
-  function collectRenames(items: any[] | undefined) {
+  function collectRenames(items: DynItem[] | undefined) {
     if (!items) return;
     for (const item of items) {
       if (item.type === 'rename' && item.refId && item.text) {
@@ -236,15 +304,15 @@ export function buildParamUI(
           !activeParams.has(item.paramRefId)
         )
           continue;
-        const raw = getVal(item.paramRefId);
+        const raw = getVal(item.paramRefId ?? '');
         const val = String(
           raw !== '' && raw != null ? raw : (item.defaultValue ?? ''),
         );
         let matched = false,
-          defItems: any[] | null = null;
+          defItems: DynItem[] | null = null;
         for (const w of item.whens || []) {
           if (w.isDefault) {
-            defItems = w.items;
+            defItems = w.items ?? null;
             continue;
           }
           if (etsTestMatch(val, w.test)) {
@@ -267,14 +335,14 @@ export function buildParamUI(
   // to the next navigable block (matching ETS6 behavior where Access=None
   // block params appear on the parent/group header page)
   function walkChannelItems(
-    items: any[] | undefined,
+    items: DynItem[] | undefined,
     chLabel: string,
-    args: Record<string, any>,
+    args: Record<string, string>,
     mkPrefix: string | null,
     grpLabel: string | undefined,
   ) {
     if (!items) return;
-    let deferredItems: any[] = [];
+    let deferredItems: DynItem[] = [];
     for (const item of items) {
       if (item.type === 'block' && item.access === 'None') {
         collectRenames(item.items);
@@ -298,15 +366,15 @@ export function buildParamUI(
           !activeParams.has(item.paramRefId)
         )
           continue;
-        const raw = getVal(item.paramRefId);
+        const raw = getVal(item.paramRefId ?? '');
         const val = String(
           raw !== '' && raw != null ? raw : (item.defaultValue ?? ''),
         );
         let matched = false,
-          defWhenItems: any[] | null = null;
+          defWhenItems: DynItem[] | null = null;
         for (const w of item.whens || []) {
           if (w.isDefault) {
-            defWhenItems = w.items;
+            defWhenItems = w.items ?? null;
             continue;
           }
           if (etsTestMatch(val, w.test)) {
@@ -334,16 +402,16 @@ export function buildParamUI(
   }
 
   function walkItems(
-    items: any[] | undefined,
+    items: DynItem[] | undefined,
     secLabel: string,
-    args: Record<string, any>,
+    args: Record<string, string>,
     mkPrefix: string | null,
     grpLabel: string | undefined,
   ) {
     if (!items) return;
     for (const item of items) {
       if (item.type === 'paramRef') {
-        const prKey = item.refId;
+        const prKey = item.refId ?? '';
         const instanceKey = mkPrefix
           ? mkPrefix + prKey.replace(/^[^_]*_/, '_')
           : prKey;
@@ -379,15 +447,15 @@ export function buildParamUI(
           !activeParams.has(item.paramRefId)
         )
           continue;
-        const raw = getVal(item.paramRefId);
+        const raw = getVal(item.paramRefId ?? '');
         const val = String(
           raw !== '' && raw != null ? raw : (item.defaultValue ?? ''),
         );
         let matched = false,
-          defItems: any[] | null = null;
+          defItems: DynItem[] | null = null;
         for (const w of item.whens || []) {
           if (w.isDefault) {
-            defItems = w.items;
+            defItems = w.items ?? null;
             continue;
           }
           if (etsTestMatch(val, w.test)) {

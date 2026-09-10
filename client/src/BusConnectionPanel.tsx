@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { errMessage } from './api.ts';
 import { Btn, Spinner } from './primitives.tsx';
 import { api } from './api.ts';
 import { useLiveData, useBusActions } from './contexts.ts';
@@ -15,6 +16,20 @@ import styles from './views/ProjectInfoView.module.css';
  * (AppShell's status badge). `onConnected` fires after a successful
  * connect/disconnect - the popover uses it to close itself.
  */
+/** One row of GET /bus/usb-devices. */
+interface UsbDevice {
+  path: string;
+  manufacturer?: string;
+  product?: string;
+  serialNumber?: string;
+  /** A recognised KNX interface's product name, from known_knx_usb.csv. */
+  knxName?: string;
+  vendorId?: number;
+  productId?: number;
+  known?: boolean;
+  name?: string;
+}
+
 export function BusConnectionPanel({
   onConnected,
 }: {
@@ -35,7 +50,7 @@ export function BusConnectionPanel({
   const [error, setError] = useState<string | null>(null);
 
   // USB state
-  const [usbDevices, setUsbDevices] = useState<any[] | null>(null);
+  const [usbDevices, setUsbDevices] = useState<UsbDevice[] | null>(null);
   const [usbLoading, setUsbLoading] = useState(false);
   const [selectedUsb, setSelectedUsb] = useState('');
 
@@ -64,8 +79,8 @@ export function BusConnectionPanel({
     try {
       await onConnect(host, parseInt(port), protocol);
       onConnected?.();
-    } catch (e: any) {
-      setError(e.message);
+    } catch (e) {
+      setError(errMessage(e));
     }
     setConnecting(false);
   };
@@ -77,8 +92,8 @@ export function BusConnectionPanel({
     try {
       await onConnectUsb(selectedUsb);
       onConnected?.();
-    } catch (e: any) {
-      setError(e.message);
+    } catch (e) {
+      setError(errMessage(e));
     }
     setConnecting(false);
   };
@@ -92,15 +107,15 @@ export function BusConnectionPanel({
     setUsbLoading(true);
     setError(null);
     try {
-      const res = (await api.busUsbDevices()) as {
-        devices?: any[];
+      const res = (await api.busUsbDevices()) as unknown as {
+        devices?: UsbDevice[];
         error?: string;
       };
       setUsbDevices(res.devices || []);
       if (res.error) setError(res.error);
-      if (res.devices?.length === 1) setSelectedUsb(res.devices[0].path);
-    } catch (e: any) {
-      setError(e.message);
+      if (res.devices?.length === 1) setSelectedUsb(res.devices[0]!.path);
+    } catch (e) {
+      setError(errMessage(e));
       setUsbDevices([]);
     }
     setUsbLoading(false);
@@ -212,7 +227,7 @@ export function BusConnectionPanel({
           {usbDevices && usbDevices.length > 0 && (
             <div className={styles.usbList}>
               <div className={styles.fieldLabel}>SELECT DEVICE</div>
-              {usbDevices.map((d: any) => {
+              {usbDevices.map((d) => {
                 const label =
                   d.knxName ||
                   [d.manufacturer, d.product].filter(Boolean).join(' ') ||

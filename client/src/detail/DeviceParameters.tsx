@@ -1,30 +1,38 @@
 import { useState, useEffect } from 'react';
-import { api } from '../api.ts';
+import type { Device, ComObjectWithDevice } from '../../../shared/types.ts';
+import type { DptHelpers } from '../contexts.ts';
+import type {
+  ParamUIItem,
+  ParamUIParam,
+  ParamUISeparator,
+  ParamUIModel,
+  TableLayout,
+} from './paramUI.ts';
+import { errMessage, api } from '../api.ts';
 import { useDpt, useProjectActions } from '../contexts.ts';
 import { PinAddr, TH, TD, coGAs } from '../primitives.tsx';
 import styles from './DeviceParameters.module.css';
 import { buildParamUI } from './paramUI.ts';
 
 interface DeviceParametersProps {
-  dev: any;
-  projectId: any;
-  C?: any;
+  dev: Device;
+  projectId: number | null;
 }
 
 export function DeviceParameters({ dev, projectId }: DeviceParametersProps) {
   const dpt = useDpt();
   const [mode, setMode] = useState<'view' | 'edit'>('view');
-  const [model, setModel] = useState<any>(null);
+  const [model, setModel] = useState<ParamUIModel | null>(null);
   const [_loading, setLoading] = useState(false);
   const [_loadErr, setLoadErr] = useState<string | null>(null);
-  const [values, setValues] = useState<Record<string, any>>({});
+  const [values, setValues] = useState<Record<string, unknown>>({});
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [activeSection, setActiveSection] = useState<string | null>(null);
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>(
     {},
   );
-  const [comObjects, setComObjects] = useState<any[]>([]);
+  const [comObjects, setComObjects] = useState<ComObjectWithDevice[]>([]);
 
   const devId = dev.id;
   const { applyDeviceStatus, applyDeviceVerifyCleared } = useProjectActions();
@@ -45,7 +53,7 @@ export function DeviceParameters({ dev, projectId }: DeviceParametersProps) {
     let cancelled = false;
     api
       .listComObjects(projectId)
-      .then((rows: any[]) => {
+      .then((rows) => {
         if (cancelled) return;
         setComObjects(
           rows.filter((r) => r.device_address === dev.individual_address),
@@ -73,16 +81,16 @@ export function DeviceParameters({ dev, projectId }: DeviceParametersProps) {
     setLoading(true);
     api
       .getParamModel(projectId, devId)
-      .then((data: any) => {
+      .then((data) => {
         if (cancelled) return;
-        setModel(data);
-        const init: Record<string, any> = {};
+        setModel(data as unknown as ParamUIModel);
+        const init: Record<string, unknown> = {};
         for (const [k, v] of Object.entries(data.currentValues || {}))
           init[k] = v;
         setValues(init);
       })
-      .catch((e: any) => {
-        if (!cancelled) setLoadErr(e.message || 'Failed to load');
+      .catch((e) => {
+        if (!cancelled) setLoadErr(errMessage(e) || 'Failed to load');
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -103,7 +111,7 @@ export function DeviceParameters({ dev, projectId }: DeviceParametersProps) {
     setSaving(true);
     setSaveErr(null);
     try {
-      const result = await api.saveParamValues(projectId, devId, values);
+      const result = await api.saveParamValues(projectId!, devId, values);
       // Server flips devices.status 'programmed' -> 'modified' when a
       // parameter genuinely changed on an already-programmed device - see
       // markDeviceModifiedIfProgrammed() (server/routes/shared.ts). Applied
@@ -119,8 +127,8 @@ export function DeviceParameters({ dev, projectId }: DeviceParametersProps) {
         applyDeviceVerifyCleared(devId);
       }
       setDirty(false);
-    } catch (e: any) {
-      setSaveErr(e.message || 'Save failed');
+    } catch (e) {
+      setSaveErr(errMessage(e) || 'Save failed');
     }
     setSaving(false);
   };
@@ -161,7 +169,7 @@ export function DeviceParameters({ dev, projectId }: DeviceParametersProps) {
   );
 
   // Format a raw numeric value as hh:mm:ss (or hh:mm:ss.fff) for TypeTime display.
-  const fmtDuration = (raw: any, unit: string, uiHint: string) => {
+  const fmtDuration = (raw: unknown, unit: string, uiHint: string) => {
     const n = Number(raw);
     if (isNaN(n)) return String(raw);
     const pad2 = (x: number) => String(x).padStart(2, '0');
@@ -192,13 +200,13 @@ export function DeviceParameters({ dev, projectId }: DeviceParametersProps) {
     return unit === 'Milliseconds' ? totalMs : Math.round(totalMs / 1000);
   };
 
-  const renderInput = (item: any) => {
-    const rawVal = values[item.instanceKey] ?? item.defaultValue ?? '';
+  const renderInput = (item: ParamUIParam) => {
+    const rawVal = String(values[item.instanceKey] ?? item.defaultValue ?? '');
     const isDuration =
       item.typeKind === 'time' && item.uiHint?.startsWith('Duration_hh');
 
     if (item.readOnly || mode === 'view') {
-      let display: any;
+      let display: string;
       if (item.typeKind === 'enum') display = item.enums?.[rawVal] ?? rawVal;
       else if (item.typeKind === 'checkbox')
         display = String(rawVal) === '1' ? '✓' : '✗';
@@ -404,8 +412,8 @@ export function DeviceParameters({ dev, projectId }: DeviceParametersProps) {
 }
 
 interface RelatedComObjectsProps {
-  comObjects: any[];
-  dpt: any;
+  comObjects: ComObjectWithDevice[];
+  dpt: DptHelpers;
 }
 
 // Communication objects sharing this section's channel - see the comment on
@@ -428,7 +436,7 @@ function RelatedComObjects({ comObjects, dpt }: RelatedComObjectsProps) {
           </tr>
         </thead>
         <tbody>
-          {comObjects.map((co: any) => (
+          {comObjects.map((co) => (
             <tr key={co.id} className="rh">
               <TD>
                 <span className={styles.coRelatedDim}>{co.object_number}</span>
@@ -466,7 +474,7 @@ function RelatedComObjects({ comObjects, dpt }: RelatedComObjectsProps) {
 }
 
 interface SepRowProps {
-  item: any;
+  item: ParamUISeparator;
 }
 
 function SepRow({ item }: SepRowProps) {
@@ -500,10 +508,16 @@ function SepRow({ item }: SepRowProps) {
   return null;
 }
 
+/** One run of a section's content: a separator, the table, or plain rows. */
+type SectionRun =
+  | { type: 'separator'; item: ParamUISeparator }
+  | { type: 'table' }
+  | { type: 'params'; items: ParamUIParam[] };
+
 interface SectionContentProps {
-  items: any[];
-  tableLayout: any;
-  renderInput: (item: any) => React.ReactNode;
+  items: ParamUIItem[];
+  tableLayout: TableLayout | undefined;
+  renderInput: (item: ParamUIParam) => React.ReactNode;
 }
 
 function SectionContent({
@@ -514,16 +528,15 @@ function SectionContent({
   if (!items?.length) return null;
 
   // Group into runs preserving order: separator, table (cells), regular params
-  const runs: any[] = [];
-  const cellMap: Record<string, any> | null = tableLayout ? {} : null;
+  const runs: SectionRun[] = [];
+  const cellMap: Record<string, ParamUIParam> | null = tableLayout ? {} : null;
 
   for (const item of items) {
     if (item.type === 'separator') {
       runs.push({ type: 'separator', item });
     } else if (item.cell && tableLayout) {
       cellMap![item.cell] = item;
-      if (!runs.some((r: any) => r.type === 'table'))
-        runs.push({ type: 'table' });
+      if (!runs.some((r) => r.type === 'table')) runs.push({ type: 'table' });
     } else {
       const last = runs[runs.length - 1];
       if (last?.type === 'params') last.items.push(item);
@@ -535,7 +548,7 @@ function SectionContent({
 
   return (
     <>
-      {runs.map((run: any, ri: number) => {
+      {runs.map((run, ri) => {
         if (run.type === 'separator') {
           return (
             <table key={`s${ri}`} className={styles.paramTable}>
@@ -554,7 +567,7 @@ function SectionContent({
               <thead>
                 <tr>
                   <th className={styles.tableLayoutThBorder}></th>
-                  {columns.map((col: any, ci: number) => (
+                  {columns.map((col, ci) => (
                     <th
                       key={ci}
                       className={styles.tableLayoutThBorder}
@@ -566,17 +579,17 @@ function SectionContent({
                 </tr>
               </thead>
               <tbody>
-                {rows.map((row: any, rowIdx: number) => {
+                {rows.map((row, rowIdx) => {
                   const rowItems = columns.map(
-                    (_: any, ci: number) => cellMap![`${rowIdx + 1},${ci + 1}`],
+                    (_, ci) => cellMap![`${rowIdx + 1},${ci + 1}`],
                   );
-                  if (rowItems.every((x: any) => !x)) return null;
+                  if (rowItems.every((x: unknown) => !x)) return null;
                   return (
                     <tr key={rowIdx}>
                       <td className={styles.tableLayoutRowLabelBorder}>
                         {row.text}
                       </td>
-                      {rowItems.map((item: any, ci: number) => (
+                      {rowItems.map((item, ci) => (
                         <td key={ci} className={styles.tableLayoutCellBorder}>
                           {item ? renderInput(item) : null}
                         </td>
@@ -592,7 +605,7 @@ function SectionContent({
           return (
             <table key={`p${ri}`} className={styles.paramTable}>
               <tbody>
-                {run.items.map((item: any, i: number) => (
+                {run.items.map((item, i) => (
                   <tr key={i}>
                     <td className={styles.paramLabel}>{item.label}</td>
                     <td className={styles.paramValue}>{renderInput(item)}</td>

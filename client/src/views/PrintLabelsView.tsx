@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import type { Device } from '../../../shared/types.ts';
 import { useNavigate } from 'react-router-dom';
 import { Btn, Chip, SectionHeader } from '../primitives.tsx';
 import { useSpacePath } from '../hooks/spaces.ts';
@@ -6,7 +7,41 @@ import { useAppData } from '../contexts.ts';
 import styles from './PrintLabelsView.module.css';
 
 // Label sheet definitions (all dimensions in mm)
-const SHEETS: any[] = [
+/** One label-sheet stock: its grid and the page geometry it prints on. */
+interface LabelGrid {
+  id: string;
+  name: string;
+  legend?: false;
+  cols: number;
+  rows: number;
+  labelW: number;
+  labelH: number;
+  marginTop: number;
+  marginLeft: number;
+  gapX: number;
+  gapY: number;
+  pageW: number;
+  pageH: number;
+}
+
+/** The legend sheet prints a full-page table rather than a label grid, so it
+ *  carries none of the geometry above. */
+interface LegendSheet {
+  id: string;
+  name: string;
+  legend: true;
+}
+
+type LabelSheet = LabelGrid | LegendSheet;
+
+/** One drawn line of a label. */
+interface LabelPart {
+  text: string;
+  bold?: boolean;
+  size: string;
+}
+
+const SHEETS: LabelSheet[] = [
   {
     id: 'avery-l4730',
     name: 'Avery L4730 — 17.8 x 10 mm, removable (270/sheet)',
@@ -131,16 +166,16 @@ export function PrintLabelsView() {
     () => new Set(FIELD_OPTIONS.filter((f) => f.default).map((f) => f.id)),
   );
   const [selectedDevices, setSelectedDevices] = useState(
-    () => new Set(devices.map((d: any) => d.individual_address)),
+    () => new Set(devices.map((d) => d.individual_address)),
   );
   const [filterArea, setFilterArea] = useState('all');
   const { spacePath } = useSpacePath(spaces, ' > ');
 
   const areas = [
-    ...new Set(devices.map((d: any) => `${d.area}.${d.line}`)),
+    ...new Set(devices.map((d) => `${d.area}.${d.line}`)),
   ].sort() as string[];
   const filteredDevices = devices.filter(
-    (d: any) =>
+    (d) =>
       selectedDevices.has(d.individual_address) &&
       (filterArea === 'all' || `${d.area}.${d.line}` === filterArea),
   );
@@ -168,21 +203,21 @@ export function PrintLabelsView() {
     });
 
   const selectAll = () =>
-    setSelectedDevices(new Set(devices.map((d: any) => d.individual_address)));
+    setSelectedDevices(new Set(devices.map((d) => d.individual_address)));
   const selectNone = () => setSelectedDevices(new Set());
 
   const sheet = SHEETS.find((s) => s.id === sheetId);
 
   const handlePrint = () => {
     const w = window.open('', '_blank');
-    if (!w) return;
+    if (!w || !sheet) return;
     w.document.write(buildPrintHTML(filteredDevices, sheet, fields, spacePath));
     w.document.close();
     setTimeout(() => w.print(), 300);
   };
 
-  const labelData = (d: any) => {
-    const parts: { text: string; bold?: boolean; size: string }[] = [];
+  const labelData = (d: Device) => {
+    const parts: LabelPart[] = [];
     if (fields.has('address'))
       parts.push({ text: d.individual_address, bold: true, size: 'large' });
     if (fields.has('name')) parts.push({ text: d.name, size: 'medium' });
@@ -289,7 +324,7 @@ export function PrintLabelsView() {
               </span>
             </div>
             <div className={styles.devList}>
-              {devices.map((d: any) => (
+              {devices.map((d) => (
                 <label
                   key={d.individual_address}
                   className={`${styles.devItem} ${selectedDevices.has(d.individual_address) ? styles.devItemSelected : styles.devItemUnselected}`}
@@ -320,7 +355,7 @@ export function PrintLabelsView() {
           ) : (
             <LabelPreview
               devices={filteredDevices}
-              sheet={sheet}
+              sheet={sheet && !sheet.legend ? sheet : null}
               labelData={labelData}
             />
           )}
@@ -335,14 +370,15 @@ function LabelPreview({
   sheet,
   labelData,
 }: {
-  devices: any[];
-  sheet: any;
-  labelData: (d: any) => any[];
+  devices: Device[];
+  // The caller renders the legend table itself, so only a grid reaches here.
+  sheet: LabelGrid | null;
+  labelData: (d: Device) => LabelPart[];
 }) {
   if (!sheet || !devices.length)
     return <div className={styles.noDevices}>No devices selected</div>;
   const labelsPerPage = sheet.cols * sheet.rows;
-  const pages: any[][] = [];
+  const pages: Device[][] = [];
   for (let i = 0; i < devices.length; i += labelsPerPage) {
     pages.push(devices.slice(i, i + labelsPerPage));
   }
@@ -358,7 +394,7 @@ function LabelPreview({
             height: sheet.pageH * scale,
           }}
         >
-          {page.map((d: any, i: number) => {
+          {page.map((d, i) => {
             const col = i % sheet.cols;
             const row = Math.floor(i / sheet.cols);
             const x = sheet.marginLeft + col * (sheet.labelW + sheet.gapX);
@@ -376,7 +412,7 @@ function LabelPreview({
                   padding: `${1 * scale}px ${1.5 * scale}px`,
                 }}
               >
-                {parts.map((p: any, j: number) => (
+                {parts.map((p, j) => (
                   <div
                     key={j}
                     className={styles.labelPart}
@@ -403,9 +439,9 @@ function LegendPreview({
   fields,
   spacePath,
 }: {
-  devices: any[];
+  devices: Device[];
   fields: Set<string>;
-  spacePath: (id: any) => string;
+  spacePath: (id: number) => string;
 }) {
   if (!devices.length)
     return <div className={styles.noDevices}>No devices selected</div>;
@@ -423,7 +459,7 @@ function LegendPreview({
           </tr>
         </thead>
         <tbody>
-          {devices.map((d: any) => (
+          {devices.map((d) => (
             <tr key={d.individual_address}>
               {cols.map((f) => (
                 <td
@@ -465,10 +501,10 @@ function LegendPreview({
 }
 
 function buildPrintHTML(
-  devices: any[],
-  sheet: any,
+  devices: Device[],
+  sheet: LabelSheet,
   fields: Set<string>,
-  spacePath: (id: any) => string,
+  spacePath: (id: number) => string,
 ) {
   const fieldArr = FIELD_OPTIONS.filter((f) => fields.has(f.id));
 
@@ -519,7 +555,7 @@ function buildPrintHTML(
 
   // Label sheet
   const labelsPerPage = sheet.cols * sheet.rows;
-  const pages: any[][] = [];
+  const pages: Device[][] = [];
   for (let i = 0; i < devices.length; i += labelsPerPage)
     pages.push(devices.slice(i, i + labelsPerPage));
 

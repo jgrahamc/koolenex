@@ -246,7 +246,7 @@ export function TopologyView() {
                       RF: 'var(--amber)',
                       IP: 'var(--accent)',
                       PL: 'var(--purple)',
-                    } as Record<string, any>
+                    } as Record<string, string>
                   )[medium] || 'var(--dim)';
                 return (
                   <div key={`line-${area}-${line}`}>

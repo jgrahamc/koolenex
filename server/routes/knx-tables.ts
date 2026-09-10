@@ -2,8 +2,14 @@
 
 // Shared with the client's parameter UI - see shared/ets-dyn.ts. Re-exported
 // because routes/index.ts (and its test importers) take it from here.
-import { etsTestMatch } from '../../shared/ets-dyn.ts';
+import {
+  etsTestMatch,
+  type DynWhen,
+  type DynItem,
+  type DynTree,
+} from '../../shared/ets-dyn.ts';
 export { etsTestMatch };
+export type { DynWhen, DynItem, DynTree };
 
 // ── ETS dynamic tree types (matches ets-app.ts DynItem emission) ────────────
 // The stored model shape is a single recursive `items` array of tagged
@@ -12,42 +18,6 @@ export { etsTestMatch };
 // mirrors the `DynItem` union in server/ets-app.ts — NOT the legacy
 // channels/cib/pb + paramRefs/blocks/choices shape that emission never
 // actually produces.
-
-export interface DynWhen {
-  test?: string[];
-  isDefault?: boolean;
-  items?: DynItem[];
-}
-
-export interface DynItem {
-  type:
-    | 'paramRef'
-    | 'block'
-    | 'channel'
-    | 'cib'
-    | 'choose'
-    | 'assign'
-    | 'comRef'
-    | 'rename'
-    | 'separator';
-  // paramRef
-  refId?: string;
-  // block / channel / cib
-  items?: DynItem[];
-  // choose
-  paramRefId?: string;
-  defaultValue?: string | null;
-  whens?: DynWhen[];
-  // assign
-  target?: string;
-  source?: string | null;
-  value?: string | null;
-}
-
-export interface DynTree {
-  main?: { items?: DynItem[] } | null;
-  moduleDefs?: { id: string; items: DynItem[] }[];
-}
 
 export interface ParamDef {
   defaultValue?: string;

@@ -8,10 +8,10 @@ module.exports = [
   prettier,
   ...tseslint.configs.recommended.map((cfg) => ({
     ...cfg,
-    files: ['server/**/*.ts'],
+    files: ['server/**/*.ts', 'shared/**/*.ts'],
   })),
   {
-    files: ['server/**/*.ts'],
+    files: ['server/**/*.ts', 'shared/**/*.ts'],
     languageOptions: {
       ecmaVersion: 2022,
       sourceType: 'module',

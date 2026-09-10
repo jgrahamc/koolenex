@@ -1,12 +1,12 @@
 import { localizedModel } from '../dpt.ts';
+import type { Device } from '../../../shared/types.ts';
 import styles from './DeviceProductTab.module.css';
 
 interface DeviceProductTabProps {
-  dev: any;
-  C: any;
+  dev: Device;
 }
 
-export function DeviceProductTab({ dev, C: _C }: DeviceProductTabProps) {
+export function DeviceProductTab({ dev }: DeviceProductTabProps) {
   const searchQuery =
     [dev.manufacturer, dev.order_number || dev.model]
       .filter(Boolean)

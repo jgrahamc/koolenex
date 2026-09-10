@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
+import { errMessage, errCode } from './api.ts';
 import { useLocation, useNavigate } from 'react-router-dom';
 import type { AppState, Action } from './state.ts';
 import type { DptMode } from './contexts.ts';
@@ -123,7 +124,7 @@ export interface AppShellProps {
   onDptModeChange: (m: string) => void;
   i18nLang: string;
   onLangChange: (l: string) => void;
-  i18nLanguages: any[];
+  i18nLanguages: { id: string; name: string }[];
 }
 
 export function AppShell(props: AppShellProps) {
@@ -203,12 +204,12 @@ export function AppShell(props: AppShellProps) {
         mode: 'reimport',
         fileName: file.name,
       });
-    } catch (err: any) {
+    } catch (err) {
       dispatch({
         type: 'IMPORT_FAILED',
         importId: '',
-        error: err.message || 'Reimport failed',
-        code: err.code,
+        error: errMessage(err) || 'Reimport failed',
+        code: errCode(err),
       });
     }
   };
@@ -220,12 +221,12 @@ export function AppShell(props: AppShellProps) {
       await api.submitImportPassword(importId, reimportPassword);
       setReimportPassword('');
       dispatch({ type: 'IMPORT_PARSING', importId });
-    } catch (err: any) {
+    } catch (err) {
       dispatch({
         type: 'IMPORT_FAILED',
         importId,
-        error: err.message || 'Failed to submit password',
-        code: err.code,
+        error: errMessage(err) || 'Failed to submit password',
+        code: errCode(err),
       });
     }
   };
@@ -247,8 +248,8 @@ export function AppShell(props: AppShellProps) {
           const tgs = await api.listTelegrams(pid);
           dispatch({ type: 'SET_TELEGRAMS', telegrams: tgs });
           setToast(`Reimported ${state.import.fileName ?? ''}`.trim());
-        } catch (e: any) {
-          setToast(`Reload failed: ${e.message}`);
+        } catch (e) {
+          setToast(`Reload failed: ${errMessage(e)}`);
         } finally {
           dispatch({ type: 'IMPORT_RESET' });
         }

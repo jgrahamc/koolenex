@@ -2,14 +2,14 @@ import { useState, useMemo } from 'react';
 import { Btn } from './primitives.tsx';
 import { DeviceTypeIcon } from './icons.tsx';
 import styles from './AddDeviceModal.module.css';
-import type { Medium, ProjectFull } from '../../shared/types.ts';
+import type { Device, Medium, ProjectFull } from '../../shared/types.ts';
 
 // Compute next available device number on a line
-function nextDeviceNum(devices: any[], area: number, line: number) {
+function nextDeviceNum(devices: Device[], area: number, line: number) {
   const used = new Set(
     devices
       .filter((d) => d.area === area && d.line === line)
-      .map((d) => parseInt(d.individual_address.split('.')[2])),
+      .map((d) => parseInt(d.individual_address.split('.')[2] ?? '')),
   );
   for (let i = 1; i <= 255; i++) {
     if (!used.has(i)) return i;
@@ -33,11 +33,12 @@ interface FlatSpace {
 }
 
 // Flatten space tree into indented options
+interface SpaceTreeNode extends SpaceNode {
+  children: SpaceTreeNode[];
+}
+
 function flattenSpaces(spaces: SpaceNode[]): FlatSpace[] {
-  const nodeMap: Record<
-    number,
-    SpaceNode & { children: (SpaceNode & { children: any[] })[] }
-  > = {};
+  const nodeMap: Record<number, SpaceTreeNode> = {};
   for (const s of spaces) nodeMap[s.id] = { ...s, children: [] };
   const roots: (typeof nodeMap)[number][] = [];
   for (const s of spaces) {
@@ -68,6 +69,17 @@ function flattenSpaces(spaces: SpaceNode[]): FlatSpace[] {
  * order_number and product_ref, which it looks up from the catalog entry
  * for the chosen manufacturer/model rather than taking them from here.
  */
+/** One model in the manufacturer tree, built from the devices already in
+ *  the project. */
+interface ModelInfo {
+  model: string;
+  device_type: string;
+  order_number: string;
+  medium: string;
+  description: string;
+  product_ref: string;
+}
+
 export interface DeviceDefaults {
   area?: number;
   line?: number;
@@ -95,7 +107,7 @@ export function AddDeviceModal({
 
   // Build manufacturer → model list from existing devices
   const mfrTree = useMemo(() => {
-    const map: Record<string, Record<string, any>> = {};
+    const map: Record<string, Record<string, ModelInfo>> = {};
     for (const d of devices) {
       if (!d.manufacturer) continue;
       if (!map[d.manufacturer]) map[d.manufacturer] = {};
@@ -128,7 +140,7 @@ export function AddDeviceModal({
     return mfrTree
       .map((mfr) => ({
         ...mfr,
-        models: mfr.models.filter((m: any) => m.medium === defaults.medium),
+        models: mfr.models.filter((m) => m.medium === defaults.medium),
       }))
       .filter((mfr) => mfr.models.length > 0);
   }, [mfrTree, defaults.medium]);
@@ -162,7 +174,10 @@ export function AddDeviceModal({
   const [search, setSearch] = useState('');
 
   // When model is selected, auto-fill name
-  const handleModelSelect = (mfr: any, model: any) => {
+  const handleModelSelect = (
+    mfr: { name: string },
+    model: ModelInfo & { name: string },
+  ) => {
     setSelectedMfr(mfr.name);
     setSelectedModel(model.name);
     if (!name) setName(model.name);
@@ -182,7 +197,7 @@ export function AddDeviceModal({
   const modelInfo = useMemo(() => {
     if (!selectedMfr || !selectedModel) return null;
     const mfr = filteredTree.find((m) => m.name === selectedMfr);
-    return mfr?.models.find((m: any) => m.name === selectedModel) || null;
+    return mfr?.models.find((m) => m.name === selectedModel) || null;
   }, [selectedMfr, selectedModel, filteredTree]);
 
   // Filtered models for search
@@ -193,7 +208,7 @@ export function AddDeviceModal({
       .map((mfr) => ({
         ...mfr,
         models: mfr.models.filter(
-          (m: any) =>
+          (m) =>
             m.name.toLowerCase().includes(sq) ||
             mfr.name.toLowerCase().includes(sq) ||
             (m.order_number && m.order_number.toLowerCase().includes(sq)),
@@ -204,9 +219,7 @@ export function AddDeviceModal({
 
   // Validation
   const address = `${area}.${line}.${devNum}`;
-  const addressExists = devices.some(
-    (d: any) => d.individual_address === address,
-  );
+  const addressExists = devices.some((d) => d.individual_address === address);
   const areaFixed = defaults.area != null;
   const lineFixed = defaults.line != null;
 
@@ -290,7 +303,7 @@ export function AddDeviceModal({
               {searchResults.map((mfr) => (
                 <div key={mfr.name}>
                   <div className={styles.mfrHeader}>{mfr.name}</div>
-                  {mfr.models.map((m: any) => {
+                  {mfr.models.map((m) => {
                     const isSel =
                       selectedMfr === mfr.name && selectedModel === m.name;
                     return (

@@ -130,9 +130,19 @@ export const orderedXmlParser = new XMLParser({
 });
 
 // ─── Tiny helpers ─────────────────────────────────────────────────────────────
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export const toArr = (v: any): any[] =>
-  v == null ? [] : Array.isArray(v) ? v : [v];
+export const toArr = (v: unknown): XmlNode[] =>
+  v == null ? [] : Array.isArray(v) ? (v as XmlNode[]) : [v as XmlNode];
+
+/**
+ * Treat a value pulled out of a parsed XML tree as a node, so a walk can
+ * continue into it: `toArr(el(md.Dynamic).Module)`.
+ *
+ * A child's own shape is only known by walking it, so XmlNode indexes to
+ * `unknown` - which is right, but stops `a.B?.C` chains. This is where that
+ * assertion is written down, instead of every walk in the parser being
+ * typed `any` and losing the checking on everything else it touches.
+ */
+export const el = (v: unknown): XmlNode => (v as XmlNode | undefined) ?? {};
 
 /**
  * Sanitize a string value from an ETS attribute.
@@ -657,10 +667,9 @@ export function parseKnxproj(
       }
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let xml: any;
+    let xml: XmlNode;
     try {
-      xml = xmlParser.parse(entryBuf.toString('utf8'));
+      xml = xmlParser.parse(entryBuf.toString('utf8')) as XmlNode;
     } catch (e: unknown) {
       logger.error('ets', '0.xml parse error', {
         entry: entry.entryName,
@@ -669,7 +678,7 @@ export function parseKnxproj(
       continue;
     }
 
-    const inst = xml?.KNX?.Project?.Installations?.Installation;
+    const inst = el(el(el(xml.KNX).Project).Installations).Installation;
     const installation = Array.isArray(inst) ? inst[0] : inst;
     if (!installation) continue;
 
@@ -841,7 +850,9 @@ export function parseKnxproj(
 
           // ── Parameters ─────────────────────────────────────────────────────
           const parameters: ResolvedParam[] = [];
-          const pirEls = toArr(dev.ParameterInstanceRefs?.ParameterInstanceRef);
+          const pirEls = toArr(
+            el(dev.ParameterInstanceRefs).ParameterInstanceRef,
+          );
 
           // instanceValues: full instance key → raw value (from 0.xml)
           // strippedValues: stripped key (no _M-n_MI-n_) → raw value (first instance wins)
@@ -969,7 +980,7 @@ export function parseKnxproj(
 
           // ── ComObjects ───────────────────────────────────────────────────
           for (const cor of toArr(
-            dev.ComObjectInstanceRefs?.ComObjectInstanceRef,
+            el(dev.ComObjectInstanceRefs).ComObjectInstanceRef,
           )) {
             const refId = attr(cor, 'RefId');
             const channelId = attr(cor, 'ChannelId');
@@ -1133,11 +1144,11 @@ export function parseKnxproj(
             });
 
             // Legacy nested Connectors: explicit per-GA direction
-            for (const conn of toArr(cor.Connectors?.Send)) {
+            for (const conn of toArr(el(cor.Connectors).Send)) {
               const gaAddr = resolveGA(attr(conn, 'GroupAddressRefId'));
               if (gaAddr) addGA(gaAddr, true, false);
             }
-            for (const conn of toArr(cor.Connectors?.Receive)) {
+            for (const conn of toArr(el(cor.Connectors).Receive)) {
               const gaAddr = resolveGA(attr(conn, 'GroupAddressRefId'));
               if (gaAddr) addGA(gaAddr, false, true);
             }
@@ -1156,7 +1167,7 @@ export function parseKnxproj(
           if (activeCorefsByObjNum && appIdx?.resolveCoRefById) {
             // Track which physical object numbers are already covered by 0.xml entries
             const linkedObjNums = new Set(
-              toArr(dev.ComObjectInstanceRefs?.ComObjectInstanceRef)
+              toArr(el(dev.ComObjectInstanceRefs).ComObjectInstanceRef)
                 .map((cor: XmlNode) => {
                   const refId = attr(cor, 'RefId');
                   if (!refId) return null;

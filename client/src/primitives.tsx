@@ -173,7 +173,6 @@ interface TabBarProps {
   tabs: TabItem[];
   active: string;
   onChange: (id: string) => void;
-  C?: any;
 }
 
 export const TabBar = ({ tabs, active, onChange }: TabBarProps) => (

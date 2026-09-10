@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef, useContext } from 'react';
+import type { CatalogSection, CatalogItem } from '../../../shared/types.ts';
 import { useLocation } from 'react-router-dom';
 import {
   Btn,
@@ -13,6 +14,19 @@ import type { DeviceDefaults } from '../AddDeviceModal.tsx';
 import { useAppData, useProjectActions, PinContext } from '../contexts.ts';
 import styles from './CatalogView.module.css';
 
+/** What GET /projects/:id/catalog returns. */
+/** A catalog section with its child sections and items. */
+interface CatalogNode extends CatalogSection {
+  children: CatalogNode[];
+  items: (CatalogItem & { in_use: boolean })[];
+  totalItems?: number;
+}
+
+interface CatalogData {
+  sections: CatalogSection[];
+  items: (CatalogItem & { in_use: boolean })[];
+}
+
 export function CatalogView() {
   const { activeProjectId, projectData: data } = useAppData();
   const { addDevice: onAddDevice } = useProjectActions();
@@ -22,7 +36,7 @@ export function CatalogView() {
   const jumpTo = locState?.jumpTo
     ? { manufacturer: locState.jumpTo, ts: Date.now() }
     : undefined;
-  const [catalog, setCatalog] = useState<any>(null);
+  const [catalog, setCatalog] = useState<CatalogData | null>(null);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
   const [expandedSections, setExpandedSections] = useState<
@@ -68,10 +82,7 @@ export function CatalogView() {
     try {
       const fd = new FormData();
       fd.append('file', file);
-      const result = (await api.importKnxprod(activeProjectId, fd)) as {
-        sections: any[];
-        items: any[];
-      };
+      const result = await api.importKnxprod(activeProjectId, fd);
       setCatalog({ sections: result.sections, items: result.items });
     } catch (err) {
       console.error('knxprod import error:', err);
@@ -80,7 +91,7 @@ export function CatalogView() {
     if (fileRef.current) fileRef.current.value = '';
   };
 
-  const handleAddFromCatalog = (item: any) => {
+  const handleAddFromCatalog = (item: CatalogItem) => {
     // order_number/product_ref are deliberately not passed: AddDeviceModal
     // looks both up from the catalog entry for the chosen manufacturer and
     // model, and never read them from `defaults` - passing them here was
@@ -98,12 +109,15 @@ export function CatalogView() {
 
   const { mfrGroups, filteredItemCount } = useMemo(() => {
     if (!catalog)
-      return { mfrGroups: [] as [string, any[]][], filteredItemCount: 0 };
+      return {
+        mfrGroups: [] as [string, CatalogNode[]][],
+        filteredItemCount: 0,
+      };
     const { sections = [], items = [] } = catalog;
 
     const filteredItems = sq
       ? items.filter(
-          (i: any) =>
+          (i) =>
             i.name.toLowerCase().includes(sq) ||
             i.order_number.toLowerCase().includes(sq) ||
             i.manufacturer.toLowerCase().includes(sq) ||
@@ -111,25 +125,22 @@ export function CatalogView() {
         )
       : items;
 
-    const sectionMap: Record<string, any> = {};
+    const sectionMap: Record<string, CatalogNode> = {};
     for (const s of sections)
       sectionMap[s.id] = { ...s, children: [], items: [] };
 
-    for (const item of filteredItems) {
-      if (sectionMap[item.section_id])
-        sectionMap[item.section_id].items.push(item);
-    }
+    for (const item of filteredItems)
+      sectionMap[item.section_id]?.items.push(item);
 
-    const roots: any[] = [];
+    const roots: CatalogNode[] = [];
     for (const s of sections) {
-      if (s.parent_id && sectionMap[s.parent_id]) {
-        sectionMap[s.parent_id].children.push(sectionMap[s.id]);
-      } else {
-        roots.push(sectionMap[s.id]);
-      }
+      const node = sectionMap[s.id]!;
+      const parent = s.parent_id ? sectionMap[s.parent_id] : undefined;
+      if (parent) parent.children.push(node);
+      else roots.push(node);
     }
 
-    const countItems = (node: any): number => {
+    const countItems = (node: CatalogNode): number => {
       let c = node.items.length;
       for (const child of node.children) c += countItems(child);
       node.totalItems = c;
@@ -137,13 +148,13 @@ export function CatalogView() {
     };
     roots.forEach(countItems);
 
-    const prune = (nodes: any[]): any[] =>
+    const prune = (nodes: CatalogNode[]): CatalogNode[] =>
       nodes
-        .filter((n) => n.totalItems > 0)
+        .filter((n) => (n.totalItems ?? 0) > 0)
         .map((n) => ({ ...n, children: prune(n.children) }));
     const prunedRoots = sq ? prune(roots) : roots;
 
-    const byMfr: Record<string, any[]> = {};
+    const byMfr: Record<string, CatalogNode[]> = {};
     for (const r of prunedRoots) {
       const mfr = r.manufacturer || 'Unknown';
       if (!byMfr[mfr]) byMfr[mfr] = [];
@@ -158,7 +169,7 @@ export function CatalogView() {
 
   if (!activeProjectId) return <Empty icon="◈" msg="No project selected" />;
 
-  const renderSection = (node: any, depth: number): React.ReactNode => {
+  const renderSection = (node: CatalogNode, depth: number): React.ReactNode => {
     const isOpen = sq || expandedSections[node.id];
     const hasContent = node.children.length > 0 || node.items.length > 0;
     return (
@@ -192,7 +203,7 @@ export function CatalogView() {
           <>
             {node.items.length > 0 && (
               <div>
-                {node.items.map((item: any) => (
+                {node.items.map((item) => (
                   <div
                     key={item.id}
                     className={styles.itemRow}
@@ -245,7 +256,7 @@ export function CatalogView() {
                 ))}
               </div>
             )}
-            {node.children.map((child: any) => renderSection(child, depth + 1))}
+            {node.children.map((child) => renderSection(child, depth + 1))}
           </>
         )}
       </div>
@@ -318,11 +329,14 @@ export function CatalogView() {
                 </span>
                 <span className={styles.mfrCount}>
                   ·{' '}
-                  {sections.reduce((s: number, n: any) => s + n.totalItems, 0)}{' '}
+                  {sections.reduce(
+                    (s: number, n) => s + (n.totalItems ?? 0),
+                    0,
+                  )}{' '}
                   products
                 </span>
               </div>
-              {sections.map((sec: any) => renderSection(sec, 0))}
+              {sections.map((sec) => renderSection(sec, 0))}
             </div>
           ))}
       </div>

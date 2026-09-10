@@ -12,6 +12,7 @@
 import { logger } from './log.ts';
 import { etsTestMatch } from '../shared/ets-dyn.ts';
 import {
+  el,
   xmlParser,
   orderedXmlParser,
   toArr,
@@ -476,20 +477,19 @@ function normalizePriority(raw: string | undefined | null): ComObjectPriority {
 // ─── Build per-application-program index ─────────────────────────────────────
 export function buildAppIndex(buf: Buffer): AppIndex | null {
   const rawXml = buf.toString('utf8');
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let xml: any;
+  let xml: XmlNode;
   try {
-    xml = xmlParser.parse(rawXml);
+    xml = xmlParser.parse(rawXml) as XmlNode;
   } catch (e: unknown) {
     logger.error('ets', 'app parse error', { error: (e as Error).message });
     return null;
   }
 
-  const mfrNode = toArr(xml?.KNX?.ManufacturerData?.Manufacturer)[0];
+  const mfrNode = toArr(el(el(xml.KNX).ManufacturerData).Manufacturer)[0];
   if (!mfrNode) return null;
 
   // ApplicationProgram may be single object (not array) even with isArray=false for it
-  const apRaw = mfrNode?.ApplicationPrograms?.ApplicationProgram;
+  const apRaw = el(mfrNode?.ApplicationPrograms).ApplicationProgram;
   const ap = Array.isArray(apRaw) ? apRaw[0] : apRaw;
   if (!ap) return null;
 
@@ -602,7 +602,7 @@ export function buildAppIndex(buf: Buffer): AppIndex | null {
       }
     }
   };
-  const allLangs = toArr(mfrNode?.Languages?.Language);
+  const allLangs = toArr(el(mfrNode?.Languages).Language);
   // English-speaking locales first so they take priority
   const enLangs = allLangs.filter((l: XmlNode) =>
     /^en/i.test(attr(l, 'Identifier')),
@@ -676,7 +676,7 @@ export function buildAppIndex(buf: Buffer): AppIndex | null {
   // 4. Argument definitions: argId → argName
   const argDefs: Record<string, string> = {};
   for (const md of toArr(ap.ModuleDefs?.ModuleDef)) {
-    for (const arg of toArr(md.Arguments?.Argument))
+    for (const arg of toArr(el(md.Arguments).Argument))
       if (attr(arg, 'Id')) argDefs[attr(arg, 'Id')] = attr(arg, 'Name');
   }
 
@@ -698,13 +698,12 @@ export function buildAppIndex(buf: Buffer): AppIndex | null {
   };
   collectMods(toArr(ap.Dynamic?.Module));
   for (const md of toArr(ap.ModuleDefs?.ModuleDef))
-    collectMods(toArr(md.Dynamic?.Module));
+    collectMods(toArr(el(md.Dynamic).Module));
 
   // 6. Channel definitions: fullChanId → text template
   const chanDefs: Record<string, string> = {};
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  for (const ch of toArr(ap.ModuleDefs?.ModuleDef).flatMap((md: any) =>
-    toArr(md.Dynamic?.Channel),
+  for (const ch of toArr(el(ap.ModuleDefs).ModuleDef).flatMap((md) =>
+    toArr(el(md.Dynamic).Channel),
   )) {
     const id = attr(ch, 'Id');
     if (id)
@@ -938,7 +937,7 @@ export function buildAppIndex(buf: Buffer): AppIndex | null {
         continue;
       }
       const enums: Record<string, string> = {};
-      for (const e of toArr(pt.TypeRestriction?.Enumeration)) {
+      for (const e of toArr(el(pt.TypeRestriction).Enumeration)) {
         const val = attr(e, 'Value');
         const txt = T(attr(e, 'Id'), 'Text') || attr(e, 'Text');
         if (val !== '' && txt) enums[val] = txt;
@@ -1120,8 +1119,7 @@ export function buildAppIndex(buf: Buffer): AppIndex | null {
       }
     }
   };
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const walkDynSection = (dyn: any) => {
+  const walkDynSection = (dyn: XmlNode | undefined) => {
     if (!dyn) return;
     for (const ch of toArr(dyn.Channel)) {
       const chLabel =
@@ -1140,8 +1138,9 @@ export function buildAppIndex(buf: Buffer): AppIndex | null {
       for (const w of toArr(ch.when)) walkDynSection(w);
     }
   };
-  walkDynSection(ap.Dynamic);
-  for (const md of toArr(ap.ModuleDefs?.ModuleDef)) walkDynSection(md.Dynamic);
+  walkDynSection(el(ap.Dynamic));
+  for (const md of toArr(el(ap.ModuleDefs).ModuleDef))
+    walkDynSection(el(md.Dynamic));
 
   /**
    * Resolve a ParameterInstanceRef.RefId (fully-qualified) + its value.

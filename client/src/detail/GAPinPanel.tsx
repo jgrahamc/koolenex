@@ -1,4 +1,12 @@
 import { useState, useEffect, useContext } from 'react';
+import type {
+  Device,
+  EnrichedGA,
+  ComObjectWithDevice,
+  Space,
+} from '../../../shared/types.ts';
+import type { ProjectActions } from '../contexts.ts';
+import type { FeedTelegram } from './PinTelegramFeed.tsx';
 import { PinContext, useDpt } from '../contexts.ts';
 import { Badge, Btn, Spinner, TabBar } from '../primitives.tsx';
 import { IconGroupAddr } from '../icons.tsx';
@@ -8,19 +16,19 @@ import { PinTelegramFeed } from './PinTelegramFeed.tsx';
 import styles from './GAPinPanel.module.css';
 
 interface GAPinPanelProps {
-  COLMAP: any;
-  ga: any;
-  linkedDevices: any[];
+  COLMAP: Record<string, string>;
+  ga: EnrichedGA;
+  linkedDevices: Device[];
   busConnected: boolean;
-  gaTelegrams: any[];
-  gaMap: Record<string, any>;
-  devMap: Record<string, any>;
-  spaces: any[];
-  allCOs: any[];
-  onWrite: any;
-  activeProjectId: any;
-  onUpdateGA: any;
-  onGroupJump: any;
+  gaTelegrams: FeedTelegram[];
+  gaMap: Record<string, EnrichedGA>;
+  devMap: Record<string, Device>;
+  spaces: Space[];
+  allCOs: ComObjectWithDevice[];
+  onWrite: ((ga: string, value: unknown, dpt?: string) => void) | null;
+  activeProjectId: number | null;
+  onUpdateGA: ProjectActions['updateGA'] | null;
+  onGroupJump: ((main: number, middle: number | null) => void) | null;
 }
 
 export function GAPinPanel({
@@ -317,8 +325,8 @@ export function GAPinPanel({
 }
 
 interface SubNameCardProps {
-  ga: any;
-  onUpdateGA: any;
+  ga: EnrichedGA;
+  onUpdateGA: ProjectActions['updateGA'] | null;
 }
 
 function SubNameCard({ ga, onUpdateGA }: SubNameCardProps) {

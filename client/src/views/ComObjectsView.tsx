@@ -41,7 +41,7 @@ export function ComObjectsView({ data }: ComObjectsViewProps) {
     } catch {}
   }, [filterDevice]);
   const { comObjects = [], devices = [], gas = [] } = data || {};
-  const gaMap = Object.fromEntries(gas.map((g: any) => [g.address, g]));
+  const gaMap = Object.fromEntries(gas.map((g) => [g.address, g]));
 
   const CO_COLS = useMemo(
     () => [
@@ -60,9 +60,9 @@ export function ComObjectsView({ data }: ComObjectsViewProps) {
   );
   const [coCols, saveCoCols] = useColumns('comobjects', CO_COLS);
   const ccv = (id: string) =>
-    coCols.find((c: any) => c.id === id)?.visible !== false;
+    coCols.find((c) => c.id === id)?.visible !== false;
 
-  const filtered = comObjects.filter((co: any) => {
+  const filtered = comObjects.filter((co) => {
     if (filterDevice !== 'all' && co.device_address !== filterDevice)
       return false;
     const s = search.toLowerCase();
@@ -77,7 +77,7 @@ export function ComObjectsView({ data }: ComObjectsViewProps) {
   });
 
   const groupedCOs = useMemo(() => {
-    const groups: Record<string, any[]> = {};
+    const groups: Record<string, ComObjectWithDevice[]> = {};
     const order: string[] = [];
     for (const co of filtered) {
       if (!groups[co.device_address]) {
@@ -89,8 +89,7 @@ export function ComObjectsView({ data }: ComObjectsViewProps) {
     return order.map((addr) => ({ addr, cos: groups[addr]! }));
   }, [filtered]);
   const devMap2 = useMemo(
-    () =>
-      Object.fromEntries(devices.map((d: any) => [d.individual_address, d])),
+    () => Object.fromEntries(devices.map((d) => [d.individual_address, d])),
     [devices],
   );
   const [collapsedDevs, setCollapsedDevs] = useState<Record<string, boolean>>(
@@ -148,7 +147,7 @@ export function ComObjectsView({ data }: ComObjectsViewProps) {
             className={styles.filterSelect}
           >
             <option value="all">All Devices</option>
-            {devices.map((d: any) => (
+            {devices.map((d) => (
               <option key={d.id} value={d.individual_address}>
                 {d.individual_address} — {d.name}
               </option>
@@ -221,8 +220,8 @@ export function ComObjectsView({ data }: ComObjectsViewProps) {
                   <thead>
                     <tr>
                       {coCols
-                        .filter((c: any) => c.visible !== false)
-                        .map((col: any) => (
+                        .filter((c) => c.visible !== false)
+                        .map((col) => (
                           <TH
                             key={col.id}
                             className={
@@ -249,7 +248,7 @@ export function ComObjectsView({ data }: ComObjectsViewProps) {
                     </tr>
                   </thead>
                   <tbody>
-                    {cos.map((co: any) => (
+                    {cos.map((co) => (
                       <tr key={co.id} className="rh">
                         {ccv('object_number') && (
                           <TD>

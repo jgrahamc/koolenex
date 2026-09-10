@@ -22,13 +22,16 @@ export const PinContext = createContext<PinFn>(null);
  *   friendly — "temperature (°C)"
  * Hover shows the other two.
  */
-export function useDpt(): {
-  display: (raw: string | number) => string;
-  hover: (raw: string | number) => string | undefined;
-} {
+/** The two DPT-aware formatters every value-rendering panel takes. */
+export interface DptHelpers {
+  display: (raw: string | number | null | undefined) => string;
+  hover: (raw: string | number | null | undefined) => string | undefined;
+}
+
+export function useDpt(): DptHelpers {
   const mode = useContext(DptCtx);
 
-  const formats = (raw: string | number) => {
+  const formats = (raw: string | number | null | undefined) => {
     if (!raw) return { numeric: '', formal: '', friendly: '' };
     const norm = normalizeDpt(raw);
     const info = dptInfo(raw);
@@ -42,14 +45,14 @@ export function useDpt(): {
   };
 
   return {
-    display: (raw: string | number) => {
+    display: (raw: string | number | null | undefined) => {
       if (!raw) return '—';
       const f = formats(raw);
       if (mode === 'formal') return f.formal || String(raw);
       if (mode === 'friendly') return f.friendly || f.formal || String(raw);
       return f.numeric;
     },
-    hover: (raw: string | number) => {
+    hover: (raw: string | number | null | undefined) => {
       if (!raw) return undefined;
       const f = formats(raw);
       const parts: string[] = [];
@@ -89,8 +92,14 @@ export interface ProjectActions {
   createGA: (body: Record<string, unknown>) => Promise<unknown>;
   deleteGA: (gaId: number) => Promise<void>;
   addDevice: (body: Record<string, unknown>) => Promise<unknown>;
-  updateComObjectGAs: (coId: number, body: unknown) => Promise<void>;
-  updateComObjectFlags: (coId: number, body: unknown) => Promise<void>;
+  updateComObjectGAs: (
+    coId: number,
+    body: Record<string, unknown>,
+  ) => Promise<void>;
+  updateComObjectFlags: (
+    coId: number,
+    body: Record<string, unknown>,
+  ) => Promise<void>;
   // Returns the created row (previously void) - real request 2026-08-31,
   // AddressDeviceModal's "add as if it were a new unassigned device": the
   // caller needs the new device's own id to chain a serial-number record
@@ -132,7 +141,7 @@ export interface BusActions {
   connectUsb: (devicePath: string) => Promise<unknown>;
   disconnect: () => Promise<void>;
   deviceStatus: (deviceId: number, status: DeviceStatus) => Promise<void>;
-  write: (ga: string, value: unknown, dpt: unknown) => Promise<void>;
+  write: (ga: string, value: unknown, dpt?: string) => Promise<void>;
   clearTelegrams: () => Promise<void>;
   // Tells the backend this client is actively watching live telegrams, so
   // it should proactively reconnect the bus across a gateway idle-timeout

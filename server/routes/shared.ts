@@ -1,7 +1,8 @@
 import path from 'path';
 import fs from 'fs';
 import { XMLParser } from 'fast-xml-parser';
-import type { DptInfoEntry } from '../../shared/types.ts';
+import type { DptInfoEntry, MaskVersionEntry } from '../../shared/types.ts';
+export type { MaskVersionEntry };
 import { logger } from '../log.ts';
 import * as db from '../db.ts';
 
@@ -49,12 +50,6 @@ export interface SpaceUsageEntry {
 export interface TranslationResult {
   languages: Array<{ id: string; name: string }>;
   translations: Record<string, Record<string, string>>;
-}
-
-export interface MaskVersionEntry {
-  name: string;
-  managementModel: string;
-  medium: string;
 }
 
 // Caches keyed by projectId

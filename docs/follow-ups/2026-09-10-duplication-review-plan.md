@@ -22,40 +22,42 @@ the numbers in commit messages ("item 5, part 1") point back here.
 
 ## Remaining
 
-### 8. Eliminate `any`
+### 8. Eliminate `any` — done for shipped code, tests/ outstanding
 
-Item 7 took the five biggest views from 130 explicit `any` to zero, and every one of those
-annotations was hiding a type the code already had - `projectData` is `ProjectFull`, so
-`devices.map((d: any) => ...)` throws away a `Device` TypeScript had all along. Four real
-defects fell out of five files. The rest of the codebase deserves the same pass.
+`server/`, `shared/` and `client/src` are at **zero** explicit `any`, with
+`@typescript-eslint/no-explicit-any` erroring on all three (it was already on
+for `server/`, where the six remaining uses each carried their own
+`eslint-disable-next-line`; those are gone, and `shared/` is now linted at
+all, which it was not). `client/src` went from 412 to 0.
 
-Where it stands:
+What made this tractable rather than a cast-fest: the annotations were mostly
+hiding types the code already had. `projectData` is `ProjectFull`, so
+`devices.map((d: any) => ...)` was discarding a `Device`. Deleting the
+annotation and reading the resulting compiler errors is the method; where a
+type was genuinely missing, it was defined once (`DeviceDefaults`,
+`SpaceNode`, `FeedTelegram`, `ParamUIItem`, `LabelSheet`, `BusDeviceInfo`,
+`FlashSegment`, ...) rather than inline.
 
-- **`client/src/`: 347.** Concentrated in `detail/PinDetailView.tsx` (48),
-  `detail/DevicePinPanel.tsx` (40), `detail/DeviceParameters.tsx` (28),
-  `views/FloorPlanView.tsx` (25), `diagram.tsx` (24), `views/PrintLabelsView.tsx` (20),
-  `detail/paramUI.ts` (17). The detail panels are the priority - they are where device and
-  com-object shapes get read field by field.
-- **`server/` + `shared/`: 8.** Small enough to finish in one pass.
-- **`tests/`: 322**, which is also why `tests/` is still outside the root tsconfig (item 1
-  scoped it out at ~766 errors, nearly all `any` params and `noUncheckedIndexedAccess`
-  indexing in test bodies).
+Two boundaries needed real work rather than a rename:
 
-The end state, in order:
+- **The XML parser.** `toArr` was `(v: any): any[]`, and everything
+  downstream inherited `any` from it. It is `(v: unknown): XmlNode[]` now,
+  with `el(v)` for the one thing that genuinely needs asserting - that a
+  child node is a node, so a walk can continue into it. 19 call sites.
+- **The ETS dynamic tree.** `DynItem`/`DynWhen`/`DynTree` lived in
+  `server/routes/knx-tables.ts` while the client's `paramUI.ts` walked the
+  same tree as `any`. They live in `shared/ets-dyn.ts` now, and the walk
+  turned up a dozen display fields the server's own type never declared.
 
-1. Work file by file in descending count, deleting the annotation rather than replacing it
-   with a hand-written type - the contextual type is usually already correct, and what
-   fails to compile afterwards is the interesting part. Where a real type is genuinely
-   missing, define it once (as `DeviceDefaults` and `SpaceNode` were) rather than inline.
-2. Prefer a helper over an annotation for the recurring cases: catch bindings are `unknown`
-   (`errMessage`/`errCode` in `api.ts`), and column-id lookups are genuinely dynamic
-   (`field()` in `columns.tsx`).
-3. Once `client/src` is clean, turn `@typescript-eslint/no-explicit-any` on in
-   `client/eslint.config.js` (it is `off` today), so the count cannot grow back.
-4. Then bring `tests/` into the root tsconfig and CI's `tsc --noEmit`, which is what item 1
-   deferred.
-
-Expect this to find bugs rather than merely satisfy the compiler; budget for the fixes.
+**Still outstanding: `tests/`.** 322 explicit `any` and 50
+`eslint-disable-next-line` directives, and the directory is neither linted
+nor type-checked. Turning the rule on there without first bringing `tests/`
+into the root tsconfig would be hollow - deleting `: any` in an unchecked
+file just yields an implicit `any` nothing looks at. The prerequisite is the
+one item 1 deferred: `tests/` currently reports **1097** errors under the
+root config (~320 `noUncheckedIndexedAccess` nulls, ~276 implicit any, ~146
+`unknown` catch bindings, ~145 argument mismatches). Do that first, then the
+lint script gains `tests/` and the ban is repo-wide.
 
 ### 9. Two hand-maintained per-project table lists
 

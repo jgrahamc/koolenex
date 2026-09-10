@@ -32,7 +32,7 @@ export function ManufacturersView() {
   );
 
   const tree = useMemo(() => {
-    const mfrs: Record<string, Record<string, any[]>> = {};
+    const mfrs: Record<string, Record<string, Device[]>> = {};
     for (const d of devices) {
       const mfr = d.manufacturer || '(Unknown)';
       const mdl = d.model || '(Unknown)';
@@ -48,7 +48,7 @@ export function ManufacturersView() {
           .sort(([a], [b]) => a.localeCompare(b))
           .map(([mdl, devs]) => ({
             name: mdl,
-            devices: [...devs].sort((a: any, b: any) =>
+            devices: [...devs].sort((a, b) =>
               a.individual_address.localeCompare(b.individual_address),
             ),
           })),
@@ -196,7 +196,7 @@ export function ManufacturersView() {
                             </tr>
                           </thead>
                           <tbody>
-                            {mdl.devices.map((d: any) => (
+                            {mdl.devices.map((d) => (
                               <tr key={d.id} className="rh">
                                 <TD className={styles.tdAddrIndented}>
                                   <PinAddr

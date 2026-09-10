@@ -71,8 +71,8 @@ export function useBusHandlers(
   );
 
   const handleWrite = useCallback(
-    async (ga: string, value: any, dpt: any) => {
-      await api.busWrite(ga, value, dpt, state.activeProjectId!);
+    async (ga: string, value: unknown, dpt?: string) => {
+      await api.busWrite(ga, value, dpt ?? '', state.activeProjectId!);
     },
     [state.activeProjectId],
   );

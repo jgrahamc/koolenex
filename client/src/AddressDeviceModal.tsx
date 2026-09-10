@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { errMessage, errCode } from './api.ts';
 import { Btn, Spinner } from './primitives.tsx';
 import { api } from './api.ts';
 import {
@@ -279,9 +280,9 @@ export function AddressDeviceModal({
               `[${new Date().toLocaleTimeString()}] Read serial ${found} from ${src}`,
             );
           }
-        } catch (e: any) {
+        } catch (e) {
           addLog(
-            `[${new Date().toLocaleTimeString()}] Could not read serial from ${src} → ${e.message}`,
+            `[${new Date().toLocaleTimeString()}] Could not read serial from ${src} → ${errMessage(e)}`,
           );
         }
       }
@@ -299,8 +300,8 @@ export function AddressDeviceModal({
       addLog(
         `[${new Date().toLocaleTimeString()}] Scan complete — ${devicesFound.length} device(s) found in programming mode`,
       );
-    } catch (e: any) {
-      setDetectError(e.message);
+    } catch (e) {
+      setDetectError(errMessage(e));
     }
     setScanStatus(null);
     setScanning(false);
@@ -371,10 +372,13 @@ export function AddressDeviceModal({
           `[${new Date().toLocaleTimeString()}] Recorded serial ${serial} on ${target.name}`,
         );
       }
-    } catch (e: any) {
-      setDetectResult((r) => ({ ...r, [src]: { ok: false, msg: e.message } }));
+    } catch (e) {
+      setDetectResult((r) => ({
+        ...r,
+        [src]: { ok: false, msg: errMessage(e) },
+      }));
       addLog(
-        `[${new Date().toLocaleTimeString()}] Recording failed → ${e.message}`,
+        `[${new Date().toLocaleTimeString()}] Recording failed → ${errMessage(e)}`,
       );
     }
     setDetectBusy((b) => ({ ...b, [src]: false }));
@@ -396,9 +400,9 @@ export function AddressDeviceModal({
       addLog(
         `[${new Date().toLocaleTimeString()}] Confirmed serial ${serial} for ${lockedTarget.individual_address}`,
       );
-    } catch (e: any) {
+    } catch (e) {
       addLog(
-        `[${new Date().toLocaleTimeString()}] Confirming serial failed → ${e.message}`,
+        `[${new Date().toLocaleTimeString()}] Confirming serial failed → ${errMessage(e)}`,
       );
     }
     setConfirmBusy(false);
@@ -532,8 +536,8 @@ export function AddressDeviceModal({
         `[${new Date().toLocaleTimeString()}] Assigned project address ${newAddr} to ${lockedTarget.name}`,
       );
       setAddrEditing(false);
-    } catch (e: any) {
-      setAddrError(e.message || 'Failed to assign address');
+    } catch (e) {
+      setAddrError(errMessage(e) || 'Failed to assign address');
     }
     setAddrBusy(false);
   };
@@ -559,8 +563,8 @@ export function AddressDeviceModal({
       addLog(
         `[${new Date().toLocaleTimeString()}] Unassigned project address for ${lockedTarget.name}`,
       );
-    } catch (e: any) {
-      setAddrError(e.message || 'Failed to unassign');
+    } catch (e) {
+      setAddrError(errMessage(e) || 'Failed to unassign');
     }
     setUnassignBusy(false);
   };
@@ -768,9 +772,9 @@ export function AddressDeviceModal({
             `[${new Date().toLocaleTimeString()}] Read back serial ${serial} from ${newAddr}`,
           );
         }
-      } catch (e: any) {
+      } catch (e) {
         addLog(
-          `[${new Date().toLocaleTimeString()}] No device answered at ${newAddr} after the write → ${e.message}`,
+          `[${new Date().toLocaleTimeString()}] No device answered at ${newAddr} after the write → ${errMessage(e)}`,
         );
       }
       if (confirmed) {
@@ -792,10 +796,10 @@ export function AddressDeviceModal({
           `[${new Date().toLocaleTimeString()}] Could not confirm any device at ${newAddr} after the write`,
         );
       }
-    } catch (e: any) {
+    } catch (e) {
       setWriteAddrStatus(null);
       setWriteAddrWaiting(false);
-      if (e.code === 'aborted') {
+      if (errCode(e) === 'aborted') {
         setWriteAddrResult({
           ok: false,
           msg: 'Cancelled — no address was written.',
@@ -804,9 +808,9 @@ export function AddressDeviceModal({
           `[${new Date().toLocaleTimeString()}] Cancelled — no address was written`,
         );
       } else {
-        setWriteAddrResult({ ok: false, msg: e.message });
+        setWriteAddrResult({ ok: false, msg: errMessage(e) });
         addLog(
-          `[${new Date().toLocaleTimeString()}] Address write failed → ${e.message}`,
+          `[${new Date().toLocaleTimeString()}] Address write failed → ${errMessage(e)}`,
         );
       }
     }
@@ -834,9 +838,9 @@ export function AddressDeviceModal({
       addLog(
         `[${new Date().toLocaleTimeString()}] Cleared recorded serial for ${lockedTarget.name}`,
       );
-    } catch (e: any) {
+    } catch (e) {
       addLog(
-        `[${new Date().toLocaleTimeString()}] Failed to clear serial → ${e.message}`,
+        `[${new Date().toLocaleTimeString()}] Failed to clear serial → ${errMessage(e)}`,
       );
     }
     setClearSerialBusy(false);
@@ -900,10 +904,10 @@ export function AddressDeviceModal({
       addLog(
         `[${new Date().toLocaleTimeString()}] Address ${newAddr} written and project updated`,
       );
-    } catch (e: any) {
-      setWriteBySerialResult({ ok: false, msg: e.message });
+    } catch (e) {
+      setWriteBySerialResult({ ok: false, msg: errMessage(e) });
       addLog(
-        `[${new Date().toLocaleTimeString()}] Address write failed → ${e.message}`,
+        `[${new Date().toLocaleTimeString()}] Address write failed → ${errMessage(e)}`,
       );
     }
     setWriteBySerialBusy(false);
@@ -950,10 +954,10 @@ export function AddressDeviceModal({
       addLog(
         `[${new Date().toLocaleTimeString()}] Addressed ${manualSerial} → ${target.individual_address}`,
       );
-    } catch (e: any) {
-      setManualResult({ ok: false, msg: e.message });
+    } catch (e) {
+      setManualResult({ ok: false, msg: errMessage(e) });
       addLog(
-        `[${new Date().toLocaleTimeString()}] Addressing failed → ${manualSerial} — ${e.message}`,
+        `[${new Date().toLocaleTimeString()}] Addressing failed → ${manualSerial} — ${errMessage(e)}`,
       );
     }
     setManualBusy(false);

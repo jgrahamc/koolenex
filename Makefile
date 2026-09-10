@@ -37,7 +37,7 @@ typecheck:
 	cd client && npx tsc --noEmit
 
 lint:
-	npx eslint --max-warnings 0 server/
+	npx eslint --max-warnings 0 server/ shared/
 	cd client && npx eslint --max-warnings 0 src/
 
 format:

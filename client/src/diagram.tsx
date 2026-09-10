@@ -1,14 +1,53 @@
 import { useState, useEffect, useRef, useContext, useMemo } from 'react';
+import type {
+  Device,
+  EnrichedGA,
+  ComObjectWithDevice,
+} from '../../shared/types.ts';
+import type { FeedTelegram } from './detail/PinTelegramFeed.tsx';
 import { PinContext } from './contexts.ts';
 import { coGAs } from './primitives.tsx';
 import { dptUnit, dptName } from './dpt.ts';
 import dStyles from './diagram.module.css';
 
+/** One animated edge of a telegram flash in the device diagram. */
+interface FlashSegment {
+  pathD: string;
+  color: string;
+  delayMs: number;
+}
+
+/** The GA diagram animates a bezier instead of a path string. */
+interface FlashCurve {
+  x0: number;
+  y0: number;
+  cx1: number;
+  cy1: number;
+  cx2: number;
+  cy2: number;
+  x1: number;
+  y1: number;
+  color: string;
+  delayMs: number;
+}
+
+/** One live telegram animation: the edges it travels and the bubble it pops. */
+interface Flash {
+  key: string;
+  segments?: FlashSegment[];
+  seg?: FlashCurve;
+  bubble?:
+    | (Omit<GASpeechBubbleProps, 'rawDecoded'> & {
+        rawDecoded: string | number | null | undefined;
+      })
+    | null;
+}
+
 interface GASpeechBubbleProps {
   x: number;
   y: number;
   dptStr: string;
-  rawDecoded: any;
+  rawDecoded: string | number | null | undefined;
   arriveMs: number;
 }
 
@@ -62,7 +101,7 @@ export function GASpeechBubble({
 
   const unit = dptUnit(dptStr || '');
   const isNumeric =
-    rawDecoded != null && rawDecoded !== '' && !isNaN(rawDecoded);
+    rawDecoded != null && rawDecoded !== '' && !isNaN(Number(rawDecoded));
   const value =
     rawDecoded != null && rawDecoded !== ''
       ? `${rawDecoded}${isNumeric ? unit : ''}`
@@ -204,13 +243,13 @@ export function TelegramDot({
 }
 
 interface DeviceNetworkDiagramProps {
-  dev: any;
-  linkedGAs: any[];
-  devCOs: any[];
+  dev: Device;
+  linkedGAs: EnrichedGA[];
+  devCOs: ComObjectWithDevice[];
   gaDeviceMap: Record<string, string[]>;
-  allCOs: any[];
-  devMap: Record<string, any>;
-  devTelegrams: any[];
+  allCOs: ComObjectWithDevice[];
+  devMap: Record<string, Device>;
+  devTelegrams: FeedTelegram[];
 }
 
 export function DeviceNetworkDiagram({
@@ -317,7 +356,7 @@ export function DeviceNetworkDiagram({
   const gaNodes = useMemo(
     () =>
       linkedGAs.map((ga, i) => {
-        const co = devCOs.find((c: any) => coGAs(c).includes(ga.address));
+        const co = devCOs.find((c) => coGAs(c).includes(ga.address));
         let x: number, y: number;
         if (stagger) {
           const isLeft = i % 2 === 0;
@@ -347,7 +386,7 @@ export function DeviceNetworkDiagram({
   const peerAddrs = useMemo(
     () => [
       ...new Set(
-        linkedGAs.flatMap((ga: any) =>
+        linkedGAs.flatMap((ga) =>
           (gaDeviceMap[ga.address] || []).filter(
             (a: string) => a !== dev.individual_address,
           ),
@@ -398,13 +437,13 @@ export function DeviceNetworkDiagram({
   );
 
   // ── Telegram flash animations ──────────────────────────────────────────────
-  const [flashes, setFlashes] = useState<any[]>([]);
+  const [flashes, setFlashes] = useState<Flash[]>([]);
   const [litDevices, setLitDevices] = useState<Set<string>>(new Set());
   const [litGAs, setLitGAs] = useState<Set<string>>(new Set());
   // GAs currently animating — dims uninvolved elements. Map of GA addr → active count
   // (count tracks overlapping animations for the same GA so removal is balanced)
   const [flashHLGAs, setFlashHLGAs] = useState<Record<string, number>>({});
-  const lastTgRef = useRef<any>(devTelegrams?.[0] ?? null); // init to current latest so mount doesn't replay
+  const lastTgRef = useRef<FeedTelegram | null>(devTelegrams?.[0] ?? null); // init to current latest so mount doesn't replay
 
   const flashDevice = (addr: string, atMs: number) =>
     setTimeout(() => {
@@ -498,7 +537,7 @@ export function DeviceNetworkDiagram({
     const isRightCol = stagger && gNode.x > COL_GA;
     const isLeftCol = stagger && gNode.x < COL_GA;
 
-    const segments: any[] = [];
+    const segments: FlashSegment[] = [];
 
     // Helper: line colour for dev↔GA edge
     const edgeColor = (tx: boolean, rx: boolean) =>
@@ -526,15 +565,14 @@ export function DeviceNetworkDiagram({
       devTids.push(flashGA(gaAddr, durMs));
       for (const pNode of peerNodes) {
         if (!(gaDeviceMap[gaAddr] || []).includes(pNode.addr)) continue;
-        const pco = allCOs.find(
-          (c: any) =>
-            c.device_address === pNode.addr && coGAs(c).includes(gaAddr),
+        const pco: ComObjectWithDevice | undefined = allCOs.find(
+          (c) => c.device_address === pNode.addr && coGAs(c).includes(gaAddr),
         );
         if (!pco?.ga_receive?.split(' ').includes(gaAddr)) continue;
         const pSend = pco.ga_send?.split(' ').includes(gaAddr);
         segments.push({
           pathD: gaToPeerPath(gaRight, gNode.y, peerLeft, pNode.y, isLeftCol),
-          color: edgeColor(pSend, true),
+          color: edgeColor(!!pSend, true),
           delayMs: durMs,
         });
         devTids.push(flashDevice(pNode.addr, durMs * 2));
@@ -546,13 +584,12 @@ export function DeviceNetworkDiagram({
       const devGaColor = edgeColor(gNode.transmit, gNode.receive);
       if (srcNode) {
         const pco = allCOs.find(
-          (c: any) =>
-            c.device_address === srcNode.addr && coGAs(c).includes(gaAddr),
+          (c) => c.device_address === srcNode.addr && coGAs(c).includes(gaAddr),
         );
         const pRecv = pco?.ga_receive?.split(' ').includes(gaAddr);
         segments.push({
           pathD: peerToGaPath(gaRight, gNode.y, peerLeft, srcNode.y, isLeftCol),
-          color: edgeColor(true, pRecv),
+          color: edgeColor(true, !!pRecv),
           delayMs: 0,
         });
         segments.push({
@@ -899,7 +936,7 @@ export function DeviceNetworkDiagram({
             <g key={addr}>
               {connGaNodes.map((gn) => {
                 const pco = (allCOs || []).find(
-                  (co: any) =>
+                  (co) =>
                     co.device_address === addr &&
                     coGAs(co).includes(gn.ga.address),
                 );
@@ -1061,8 +1098,8 @@ export function DeviceNetworkDiagram({
         })}
 
         {/* Live telegram pulse dots + speech bubbles */}
-        {flashes.flatMap(({ key, segments, bubble }: any) => [
-          ...segments.map((seg: any, i: number) => (
+        {flashes.flatMap(({ key, segments, bubble }) => [
+          ...(segments ?? []).map((seg, i) => (
             <TelegramDot key={`${key}-${i}`} durMs={1700} {...seg} />
           )),
           bubble && <GASpeechBubble key={`${key}-bubble`} {...bubble} />,
@@ -1097,10 +1134,10 @@ export function DeviceNetworkDiagram({
 }
 
 interface GANetworkDiagramProps {
-  ga: any;
-  linkedDevices: any[];
-  allCOs: any[];
-  gaTelegrams: any[];
+  ga: EnrichedGA;
+  linkedDevices: Device[];
+  allCOs: ComObjectWithDevice[];
+  gaTelegrams: FeedTelegram[];
 }
 
 export function GANetworkDiagram({
@@ -1189,7 +1226,7 @@ export function GANetworkDiagram({
     () =>
       linkedDevices.map((dev, i) => {
         const co = (allCOs || []).find(
-          (c: any) =>
+          (c) =>
             c.device_address === dev.individual_address &&
             coGAs(c).includes(ga.address),
         );
@@ -1208,10 +1245,10 @@ export function GANetworkDiagram({
   const gaY = svgH / 2;
 
   // ── Flash animations ──────────────────────────────────────────────────────
-  const [flashes, setFlashes] = useState<any[]>([]);
+  const [flashes, setFlashes] = useState<Flash[]>([]);
   const [litDevices, setLitDevices] = useState<Set<string>>(new Set());
   const [litGA, setLitGA] = useState(false);
-  const lastTgRef = useRef<any>(gaTelegrams?.[0] ?? null); // init to current latest so mount doesn't replay
+  const lastTgRef = useRef<FeedTelegram | null>(gaTelegrams?.[0] ?? null); // init to current latest so mount doesn't replay
 
   useEffect(() => {
     const latest = gaTelegrams?.[0];
@@ -1487,8 +1524,8 @@ export function GANetworkDiagram({
         })}
 
         {/* Live telegram pulses */}
-        {flashes.flatMap(({ key, seg, bubble }: any) => [
-          <TelegramDot key={`${key}-dot`} durMs={1700} {...seg} />,
+        {flashes.flatMap(({ key, seg, bubble }) => [
+          seg && <TelegramDot key={`${key}-dot`} durMs={1700} {...seg} />,
           bubble && <GASpeechBubble key={`${key}-bubble`} {...bubble} />,
         ])}
 

@@ -43,3 +43,77 @@ export function etsTestMatch(
   }
   return false;
 }
+
+// ── ETS dynamic tree ────────────────────────────────────────────────────────
+// The stored model shape is a single recursive `items` array of tagged
+// DynItems: dynTree.main.items -> DynItem[], where each item's `type` is one
+// of cib/channel/block/choose/paramRef/assign/comRef/rename/separator. This
+// mirrors the `DynItem` union emitted by server/ets-app.ts - NOT the legacy
+// channels/cib/pb + paramRefs/blocks/choices shape that emission never
+// actually produces.
+//
+// Lives here rather than in server/routes/knx-tables.ts because the client's
+// parameter UI (client/src/detail/paramUI.ts) walks the same tree, and had
+// been typing every step of that walk `any` for want of these.
+
+/** One row or column of a Table-layout block. */
+export interface TableCellSpec {
+  text?: string;
+  width?: string;
+}
+
+export interface DynWhen {
+  test?: string[];
+  isDefault?: boolean;
+  items?: DynItem[];
+}
+
+export interface DynItem {
+  type:
+    | 'paramRef'
+    | 'block'
+    | 'channel'
+    | 'cib'
+    | 'choose'
+    | 'assign'
+    | 'comRef'
+    | 'rename'
+    | 'separator';
+  // paramRef
+  refId?: string;
+  // block / channel / cib
+  items?: DynItem[];
+  // choose
+  paramRefId?: string;
+  defaultValue?: string | null;
+  whens?: DynWhen[];
+  // assign
+  target?: string;
+  source?: string | null;
+  value?: string | null;
+  // Display metadata carried by the same items. The server's download path
+  // ignores all of it; the client's parameter UI renders from it, and had
+  // been walking the whole tree as `any` for want of these being declared.
+  id?: string;
+  name?: string;
+  label?: string;
+  text?: string;
+  uiHint?: string;
+  cell?: string;
+  inline?: boolean;
+  layout?: string;
+  /** Table layout: one entry per row/column, with its header text and an
+   *  optional CSS width. */
+  rows?: TableCellSpec[];
+  columns?: TableCellSpec[];
+  /** Access="None" - downloaded but not offered for editing. */
+  access?: string;
+  accessNone?: boolean;
+  /** Rename: the paramRef whose value supplies the new display text. */
+  textParamRefId?: string;
+}
+
+export interface DynTree {
+  main?: { items?: DynItem[] } | null;
+  moduleDefs?: { id: string; items: DynItem[] }[];
+}

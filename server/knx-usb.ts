@@ -52,8 +52,10 @@ interface HidDeviceInfo {
 }
 
 interface HidDevice {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  on(event: string, cb: (...args: any[]) => void): void;
+  // node-hid emits 'data' with a Buffer and 'error' with an Error; these are
+  // the only two this driver listens for.
+  on(event: 'data', cb: (data: Buffer) => void): void;
+  on(event: 'error', cb: (err: Error) => void): void;
   write(data: number[]): void;
   close(): void;
 }

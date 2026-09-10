@@ -214,7 +214,7 @@ export function normalizeDpt(dpt: string | number): string {
   return s;
 }
 
-export function dptInfo(dpt: string | number): DptInfoEntry {
+export function dptInfo(dpt: string | number | null | undefined): DptInfoEntry {
   if (!dpt) return { name: '', text: '', unit: '' };
   const d = normalizeDpt(dpt);
   return (

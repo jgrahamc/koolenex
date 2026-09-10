@@ -1,13 +1,27 @@
 import { useDpt } from '../contexts.ts';
+import type {
+  EnrichedGA,
+  Device,
+  BusTelegram,
+  Space,
+} from '../../../shared/types.ts';
+
+/**
+ * A telegram as this feed sees it. Two sources reach it: rows from the
+ * bus_telegrams table, which carry `timestamp`, and live ones off the
+ * WebSocket, which carry `time` - so both are optional and the renderer
+ * falls back from one to the other.
+ */
+export type FeedTelegram = Partial<BusTelegram> & { time?: string };
 import { TH, TD, PinAddr, SpacePath } from '../primitives.tsx';
 import { dptInfo } from '../dpt.ts';
 import styles from './PinTelegramFeed.module.css';
 
 interface PinTelegramFeedProps {
-  telegrams: any[];
-  gaMap?: Record<string, any>;
-  devMap?: Record<string, any>;
-  spaces?: any[];
+  telegrams: FeedTelegram[];
+  gaMap?: Record<string, EnrichedGA>;
+  devMap?: Record<string, Device>;
+  spaces?: Space[];
 }
 
 export function PinTelegramFeed({
@@ -24,7 +38,7 @@ export function PinTelegramFeed({
       : tp?.includes('Read')
         ? 'var(--amber)'
         : 'var(--green)';
-  const tgTime = (tg: any) => {
+  const tgTime = (tg: FeedTelegram | undefined) => {
     if (!tg) return null;
     const t = tg.timestamp || tg.time;
     return t ? new Date(t).getTime() : null;
@@ -60,8 +74,8 @@ export function PinTelegramFeed({
               </tr>
             </thead>
             <tbody>
-              {telegrams.slice(0, 100).map((tg: any, i: number) => {
-                const ga = gaMap[tg.dst];
+              {telegrams.slice(0, 100).map((tg, i) => {
+                const ga = gaMap[tg.dst ?? ''];
                 const t0 = tgTime(tg),
                   t1 = tgTime(telegrams[i + 1]);
                 const delta = t0 != null && t1 != null ? t0 - t1 : null;
@@ -87,7 +101,7 @@ export function PinTelegramFeed({
                     </TD>
                     <TD>
                       <PinAddr
-                        address={tg.src}
+                        address={tg.src ?? ''}
                         wtype="device"
                         className={styles.srcAddr}
                       />
@@ -95,7 +109,7 @@ export function PinTelegramFeed({
                     {hasSpaces && (
                       <TD>
                         <SpacePath
-                          spaceId={devMap[tg.src]?.space_id}
+                          spaceId={devMap[tg.src ?? '']?.space_id}
                           spaces={spaces}
                           className={styles.spacePathCell}
                         />
@@ -103,7 +117,7 @@ export function PinTelegramFeed({
                     )}
                     <TD>
                       <PinAddr
-                        address={tg.dst}
+                        address={tg.dst ?? ''}
                         wtype="ga"
                         className={styles.dstAddr}
                       />
@@ -114,7 +128,7 @@ export function PinTelegramFeed({
                     <TD>
                       <span
                         className={styles.typeCell}
-                        style={{ color: typeColor(tg.type) }}
+                        style={{ color: typeColor(tg.type ?? undefined) }}
                       >
                         {tg.type}
                       </span>

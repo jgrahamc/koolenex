@@ -1,4 +1,18 @@
 import { useState, useRef, useCallback, useEffect, useContext } from 'react';
+/** A row of Device.parameters, which is stored as a JSON string. */
+interface DeviceParam {
+  section?: string;
+  name?: string;
+  value?: string;
+  [key: string]: unknown;
+}
+import type { ProjectActions } from '../contexts.ts';
+import type {
+  ComObjectWithDevice,
+  Device,
+  ProjectFull,
+  EnrichedGA,
+} from '../../../shared/types.ts';
 import { useNavigate } from 'react-router-dom';
 import { localizedModel } from '../dpt.ts';
 import {
@@ -29,9 +43,9 @@ import styles from './PinDetailView.module.css';
 
 interface SpacePanelProps {
   spaceId: string;
-  data: any;
-  onUpdateSpace: any;
-  onAddDevice: any;
+  data: ProjectFull | null;
+  onUpdateSpace: ProjectActions['updateSpace'] | null;
+  onAddDevice: ProjectActions['addDevice'] | null;
 }
 
 function SpacePanel({
@@ -40,20 +54,22 @@ function SpacePanel({
   onUpdateSpace,
   onAddDevice,
 }: SpacePanelProps) {
-  const { devices = [], spaces = [] } = data;
+  const { devices = [], spaces = [] } = data || {};
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState('');
   const [saving, setSaving] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
-  const spaceMap = Object.fromEntries(spaces.map((s: any) => [s.id, s]));
+  const spaceMap = Object.fromEntries(spaces.map((s) => [s.id, s]));
   const space = spaceMap[parseInt(spaceId)];
   if (!space) return <Empty icon="◈" msg="Space not found" />;
   const getDescendants = (id: number): number[] => {
-    const children = spaces.filter((s: any) => s.parent_id === id);
-    return [id, ...children.flatMap((c: any) => getDescendants(c.id))];
+    const children = spaces.filter((s) => s.parent_id === id);
+    return [id, ...children.flatMap((c) => getDescendants(c.id))];
   };
   const spaceIds = new Set(getDescendants(parseInt(spaceId)));
-  const matches = devices.filter((d: any) => spaceIds.has(d.space_id));
+  const matches = devices.filter(
+    (d) => d.space_id != null && spaceIds.has(d.space_id),
+  );
 
   const handleSave = async () => {
     if (!editName.trim() || !onUpdateSpace) return;
@@ -156,7 +172,7 @@ function SpacePanel({
             </tr>
           </thead>
           <tbody>
-            {matches.map((d: any) => (
+            {matches.map((d) => (
               <tr key={d.id}>
                 <TD>
                   <PinAddr
@@ -205,8 +221,8 @@ function SpacePanel({
 interface DeviceGroupPanelProps {
   wtype: string;
   value: string;
-  data: any;
-  onAddDevice: any;
+  data: ProjectFull | null;
+  onAddDevice: ProjectActions['addDevice'] | null;
   projectId?: number | null;
 }
 
@@ -219,12 +235,12 @@ function DeviceGroupPanel({
 }: DeviceGroupPanelProps) {
   const navigate = useNavigate();
   const pin = useContext(PinContext);
-  const { devices = [], spaces: _spaces = [] } = data;
+  const { devices = [], spaces: _spaces = [] } = data || {};
   const { label } = GROUP_WTYPES[wtype as keyof typeof GROUP_WTYPES];
   const [showAdd, setShowAdd] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const field = GROUP_WTYPES[wtype as keyof typeof GROUP_WTYPES].field;
-  const matches = devices.filter((d: any) => d[field] === value);
+  const matches = devices.filter((d) => d[field] === value);
   const toggleSelect = (addr: string) =>
     setSelected((prev) => {
       const n = new Set(prev);
@@ -233,7 +249,7 @@ function DeviceGroupPanel({
       return n;
     });
   const selectAll = () =>
-    setSelected(new Set(matches.map((d: any) => d.individual_address)));
+    setSelected(new Set(matches.map((d) => d.individual_address)));
   const selectNone = () => setSelected(new Set());
   const compareSelected = () => {
     if (selected.size < 2 || !pin) return;
@@ -342,7 +358,7 @@ function DeviceGroupPanel({
             </tr>
           </thead>
           <tbody>
-            {matches.map((d: any) => (
+            {matches.map((d) => (
               <tr
                 key={d.id}
                 className={
@@ -407,7 +423,7 @@ function DeviceGroupPanel({
                 <TD>
                   <SpacePath
                     spaceId={d.space_id}
-                    spaces={data.spaces}
+                    spaces={data?.spaces ?? []}
                     className={styles.spacePathDim}
                   />
                 </TD>
@@ -441,75 +457,76 @@ const COMPARE_COLORS = [
 
 interface MultiComparePanelProps {
   addrs: string[];
-  data: any;
+  data: ProjectFull | null;
 }
 
 function MultiComparePanel({ addrs, data }: MultiComparePanelProps) {
   const pin = useContext(PinContext);
   const dpt = useDpt();
-  const { devices = [], gas = [], comObjects = [] } = data;
-  const gaMap: Record<string, any> = Object.fromEntries(
-    gas.map((g: any) => [g.address, g]),
+  const { devices = [], gas = [], comObjects = [] } = data || {};
+  const gaMap: Record<string, EnrichedGA> = Object.fromEntries(
+    gas.map((g) => [g.address, g]),
   );
   const [showAll, setShowAll] = useState(false);
 
   const devs = addrs
-    .map((a) => devices.find((d: any) => d.individual_address === a))
-    .filter(Boolean);
+    .map((a) => devices.find((d) => d.individual_address === a))
+    .filter((d): d is Device => !!d);
   if (devs.length < 2)
     return <Empty icon="◈" msg="Need at least 2 devices to compare" />;
 
-  const colors = devs.map(
-    (_: any, i: number) => COMPARE_COLORS[i % COMPARE_COLORS.length]!,
-  );
+  const colors = devs.map((_, i) => COMPARE_COLORS[i % COMPARE_COLORS.length]!);
 
   // Parameters comparison
-  const allParams = devs.map((d: any) => {
+  const allParams = devs.map((d) => {
     try {
       return JSON.parse(d.parameters || '[]');
     } catch {
       return [];
     }
   });
-  const allParamMaps = allParams.map((ps: any[]) =>
-    Object.fromEntries(ps.map((p: any) => [`${p.section}|${p.name}`, p])),
+  const allParamMaps = allParams.map((ps: DeviceParam[]) =>
+    Object.fromEntries(ps.map((p) => [`${p.section}|${p.name}`, p])),
   );
   const allKeys = [
-    ...new Set(allParamMaps.flatMap((m: any) => Object.keys(m))),
+    ...new Set(allParamMaps.flatMap((m) => Object.keys(m))),
   ].sort();
 
   // Filter to only show rows where at least one value differs
   const paramRows = allKeys.map((k) => {
-    const vals = allParamMaps.map((m: any) => m[k]?.value ?? null);
-    const defined = vals.filter((v: any) => v !== null);
+    const vals = allParamMaps.map((m) => m[k]?.value ?? null);
+    const defined = vals.filter((v) => v !== null);
     const allSame =
-      defined.length === vals.length &&
-      defined.every((v: any) => v === defined[0]);
+      defined.length === vals.length && defined.every((v) => v === defined[0]);
     return { key: k, vals, allSame };
   });
   const diffRows = paramRows.filter((r) => !r.allSame);
   const displayRows = showAll ? paramRows : diffRows;
 
   // Group objects comparison
-  const allCOs = devs.map((d: any) =>
-    comObjects.filter((co: any) => co.device_address === d.individual_address),
+  const allCOs = devs.map((d) =>
+    comObjects.filter((co) => co.device_address === d.individual_address),
   );
-  const allCOMaps = allCOs.map((cos: any[]) =>
-    Object.fromEntries(cos.map((co: any) => [co.object_number, co])),
+  const allCOMaps = allCOs.map((cos: ComObjectWithDevice[]) =>
+    Object.fromEntries(cos.map((co) => [co.object_number, co])),
   );
   const allCoNums = [
-    ...new Set(allCOs.flat().map((co: any) => co.object_number)),
+    ...new Set(allCOs.flat().map((co) => co.object_number)),
   ].sort((a: number, b: number) => a - b);
   const coRows = allCoNums.map((num) => {
-    const cos = allCOMaps.map((m: any) => m[num] || null);
-    const gasArr = cos.map((co: any) => co?.ga_address || '');
+    const cos: (ComObjectWithDevice | null)[] = allCOMaps.map(
+      (m) => m[num] ?? null,
+    );
+    const gasArr = cos.map((co) => co?.ga_address || '');
     const allSame = gasArr.every((g: string) => g === gasArr[0]);
     return { num, cos, gas: gasArr, allSame };
   });
   const diffCORows = coRows.filter((r) => !r.allSame);
 
   // Group addresses comparison
-  const allGASets = allCOs.map((cos: any[]) => new Set(cos.flatMap(coGAs)));
+  const allGASets = allCOs.map(
+    (cos: ComObjectWithDevice[]) => new Set(cos.flatMap(coGAs)),
+  );
   const allGAAddrs = [
     ...new Set(allGASets.flatMap((s: Set<string>) => [...s])),
   ].sort();
@@ -559,7 +576,7 @@ function MultiComparePanel({ addrs, data }: MultiComparePanelProps) {
     <div className={styles.multiPanel}>
       {/* Header: device cards */}
       <div className={styles.multiHeader}>
-        {devs.map((d: any, i: number) => (
+        {devs.map((d, i) => (
           <div
             key={d.individual_address}
             onClick={
@@ -605,7 +622,7 @@ function MultiComparePanel({ addrs, data }: MultiComparePanelProps) {
                 <tr>
                   <TH2 className={styles.thSection}>SECTION</TH2>
                   <TH2 className={styles.thNameCol}>NAME</TH2>
-                  {devs.map((d: any, i: number) => (
+                  {devs.map((d, i) => (
                     <TH2
                       key={d.individual_address}
                       style={{ color: colors[i] }}
@@ -626,7 +643,7 @@ function MultiComparePanel({ addrs, data }: MultiComparePanelProps) {
                       <TD2 className={styles.td2Muted} diff={!allSame}>
                         {name}
                       </TD2>
-                      {vals.map((v: any, i: number) => (
+                      {vals.map((v, i) => (
                         <TD2 key={i} diff={!allSame}>
                           <span
                             className={
@@ -663,7 +680,7 @@ function MultiComparePanel({ addrs, data }: MultiComparePanelProps) {
                 <tr>
                   <TH2 className={styles.thObjNum}>#</TH2>
                   <TH2>NAME</TH2>
-                  {devs.map((d: any, i: number) => (
+                  {devs.map((d, i) => (
                     <TH2
                       key={d.individual_address}
                       style={{ color: colors[i] }}
@@ -675,14 +692,14 @@ function MultiComparePanel({ addrs, data }: MultiComparePanelProps) {
               </thead>
               <tbody>
                 {diffCORows.map(({ num, cos, gas: gasArr }) => {
-                  const co = cos.find((c: any) => c) || {};
+                  const co = cos.find((c) => c);
                   return (
                     <tr key={num}>
                       <TD2 className={styles.td2Dim} diff>
                         {num}
                       </TD2>
                       <TD2 className={styles.td2Muted} diff>
-                        {co.name || co.function_text}
+                        {co?.name || co?.function_text}
                       </TD2>
                       {gasArr.map((ga: string, i: number) => (
                         <TD2 key={i} diff>
@@ -729,7 +746,7 @@ function MultiComparePanel({ addrs, data }: MultiComparePanelProps) {
                   <TH2 className={styles.thGaAddr}>ADDRESS</TH2>
                   <TH2>NAME</TH2>
                   <TH2 className={styles.thDpt}>DPT</TH2>
-                  {devs.map((d: any, i: number) => (
+                  {devs.map((d, i) => (
                     <TH2
                       key={d.individual_address}
                       className={styles.thPresence}
@@ -852,15 +869,15 @@ export function PinDetailView({ pinKey }: PinDetailViewProps) {
     deviceGAMap = {},
     gaDeviceMap = {},
     spaces = [],
-  } = data;
+  } = data || {};
   const spaceMap = buildSpaceMap(spaces);
   const spacePath = (id: number) => spacePathFn(id, spaceMap);
-  const gaMap: Record<string, any> = Object.fromEntries(
-    gas.map((g: any) => [g.address, g]),
+  const gaMap: Record<string, EnrichedGA> = Object.fromEntries(
+    gas.map((g) => [g.address, g]),
   );
   const busConnected = busStatus?.connected;
-  const devMap: Record<string, any> = Object.fromEntries(
-    devices.map((d: any) => [d.individual_address, d]),
+  const devMap: Record<string, Device> = Object.fromEntries(
+    devices.map((d) => [d.individual_address, d]),
   );
 
   let content;
@@ -890,21 +907,21 @@ export function PinDetailView({ pinKey }: PinDetailViewProps) {
     const [addrA, addrB] = address!.split('|');
     content = <ComparePanel addrA={addrA!} addrB={addrB!} data={data} />;
   } else if (wtype === 'device') {
-    const dev = devices.find((d: any) => d.individual_address === address);
+    const dev = devices.find((d) => d.individual_address === address);
     if (!dev) content = <Empty icon="◈" msg="Device not found" />;
     else {
-      const devCOs = comObjects.filter(
-        (co: any) => co.device_address === address,
-      );
+      const devCOs = comObjects.filter((co) => co.device_address === address);
       const linkedGAs = (deviceGAMap[address!] || [])
-        .map((a: string) => gas.find((g: any) => g.address === a))
-        .filter(Boolean)
+        .map((a: string) => gas.find((g) => g.address === a))
+        // Predicate, not filter(Boolean): the latter drops the undefined at
+        // runtime but leaves it in the type, so the sort below can't add.
+        .filter((g): g is EnrichedGA => !!g)
         .sort(
-          (a: any, b: any) =>
+          (a, b) =>
             a.main_g - b.main_g || a.middle_g - b.middle_g || a.sub_g - b.sub_g,
         );
       const devTelegrams = telegrams.filter(
-        (t: any) => t.src === address || t.dst === address,
+        (t) => t.src === address || t.dst === address,
       );
       content = (
         <DevicePinPanel
@@ -930,16 +947,14 @@ export function PinDetailView({ pinKey }: PinDetailViewProps) {
       );
     }
   } else {
-    const ga = gas.find((g: any) => g.address === address);
+    const ga = gas.find((g) => g.address === address);
     if (!ga) content = <Empty icon="◆" msg="Group address not found" />;
     else {
       const linkedDevices = (gaDeviceMap[address!] || [])
-        .map((a: string) =>
-          devices.find((d: any) => d.individual_address === a),
-        )
-        .filter(Boolean);
+        .map((a: string) => devices.find((d) => d.individual_address === a))
+        .filter((d): d is Device => !!d);
       const gaTelegrams = telegrams.filter(
-        (t: any) => t.dst === address || t.src === address,
+        (t) => t.dst === address || t.src === address,
       );
       content = (
         <GAPinPanel

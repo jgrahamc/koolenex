@@ -1,12 +1,13 @@
 import { useState, useRef, useEffect } from 'react';
+import type { AppState, Action } from '../state.ts';
 import { useNavigate } from 'react-router-dom';
 import { Btn, Spinner } from '../primitives.tsx';
-import { api } from '../api.ts';
+import { errMessage, errCode, api } from '../api.ts';
 import styles from './ProjectsView.module.css';
 
 interface ProjectsViewProps {
-  state: any;
-  dispatch: (action: any) => void;
+  state: AppState;
+  dispatch: (action: Action) => void;
 }
 
 export function ProjectsView({ state, dispatch }: ProjectsViewProps) {
@@ -33,7 +34,7 @@ export function ProjectsView({ state, dispatch }: ProjectsViewProps) {
     if (importStatus === 'password-required') setImportPassword('');
   }, [importStatus, state.import.importId]);
 
-  const loadProject = async (id: any) => {
+  const loadProject = async (id: number) => {
     dispatch({ type: 'SET_LOADING', loading: true });
     try {
       const data = await api.getProject(id);
@@ -41,8 +42,8 @@ export function ProjectsView({ state, dispatch }: ProjectsViewProps) {
       const tgs = await api.listTelegrams(id);
       dispatch({ type: 'SET_TELEGRAMS', telegrams: tgs });
       navigate(`/projects/${id}/locations`);
-    } catch (e: any) {
-      dispatch({ type: 'SET_ERROR', error: e.message });
+    } catch (e) {
+      dispatch({ type: 'SET_ERROR', error: errMessage(e) });
     }
     dispatch({ type: 'SET_LOADING', loading: false });
   };
@@ -55,13 +56,13 @@ export function ProjectsView({ state, dispatch }: ProjectsViewProps) {
     loadProject(p.id);
   };
 
-  const deleteProject = async (e: React.MouseEvent, id: any) => {
+  const deleteProject = async (e: React.MouseEvent, id: number) => {
     e.stopPropagation();
     if (!confirm('Delete this project and all its data?')) return;
     await api.deleteProject(id);
     dispatch({
       type: 'SET_PROJECTS',
-      projects: state.projects.filter((p: any) => p.id !== id),
+      projects: state.projects.filter((p) => p.id !== id),
     });
   };
 
@@ -88,12 +89,12 @@ export function ProjectsView({ state, dispatch }: ProjectsViewProps) {
         mode: 'import',
         fileName: file.name,
       });
-    } catch (err: any) {
+    } catch (err) {
       dispatch({
         type: 'IMPORT_FAILED',
         importId: importStateRef.current.importId || '',
-        error: err.message || 'Upload failed',
-        code: err.code,
+        error: errMessage(err) || 'Upload failed',
+        code: errCode(err),
       });
     }
   };
@@ -104,19 +105,19 @@ export function ProjectsView({ state, dispatch }: ProjectsViewProps) {
     try {
       await api.submitImportPassword(importId, importPassword);
       dispatch({ type: 'IMPORT_PARSING', importId });
-    } catch (err: any) {
+    } catch (err) {
       dispatch({
         type: 'IMPORT_FAILED',
         importId,
-        error: err.message || 'Failed to submit password',
-        code: err.code,
+        error: errMessage(err) || 'Failed to submit password',
+        code: errCode(err),
       });
     }
   };
 
   const importedProject =
     state.import.projectId != null
-      ? state.projects.find((p: any) => p.id === state.import.projectId)
+      ? state.projects.find((p) => p.id === state.import.projectId)
       : null;
 
   return (
@@ -167,7 +168,7 @@ export function ProjectsView({ state, dispatch }: ProjectsViewProps) {
                 </div>
               )}
               <Btn
-                onClick={() => loadProject(state.import.projectId)}
+                onClick={() => loadProject(state.import.projectId!)}
                 className={styles.openBtn}
               >
                 Open Project →
@@ -227,7 +228,7 @@ export function ProjectsView({ state, dispatch }: ProjectsViewProps) {
         {state.projects.length > 0 && (
           <div>
             <div className={styles.listLabel}>RECENT PROJECTS</div>
-            {state.projects.map((p: any) => (
+            {state.projects.map((p) => (
               <div
                 key={p.id}
                 className={`rh fi ${styles.projectCard}`}

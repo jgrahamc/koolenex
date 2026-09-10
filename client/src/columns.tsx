@@ -62,7 +62,6 @@ export function useColumns(
 interface ColumnPickerProps {
   cols: Column[];
   onChange: (cols: Column[]) => void;
-  C?: any;
 }
 
 export function ColumnPicker({ cols, onChange }: ColumnPickerProps) {
@@ -137,11 +136,11 @@ export function ColumnPicker({ cols, onChange }: ColumnPickerProps) {
   );
 }
 
-export function dlCSV(
+export function dlCSV<Row>(
   filename: string,
   cols: Column[],
-  rows: any[],
-  getVal: (id: string, row: any) => any,
+  rows: Row[],
+  getVal: (id: string, row: Row) => unknown,
 ) {
   const visible = cols.filter((c) => c.visible !== false);
   const lines = [

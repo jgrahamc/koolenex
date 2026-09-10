@@ -1,4 +1,16 @@
 import { useContext, useMemo } from 'react';
+/** A row of Device.parameters, which is stored as a JSON string. */
+interface DeviceParam {
+  section?: string;
+  name?: string;
+  value?: string;
+  [key: string]: unknown;
+}
+import type {
+  EnrichedGA,
+  ComObjectWithDevice,
+  ProjectFull,
+} from '../../../shared/types.ts';
 import { PinContext, useDpt } from '../contexts.ts';
 import { Empty, PinAddr, coGAs } from '../primitives.tsx';
 import styles from './ComparePanel.module.css';
@@ -49,20 +61,19 @@ function GaAddrCell({ addr, otherAddr }: GaAddrCellProps) {
 interface ComparePanelProps {
   addrA: string;
   addrB: string;
-  data: any;
-  C?: any;
+  data: ProjectFull | null;
 }
 
 export function ComparePanel({ addrA, addrB, data }: ComparePanelProps) {
   const pin = useContext(PinContext);
   const dpt = useDpt();
-  const { devices = [], gas = [], comObjects = [] } = data;
-  const gaMap: Record<string, any> = Object.fromEntries(
-    gas.map((g: any) => [g.address, g]),
+  const { devices = [], gas = [], comObjects = [] } = data || {};
+  const gaMap: Record<string, EnrichedGA> = Object.fromEntries(
+    gas.map((g) => [g.address, g]),
   );
 
-  const devA = devices.find((d: any) => d.individual_address === addrA);
-  const devB = devices.find((d: any) => d.individual_address === addrB);
+  const devA = devices.find((d) => d.individual_address === addrA);
+  const devB = devices.find((d) => d.individual_address === addrB);
   const paramsA = useMemo(() => {
     try {
       return JSON.parse(devA?.parameters || '[]');
@@ -80,26 +91,26 @@ export function ComparePanel({ addrA, addrB, data }: ComparePanelProps) {
 
   if (!devA || !devB) return <Empty icon="◈" msg="Device not found" />;
 
-  const cosA = comObjects.filter((co: any) => co.device_address === addrA);
-  const cosB = comObjects.filter((co: any) => co.device_address === addrB);
-  const coMapA: Record<number, any> = Object.fromEntries(
-    cosA.map((co: any) => [co.object_number, co]),
+  const cosA = comObjects.filter((co) => co.device_address === addrA);
+  const cosB = comObjects.filter((co) => co.device_address === addrB);
+  const coMapA: Record<number, ComObjectWithDevice> = Object.fromEntries(
+    cosA.map((co) => [co.object_number, co]),
   );
-  const coMapB: Record<number, any> = Object.fromEntries(
-    cosB.map((co: any) => [co.object_number, co]),
+  const coMapB: Record<number, ComObjectWithDevice> = Object.fromEntries(
+    cosB.map((co) => [co.object_number, co]),
   );
   const allCoNums = [
     ...new Set([
-      ...cosA.map((co: any) => co.object_number),
-      ...cosB.map((co: any) => co.object_number),
+      ...cosA.map((co) => co.object_number),
+      ...cosB.map((co) => co.object_number),
     ]),
   ].sort((a, b) => a - b);
 
-  const paramMapA: Record<string, any> = Object.fromEntries(
-    paramsA.map((p: any) => [`${p.section}|${p.name}`, p]),
+  const paramMapA: Record<string, DeviceParam> = Object.fromEntries(
+    paramsA.map((p: DeviceParam) => [`${p.section}|${p.name}`, p]),
   );
-  const paramMapB: Record<string, any> = Object.fromEntries(
-    paramsB.map((p: any) => [`${p.section}|${p.name}`, p]),
+  const paramMapB: Record<string, DeviceParam> = Object.fromEntries(
+    paramsB.map((p: DeviceParam) => [`${p.section}|${p.name}`, p]),
   );
   const allParamKeys = [
     ...new Set([...Object.keys(paramMapA), ...Object.keys(paramMapB)]),
@@ -257,27 +268,27 @@ export function ComparePanel({ addrA, addrB, data }: ComparePanelProps) {
                       className={`${styles.td} ${styles.tdMuted}`}
                       style={{ background: rowBg }}
                     >
-                      {co.name || '—'}
+                      {co?.name || '—'}
                     </td>
                     <td
                       className={`${styles.td} ${styles.tdDim}`}
                       style={{ background: rowBg }}
                     >
-                      {co.function_text || '—'}
+                      {co?.function_text || '—'}
                     </td>
                     <td className={styles.td} style={{ background: rowBg }}>
                       <span
                         className={`${styles.monoCell} ${coA?.dpt !== coB?.dpt ? styles.tdAmber : styles.tdDim}`}
-                        title={dpt.hover(co.dpt)}
+                        title={dpt.hover(co?.dpt ?? '')}
                       >
-                        {dpt.display(co.dpt)}
+                        {dpt.display(co?.dpt ?? '')}
                       </span>
                     </td>
                     <td className={styles.td} style={{ background: rowBg }}>
                       <span
                         className={`${styles.monoCell} ${coA?.flags !== coB?.flags ? styles.tdAmber : styles.tdDim}`}
                       >
-                        {co.flags}
+                        {co?.flags}
                       </span>
                     </td>
                     <td className={styles.td} style={{ background: rowBg }}>

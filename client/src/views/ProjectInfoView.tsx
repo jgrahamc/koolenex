@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import type { AuditLogEntry } from '../../../shared/types.ts';
 import { Btn } from '../primitives.tsx';
 import { api } from '../api.ts';
 import { BusConnectionPanel } from '../BusConnectionPanel.tsx';
@@ -86,7 +87,7 @@ export function ProjectInfoView({
           ))}
         </div>
 
-        <AuditLogSection projectId={project?.id} />
+        <AuditLogSection projectId={project?.id ?? null} />
 
         {languages && languages.length > 1 && (
           <div className={styles.card}>
@@ -97,7 +98,7 @@ export function ProjectInfoView({
               onChange={(e) => onLangChange(e.target.value)}
               className={styles.langSelect}
             >
-              {languages.map((l: any) => (
+              {languages.map((l) => (
                 <option key={l.id} value={l.id}>
                   {l.name} ({l.id})
                 </option>
@@ -114,11 +115,11 @@ export function ProjectInfoView({
 }
 
 interface AuditLogSectionProps {
-  projectId: any;
+  projectId: number | null;
 }
 
 function AuditLogSection({ projectId }: AuditLogSectionProps) {
-  const [logs, setLogs] = useState<any[] | null>(null);
+  const [logs, setLogs] = useState<AuditLogEntry[] | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [loading, setLoading] = useState(false);
 
@@ -187,7 +188,7 @@ function AuditLogSection({ projectId }: AuditLogSectionProps) {
                   </tr>
                 </thead>
                 <tbody>
-                  {logs.map((r: any) => (
+                  {logs.map((r) => (
                     <tr key={r.id} className={styles.auditRowBorder}>
                       <td
                         className={`${styles.auditTd} ${styles.auditTimestamp}`}

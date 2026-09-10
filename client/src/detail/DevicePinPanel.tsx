@@ -1,4 +1,14 @@
 import { useState, useEffect, useContext } from 'react';
+import type { FeedTelegram } from './PinTelegramFeed.tsx';
+import type { PinFn } from '../contexts.ts';
+import type { ProjectFull } from '../../../shared/types.ts';
+import type { ProjectActions } from '../contexts.ts';
+import type {
+  Device,
+  ComObjectWithDevice,
+  EnrichedGA,
+  Space,
+} from '../../../shared/types.ts';
 import { PinContext, useDpt } from '../contexts.ts';
 import { localizedModel } from '../dpt.ts';
 import {
@@ -23,23 +33,23 @@ import styles from './DevicePinPanel.module.css';
 
 interface DevicePinPanelProps {
   COLMAP: Record<string, string>;
-  dev: any;
-  devCOs: any[];
-  linkedGAs: any[];
+  dev: Device;
+  devCOs: ComObjectWithDevice[];
+  linkedGAs: EnrichedGA[];
   spacePath: (id: number) => string;
-  gaMap: Record<string, any>;
-  devMap: Record<string, any>;
-  spaces: any[];
-  allDevices: any[];
+  gaMap: Record<string, EnrichedGA>;
+  devMap: Record<string, Device>;
+  spaces: Space[];
+  allDevices: Device[];
   gaDeviceMap: Record<string, string[]>;
-  allCOs: any[];
+  allCOs: ComObjectWithDevice[];
   busConnected: boolean;
-  devTelegrams: any[];
-  onUpdateDevice: any;
-  onAddDevice: any;
-  onUpdateComObjectGAs: any;
-  onUpdateComObjectFlags?: any;
-  activeProjectId: any;
+  devTelegrams: FeedTelegram[];
+  onUpdateDevice: ProjectActions['updateDevice'] | null;
+  onAddDevice: ProjectActions['addDevice'] | null;
+  onUpdateComObjectGAs: ProjectActions['updateComObjectGAs'] | null;
+  onUpdateComObjectFlags?: ProjectActions['updateComObjectFlags'];
+  activeProjectId: number | null;
 }
 
 export function DevicePinPanel({
@@ -67,7 +77,7 @@ export function DevicePinPanel({
   const maskVersions = useContext(MaskCtx);
   const [reachability, setReachability] = useState<string | null>(null);
   const [identifying, setIdentifying] = useState(false);
-  const [busInfo, setBusInfo] = useState<any>(null);
+  const [busInfo, setBusInfo] = useState<BusDeviceInfo | null>(null);
   const [readingInfo, setReadingInfo] = useState(false);
   const [editing, setEditing] = useState(false);
   const [showDuplicate, setShowDuplicate] = useState(false);
@@ -110,7 +120,7 @@ export function DevicePinPanel({
   const handlePing = async () => {
     setReachability('checking');
     try {
-      const gaAddresses = linkedGAs.map((g: any) => g.address);
+      const gaAddresses = linkedGAs.map((g) => g.address);
       const result = (await api.busPing(gaAddresses, devAddr)) as {
         reachable: boolean;
       };
@@ -198,7 +208,7 @@ export function DevicePinPanel({
                 <select
                   value={editType}
                   onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
-                    setEditType(e.target.value)
+                    setEditType(e.target.value as Device['device_type'])
                   }
                   className={styles.editTypeSelect}
                 >
@@ -386,11 +396,11 @@ export function DevicePinPanel({
                         mask
                           ? ['Management Model', mask.managementModel]
                           : null,
-                      ] as ([string, any] | null)[]
+                      ] as ([string, string | number | null] | null)[]
                     )
                       .filter(Boolean)
                       .filter(
-                        (entry): entry is [string, any] =>
+                        (entry): entry is [string, string | number] =>
                           entry != null && entry[1] != null,
                       )
                       .map(([label, value]) => (
@@ -451,10 +461,12 @@ export function DevicePinPanel({
                         dev.width_mm + ' mm',
                       ]
                     : null,
-                ] as ([string, any, string | null, any] | null)[]
+                ] as ([string, ValueCell, string | null, ValueCell] | null)[]
               )
                 .filter(
-                  (entry): entry is [string, any, string | null, any] =>
+                  (
+                    entry,
+                  ): entry is [string, ValueCell, string | null, ValueCell] =>
                     entry != null,
                 )
                 .filter(([, v]) => v)
@@ -462,7 +474,7 @@ export function DevicePinPanel({
                   <div
                     key={k}
                     className={`${wt && pin ? `bg ${styles.infoCardClickable}` : styles.infoCard}`}
-                    onClick={wt && pin ? () => pin(wt, v) : undefined}
+                    onClick={wt && pin ? () => pin(wt, String(v)) : undefined}
                   >
                     <div className={styles.infoCardLabel}>{k}</div>
                     <div
@@ -532,7 +544,7 @@ export function DevicePinPanel({
                     </tr>
                   </thead>
                   <tbody>
-                    {linkedGAs.map((g: any) => (
+                    {linkedGAs.map((g) => (
                       <tr key={g.id} className="rh">
                         <TD>
                           <PinAddr
@@ -592,7 +604,7 @@ export function DevicePinPanel({
                   </tr>
                 </thead>
                 <tbody>
-                  {devCOs.map((co: any, i: number) => (
+                  {devCOs.map((co, i) => (
                     <tr key={i} className="rh">
                       <TD>
                         <span className={styles.dimText}>
@@ -742,8 +754,8 @@ export function DevicePinPanel({
 
 // Inline GA adder for a com object
 interface ComObjectGAAdderProps {
-  co: any;
-  gaMap: Record<string, any>;
+  co: ComObjectWithDevice;
+  gaMap: Record<string, EnrichedGA>;
   onAdd: (ga: string) => void;
 }
 
@@ -768,7 +780,7 @@ function ComObjectGAAdder({ co, gaMap, onAdd }: ComObjectGAAdderProps) {
   const sq = search.toLowerCase();
   const filtered = allGAs
     .filter(
-      (g: any) =>
+      (g) =>
         !existing.has(g.address) &&
         (g.address.includes(sq) || (g.name || '').toLowerCase().includes(sq)),
     )
@@ -795,7 +807,7 @@ function ComObjectGAAdder({ co, gaMap, onAdd }: ComObjectGAAdderProps) {
       </div>
       {filtered.length > 0 && (
         <div className={styles.gaAdderDropdown}>
-          {filtered.map((g: any) => (
+          {filtered.map((g) => (
             <div
               key={g.address}
               onClick={() => {
@@ -839,7 +851,7 @@ const CO_FLAG_FIELDS: {
 const CO_PRIORITIES = ['low', 'alarm', 'high', 'system'] as const;
 
 interface ComObjectFlagsCellProps {
-  co: any;
+  co: ComObjectWithDevice;
   onUpdateComObjectFlags?: (
     coId: number,
     body: Record<string, unknown>,
@@ -857,7 +869,7 @@ interface ComObjectFlagsCellProps {
 // for a non-default Priority (ETS's own default is Low, so that one stays
 // silent) - same abbreviations DeviceCompareResults.tsx's FlagChips uses,
 // just condensed for this column's narrow width instead of one chip each.
-function flagsCellDisplay(co: any): string {
+function flagsCellDisplay(co: ComObjectWithDevice): string {
   let s = co.flags || '';
   if (co.read_on_init) s += '·RI';
   if (co.priority && co.priority !== 'low') {
@@ -945,10 +957,41 @@ function ComObjectFlagsCell({
   );
 }
 
+/** A space with its children, flattened into the location dropdown. */
+/** What POST /bus/device-info reports back for a device. */
+/** One value in the two-column overview grid. */
+type ValueCell = string | number | null | undefined;
+
+interface BusDeviceInfo {
+  descriptor?: string;
+  error?: string;
+  manufacturerId?: number;
+  address?: string;
+  serialNumber?: string | null;
+  programVersion?: {
+    manufacturerId?: string;
+    deviceType?: string;
+    appVersion?: string;
+  } | null;
+  [key: string]: unknown;
+}
+
+interface SpaceOption extends Space {
+  children: SpaceOption[];
+}
+
+/** One row of the flattened location dropdown. */
+interface FlatSpace {
+  id: number;
+  name: string;
+  type: Space['type'];
+  depth: number;
+}
+
 interface DuplicateDeviceModalProps {
-  dev: any;
-  data: any;
-  onAdd: any;
+  dev: Device;
+  data: Pick<ProjectFull, 'devices' | 'spaces'> | null;
+  onAdd: ProjectActions['addDevice'];
   onClose: () => void;
 }
 
@@ -958,15 +1001,15 @@ function DuplicateDeviceModal({
   onAdd,
   onClose,
 }: DuplicateDeviceModalProps) {
-  const { devices = [], spaces = [] } = data;
+  const { devices = [], spaces = [] } = data || {};
   const [name, setName] = useState(dev.name + ' (copy)');
   const [area, setArea] = useState(dev.area);
   const [line, setLine] = useState(dev.line);
   const [devNum, setDevNum] = useState(() => {
     const used = new Set(
       devices
-        .filter((d: any) => d.area === dev.area && d.line === dev.line)
-        .map((d: any) => parseInt(d.individual_address.split('.')[2])),
+        .filter((d) => d.area === dev.area && d.line === dev.line)
+        .map((d) => parseInt(d.individual_address.split('.')[2] ?? '')),
     );
     for (let i = 1; i <= 255; i++) {
       if (!used.has(i)) return i;
@@ -979,8 +1022,8 @@ function DuplicateDeviceModal({
   const recomputeDevNum = (a: number, l: number) => {
     const used = new Set(
       devices
-        .filter((d: any) => d.area === a && d.line === l)
-        .map((d: any) => parseInt(d.individual_address.split('.')[2])),
+        .filter((d) => d.area === a && d.line === l)
+        .map((d) => parseInt(d.individual_address.split('.')[2] ?? '')),
     );
     for (let i = 1; i <= 255; i++) {
       if (!used.has(i)) return i;
@@ -989,24 +1032,23 @@ function DuplicateDeviceModal({
   };
 
   const address = `${area}.${line}.${devNum}`;
-  const addressExists = devices.some(
-    (d: any) => d.individual_address === address,
-  );
+  const addressExists = devices.some((d) => d.individual_address === address);
 
   // Flatten spaces for dropdown
   const flatSpaces = (() => {
-    const nodeMap: Record<number, any> = {};
+    const nodeMap: Record<number, SpaceOption> = {};
     for (const s of spaces) nodeMap[s.id] = { ...s, children: [] };
-    const roots: any[] = [];
+    const roots: SpaceOption[] = [];
     for (const s of spaces) {
-      if (s.parent_id && nodeMap[s.parent_id])
-        nodeMap[s.parent_id].children.push(nodeMap[s.id]);
-      else roots.push(nodeMap[s.id]);
+      const node = nodeMap[s.id]!;
+      const parent = s.parent_id ? nodeMap[s.parent_id] : undefined;
+      if (parent) parent.children.push(node);
+      else roots.push(node);
     }
-    const result: any[] = [];
-    const walk = (nodes: any[], depth: number) => {
+    const result: FlatSpace[] = [];
+    const walk = (nodes: SpaceOption[], depth: number) => {
       for (const n of nodes.sort(
-        (a: any, b: any) =>
+        (a, b) =>
           (a.sort_order ?? 0) - (b.sort_order ?? 0) ||
           a.name.localeCompare(b.name),
       )) {
@@ -1052,7 +1094,11 @@ function DuplicateDeviceModal({
             ? JSON.parse(dev.param_values)
             : dev.param_values;
         if (Object.keys(pv).length > 0) {
-          await api.saveParamValues(newDev.project_id, newDev.id, pv);
+          await api.saveParamValues(
+            (newDev as Device).project_id,
+            (newDev as Device).id,
+            pv,
+          );
         }
       } catch (_) {}
     }
@@ -1139,7 +1185,7 @@ function DuplicateDeviceModal({
           className={styles.selectField}
         >
           <option value="">&mdash; None &mdash;</option>
-          {flatSpaces.map((s: any) => (
+          {flatSpaces.map((s) => (
             <option key={s.id} value={s.id}>
               {'  '.repeat(s.depth)}
               {s.name} ({s.type})
@@ -1167,10 +1213,10 @@ function DuplicateDeviceModal({
 }
 
 interface SameDeviceSectionProps {
-  dev: any;
-  allDevices: any[];
-  spaces: any[];
-  pin: any;
+  dev: Device;
+  allDevices: Device[];
+  spaces: Space[];
+  pin: PinFn;
 }
 
 function SameDeviceSection({
@@ -1183,7 +1229,7 @@ function SameDeviceSection({
   const key = dev.order_number || dev.model;
   if (!key || !allDevices) return null;
   const similar = allDevices.filter(
-    (d: any) =>
+    (d) =>
       d.individual_address !== dev.individual_address &&
       (dev.order_number
         ? d.order_number === dev.order_number
@@ -1218,7 +1264,7 @@ function SameDeviceSection({
         )}
       </div>
       <div className={styles.sameDevList}>
-        {similar.map((d: any) => (
+        {similar.map((d) => (
           <div
             key={d.individual_address}
             className={

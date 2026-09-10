@@ -27,7 +27,13 @@ import {
   SpacePath,
   coGAs,
 } from '../primitives.tsx';
-import { useColumns, ColumnPicker, dlCSV } from '../columns.tsx';
+import { useColumns, ColumnPicker, dlCSV, field } from '../columns.tsx';
+import type { FeedTelegram } from '../detail/PinTelegramFeed.tsx';
+import type {
+  Device,
+  EnrichedGA,
+  ComObjectWithDevice,
+} from '../../../shared/types.ts';
 import { dptInfo } from '../dpt.ts';
 import { useSpacePath } from '../hooks/spaces.ts';
 import styles from './BusMonitorView.module.css';
@@ -46,10 +52,10 @@ function TelegramFlowPanel({
   height,
   maxRows,
 }: {
-  telegrams: any[];
-  gaMap: Record<string, any>;
-  devMap: Record<string, any>;
-  comObjects: any[];
+  telegrams: FeedTelegram[];
+  gaMap: Record<string, EnrichedGA>;
+  devMap: Record<string, Device>;
+  comObjects: ComObjectWithDevice[];
   height: number;
   maxRows: number;
 }) {
@@ -78,7 +84,7 @@ function TelegramFlowPanel({
   return (
     <div className={styles.flowPanel} style={{ height }}>
       <div className={styles.flowLabel}>LIVE FLOW</div>
-      {recent.map((tg: any, i: number) => {
+      {recent.map((tg, i) => {
         const opacity =
           ([1, 0.82, 0.65, 0.48, 0.32, 0.18] as number[])[i] ?? 0.18;
         const srcDev = devMap[tg.src as string];
@@ -103,7 +109,7 @@ function TelegramFlowPanel({
         const isNew = i === 0;
 
         const chip = (
-          label: string,
+          label: string | null,
           sub: string | undefined,
           color: string,
           glow: boolean,
@@ -137,11 +143,11 @@ function TelegramFlowPanel({
           >
             {/* Source device */}
             {chip(
-              tg.src,
+              tg.src ?? null,
               srcDev?.name?.slice(0, 16),
               'var(--accent)',
               isNew,
-              pin ? () => pin('device', tg.src) : undefined,
+              pin && tg.src ? () => pin('device', tg.src!) : undefined,
             )}
 
             {/* Arrow */}
@@ -151,7 +157,7 @@ function TelegramFlowPanel({
 
             {/* Destination GA + value */}
             <div
-              onClick={pin ? () => pin('ga', tg.dst) : undefined}
+              onClick={pin && tg.dst ? () => pin('ga', tg.dst!) : undefined}
               className={styles.flowDstChip}
               style={{
                 background: isNew ? 'var(--purple-15)' : 'var(--surface)',
@@ -233,7 +239,7 @@ export function BusMonitorView() {
     watchStart();
     return () => watchStop();
   }, [paused]);
-  const [snapshot, setSnapshot] = useState<any[] | null>(null);
+  const [snapshot, setSnapshot] = useState<FeedTelegram[] | null>(null);
   const [showSend, setShowSend] = useState(false);
   const [showFlow, setShowFlow] = useState(true);
 
@@ -304,16 +310,16 @@ export function BusMonitorView() {
   );
   const [monCols, saveMonCols] = useColumns('monitor', MON_COLS);
   const mcv = (id: string) =>
-    monCols.find((c: any) => c.id === id)?.visible !== false;
+    monCols.find((c) => c.id === id)?.visible !== false;
 
   const gaMap = useMemo(() => {
-    const m: Record<string, any> = {};
+    const m: Record<string, EnrichedGA> = {};
     for (const g of data?.gas || []) m[g.address] = g;
     return m;
   }, [data]);
 
   const devMap = useMemo(() => {
-    const m: Record<string, any> = {};
+    const m: Record<string, Device> = {};
     for (const d of data?.devices || []) m[d.individual_address] = d;
     return m;
   }, [data]);
@@ -334,14 +340,16 @@ export function BusMonitorView() {
     setPaused((p) => !p);
   };
 
-  const displayTelegrams = paused ? snapshot || telegrams : telegrams;
+  const displayTelegrams: FeedTelegram[] = paused
+    ? snapshot || telegrams
+    : telegrams;
   const newCount = paused ? telegrams.length - (snapshot?.length || 0) : 0;
 
-  const filtered = displayTelegrams.filter((t: any) => {
+  const filtered = displayTelegrams.filter((t) => {
     if (filterType !== 'all' && !t.type?.includes(filterType)) return false;
     const s = filter.toLowerCase();
     if (!s) return true;
-    const gaName = gaMap[t.dst]?.name || '';
+    const gaName = gaMap[t.dst ?? '']?.name || '';
     return (
       t.src?.includes(s) ||
       t.dst?.includes(s) ||
@@ -350,8 +358,8 @@ export function BusMonitorView() {
     );
   });
 
-  const getDecoded = (tg: any) => {
-    const ga = gaMap[tg.dst];
+  const getDecoded = (tg: FeedTelegram) => {
+    const ga = gaMap[tg.dst ?? ''];
     const info = dptInfo(ga?.dpt || '');
     if (tg.decoded == null || tg.decoded === '') return '';
     // If DPT has enum labels, show label instead of raw number
@@ -363,8 +371,8 @@ export function BusMonitorView() {
   };
 
   const exportMonCSV = () => {
-    const rows = filtered.map((tg: any, i: number) => {
-      const ga = gaMap[tg.dst];
+    const rows = filtered.map((tg, i) => {
+      const ga = gaMap[tg.dst ?? ''];
       const t0 = tgTime(tg),
         t1 = tgTime(filtered[i + 1]);
       const delta = t0 != null && t1 != null ? fmtDelta(t0 - t1) : '';
@@ -372,7 +380,7 @@ export function BusMonitorView() {
         timestamp: tg.timestamp?.replace('T', ' ').slice(0, 22) || '',
         delta,
         src: tg.src || '',
-        location: spacePath(devMap[tg.src]?.space_id),
+        location: spacePath(devMap[tg.src ?? '']?.space_id),
         dst: tg.dst || '',
         ga_name: ga?.name || '',
         type: tg.type || '',
@@ -386,7 +394,7 @@ export function BusMonitorView() {
       `koolenex-monitor-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.csv`,
       monCols,
       rows,
-      (id, r) => r[id] ?? '',
+      (id, r) => field(r, id) ?? '',
     );
   };
 
@@ -414,7 +422,7 @@ export function BusMonitorView() {
       s = ((ms % 60000) / 1000).toFixed(1);
     return `+${m}m${s}s`;
   };
-  const tgTime = (tg: any) => {
+  const tgTime = (tg: FeedTelegram | undefined) => {
     if (!tg) return null;
     const t = tg.timestamp || tg.time;
     return t ? new Date(t).getTime() : null;
@@ -511,7 +519,7 @@ export function BusMonitorView() {
             className={styles.sendInputWide}
           />
           <datalist id="bm-ga-list">
-            {(data?.gas || []).map((g: any) => (
+            {(data?.gas || []).map((g) => (
               <option key={g.address} value={g.address}>
                 {g.name}
               </option>
@@ -575,8 +583,8 @@ export function BusMonitorView() {
           <thead>
             <tr>
               {monCols
-                .filter((c: any) => c.visible !== false)
-                .map((col: any) => (
+                .filter((c) => c.visible !== false)
+                .map((col) => (
                   <TH
                     key={col.id}
                     className={
@@ -607,7 +615,7 @@ export function BusMonitorView() {
             </tr>
           </thead>
           <tbody>
-            {filtered.map((tg: any, i: number) => {
+            {filtered.map((tg, i) => {
               const ga = gaMap[tg.dst as string];
               const t0 = tgTime(tg),
                 t1 = tgTime(filtered[i + 1]);
@@ -635,9 +643,9 @@ export function BusMonitorView() {
                   {mcv('src') && (
                     <TD>
                       <PinAddr
-                        address={tg.src}
+                        address={tg.src ?? ''}
                         wtype="device"
-                        title={devMap[tg.src]?.name}
+                        title={devMap[tg.src ?? '']?.name}
                         className={styles.srcAddr}
                       />
                     </TD>
@@ -645,7 +653,7 @@ export function BusMonitorView() {
                   {mcv('location') && (data?.spaces?.length ?? 0) > 0 && (
                     <TD>
                       <SpacePath
-                        spaceId={devMap[tg.src]?.space_id}
+                        spaceId={devMap[tg.src ?? '']?.space_id}
                         spaces={data!.spaces}
                         className={styles.monoSmall}
                       />
@@ -654,7 +662,7 @@ export function BusMonitorView() {
                   {mcv('dst') && (
                     <TD>
                       <PinAddr
-                        address={tg.dst}
+                        address={tg.dst ?? ''}
                         wtype="ga"
                         title={ga?.name}
                         className={styles.dstAddr}
@@ -670,7 +678,7 @@ export function BusMonitorView() {
                     <TD>
                       <span
                         className={styles.typeSpan}
-                        style={{ color: typeColor(tg.type) }}
+                        style={{ color: typeColor(tg.type ?? undefined) }}
                       >
                         {tg.type}
                       </span>
