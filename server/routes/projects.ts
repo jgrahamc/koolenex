@@ -31,6 +31,70 @@ const upload = multer({
 // Shared insert logic used by both import and reimport. Exported (test-only
 // convention, matching e.g. knx-cemi.ts's `_apduPropertyValueWrite`) so a
 // script can drive a real parse+insert without going through Express/multer.
+/**
+ * Every table keyed by project_id. Two places wipe a project's rows - a
+ * reimport, which replaces the imported content, and DELETE /projects/:id,
+ * which removes everything - and each used to carry its own hand-written
+ * list of DELETEs: eight tables in one, ten in the other. Adding a
+ * per-project table meant editing both, with nothing to catch it if you
+ * edited only one. tests/project-tables.test.ts now asserts this list
+ * against the live schema, so a new table with a project_id column fails
+ * the suite until it is listed here.
+ *
+ * com_objects leads: deleteProjectRows also sweeps it by device, which needs
+ * the devices rows to still exist.
+ */
+export const PROJECT_TABLES = [
+  'com_objects',
+  'devices',
+  'group_addresses',
+  'ga_group_names',
+  'topology',
+  'catalog_sections',
+  'catalog_items',
+  'spaces',
+  'bus_telegrams',
+  'audit_log',
+] as const;
+
+export type ProjectTable = (typeof PROJECT_TABLES)[number];
+
+/**
+ * What a reimport leaves alone. Reimporting replaces a project's imported
+ * content; the record of what has happened to it - the telegrams captured
+ * off the bus and the audit trail - is not part of the .knxproj and
+ * survives.
+ */
+export const REIMPORT_KEEPS: readonly ProjectTable[] = [
+  'bus_telegrams',
+  'audit_log',
+];
+
+/**
+ * Delete a project's rows from every per-project table except those named in
+ * `keep`. Does not touch the `projects` row itself - the caller decides
+ * whether the project survives.
+ */
+export function deleteProjectRows(
+  run: db.TransactionHelpers['run'],
+  projectId: number,
+  keep: readonly ProjectTable[] = [],
+): void {
+  // com_objects carries its own project_id, but sweep by device as well:
+  // DELETE /projects/:id always did, and a row whose project_id ever went
+  // stale would otherwise outlive the device it belongs to. Before the
+  // loop, while devices is still populated.
+  if (!keep.includes('com_objects'))
+    run(
+      'DELETE FROM com_objects WHERE device_id IN (SELECT id FROM devices WHERE project_id=?)',
+      [projectId],
+    );
+  for (const table of PROJECT_TABLES) {
+    if (keep.includes(table)) continue;
+    run(`DELETE FROM ${table} WHERE project_id=?`, [projectId]);
+  }
+}
+
 export function insertParsedData(
   run: (sql: string, params?: unknown[]) => RunResult,
   pid: number,
@@ -314,14 +378,7 @@ async function runImportJob(job: ImportJob): Promise<void> {
     } else {
       projectId = job.reimportProjectId!;
       db.transaction(({ run }: db.TransactionHelpers) => {
-        run('DELETE FROM com_objects WHERE project_id=?', [projectId]);
-        run('DELETE FROM group_addresses WHERE project_id=?', [projectId]);
-        run('DELETE FROM ga_group_names WHERE project_id=?', [projectId]);
-        run('DELETE FROM devices WHERE project_id=?', [projectId]);
-        run('DELETE FROM topology WHERE project_id=?', [projectId]);
-        run('DELETE FROM catalog_sections WHERE project_id=?', [projectId]);
-        run('DELETE FROM catalog_items WHERE project_id=?', [projectId]);
-        run('DELETE FROM spaces WHERE project_id=?', [projectId]);
+        deleteProjectRows(run, projectId, REIMPORT_KEEPS);
         run(
           "UPDATE projects SET name=?, file_name=?, thumbnail=?, project_info=?, updated_at=datetime('now') WHERE id=?",
           [
@@ -422,19 +479,7 @@ router.put('/projects/:id', (req: Request, res: Response) => {
 router.delete('/projects/:id', (req: Request, res: Response) => {
   const pid = paramId(req, 'id');
   db.transaction(({ run }: db.TransactionHelpers) => {
-    run(
-      'DELETE FROM com_objects WHERE device_id IN (SELECT id FROM devices WHERE project_id=?)',
-      [pid],
-    );
-    run('DELETE FROM devices WHERE project_id=?', [pid]);
-    run('DELETE FROM group_addresses WHERE project_id=?', [pid]);
-    run('DELETE FROM bus_telegrams WHERE project_id=?', [pid]);
-    run('DELETE FROM ga_group_names WHERE project_id=?', [pid]);
-    run('DELETE FROM topology WHERE project_id=?', [pid]);
-    run('DELETE FROM catalog_sections WHERE project_id=?', [pid]);
-    run('DELETE FROM catalog_items WHERE project_id=?', [pid]);
-    run('DELETE FROM audit_log WHERE project_id=?', [pid]);
-    run('DELETE FROM spaces WHERE project_id=?', [pid]);
+    deleteProjectRows(run, pid);
     run('DELETE FROM projects WHERE id=?', [pid]);
   });
   invalidateGaDptCache();
