@@ -845,3 +845,252 @@ describe('reducer: default case', () => {
     assert.equal(s, initialState);
   });
 });
+
+// ── The import state machine ────────────────────────────────────────────────
+
+// Seven actions driven by WebSocket events over the life of one upload, and
+// none of them had a test. Order is the whole point here: events arrive from
+// the server while the user is still on the page, and two of them guard
+// against a stale importId - in opposite directions, deliberately.
+describe('reducer: import lifecycle', () => {
+  const upload = (s: AppState = initialState) =>
+    reducer(s, {
+      type: 'IMPORT_UPLOADING',
+      mode: 'import',
+      fileName: 'house.knxproj',
+    });
+
+  it('IMPORT_UPLOADING starts from a clean slate', () => {
+    // Not a merge: a second upload must not inherit the first one's error
+    // or summary.
+    const dirty = reducer(initialState, {
+      type: 'IMPORT_FAILED',
+      importId: 'old',
+      error: 'boom',
+    });
+    const s = upload(dirty);
+    assert.equal(s.import.status, 'uploading');
+    assert.equal(s.import.fileName, 'house.knxproj');
+    assert.equal(s.import.mode, 'import');
+    assert.equal(s.import.error, null);
+    assert.equal(s.import.importId, null);
+  });
+
+  it('IMPORT_STARTED records the id and moves to parsing', () => {
+    const s = reducer(upload(), {
+      type: 'IMPORT_STARTED',
+      importId: 'abc',
+      mode: 'import',
+      fileName: 'house.knxproj',
+    });
+    assert.equal(s.import.importId, 'abc');
+    assert.equal(s.import.status, 'parsing');
+    assert.equal(s.import.passwordRetry, false);
+  });
+
+  it('IMPORT_STARTED keeps the file name it already had', () => {
+    // The server's own event does not always carry one; losing it would
+    // blank the name the user is watching.
+    const s = reducer(upload(), {
+      type: 'IMPORT_STARTED',
+      importId: 'abc',
+      mode: 'import',
+      fileName: '',
+    });
+    assert.equal(s.import.fileName, 'house.knxproj');
+  });
+
+  it('IMPORT_PARSING from a different import is ignored', () => {
+    // A late event from an import the user already abandoned must not drag
+    // the current one backwards.
+    const started = reducer(upload(), {
+      type: 'IMPORT_STARTED',
+      importId: 'abc',
+      mode: 'import',
+      fileName: 'house.knxproj',
+    });
+    const done = reducer(started, {
+      type: 'IMPORT_DONE',
+      importId: 'abc',
+      projectId: 3,
+      summary: null,
+    });
+    const s = reducer(done, { type: 'IMPORT_PARSING', importId: 'stale' });
+    assert.equal(s, done, 'state should be returned untouched');
+  });
+
+  it('IMPORT_PASSWORD_REQUIRED is accepted even from another id', () => {
+    // Deliberately the opposite of IMPORT_PARSING above: this is the
+    // recovery path for a page that reloaded mid-import and no longer
+    // knows which id it was watching.
+    const s = reducer(upload(), {
+      type: 'IMPORT_PASSWORD_REQUIRED',
+      importId: 'recovered',
+      retry: true,
+    });
+    assert.equal(s.import.status, 'password-required');
+    assert.equal(s.import.importId, 'recovered');
+    assert.equal(s.import.passwordRetry, true);
+  });
+
+  it('IMPORT_DONE carries the project it produced', () => {
+    const summary = {
+      devices: 5,
+      groupAddresses: 9,
+      comObjects: 20,
+      links: 12,
+    };
+    const s = reducer(upload(), {
+      type: 'IMPORT_DONE',
+      importId: 'abc',
+      projectId: 42,
+      summary,
+    });
+    assert.equal(s.import.status, 'done');
+    assert.equal(s.import.projectId, 42);
+    assert.deepEqual(s.import.summary, summary);
+    assert.equal(s.import.error, null);
+  });
+
+  it('IMPORT_FAILED keeps the reason', () => {
+    const s = reducer(upload(), {
+      type: 'IMPORT_FAILED',
+      importId: 'abc',
+      error: 'Corrupt archive',
+    });
+    assert.equal(s.import.status, 'failed');
+    assert.equal(s.import.error, 'Corrupt archive');
+  });
+
+  it('IMPORT_RESET returns to idle', () => {
+    const failed = reducer(upload(), {
+      type: 'IMPORT_FAILED',
+      importId: 'abc',
+      error: 'Corrupt archive',
+    });
+    const s = reducer(failed, { type: 'IMPORT_RESET' });
+    assert.equal(s.import.status, 'idle');
+    assert.equal(s.import.error, null);
+    assert.equal(s.import.fileName, null);
+    assert.equal(s.import.importId, null);
+  });
+});
+
+// ── The verify cache ────────────────────────────────────────────────────────
+
+// What the Programming view shows for a device it has verified. The
+// distinction between fetchedAt and recomputedAt is the point: one is when
+// the device was actually read over the bus, the other when the comparison
+// was re-run locally against edited project data.
+describe('reducer: verify cache', () => {
+  const result = { match: true, totalBytes: 10 } as never;
+  const other = { match: false, totalBytes: 10 } as never;
+
+  it('SET_VERIFY_RESULT records a real read', () => {
+    const s = reducer(initialState, {
+      type: 'SET_VERIFY_RESULT',
+      deviceId: 1,
+      result,
+    });
+    assert.equal(s.verifyCache[1]!.result, result);
+    assert.ok(s.verifyCache[1]!.fetchedAt > 0);
+    assert.equal(s.verifyCache[1]!.recomputedAt, undefined);
+  });
+
+  it('SET_VERIFY_RESULT drops a stale recomputedAt', () => {
+    const read = reducer(initialState, {
+      type: 'SET_VERIFY_RESULT',
+      deviceId: 1,
+      result,
+    });
+    const recomputed = reducer(read, {
+      type: 'RECOMPUTE_VERIFY_RESULT',
+      deviceId: 1,
+      result: other,
+    });
+    assert.ok(recomputed.verifyCache[1]!.recomputedAt);
+    const reread = reducer(recomputed, {
+      type: 'SET_VERIFY_RESULT',
+      deviceId: 1,
+      result,
+    });
+    assert.equal(reread.verifyCache[1]!.recomputedAt, undefined);
+  });
+
+  it('RECOMPUTE keeps the original device-read time', () => {
+    const read = reducer(initialState, {
+      type: 'SET_VERIFY_RESULT',
+      deviceId: 1,
+      result,
+    });
+    const s = reducer(read, {
+      type: 'RECOMPUTE_VERIFY_RESULT',
+      deviceId: 1,
+      result: other,
+    });
+    assert.equal(s.verifyCache[1]!.fetchedAt, read.verifyCache[1]!.fetchedAt);
+    assert.equal(s.verifyCache[1]!.result, other);
+    assert.ok(s.verifyCache[1]!.recomputedAt);
+  });
+
+  it('RECOMPUTE does nothing with nothing cached', () => {
+    // There is no device side to compare against, so there is nothing to
+    // recompute - inventing an entry would show a result never read.
+    const s = reducer(initialState, {
+      type: 'RECOMPUTE_VERIFY_RESULT',
+      deviceId: 99,
+      result,
+    });
+    assert.equal(s, initialState);
+  });
+
+  it('HYDRATE lets a verify that already landed win', () => {
+    // The load from IndexedDB is async and can arrive after a real verify
+    // has completed; the stored copy is the older of the two.
+    const live = reducer(initialState, {
+      type: 'SET_VERIFY_RESULT',
+      deviceId: 1,
+      result,
+    });
+    const s = reducer(live, {
+      type: 'HYDRATE_VERIFY_CACHE',
+      cache: {
+        1: { result: other, fetchedAt: 1 },
+        2: { result: other, fetchedAt: 2 },
+      },
+    });
+    assert.equal(s.verifyCache[1]!.result, result, 'live result kept');
+    assert.equal(s.verifyCache[2]!.result, other, 'stored result merged in');
+  });
+
+  it('CLEAR_VERIFY_RESULT removes just that device', () => {
+    let s = reducer(initialState, {
+      type: 'SET_VERIFY_RESULT',
+      deviceId: 1,
+      result,
+    });
+    s = reducer(s, { type: 'SET_VERIFY_RESULT', deviceId: 2, result });
+    s = reducer(s, { type: 'CLEAR_VERIFY_RESULT', deviceId: 1 });
+    assert.equal(s.verifyCache[1], undefined);
+    assert.ok(s.verifyCache[2]);
+  });
+});
+
+describe('reducer: SET_BUS_ATTENTION', () => {
+  it('sets the flag without clobbering the rest of the bus status', () => {
+    // Unlike SET_BUS this merges: a 'knx:reconnect-failed' message carries
+    // only the fact that a reconnect failed, so replacing busStatus
+    // wholesale would blank connected/host with what it does not know.
+    const connected = reducer(initialState, {
+      type: 'SET_BUS',
+      status: { connected: true, host: '10.0.0.5', hasLib: true },
+    } as never);
+    const s = reducer(connected, {
+      type: 'SET_BUS_ATTENTION',
+      needsAttention: true,
+    });
+    assert.equal(s.busStatus.needsAttention, true);
+    assert.equal(s.busStatus.connected, true);
+    assert.equal(s.busStatus.host, '10.0.0.5');
+  });
+});
