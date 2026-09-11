@@ -452,6 +452,11 @@ export class KnxConnection extends EventEmitter {
       tpciCode: number,
       s: number = 0,
     ): Promise<void> => {
+      logger.debug('knx', 'Management control frame sent', {
+        dst: deviceAddr,
+        tpciCode: `0x${tpciCode.toString(16)}`,
+        seq: s,
+      });
       const apdu = apduControl(tpciCode, s);
       const cemi = buildCEMI(this.localAddr, deviceAddr, apdu, false, {
         priority: 'system',
@@ -463,6 +468,11 @@ export class KnxConnection extends EventEmitter {
       apciName: string,
       extraBuf: Buffer | null = null,
     ): Promise<void> => {
+      logger.debug('knx', 'Management data frame sent', {
+        dst: deviceAddr,
+        apciName,
+        seq,
+      });
       const apdu = apduConnected(seq, apciName, extraBuf);
       const cemi = buildCEMI(this.localAddr, deviceAddr, apdu, false, {
         priority: 'system',
@@ -1273,6 +1283,13 @@ export class KnxConnection extends EventEmitter {
     const { waitResponse, nextSeq } = fns;
     const out = Buffer.alloc(length);
     let off = 0;
+    // A ceiling learned from this device refusing a request size, so the
+    // rest of the region is asked for at a size it has already shown it
+    // will serve. Without this, every chunk re-discovers the same refusal
+    // from scratch - and once a refusal costs a 3s timeout rather than a
+    // prompt zero-byte answer, re-discovering it per chunk is the
+    // difference between a slow read and an unusable one.
+    let sizeCeiling = Infinity;
     while (off < length) {
       const seq = nextSeq();
       const wantAddr = address + off;
@@ -1340,7 +1357,7 @@ export class KnxConnection extends EventEmitter {
               maxChunkFromApduLength(maxApduLengthValue, useExtended),
             )
           : protocolMaxN;
-      const n = Math.min(chunkSize, length - off, maxN);
+      const n = Math.min(chunkSize, length - off, maxN, sizeCeiling);
       if (useExtended) {
         const apdu = apduMemoryExtendedRead(seq, n, wantAddr);
         const respP = waitResponse('MemoryExtended_Read_Response', 3000);
@@ -1418,52 +1435,68 @@ export class KnxConnection extends EventEmitter {
         maxApduLengthValue,
       });
 
-      // A device that can't answer a request this large may say so by
+      const describeRead = (count: number): string =>
+        `A_Memory_Read of ${count} byte(s) at 0x${wantAddr.toString(16)} on ${deviceAddr}` +
+        ` (max APDU ${maxApduLengthValue ?? 'unknown'})`;
+
+      // A device that won't serve a request this large may say so by
       // answering with zero bytes - handled below, on real evidence from
-      // an HDL M/AG40B.1 - or by saying nothing at all, which lands here.
-      // Both are the same fault (the request exceeds what this particular
-      // device will serve in one go) and both deserve the same one retry
-      // at a conservatively small size before the read is called failed;
-      // only the zero-byte half of it was covered until 2026-09-11, when
-      // a real Verify of a mask 0x0701 device at 1.5.11 timed out with no
-      // response at all and no indication of what had been asked for:
+      // an HDL M/AG40B.1 with a bisected 52-byte ceiling - or by saying
+      // nothing at all, which lands here. Both are the same refusal, and
+      // both get the same answer: ask smaller, and if that works, believe
+      // the smaller size for the rest of the region (sizeCeiling).
       //
-      //   18:45:57.407 DeviceDescriptor mask=0x0701
-      //   18:46:00.520 Device verify failed: Management timeout waiting
-      //                for Memory_Response
+      // The ladder ends at a single byte on purpose. A one-byte read is
+      // the smallest thing the service can express, so a device that
+      // ignores THAT is not refusing a size - it is not serving this
+      // address over this service at all, and saying so is worth the one
+      // extra timeout it costs. That distinction is exactly what two real
+      // failures could not be told apart by:
       //
-      // If the retry is answered, the loop carries on from whatever it
-      // returned exactly as a short response does - `off` only ever
-      // advances by what actually arrived. If it isn't, the error now
-      // says what was asked for, which the bare transport-level timeout
-      // above never did.
-      let frame: CemiFrame;
+      //   18:46:00.520 1.5.11 mask 0x0701: Management timeout waiting for
+      //                Memory_Response  (40-byte read, retried at 32)
+      //   18:57:06.151 1.1.20 mask 0x0701, max APDU 15: A_Memory_Read of
+      //                12 byte(s) at 0x4003: Management timeout
+      //
+      // The second never retried at all, because 12 was already at or
+      // under the single 32-byte step this ladder replaced.
+      let frame: CemiFrame | null = null;
       let requested = n;
-      try {
-        frame = await legacyRead(n, seq);
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        const describe = (count: number): string =>
-          `A_Memory_Read of ${count} byte(s) at 0x${wantAddr.toString(16)} on ${deviceAddr}` +
-          ` (max APDU ${maxApduLengthValue ?? 'unknown'})`;
-        if (!msg.includes('Management timeout') || n <= LEGACY_RETRY_CHUNK) {
-          throw new Error(`${describe(n)}: ${msg}`, { cause: err });
-        }
-        logger.info(
-          'knx',
-          `No Memory_Response to a ${n}-byte read at 0x${wantAddr.toString(16)} - retrying at ${LEGACY_RETRY_CHUNK}`,
-          { deviceAddr, wantAddr: wantAddr.toString(16), originalN: n },
-        );
-        requested = LEGACY_RETRY_CHUNK;
+      const attempts: string[] = [];
+      for (const size of [n, LEGACY_RETRY_CHUNK, 1].filter(
+        (v, i) => i === 0 || v < n,
+      )) {
         try {
-          frame = await legacyRead(requested, nextSeq());
-        } catch (err2) {
-          const msg2 = err2 instanceof Error ? err2.message : String(err2);
-          throw new Error(
-            `${describe(n)}: ${msg}; retry as ${describe(requested)}: ${msg2}`,
-            { cause: err2 },
+          frame = await legacyRead(size, size === n ? seq : nextSeq());
+          if (size < n) {
+            logger.info(
+              'knx',
+              `${deviceAddr} answered a ${size}-byte read at 0x${wantAddr.toString(16)} after ignoring ${n} - using ${size} for the rest of this region`,
+              { deviceAddr, wantAddr: wantAddr.toString(16), originalN: n },
+            );
+            sizeCeiling = size;
+          }
+          requested = size;
+          break;
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          attempts.push(`${describeRead(size)}: ${msg}`);
+          // Only silence is a refusal worth asking smaller about; any
+          // other failure is real and must surface as itself.
+          if (!msg.includes('Management timeout')) {
+            throw new Error(attempts.join('; '), { cause: err });
+          }
+          logger.info(
+            'knx',
+            `No Memory_Response to a ${size}-byte read at 0x${wantAddr.toString(16)}`,
+            { deviceAddr, wantAddr: wantAddr.toString(16) },
           );
         }
+      }
+      if (!frame) {
+        throw new Error(
+          `${attempts.join('; ')} - the device answers DeviceDescriptor_Read but not A_Memory_Read at this address, so this is not a request-size limit`,
+        );
       }
       const { address: gotAddr, data } = parseMemoryResponse(frame);
       if (gotAddr !== wantAddr)
@@ -1531,6 +1564,10 @@ export class KnxConnection extends EventEmitter {
         if (retryGotAddr === wantAddr) {
           gotLen = Math.min(retryData.length, retryN);
           usedData = retryData;
+          // Same reasoning as the silence ladder above: a size this
+          // device has just shown it will serve beats re-discovering the
+          // refusal on every remaining chunk.
+          if (gotLen > 0) sizeCeiling = retryN;
         }
       }
       if (gotLen === 0)

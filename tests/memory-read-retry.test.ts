@@ -45,7 +45,7 @@ class FakeSilentAboveCeilingDevice extends KnxConnection {
     this.maskVersion = maskVersion;
     this.connected = true;
     this.localAddr = '1.0.1';
-    this.memory = Buffer.alloc(0x1000);
+    this.memory = Buffer.alloc(0x5000);
     for (let i = 0; i < this.memory.length; i++) this.memory[i] = i & 0xff;
   }
 
@@ -104,26 +104,62 @@ describe('legacy A_Memory_Read against a device that answers nothing', () => {
     ]);
   });
 
-  it('reports what it asked for when even the small read is unanswered', async () => {
-    // Ceiling 0: nothing is ever answered. 8 bytes is already at or below
-    // the retry size, so this is the single-attempt path - the one whose
-    // error message used to be just "Management timeout waiting for
+  it('reuses the size it learned for the rest of the region', async () => {
+    // Without a remembered ceiling every chunk re-discovers the refusal,
+    // which costs a 3s timeout each time - the difference between a slow
+    // read and an unusable one.
+    const dev = new FakeSilentAboveCeilingDevice('1.5.11', 32);
+
+    const out = await dev.readMemory('1.5.11', 0x0200, 80, 228, undefined, 254);
+
+    assert.deepEqual([...out], [...dev.memory.subarray(0x0200, 0x0250)]);
+    assert.deepEqual(dev.reads, [
+      { address: 0x0200, count: 63 }, // refused by silence
+      { address: 0x0200, count: 32 }, // the retry, answered
+      { address: 0x0220, count: 32 }, // straight to 32 from here on
+      { address: 0x0240, count: 16 },
+    ]);
+  });
+
+  it('drops all the way to a single byte when the first retry is too big', async () => {
+    // The real case this ladder was added for: a mask 0x0701 device at
+    // 1.1.20 declaring max APDU 15, so the read was only 12 bytes to
+    // begin with - already at or under the single 32-byte step that used
+    // to be the whole retry, which therefore never fired at all.
+    const dev = new FakeSilentAboveCeilingDevice('1.1.20', 1);
+
+    const out = await dev.readMemory('1.1.20', 0x4003, 3, 228, undefined, 15);
+
+    assert.deepEqual([...out], [...dev.memory.subarray(0x4003, 0x4006)]);
+    assert.deepEqual(dev.reads, [
+      { address: 0x4003, count: 3 }, // ignored
+      { address: 0x4003, count: 1 }, // the floor of the ladder, answered
+      { address: 0x4004, count: 1 },
+      { address: 0x4005, count: 1 },
+    ]);
+  });
+
+  it('says it is not a size limit when even one byte goes unanswered', async () => {
+    // Ceiling 0: nothing is ever answered, at any size. That is not a
+    // device refusing a request size, and the error has to say so - the
+    // message used to be just "Management timeout waiting for
     // Memory_Response", with no address, size or device in it.
     const dev = new FakeSilentAboveCeilingDevice('1.5.11', 0);
 
     await assert.rejects(
-      () => dev.readMemory('1.5.11', 0x0100, 8, 228, undefined, 254),
+      () => dev.readMemory('1.5.11', 0x0100, 8, 228, undefined, 15),
       (err: Error) => {
         assert.match(err.message, /A_Memory_Read of 8 byte\(s\) at 0x100/);
+        assert.match(err.message, /A_Memory_Read of 1 byte\(s\) at 0x100/);
         assert.match(err.message, /on 1\.5\.11/);
-        assert.match(err.message, /max APDU 254/);
-        assert.match(
-          err.message,
-          /Management timeout waiting for Memory_Response/,
-        );
+        assert.match(err.message, /max APDU 15/);
+        assert.match(err.message, /not a request-size limit/);
         return true;
       },
     );
-    assert.deepEqual(dev.reads, [{ address: 0x0100, count: 8 }]);
+    assert.deepEqual(dev.reads, [
+      { address: 0x0100, count: 8 },
+      { address: 0x0100, count: 1 },
+    ]);
   });
 });
