@@ -22,6 +22,7 @@ import type { GroupObjectFlags } from '../server/routes/knx-tables.ts';
 import { APPS_DIR } from '../server/routes/shared.ts';
 import {
   runVerifyDevice,
+  runProgramDevice,
   loadProgrammableDevice,
 } from '../server/routes/bus.ts';
 
@@ -160,9 +161,13 @@ class MockBus extends EventEmitter {
   // extra logged call. Override via deviceInfoSerialOverride for a test
   // that specifically wants a mismatch/no-serial scenario.
   deviceInfoSerialOverride: string | null | undefined = undefined;
+  // A device that never answers - what an address write that did not take
+  // looks like from here (see the address_write_unconfirmed test).
+  deviceInfoFails = false;
   async readDeviceInfo(deviceAddr: string): Promise<any> {
     this.calls.push({ method: 'readDeviceInfo', args: [deviceAddr] });
     if (!this.connected) throw new Error('Not connected to KNX bus');
+    if (this.deviceInfoFails) throw new Error('No answer from device');
     return {
       descriptor: '07b0',
       address: deviceAddr,
@@ -2836,5 +2841,98 @@ describe('bus error codes', () => {
     // The message names both, so the operator knows which buttons to release.
     assert.match((r.data as { message: string }).message, /1\.1\.1/);
     assert.match((r.data as { message: string }).message, /1\.1\.2/);
+  });
+});
+
+// The remaining two of the four codes nothing asserted. Both sit behind
+// real-hardware behaviour - a device that has to answer after its address
+// is written, and a PID 7 read - so they are driven through the mock
+// rather than over HTTP where the wait would be 35 seconds.
+describe('bus error codes: the hardware-shaped two', () => {
+  it('segment_unallocated when verifying a device whose PID 7 reads zero', async () => {
+    writeModel(RELMEM_APP, RELMEM_MODEL);
+    ts.db.run("INSERT INTO projects (name) VALUES ('verify-unallocated')");
+    const pid = ts.db.get<{ id: number }>(
+      'SELECT last_insert_rowid() AS id',
+    )!.id;
+    const addr = '1.1.41';
+    seedDevice(ts.db, pid, addr, RELMEM_APP, [], []);
+
+    mockBus.connected = true;
+    // PID 7 (PID_TABLE_REFERENCE) reading all zeros is a device saying the
+    // segment was never allocated.
+    mockBus.propImage = new Map([['4/7', Buffer.from('00000000', 'hex')]]);
+
+    const r = await req(ts.baseUrl, 'POST', '/bus/verify-device', {
+      deviceAddress: addr,
+      projectId: pid,
+    });
+    mockBus.propImage = null;
+
+    assert.equal(r.status, 409);
+    assert.equal((r.data as { error: string }).error, 'segment_unallocated');
+    assert.match((r.data as { message: string }).message, /PID 7 = 0/);
+  });
+
+  // The asymmetry is deliberate, and the neighbouring program-device test
+  // asserts the other half: a first-ever download legitimately starts with
+  // PID 7 unallocated and proceeds, because downloadDevice()'s own
+  // Unload/StartLoading cycle is what allocates it. There is nothing to
+  // compare against in that state, so a verify refuses instead.
+
+  it('address_write_unconfirmed when the device never answers after the write', async () => {
+    const app = 'M-00FA_A-0001-01-UNCF';
+    writeModel(app, {
+      appId: app,
+      loadProcedures: [{ type: 'Connect' }],
+      params: {},
+    });
+    ts.db.run("INSERT INTO projects (name) VALUES ('unconfirmed')");
+    const pid = ts.db.get<{ id: number }>(
+      'SELECT last_insert_rowid() AS id',
+    )!.id;
+    const did = seedDevice(ts.db, pid, '1.1.40', app, [], []);
+    const dev = ts.db.get<any>('SELECT * FROM devices WHERE id=?', [did])!;
+
+    mockBus.connected = true;
+    // Nothing answers at the address, before or after the write - so the
+    // serial path runs, the write is attempted, and the confirmation read
+    // never succeeds.
+    mockBus.deviceInfoFails = true;
+
+    const result = await runProgramDevice(
+      mockBus as any,
+      dev,
+      {
+        deviceAddress: '1.1.40',
+        projectId: pid,
+        deviceId: did,
+        mode: 'full',
+        addressMethod: 'serial',
+      },
+      () => false,
+      // 35s in production; this only has to outlast one failed read.
+      { confirmDeadlineMs: 20 },
+    );
+
+    mockBus.deviceInfoFails = false;
+
+    assert.ok(result, 'expected a response, not an abort');
+    assert.equal(result.status, 502);
+    assert.equal(
+      (result.body as { error: string }).error,
+      'address_write_unconfirmed',
+    );
+    // The message says the download was not attempted, which is the part
+    // that matters to an operator staring at a half-programmed device.
+    assert.match(
+      (result.body as { message: string }).message,
+      /the rest of the download was not attempted/,
+    );
+    assert.equal(
+      mockBus.calls.some((c) => c.method === 'downloadDevice'),
+      false,
+      'must not download after an unconfirmed address write',
+    );
   });
 });

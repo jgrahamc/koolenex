@@ -186,8 +186,29 @@ Two of the four never-asserted error codes now have tests: `no_ldctrl` (a
 model with no load procedures) and `ambiguous_programming_mode` (two devices
 holding their buttons at once).
 
-**Still to do.** `address_write_unconfirmed` and `segment_unallocated`, which
-need a device image and a PID 7 read driven through the mock to reach.
+**Done.** `address_write_unconfirmed` and `segment_unallocated` too, which
+closes item 15 and the numbered list with it. Both sit behind real-hardware
+behaviour, so they are driven through the mock rather than over HTTP: the
+first needs a device that never answers after its address is written, which
+production waits 35 seconds for, so `runProgramDevice` takes an optional
+`confirmDeadlineMs` (the seam item 6's extraction made cheap); the second
+needs PID 7 reading zero, and asserts the asymmetry - a verify refuses,
+while a first-ever download proceeds, because the download's own
+Unload/StartLoading cycle is what allocates the segment.
+
+## Everything on this list is done
+
+Items 1-15 have all landed. What remains is recorded above as follow-on
+rather than as part of the original review:
+
+- `tests/` is still outside the typecheck and the `any` ban (item 8's next
+  step, 1097 errors under the root tsconfig).
+- Two-level group addresses on the wire (item 13).
+- DELETE is idempotent-200 for some resources and 404 for others (item 15).
+- `CatalogSection`/`CatalogItem` exist twice under the same names, parsed vs
+  stored (item 11).
+- The master-data caches are cleared on reimport, but a `.knxprod` catalogue
+  import still does not save its own master XML (noted at item 11).
 
 ## A note on the line-count claims
 

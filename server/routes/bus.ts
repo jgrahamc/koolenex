@@ -1435,6 +1435,13 @@ export async function runProgramDevice(
     addressMethod?: 'button' | 'serial';
   },
   isAborted: () => boolean,
+  /**
+   * How long to keep asking a device to answer after its address was
+   * written, before giving up with address_write_unconfirmed. 35s is the
+   * real figure (a device reboots after an address write); a test passes
+   * something small so it can reach that branch without waiting.
+   */
+  opts: { confirmDeadlineMs?: number } = {},
 ): Promise<RouteResult | null> {
   const { deviceAddress, mode, addressMethod } = body;
 
@@ -1630,7 +1637,7 @@ export async function runProgramDevice(
     } | null> => {
       onProgress({ msg: `Confirming device at ${deviceAddress}…` });
       const confirmStart = Date.now();
-      const confirmDeadlineMs = 35000;
+      const confirmDeadlineMs = opts.confirmDeadlineMs ?? 35000;
       let confirmedInfo: { serialNumber?: string } | null = null;
       let attempt = 0;
       let lastHeartbeatMs = 0;
@@ -1640,7 +1647,7 @@ export async function runProgramDevice(
         !isAborted()
       ) {
         attempt++;
-        if (attempt > 1) await delay(2000);
+        if (attempt > 1) await delay(Math.min(2000, confirmDeadlineMs));
         const elapsedMs = Date.now() - confirmStart;
         // Heartbeat every ~5s so a long real wait doesn't read as "stuck"
         // in the log panel - a genuinely-still-working wait with no
