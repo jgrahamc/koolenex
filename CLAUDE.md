@@ -10,8 +10,10 @@ Koolenex is a KNX building-automation project management and visualization tool.
 
 ```bash
 make start          # Start both backend (:4000) and frontend (:5173)
+make start-debug    # Same, with LOG_LEVEL=debug on the backend
 make stop           # Stop both
 make server         # Backend only
+make server-debug   # Backend only, LOG_LEVEL=debug
 make client         # Frontend only (Vite dev server, proxies /api to :4000)
 make test           # Run all tests
 make lint           # ESLint for server/ and client/

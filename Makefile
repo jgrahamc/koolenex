@@ -8,13 +8,20 @@ kill-tree = pids="$(1)"; q="$(1)"; while [ -n "$$q" ]; do next=""; for p in $$q;
 kill-pid = [ -f $($(1)_PID) ] && { $(call kill-tree,$$(cat $($(1)_PID))); rm -f $($(1)_PID); } || true
 save-pid = echo $$! > $($(1)_PID)
 
-.PHONY: server server-open stop-server client stop-client start stop test lint format typecheck
+.PHONY: server server-open server-debug stop-server client stop-client start start-debug stop test lint format typecheck
 
 server: stop-server
 	@node server/index.ts & $(call save-pid,SERVER)
 
 server-open: stop-server
 	@node server/index.ts --cors-open & $(call save-pid,SERVER)
+
+# Same server, every log line. Debug adds the frame-by-frame management
+# trace (T_Connect, each memory/property read, and whatever the device
+# says back), which is what a device that answers one service and ignores
+# another has to be diagnosed from.
+server-debug: stop-server
+	@LOG_LEVEL=debug node server/index.ts & $(call save-pid,SERVER)
 
 stop-server:
 	@$(call kill-pid,SERVER)
@@ -26,6 +33,8 @@ stop-client:
 	@$(call kill-pid,CLIENT)
 
 start: server client
+
+start-debug: server-debug client
 
 stop: stop-server stop-client
 
