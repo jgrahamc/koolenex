@@ -11,6 +11,7 @@ import { describe, it, mock } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { KnxConnection as KnxIpConnection } from '../server/knx-protocol.ts';
+import { buildCEMI, apduGroupWrite } from '../server/knx-cemi.ts';
 import {
   _hdr as hdr,
   _SVC as SVC,
@@ -251,5 +252,80 @@ describe('KnxIpConnection.sendCEMIViaRouting', () => {
     const conn = new (KnxIpConnection as any)();
     conn._routing = { active: false, send: () => Promise.resolve() };
     await assert.rejects(() => conn.sendCEMIViaRouting(Buffer.from([0x29])));
+  });
+});
+
+// ── Incoming telegrams over TCP ─────────────────────────────────────────────
+
+// The bus monitor went quiet a moment after a TCP connection came up.
+// _onTunnelingReq drops a TUNNELLING_REQUEST whose sequence number matches
+// the last one seen - correct over UDP, where a datagram really can arrive
+// twice because the gateway resends when our ack goes missing, and wrong
+// over TCP, where the stream delivers exactly once and a gateway is free to
+// leave the sequence number alone. Every telegram after the first then
+// looked like a duplicate.
+describe('KnxIpConnection._onTunnelingReq: sequence de-duplication', () => {
+  function tunnelReq(channelId: number, seq: number, cemi: Buffer): Buffer {
+    const body = Buffer.concat([
+      Buffer.from([0x04, channelId, seq, 0x00]),
+      cemi,
+    ]);
+    return Buffer.concat([hdr(SVC.TUNNELING_REQ, 6 + body.length), body]);
+  }
+
+  function harness(transport: 'tcp' | 'udp') {
+    const conn = new (KnxIpConnection as unknown as new () => {
+      connected: boolean;
+      transport: string;
+      channelId: number;
+      _sendRaw: (b: Buffer) => void;
+      _onMsg: (b: Buffer) => void;
+      on: (e: string, cb: (t: { raw_value: string }) => void) => void;
+    })();
+    conn.connected = true;
+    conn.transport = transport;
+    conn.channelId = 1;
+    const acks: Buffer[] = [];
+    conn._sendRaw = (b: Buffer) => {
+      acks.push(b);
+    };
+    const values: string[] = [];
+    conn.on('telegram', (t) => values.push(t.raw_value));
+    return { conn, values, acks };
+  }
+
+  const write = (v: number) =>
+    buildCEMI('1.1.1', '1/0/1', apduGroupWrite(Buffer.from([v])), true);
+
+  it('delivers every telegram over TCP even when the sequence never moves', () => {
+    const { conn, values } = harness('tcp');
+    for (const v of [1, 2, 3]) conn._onMsg(tunnelReq(1, 0, write(v)));
+    assert.equal(values.length, 3, 'all three should reach the monitor');
+  });
+
+  it('still drops a repeated sequence number over UDP', () => {
+    // A genuine retransmit: the gateway resent because it never saw our
+    // ack. Delivering it twice would put a phantom event in the monitor.
+    const { conn, values } = harness('udp');
+    for (const v of [1, 2, 3]) conn._onMsg(tunnelReq(1, 0, write(v)));
+    assert.equal(values.length, 1);
+  });
+
+  it('delivers each new sequence number over UDP', () => {
+    const { conn, values } = harness('udp');
+    [1, 2, 3].forEach((v, i) => conn._onMsg(tunnelReq(1, i, write(v))));
+    assert.equal(values.length, 3);
+  });
+
+  it('acknowledges every request, on either transport', () => {
+    // Calimero's client says acks "are not required and just ignored" over
+    // TCP, so sending one is harmless - and not sending it is a change to
+    // the wire with no evidence behind it, which this is not the place for.
+    for (const transport of ['tcp', 'udp'] as const) {
+      const { conn, acks } = harness(transport);
+      conn._onMsg(tunnelReq(1, 0, write(1)));
+      assert.equal(acks.length, 1, transport);
+      assert.equal(acks[0]!.readUInt16BE(2), SVC.TUNNELING_ACK, transport);
+    }
   });
 });

@@ -517,7 +517,23 @@ class KnxIpConnection extends (KnxConnection as new () => InstanceType<
 
     this._sendRaw(pktTunnelingAck(channelId, seq));
 
-    if (seq === this.seqIn) return;
+    // Dropping a repeated sequence number is a UDP concern, and only a UDP
+    // concern: a datagram can genuinely arrive twice (the gateway resends
+    // when our ack goes missing), and delivering that telegram twice would
+    // put a phantom event in the monitor.
+    //
+    // Over TCP there are no duplicates to suppress - the stream already
+    // delivers exactly once, in order - and applying this check there is
+    // actively harmful, because a gateway is free to leave the sequence
+    // number alone when it is not sequencing anything. Every telegram after
+    // the first then matches seqIn and is dropped, which is the bus monitor
+    // going silent a moment after a TCP connection comes up.
+    //
+    // The send side already learned this the hard way, on real hardware:
+    // see _sendCEMIOnce, where waiting for a TUNNELING_ACK that TCP never
+    // sends hung every call after the first. Same conflation, other
+    // direction.
+    if (this.transport !== 'tcp' && seq === this.seqIn) return;
     this.seqIn = seq;
 
     const cemi = parseCEMI(msg, 10);
