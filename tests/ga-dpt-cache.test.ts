@@ -83,7 +83,10 @@ describe(
     it('GA delete invalidates cache', async () => {
       // Create a new GA
       const createRes = await req('POST', `/projects/${projectId}/gas`, {
-        address: '99/7/255',
+        // 31/7/254: the top of the valid range, so it will not collide
+        // with the fixture's own addresses. Was 99/7/255, which POST /gas
+        // accepted until the range check landed - no telegram can carry it.
+        address: '31/7/254',
         name: 'Cache test GA',
         dpt: 'DPST-9-1',
       });
@@ -101,7 +104,7 @@ describe(
       const projectRes = await req('GET', `/projects/${projectId}`);
       const data = projectRes.data as { gas: Array<{ address: string }> };
       assert.ok(
-        !data.gas.find((g) => g.address === '99/7/255'),
+        !data.gas.find((g) => g.address === '31/7/254'),
         'deleted GA should not appear in project data',
       );
     });

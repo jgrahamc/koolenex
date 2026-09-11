@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useContext } from 'react';
+import { compareAddr } from '../../../shared/address.ts';
 import type { Device } from '../../../shared/types.ts';
 import { useNavigate, useLocation, useParams } from 'react-router-dom';
 import { STATUS_COLOR } from '../theme.ts';
@@ -65,15 +66,6 @@ export function DevicesView() {
     }
   }, [jumpTo]);
 
-  const cmpAddr = (x: string, y: string) => {
-    const p = (s: string) => s.split(/[./]/).map(Number);
-    const [ax, bx] = [p(x), p(y)];
-    for (let i = 0; i < Math.max(ax.length, bx.length); i++) {
-      const d = (ax[i] ?? 0) - (bx[i] ?? 0);
-      if (d !== 0) return d;
-    }
-    return 0;
-  };
   const filtered = devices
     .filter((d) => {
       if (filterStatus !== 'all' && d.status !== filterStatus) return false;
@@ -97,7 +89,9 @@ export function DevicesView() {
     })
     .sort((a, b) => {
       if (sort.col === 'individual_address')
-        return cmpAddr(a.individual_address, b.individual_address) * sort.dir;
+        return (
+          compareAddr(a.individual_address, b.individual_address) * sort.dir
+        );
       return (
         String(field(a, sort.col) ?? '').localeCompare(
           String(field(b, sort.col) ?? ''),

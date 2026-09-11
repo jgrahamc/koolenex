@@ -110,12 +110,26 @@ on the next page refresh. `tests/api.test.ts` now asserts the list routes and
 `getProjectFull` return the same rows, so a re-inlined query fails the suite
 (checked by re-inlining one).
 
-### 13. `shared/address.ts`
+### 13. `shared/address.ts` — done
 
-Individual/group address parsing and formatting is scattered across 15+ places in client and
-server with ad-hoc `Number()` and `.split()`. Would also settle the inconsistency that
-`POST /projects/:id/gas` accepts `99/99/999` while `PATCH .../gas/group-name` enforces
-0-31/0-7.
+`parseIA`/`parseGA`/`formatIA`/`formatGA`/`isValidIA`/`isValidGA`/`compareAddr`,
+with the ranges taken from the wire format (4/4/8 for an individual address,
+5/3/8 for a group address) rather than from whoever wrote each call site.
+
+The inconsistency the review flagged turned out to have teeth.
+`POST /projects/:id/gas` accepted `99/99/999`, and `encodeGroup()` did not
+reject it either - it masked it into `3/3/231`, a real address, and the
+telegram went there. Both refuse it now: the encoders throw rather than
+write somewhere else, and the create route validates the range the
+group-name PATCH had always enforced.
+
+**Open question, deliberately not answered here.** Two-level group addresses
+(`'1/2'`) are stored and displayed but have never been resolved on the wire:
+`encodeGroup` pads them to `1/2/0`, while KNX means main + an 11-bit sub, so
+`1/2` should be `1/0/2`. `decodeGroup` only ever produces three levels, so
+the two spellings have never been reconciled. Changing the encoding changes
+which device receives the telegram, so it is preserved as-is and documented
+at `encodeGroup`.
 
 ### 14. `normalizeDpt` — done
 

@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
+import { compareAddr } from '../../shared/address.ts';
 import { errMessage, errCode } from './api.ts';
 import { useLocation, useNavigate } from 'react-router-dom';
 import type { AppState, Action } from './state.ts';
@@ -524,15 +525,6 @@ export function AppShell(props: AppShellProps) {
                         ['space', 'BY LOCATION', 'var(--amber)'],
                       ] as const
                     ).map(([wtype, label, col]) => {
-                      const cmpPhys = (a: string, b: string) => {
-                        const p = (s: string) => s.split('.').map(Number);
-                        const [x, y] = [p(a), p(b)];
-                        for (let i = 0; i < 3; i++) {
-                          const d = (x[i] ?? 0) - (y[i] ?? 0);
-                          if (d) return d;
-                        }
-                        return 0;
-                      };
                       const cmpGA = (a: string, b: string) => {
                         const ga = (addr: string) => {
                           const g = state.projectData?.gas?.find(
@@ -555,7 +547,7 @@ export function AppShell(props: AppShellProps) {
                         ...state.windows.filter((w) => w.wtype === wtype),
                       ].sort((a, b) =>
                         wtype === 'device'
-                          ? cmpPhys(a.address, b.address)
+                          ? compareAddr(a.address, b.address)
                           : wtype === 'ga'
                             ? cmpGA(a.address, b.address)
                             : 0,

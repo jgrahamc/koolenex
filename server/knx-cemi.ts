@@ -3,6 +3,7 @@
  */
 
 import { encodeDpt } from './knx-dpt.ts';
+import { parseIA, parseGA } from '../shared/address.ts';
 
 // Extended 10-bit APCI codes (used for property/memory management services)
 export const APCI_EXT = {
@@ -94,14 +95,38 @@ export const TPCI = {
 
 // ── Address encoding ───────────────────────────────────────────────────────────
 
+/**
+ * Refuse rather than mask. These used to take whatever they were given and
+ * shift it into two bytes, so '99.99.999' and '99/99/999' did not fail -
+ * they encoded as a different, perfectly valid address (99/99/999 came out
+ * as 3/3/231) and the telegram went to a real device that had nothing to do
+ * with the request. On a bus, writing to the wrong address is worse than
+ * not writing at all.
+ */
 export function encodePhysical(addr: string): Buffer {
-  const [a, l, d] = addr.split('.').map(Number);
-  return Buffer.from([(a! << 4) | (l! & 0xf), d! & 0xff]);
+  const ia = parseIA(addr);
+  if (!ia) throw new Error(`Invalid individual address: ${addr}`);
+  return Buffer.from([(ia.area << 4) | ia.line, ia.device]);
 }
 
 export function encodeGroup(addr: string): Buffer {
-  const [m, mi, s] = addr.split('/').map(Number);
-  return Buffer.from([(m! << 3) | (mi! & 0x7), s! & 0xff]);
+  const ga = parseGA(addr);
+  if (ga) return Buffer.from([(ga.main << 3) | ga.middle, ga.sub]);
+  // Two-level ('1/2'): kept exactly as it has always behaved - padded to
+  // three levels, so '1/2' goes to 1/2/0. That is very probably not what
+  // KNX means by a two-level address (main + an 11-bit sub, so 1/2 would be
+  // 1/0/2), but decodeGroup() only ever produces three levels, so the two
+  // spellings have never been reconciled anywhere in this codebase and
+  // changing the encoding changes which device receives the telegram.
+  // Left alone deliberately; not endorsed.
+  const two = /^(\d+)\/(\d+)$/.exec(addr);
+  if (two) {
+    const main = Number(two[1]);
+    const middle = Number(two[2]);
+    if (main >= 0 && main <= 31 && middle >= 0 && middle <= 7)
+      return Buffer.from([(main << 3) | middle, 0]);
+  }
+  throw new Error(`Invalid group address: ${addr}`);
 }
 
 export function decodePhysical(buf: Buffer, off: number = 0): string {

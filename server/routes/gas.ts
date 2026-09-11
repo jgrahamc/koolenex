@@ -26,7 +26,16 @@ router.post('/projects/:id/gas', (req: Request, res: Response): void => {
     z.object({
       address: z
         .string()
-        .regex(/^\d+\/\d+(\/\d+)?$/, 'Must be in X/Y/Z or X/Y format'),
+        .regex(/^\d+\/\d+(\/\d+)?$/, 'Must be in X/Y/Z or X/Y format')
+        // Range too, not just shape. This accepted '99/99/999', which no
+        // telegram can carry: encodeGroup() used to mask it down to a
+        // different real address (3/3/231) and write there. The group-name
+        // PATCH beside this route has always enforced the same limits.
+        .refine((a) => {
+          const p = a.split('/').map(Number);
+          if (p.length === 3) return p[0]! <= 31 && p[1]! <= 7 && p[2]! <= 255;
+          return p[0]! <= 31 && p[1]! <= 7;
+        }, 'Out of range - main 0-31, middle 0-7, sub 0-255'),
       name: z.string().optional(),
       dpt: z.string().optional(),
     }),
