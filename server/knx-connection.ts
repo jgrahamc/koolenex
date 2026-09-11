@@ -372,6 +372,18 @@ export class KnxConnection extends EventEmitter {
       };
       this.emit('telegram', telegram);
     } else if (!cemi.isGroup) {
+      // Nothing used to record what a device actually said back during a
+      // management session, so a timeout waiting for one particular APCI
+      // could not be told apart from the device answering something else
+      // entirely (an error response, a different service, a T_NAK). With
+      // LOG_LEVEL=debug this is the trace of the whole exchange.
+      logger.debug('knx', 'Management frame received', {
+        src: cemi.src,
+        dst: cemi.dst,
+        apciName: cemi.apciName,
+        tpciType: cemi.tpciType,
+        apdu: cemi.apdu.toString('hex'),
+      });
       this.emit('_mgmt', cemi);
     }
   }
@@ -1383,14 +1395,76 @@ export class KnxConnection extends EventEmitter {
         off += gotLen;
         continue;
       }
-      const apdu = apduMemoryRead(seq, n, wantAddr);
-      const respP = waitResponse('Memory_Response', 3000);
-      await this.sendCEMI(
-        buildCEMI(this.localAddr, deviceAddr, apdu, false, {
-          priority: 'system',
-        }),
-      );
-      const frame = await respP;
+      /** One legacy A_Memory_Read request/response round trip. */
+      const legacyRead = async (
+        count: number,
+        s: number,
+      ): Promise<CemiFrame> => {
+        const apdu = apduMemoryRead(s, count, wantAddr);
+        const respP = waitResponse('Memory_Response', 3000);
+        await this.sendCEMI(
+          buildCEMI(this.localAddr, deviceAddr, apdu, false, {
+            priority: 'system',
+          }),
+        );
+        return respP;
+      };
+
+      logger.debug('knx', 'A_Memory_Read', {
+        deviceAddr,
+        address: `0x${wantAddr.toString(16)}`,
+        count: n,
+        seq,
+        maxApduLengthValue,
+      });
+
+      // A device that can't answer a request this large may say so by
+      // answering with zero bytes - handled below, on real evidence from
+      // an HDL M/AG40B.1 - or by saying nothing at all, which lands here.
+      // Both are the same fault (the request exceeds what this particular
+      // device will serve in one go) and both deserve the same one retry
+      // at a conservatively small size before the read is called failed;
+      // only the zero-byte half of it was covered until 2026-09-11, when
+      // a real Verify of a mask 0x0701 device at 1.5.11 timed out with no
+      // response at all and no indication of what had been asked for:
+      //
+      //   18:45:57.407 DeviceDescriptor mask=0x0701
+      //   18:46:00.520 Device verify failed: Management timeout waiting
+      //                for Memory_Response
+      //
+      // If the retry is answered, the loop carries on from whatever it
+      // returned exactly as a short response does - `off` only ever
+      // advances by what actually arrived. If it isn't, the error now
+      // says what was asked for, which the bare transport-level timeout
+      // above never did.
+      let frame: CemiFrame;
+      let requested = n;
+      try {
+        frame = await legacyRead(n, seq);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        const describe = (count: number): string =>
+          `A_Memory_Read of ${count} byte(s) at 0x${wantAddr.toString(16)} on ${deviceAddr}` +
+          ` (max APDU ${maxApduLengthValue ?? 'unknown'})`;
+        if (!msg.includes('Management timeout') || n <= LEGACY_RETRY_CHUNK) {
+          throw new Error(`${describe(n)}: ${msg}`, { cause: err });
+        }
+        logger.info(
+          'knx',
+          `No Memory_Response to a ${n}-byte read at 0x${wantAddr.toString(16)} - retrying at ${LEGACY_RETRY_CHUNK}`,
+          { deviceAddr, wantAddr: wantAddr.toString(16), originalN: n },
+        );
+        requested = LEGACY_RETRY_CHUNK;
+        try {
+          frame = await legacyRead(requested, nextSeq());
+        } catch (err2) {
+          const msg2 = err2 instanceof Error ? err2.message : String(err2);
+          throw new Error(
+            `${describe(n)}: ${msg}; retry as ${describe(requested)}: ${msg2}`,
+            { cause: err2 },
+          );
+        }
+      }
       const { address: gotAddr, data } = parseMemoryResponse(frame);
       if (gotAddr !== wantAddr)
         throw new Error(
@@ -1399,7 +1473,9 @@ export class KnxConnection extends EventEmitter {
           )}, device answered 0x${gotAddr.toString(16)}`,
         );
       // Same real-short-response protection as the extended branch above.
-      let gotLen = Math.min(data.length, n);
+      // Clamped to what was actually asked for, which the silence retry
+      // above may have reduced below `n`.
+      let gotLen = Math.min(data.length, requested);
       let usedData = data;
       // Real bug, found live 2026-08-31: at least one real device (HDL
       // `M/AG40B.1`, mask 0x07B0) enforces a real legacy A_Memory_Read
@@ -1430,13 +1506,17 @@ export class KnxConnection extends EventEmitter {
       // returns, so a smaller-than-requested successful retry just means
       // the loop's next iteration picks up the remainder normally - no
       // special handling needed beyond this one chunk.
-      if (gotLen === 0 && n > 32) {
+      if (gotLen === 0 && requested > LEGACY_RETRY_CHUNK) {
         logger.info(
           'knx',
-          `Memory_Response returned zero bytes at 0x${wantAddr.toString(16)} (requested ${n}) - retrying at a smaller size`,
-          { deviceAddr, wantAddr: wantAddr.toString(16), originalN: n },
+          `Memory_Response returned zero bytes at 0x${wantAddr.toString(16)} (requested ${requested}) - retrying at a smaller size`,
+          {
+            deviceAddr,
+            wantAddr: wantAddr.toString(16),
+            originalN: requested,
+          },
         );
-        const retryN = 32;
+        const retryN = LEGACY_RETRY_CHUNK;
         const retrySeq = nextSeq();
         const retryApdu = apduMemoryRead(retrySeq, retryN, wantAddr);
         const retryRespP = waitResponse('Memory_Response', 3000);
@@ -1455,7 +1535,7 @@ export class KnxConnection extends EventEmitter {
       }
       if (gotLen === 0)
         throw new Error(
-          `Memory_Response returned zero bytes at 0x${wantAddr.toString(16)} (requested ${n})`,
+          `Memory_Response returned zero bytes at 0x${wantAddr.toString(16)} (requested ${requested})`,
         );
       usedData.copy(out, off, 0, gotLen);
       onChunk?.(gotLen);
@@ -3002,6 +3082,24 @@ export function delay(ms: number): Promise<void> {
  * - extended: 2 (TPCI+APCI_EXT header) + 1 (count) + 3 (24-bit address)
  *   = 6
  */
+/**
+ * The size a legacy A_Memory_Read falls back to when a device won't serve
+ * the size first asked for.
+ *
+ * 32, bisected against real hardware: an HDL M/AG40B.1 (mask 0x07B0)
+ * enforces a request-size ceiling of 52 bytes, well below the 6-bit APCI
+ * field's theoretical 63 - 52 succeeds, 53 fails, every time. 32 sits
+ * comfortably under that, and deliberately is not that device's specific
+ * number, which may well be model- or firmware-specific.
+ *
+ * This is a last resort for a device that refuses a size, not the normal
+ * sizing rule: a device's own declared PID_MAX_APDULENGTH already caps
+ * every request (see maxChunkFromApduLength below), and this only comes
+ * into play when the device won't serve what that cap allowed. See the
+ * two retry sites in readRegionInSession() for the full evidence.
+ */
+const LEGACY_RETRY_CHUNK = 32;
+
 export function maxChunkFromApduLength(
   maxApduLengthValue: number,
   useExtended: boolean,
