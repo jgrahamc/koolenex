@@ -272,20 +272,23 @@
   flex-direction: column;
   flex: 1;
   min-height: 0;
-  overflow: hidden;
-}
-/* ── Space priority when the window is too short to fit everything: the
-   static nav list (navItems) shrinks/scrolls first (flex-shrink allowed,
-   min-height:0, its own scroll) - it's always the same links, always
-   reachable by scrolling. The pinned-window section below it (pinSection)
-   refuses to shrink past a floor tall enough for one group header + its
-   first item (flex-shrink:0 + min-height), so a short window never clips
-   it down to a bare, contentless divider line sitting against the
-   "Project" footer - see the min-height comment on .pinSection. ── */
-.navItems {
-  flex: 0 1 auto;
-  min-height: 0;
+  /* Only engages in the extreme case below, where even the nav list does
+     not fit - scrolling the whole sidebar then beats clipping links out of
+     reach. In every normal window there is nothing here to scroll. */
   overflow-y: auto;
+}
+/* ── Space priority when the window is too short to fit everything.
+   The nav list keeps its full height and never scrolls: it is a short,
+   fixed set of links that should sit still, and a menu that moves under
+   the pointer is worse than one that takes the room it needs. The pinned
+   windows below it take whatever is left and scroll inside themselves -
+   that list is the one that actually grows without limit as devices and
+   group addresses are pinned.
+   (Until 2026-09-11 this was the other way round: the nav list shrank and
+   scrolled while pinSection refused to, which meant opening a handful of
+   pins scrolled the menu itself.) ── */
+.navItems {
+  flex: 0 0 auto;
   padding: 8px 0;
 }
 .navItem {
@@ -305,11 +308,10 @@
 }
 .pinSection {
   border-top: 1px solid var(--border);
-  overflow: auto;
-  flex: 1 0 auto;
-  /* One .pinGroupLabel (~19px) + one .pinItem (~20px) + the border - the
-     guaranteed-visible floor described above. */
-  min-height: 44px;
+  /* Takes the space the nav list does not need, and scrolls within it. */
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
 }
 .pinGroupLabel {
   padding: 6px 14px 2px;
