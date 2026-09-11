@@ -1329,6 +1329,56 @@ describe('POST /bus/verify-device — AbsSegment read-back diff', () => {
     assert.equal(body.match, false);
     assert.ok(body.totalDiffering >= 1);
   });
+
+  // Until 2026-09-11 decoding was gated on the relmem family, so an
+  // absmem device's comparison was a byte count and nothing else - the UI
+  // showed "N/M bytes match" over "No decodable parameters or properties
+  // were returned for this device", with no way to see which parameters
+  // the differing bytes belonged to. Nothing about absmem prevented it:
+  // one of its segments is the parameter image, identified by sitting at
+  // paramBase.
+  it('decodes the parameter segment into named rows', async () => {
+    mockBus.connected = true;
+    mockBus.memImage = expectedMemMap();
+    const r = await req(ts.baseUrl, 'POST', '/bus/verify-device', {
+      deviceAddress: deviceAddr,
+      projectId,
+    });
+    mockBus.memImage = null;
+    assert.equal(r.status, 200);
+    const body = r.data as any;
+    assert.equal(body.family, 'absmem');
+    const row = (body.decoded ?? []).find(
+      (d: any) => d.key === `${ABS_APP}_P-1_R-1`,
+    );
+    assert.ok(row, 'the parameter segment must decode into a named row');
+    assert.equal(row.match, true);
+    assert.equal(row.expectedValue, row.actualValue);
+  });
+
+  it('names the parameter behind a differing byte', async () => {
+    mockBus.connected = true;
+    const map = expectedMemMap();
+    // The parameter lives at offset 4 of the segment at 0x4400, so this
+    // is the byte its decoded row is computed from.
+    const paramAddr = 0x4400 + 4;
+    assert.ok(map.has(paramAddr));
+    map.set(paramAddr, (map.get(paramAddr)! ^ 0xff) & 0xff);
+    mockBus.memImage = map;
+    const r = await req(ts.baseUrl, 'POST', '/bus/verify-device', {
+      deviceAddress: deviceAddr,
+      projectId,
+    });
+    mockBus.memImage = null;
+    assert.equal(r.status, 200);
+    const body = r.data as any;
+    const row = (body.decoded ?? []).find(
+      (d: any) => d.key === `${ABS_APP}_P-1_R-1`,
+    );
+    assert.ok(row);
+    assert.equal(row.match, false);
+    assert.notEqual(row.actualValue, row.expectedValue);
+  });
 });
 
 describe('POST /bus/verify-device — property-configured device', () => {

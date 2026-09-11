@@ -2390,14 +2390,34 @@ export async function runVerifyDevice(
     obj3Actual?: GroupObjectEntryFlags | null;
   };
   let decoded: DecodedComparison[] | undefined;
-  if (
-    plan.family === 'relmem' &&
-    segments.length === 1 &&
-    paramMemLayout &&
-    Object.keys(paramMemLayout).length
-  ) {
-    const expectedBuf = Buffer.from(segments[0]!.expectedHex, 'hex');
-    const actualBuf = Buffer.from(segments[0]!.actualHex, 'hex');
+  // Which of the compared segments is the parameter image.
+  //
+  // relmem devices read one region and that region IS the parameter
+  // image. absmem (MDT-style) devices read several - the address table,
+  // the association table, the group-object table and the parameters -
+  // and only one of them is decodable. planDownload picks `paramMem` as a
+  // segment's source exactly when the segment's address equals
+  // `paramBase` (pickSourceBuffer, knx-download-plan.ts) and emits it as a
+  // single unchunked memWrite, so the region at that address carries
+  // precisely the buffer `paramMemLayout`'s offsets are relative to.
+  //
+  // Until 2026-09-11 this was gated on relmem alone, so every absmem
+  // device got a raw byte count and nothing else: "2366/8213 bytes match"
+  // over "No decodable parameters or properties were returned for this
+  // device", with no way to see which parameters the 5,847 differing
+  // bytes belonged to. There was never a reason for it beyond relmem
+  // being the family that happened to have one segment.
+  const paramSegment =
+    plan.family === 'relmem'
+      ? segments.length === 1
+        ? segments[0]
+        : undefined
+      : plan.family === 'absmem' && paramBase != null
+        ? segments.find((seg) => seg.offset === paramBase)
+        : undefined;
+  if (paramSegment && paramMemLayout && Object.keys(paramMemLayout).length) {
+    const expectedBuf = Buffer.from(paramSegment.expectedHex, 'hex');
+    const actualBuf = Buffer.from(paramSegment.actualHex, 'hex');
     const layout = paramMemLayout as Parameters<typeof decodeParamMem>[1];
     const defs = paramDefs as Parameters<typeof decodeParamMem>[2];
     const expectedDecoded = decodeParamMem(expectedBuf, layout, defs);
