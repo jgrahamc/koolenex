@@ -333,6 +333,20 @@ export class KnxConnection extends EventEmitter {
     throw new Error('disconnect() must be implemented by transport subclass');
   }
 
+  /**
+   * Resolves once a previous disconnect() has actually released the
+   * transport, not just asked it to close. disconnect() is deliberately
+   * synchronous (every caller treats it as fire-and-forget), but tearing a
+   * socket down takes real time, and anything that reconnects to the SAME
+   * gateway has to wait for it - see KnxIpConnection's override.
+   *
+   * The default is "nothing to wait for": a transport whose disconnect()
+   * really is instantaneous, USB included, needs no override.
+   */
+  whenClosed(): Promise<void> {
+    return Promise.resolve();
+  }
+
   /** Called by transport subclass when a CEMI frame is received from the bus. */
   _onCEMI(cemi: CemiFrame): void {
     // KNX network-management broadcast services (individual-address

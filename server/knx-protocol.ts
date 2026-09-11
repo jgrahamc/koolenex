@@ -141,6 +141,9 @@ class KnxIpConnection extends (KnxConnection as new () => InstanceType<
   // best-effort (its own failure never fails the main connect()). See
   // knx-protocol-routing.ts.
   _routing: KnxRoutingSocket | null;
+  // Resolves when a disconnect() started here has finished releasing the
+  // socket. See whenClosed() below for why anything cares.
+  _teardown: Promise<void> | null;
 
   constructor() {
     super();
@@ -160,6 +163,7 @@ class KnxIpConnection extends (KnxConnection as new () => InstanceType<
     this._sending = false;
     this._sendQueue = [];
     this._routing = null;
+    this._teardown = null;
   }
 
   // ── Connect ─────────────────────────────────────────────────────────────────
@@ -663,6 +667,8 @@ class KnxIpConnection extends (KnxConnection as new () => InstanceType<
     this._routing?.stop();
     this._routing = null;
 
+    // Already torn down (or never connected): whenClosed() still reports
+    // the earlier teardown, if there was one.
     if (!this.udpSocket && !this.tcpSocket) return;
     this._clearHeartbeat();
     if (this.connected) {
@@ -675,16 +681,77 @@ class KnxIpConnection extends (KnxConnection as new () => InstanceType<
       } catch (_) {}
     }
     this.connected = false;
-    setTimeout(() => {
-      try {
-        this.udpSocket?.close();
-      } catch (_) {}
-      try {
-        this.tcpSocket?.destroy();
-      } catch (_) {}
-      this.udpSocket = null;
-      this.tcpSocket = null;
-    }, 500);
+
+    const udp = this.udpSocket;
+    const tcp = this.tcpSocket;
+    this.udpSocket = null;
+    this.tcpSocket = null;
+
+    this._teardown = new Promise<void>((resolve) => {
+      if (tcp) {
+        // end() flushes the DISCONNECT_REQUEST written just above and then
+        // sends FIN, so TCP needs no timer to get the bytes out - only a
+        // backstop for a gateway that never completes the close.
+        const backstop = setTimeout(() => {
+          try {
+            tcp.destroy();
+          } catch (_) {}
+          resolve();
+        }, 500);
+        tcp.once('close', () => {
+          clearTimeout(backstop);
+          resolve();
+        });
+        try {
+          tcp.end();
+        } catch (_) {
+          clearTimeout(backstop);
+          try {
+            tcp.destroy();
+          } catch (_) {}
+          resolve();
+        }
+        return;
+      }
+      // dgram queues sends, and closing the socket in the same tick as
+      // send() can drop the datagram that was the whole point of the
+      // disconnect - hence the delay UDP still needs.
+      setTimeout(() => {
+        try {
+          udp?.close();
+        } catch (_) {}
+        resolve();
+      }, 500);
+    });
+  }
+
+  /**
+   * Resolves once disconnect() has genuinely released the socket.
+   *
+   * This exists because of a real live failure (2026-09-11): a Verify runs
+   * forceReconnect() first, which disconnects the current connection and
+   * immediately opens a new one to the same gateway. The old socket used
+   * to live on for a further 500ms on a timer, so for that half-second two
+   * TCP connections to the same router were open at once - and the router
+   * reacted by dropping the tunnel a moment after the new one came up:
+   *
+   *   18:33:15.725 Connected to 192.168.42.229:3671 (tcp)
+   *   18:33:15.944 DeviceDescriptor mask=0x0701
+   *   18:33:16.206 TCP socket closed
+   *   18:33:19.066 Device verify failed: Management timeout waiting for
+   *                Memory_Response
+   *
+   * The close lands almost exactly 500ms after the reconnect began, which
+   * is the old socket's timer, not a coincidence. This is the same shape
+   * of fault as the overlapping-connect race already documented in
+   * KnxBusManager.connect() ("two Connected log lines under 2 seconds
+   * apart, then the connection closing again half a second later - the
+   * router very plausibly reacting to the leaked/orphaned channel"); that
+   * fix closed the two-connects-at-once path but left this
+   * disconnect-overlapping-the-next-connect one open.
+   */
+  whenClosed(): Promise<void> {
+    return this._teardown ?? Promise.resolve();
   }
 
   _clearHeartbeat(): void {

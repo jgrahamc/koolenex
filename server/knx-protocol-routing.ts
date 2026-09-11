@@ -114,6 +114,17 @@ export class KnxRoutingSocket {
           sock.addMembership(ROUTING_MULTICAST_ADDRESS);
           resolve();
         } catch (err) {
+          // The socket is already bound to port 3671 at this point, so
+          // rejecting without closing it leaks a bound UDP socket - and
+          // connect() treats a Routing failure as non-fatal, so it happens
+          // on EVERY connect on a host with no multicast-capable route
+          // (a container, a VM, a Pi whose default route can't do
+          // multicast: 'addMembership ENODEV'). Found because it kept a
+          // test process alive after everything it opened had been closed.
+          try {
+            sock.close();
+          } catch (_) {}
+          this.socket = null;
           reject(err as Error);
         }
       });

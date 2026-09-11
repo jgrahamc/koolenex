@@ -206,6 +206,9 @@ class KnxBusManager extends EventEmitter {
     // below it would otherwise clobber this.host back to null right after
     // setting it, since disconnect() runs after the assignment instead of
     // before.
+    // Captured before disconnect() clears this.connection: the new socket
+    // must not be opened until the old one is genuinely gone (see below).
+    const previous = this.connection;
     if (this.connection) this.disconnect();
     this.host = host;
     const resolvedPort = port || 3671;
@@ -213,6 +216,15 @@ class KnxBusManager extends EventEmitter {
     this.projectId = projectId ?? null;
 
     this._connecting = (async () => {
+      // disconnect() above only *starts* the teardown. Opening the new
+      // connection while the old socket is still open means two live
+      // connections to the same gateway for as long as that takes, and a
+      // router that reuses the channel id or is short of tunnel slots
+      // takes the new tunnel down with the old socket - a real failure,
+      // see KnxIpConnection.whenClosed() for the captured log. Waiting
+      // here costs a few hundred milliseconds on a reconnect and nothing
+      // at all on a first connect.
+      if (previous) await previous.whenClosed();
       const conn = new KnxIpConnection();
       this._attachEvents(conn);
       await conn.connect(host, resolvedPort, undefined, protocol);
