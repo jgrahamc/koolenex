@@ -5,7 +5,38 @@
   overflow: auto;
 }
 .inner {
-  max-width: 480px;
+  max-width: 1400px;
+}
+/* Two columns: the project's own settings on the left at the width they
+   were designed for, the audit log on the right taking the rest. The log
+   is a table of timestamped rows that reads far better wide than stacked
+   under everything else, and it is the only part of this page that grows
+   without limit.
+   The 480px that used to cap .inner now caps the left column only - leaving
+   it on .inner squeezed both columns into that same 480px and left the log
+   with a sliver.
+   Below 980px there is not enough room for both, so they stack in source
+   order and the page reads exactly as it did before. */
+.columns {
+  display: grid;
+  grid-template-columns: minmax(0, 480px) minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+.columnsLeft {
+  min-width: 0;
+}
+.columnsRight {
+  min-width: 0;
+}
+@media (max-width: 980px) {
+  .columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .columnsLeft,
+  .columnsRight {
+    max-width: 480px;
+  }
 }
 .heading {
   font-family: 'Syne', sans-serif;
@@ -235,8 +266,11 @@
   color: var(--dim);
   padding: 8px 0;
 }
+/* Tall enough to use the column it now sits in; the page itself scrolls
+   if the viewport is shorter than that. */
 .auditTableWrap {
-  max-height: 320px;
+  max-height: calc(100vh - 260px);
+  min-height: 200px;
   overflow: auto;
   border: 1px solid var(--border);
   border-radius: 4px;
@@ -279,6 +313,9 @@
 }
 .auditDetail {
   color: var(--muted);
+  /* The only column with free-form text; wrapping it keeps the table
+     inside the card instead of pushing a horizontal scrollbar. */
+  word-break: break-word;
 }
 .auditRowBorder {
   border-bottom: 1px solid var(--border-22);

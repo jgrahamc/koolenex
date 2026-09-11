@@ -2,7 +2,6 @@ import { useState, useEffect, useCallback } from 'react';
 import type { AuditLogEntry } from '../../../shared/types.ts';
 import { Btn } from '../primitives.tsx';
 import { api } from '../api.ts';
-import { BusConnectionPanel } from '../BusConnectionPanel.tsx';
 import { useAppData } from '../contexts.ts';
 import styles from './ProjectInfoView.module.css';
 
@@ -40,75 +39,79 @@ export function ProjectInfoView({
       <div className={styles.inner}>
         <div className={styles.heading}>Project</div>
 
-        <BusConnectionPanel />
-
-        <div className={styles.card}>
-          <div className={styles.sectionTitleWide}>ETS PROJECT</div>
-          {[
-            ['Project', project?.name],
-            ['File', project?.file_name],
-            ['Started', fmt(info.projectStart)],
-            ['Last Modified', fmt(info.lastModified)],
-            ['Archived', fmt(info.archivedVersion)],
-            ['Status', info.completionStatus],
-            ['GA Style', info.groupAddressStyle],
-            ['GUID', info.guid],
-          ]
-            .filter(([, v]) => v && v !== '—')
-            .map(([label, value]) => (
-              <div key={label} className={styles.infoRow}>
-                <span className={styles.infoLabel}>{label}</span>
-                <span className={styles.infoValue}>{value}</span>
-              </div>
-            ))}
-          {project?.thumbnail && (
-            <div className={styles.thumbnailWrap}>
-              <img
-                src={`data:image/jpeg;base64,${project.thumbnail}`}
-                alt=""
-                className={styles.thumbnailImg}
-              />
+        <div className={styles.columns}>
+          <div className={styles.columnsLeft}>
+            <div className={styles.card}>
+              <div className={styles.sectionTitleWide}>ETS PROJECT</div>
+              {[
+                ['Project', project?.name],
+                ['File', project?.file_name],
+                ['Started', fmt(info.projectStart)],
+                ['Last Modified', fmt(info.lastModified)],
+                ['Archived', fmt(info.archivedVersion)],
+                ['Status', info.completionStatus],
+                ['GA Style', info.groupAddressStyle],
+                ['GUID', info.guid],
+              ]
+                .filter(([, v]) => v && v !== '—')
+                .map(([label, value]) => (
+                  <div key={label} className={styles.infoRow}>
+                    <span className={styles.infoLabel}>{label}</span>
+                    <span className={styles.infoValue}>{value}</span>
+                  </div>
+                ))}
+              {project?.thumbnail && (
+                <div className={styles.thumbnailWrap}>
+                  <img
+                    src={`data:image/jpeg;base64,${project.thumbnail}`}
+                    alt=""
+                    className={styles.thumbnailImg}
+                  />
+                </div>
+              )}
             </div>
-          )}
-        </div>
 
-        <div className={styles.card}>
-          <div className={styles.sectionTitleWide}>SUMMARY</div>
-          {[
-            ['Devices', data?.devices?.length],
-            ['Group Addresses', data?.gas?.length],
-            ['Group Objects', data?.comObjects?.length],
-            ['Spaces', data?.spaces?.length],
-          ].map(([label, value]) => (
-            <div key={label as string} className={styles.summaryRow}>
-              <span className={styles.summaryLabel}>{label}</span>
-              <span className={styles.summaryValue}>{value ?? '—'}</span>
-            </div>
-          ))}
-        </div>
-
-        <AuditLogSection projectId={project?.id ?? null} />
-
-        {languages && languages.length > 1 && (
-          <div className={styles.card}>
-            <div className={styles.sectionTitleWide}>LANGUAGE</div>
-            <div className={styles.langLabel}>KNX DATA LANGUAGE</div>
-            <select
-              value={lang}
-              onChange={(e) => onLangChange(e.target.value)}
-              className={styles.langSelect}
-            >
-              {languages.map((l) => (
-                <option key={l.id} value={l.id}>
-                  {l.name} ({l.id})
-                </option>
+            <div className={styles.card}>
+              <div className={styles.sectionTitleWide}>SUMMARY</div>
+              {[
+                ['Devices', data?.devices?.length],
+                ['Group Addresses', data?.gas?.length],
+                ['Group Objects', data?.comObjects?.length],
+                ['Spaces', data?.spaces?.length],
+              ].map(([label, value]) => (
+                <div key={label as string} className={styles.summaryRow}>
+                  <span className={styles.summaryLabel}>{label}</span>
+                  <span className={styles.summaryValue}>{value ?? '—'}</span>
+                </div>
               ))}
-            </select>
-            <div className={styles.langHint}>
-              Translates KNX data types, space usages, and function types.
             </div>
+
+            {languages && languages.length > 1 && (
+              <div className={styles.card}>
+                <div className={styles.sectionTitleWide}>LANGUAGE</div>
+                <div className={styles.langLabel}>KNX DATA LANGUAGE</div>
+                <select
+                  value={lang}
+                  onChange={(e) => onLangChange(e.target.value)}
+                  className={styles.langSelect}
+                >
+                  {languages.map((l) => (
+                    <option key={l.id} value={l.id}>
+                      {l.name} ({l.id})
+                    </option>
+                  ))}
+                </select>
+                <div className={styles.langHint}>
+                  Translates KNX data types, space usages, and function types.
+                </div>
+              </div>
+            )}
           </div>
-        )}
+
+          <div className={styles.columnsRight}>
+            <AuditLogSection projectId={project?.id ?? null} />
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -120,7 +123,10 @@ interface AuditLogSectionProps {
 
 function AuditLogSection({ projectId }: AuditLogSectionProps) {
   const [logs, setLogs] = useState<AuditLogEntry[] | null>(null);
-  const [expanded, setExpanded] = useState(false);
+  // Open on arrival: the log has a column of the page to itself, so a
+  // collapsed card there is just an empty right-hand side. It stays
+  // collapsible for when the left column is the part being read.
+  const [expanded, setExpanded] = useState(true);
   const [loading, setLoading] = useState(false);
 
   const load = useCallback(() => {
