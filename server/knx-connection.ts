@@ -291,7 +291,18 @@ export interface ScanProgress {
 
 interface ManagementSessionFns {
   sendData: (apciName: string, extraBuf?: Buffer | null) => Promise<void>;
-  waitResponse: (apciNameExpected: string, ms?: number) => Promise<CemiFrame>;
+  waitResponse: (
+    apciNameExpected: string,
+    ms?: number,
+    /**
+     * Extra test a frame must pass to count as the response. A frame with
+     * the right APCI that fails it is ignored and the wait continues, so a
+     * stale or retransmitted response from an earlier request can't be
+     * mistaken for the answer to this one - see readRegionInSession(),
+     * where a real capture did exactly that.
+     */
+    accept?: (frame: CemiFrame) => boolean,
+  ) => Promise<CemiFrame>;
   nextSeq: () => number;
 }
 
@@ -301,6 +312,25 @@ export class KnxConnection extends EventEmitter {
   localAddr: string;
   connected: boolean;
   _scanAbort: boolean;
+  /**
+   * How long to wait for a memory read's response.
+   *
+   * This was 3000ms, which is precisely the KNX transport layer's own
+   * acknowledgement timeout - so koolenex gave up at the exact moment the
+   * peer's recovery began. From a real capture, 2026-09-11 (1.1.21, mask
+   * 0x0701): a T_Ack of the device's previous response never reached it,
+   * so the device held its next response back - a transport connection
+   * allows one unacknowledged numbered frame at a time - retransmitted
+   * the previous one at +3.14s, got the T_Ack for that, and sent the
+   * response we were waiting for at +3.28s. 140ms after we had already
+   * declared it dead and disconnected.
+   *
+   * 6s covers one full retransmit-and-recover cycle. It costs nothing
+   * except when a device genuinely doesn't answer, which was never the
+   * fast path. A field rather than a constant so tests don't have to
+   * spend it.
+   */
+  memoryResponseTimeoutMs = 6000;
 
   constructor() {
     super();
@@ -483,6 +513,7 @@ export class KnxConnection extends EventEmitter {
     const waitResponse = (
       apciNameExpected: string,
       ms: number = timeoutMs,
+      accept?: (frame: CemiFrame) => boolean,
     ): Promise<CemiFrame> =>
       new Promise((resolve, reject) => {
         const timer = setTimeout(() => {
@@ -492,11 +523,22 @@ export class KnxConnection extends EventEmitter {
           );
         }, ms);
         const handler = (cemi: CemiFrame): void => {
-          if (cemi.src === deviceAddr && cemi.apciName === apciNameExpected) {
-            clearTimeout(timer);
-            this.off('_mgmt', handler);
-            resolve(cemi);
+          if (cemi.src !== deviceAddr || cemi.apciName !== apciNameExpected)
+            return;
+          // Keep listening rather than resolving with a frame the caller
+          // has said isn't the one it asked for. Resolving and letting the
+          // caller throw loses the real response that is still on its way.
+          if (accept && !accept(cemi)) {
+            logger.debug('knx', 'Ignoring a non-matching response', {
+              src: cemi.src,
+              apciName: cemi.apciName,
+              apdu: cemi.apdu.toString('hex'),
+            });
+            return;
           }
+          clearTimeout(timer);
+          this.off('_mgmt', handler);
+          resolve(cemi);
         };
         this.on('_mgmt', handler);
       });
@@ -511,8 +553,17 @@ export class KnxConnection extends EventEmitter {
       // Fire-and-forget the T_Ack, but swallow a failed send (e.g. a KNXnet/IP
       // ACK timeout on a flaky link) so it never becomes an unhandled promise
       // rejection that crashes the process. The awaiting read/verify surfaces
-      // the failure through its own waitResponse timeout.
-      sendControl(TPCI.ACK, rxSeq).catch(() => {});
+      // the failure through its own waitResponse timeout - but silently, and
+      // a T_Ack that doesn't arrive is not a small thing: the peer holds its
+      // next numbered frame until it is acked, so one lost T_Ack stalls the
+      // whole session for the peer's full retransmission timer. Say so.
+      sendControl(TPCI.ACK, rxSeq).catch((err: Error) => {
+        logger.warn('knx', 'Failed to send T_Ack - the peer will stall', {
+          deviceAddr,
+          seq: rxSeq,
+          error: err.message,
+        });
+      });
     };
     this.on('_mgmt', ackHandler);
 
@@ -1360,7 +1411,11 @@ export class KnxConnection extends EventEmitter {
       const n = Math.min(chunkSize, length - off, maxN, sizeCeiling);
       if (useExtended) {
         const apdu = apduMemoryExtendedRead(seq, n, wantAddr);
-        const respP = waitResponse('MemoryExtended_Read_Response', 3000);
+        const respP = waitResponse(
+          'MemoryExtended_Read_Response',
+          this.memoryResponseTimeoutMs,
+          (f) => parseMemoryExtendedResponse(f).address === wantAddr,
+        );
         await this.sendCEMI(
           buildCEMI(this.localAddr, deviceAddr, apdu, false, {
             priority: 'system',
@@ -1376,6 +1431,11 @@ export class KnxConnection extends EventEmitter {
           throw new Error(
             `MemoryExtended read error rc=${returnCode} at 0x${wantAddr.toString(16)}`,
           );
+        // waitResponse only resolves on the requested address now, so this
+        // is an invariant, not a case that reaches a user. Kept because
+        // copying a response into the wrong offset of the read-back buffer
+        // is silent corruption, and this is the only thing standing
+        // between a future caller that forgets the predicate and that.
         if (gotAddr !== wantAddr)
           throw new Error(
             `MemoryExtended_Read_Response address mismatch: requested 0x${wantAddr.toString(
@@ -1418,7 +1478,15 @@ export class KnxConnection extends EventEmitter {
         s: number,
       ): Promise<CemiFrame> => {
         const apdu = apduMemoryRead(s, count, wantAddr);
-        const respP = waitResponse('Memory_Response', 3000);
+        const respP = waitResponse(
+          'Memory_Response',
+          this.memoryResponseTimeoutMs,
+          (f) => {
+            const got = parseMemoryResponse(f).address;
+            if (got !== wantAddr) wrongAddresses.add(got);
+            return got === wantAddr;
+          },
+        );
         await this.sendCEMI(
           buildCEMI(this.localAddr, deviceAddr, apdu, false, {
             priority: 'system',
@@ -1435,6 +1503,13 @@ export class KnxConnection extends EventEmitter {
         maxApduLengthValue,
       });
 
+      // Addresses the device answered with that were not the one asked
+      // for. A response that fails the predicate is ignored rather than
+      // resolving the wait (see waitResponse), which is right - it is
+      // usually a retransmission of the previous chunk - but a device
+      // that answers ONLY wrong addresses would then look identical to
+      // one that says nothing at all, and those need different answers.
+      const wrongAddresses = new Set<number>();
       const describeRead = (count: number): string =>
         `A_Memory_Read of ${count} byte(s) at 0x${wantAddr.toString(16)} on ${deviceAddr}` +
         ` (max APDU ${maxApduLengthValue ?? 'unknown'})`;
@@ -1494,11 +1569,19 @@ export class KnxConnection extends EventEmitter {
         }
       }
       if (!frame) {
-        throw new Error(
-          `${attempts.join('; ')} - the device answers DeviceDescriptor_Read but not A_Memory_Read at this address, so this is not a request-size limit`,
-        );
+        const why = wrongAddresses.size
+          ? `the device answered only with other addresses (${[
+              ...wrongAddresses,
+            ]
+              .map((a) => `0x${a.toString(16)}`)
+              .join(', ')}), never the one requested`
+          : 'the device answers DeviceDescriptor_Read but not A_Memory_Read at this address, so this is not a request-size limit';
+        throw new Error(`${attempts.join('; ')} - ${why}`);
       }
       const { address: gotAddr, data } = parseMemoryResponse(frame);
+      // Same invariant as the extended branch above - unreachable while
+      // waitResponse is given the address predicate, kept as the guard
+      // against silent corruption if it ever isn't.
       if (gotAddr !== wantAddr)
         throw new Error(
           `Memory_Response address mismatch: requested 0x${wantAddr.toString(
@@ -1552,7 +1635,11 @@ export class KnxConnection extends EventEmitter {
         const retryN = LEGACY_RETRY_CHUNK;
         const retrySeq = nextSeq();
         const retryApdu = apduMemoryRead(retrySeq, retryN, wantAddr);
-        const retryRespP = waitResponse('Memory_Response', 3000);
+        const retryRespP = waitResponse(
+          'Memory_Response',
+          this.memoryResponseTimeoutMs,
+          (f) => parseMemoryResponse(f).address === wantAddr,
+        );
         await this.sendCEMI(
           buildCEMI(this.localAddr, deviceAddr, retryApdu, false, {
             priority: 'system',

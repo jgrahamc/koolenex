@@ -46,6 +46,9 @@ class FakeSilentAboveCeilingDevice extends KnxConnection {
     this.connected = true;
     this.localAddr = '1.0.1';
     this.memory = Buffer.alloc(0x5000);
+    // The real 6s wait is about a real device's retransmission timer, not
+    // about anything under test here.
+    this.memoryResponseTimeoutMs = 300;
     for (let i = 0; i < this.memory.length; i++) this.memory[i] = i & 0xff;
   }
 

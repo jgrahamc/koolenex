@@ -466,9 +466,16 @@ describe('KnxConnection.readMemory', () => {
     for (let i = 0; i < mem.length; i++) mem[i] = i & 0xff;
     // Device echoes a wrong address (off by one) — must never be copied blindly.
     const dev = new MisaddressingDevice('1.1.4', mem);
+    // A wrong address no longer resolves the wait - it is usually a
+    // retransmission of the previous chunk, and giving up on the request
+    // in flight because of one loses the real answer still on its way
+    // (see tests/memory-read-stale-response.test.ts for the capture).
+    // A device that answers ONLY wrong addresses still has to be told
+    // apart from one that says nothing, so the failure names them.
+    dev.memoryResponseTimeoutMs = 100;
     await assert.rejects(
       dev.readMemory('1.1.4', 0x0100, 8, 8),
-      /address mismatch/,
+      /answered only with other addresses \(0x101\)/,
     );
   });
 

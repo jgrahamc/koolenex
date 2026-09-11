@@ -319,6 +319,15 @@ class KnxIpConnection extends (KnxConnection as new () => InstanceType<
         // for the separate, application-level mechanism this does not
         // substitute for.
         socket.setKeepAlive(true, 30000);
+        // Nagle holds a small write back until the previous one is acked,
+        // so two frames sent a millisecond apart - which is exactly what a
+        // T_Ack followed by the next request is - leave here coalesced
+        // into one TCP segment. A real capture, 2026-09-11, has a router
+        // deliver the second of such a pair and not the first: the T_Ack
+        // never reached the device, which then held its next response for
+        // its full 3s retransmission timer. Every frame here is small and
+        // latency-sensitive, which is precisely what Nagle is wrong for.
+        socket.setNoDelay(true);
         // TCP's CONNECT_REQ uses the placeholder HPAI (0.0.0.0:0, protocol
         // TCP) - the socket itself is the real endpoint. localIp/localPort
         // are kept at their defaults; CONNSTATE/DISCONNECT over TCP reuse
