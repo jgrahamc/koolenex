@@ -57,3 +57,5 @@ client/dist/
 # redistribute, and large; koolenex reads it from the .knxproj at import
 # time and never needs a copy in the tree.
 /M-*.xml
+
+spec/
