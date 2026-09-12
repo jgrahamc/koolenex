@@ -59,3 +59,8 @@ client/dist/
 /M-*.xml
 
 spec/
+
+# Bus captures dropped in for investigation - see
+# docs/follow-ups/2026-09-12-zennio-memory-read-refusal.md
+*.pcap
+*.pcapng
