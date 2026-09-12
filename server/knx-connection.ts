@@ -3221,6 +3221,29 @@ export function delay(ms: number): Promise<void> {
  * every request (see maxChunkFromApduLength below), and this only comes
  * into play when the device won't serve what that cap allowed. See the
  * two retry sites in readRegionInSession() for the full evidence.
+ *
+ * ─────────────────────────────────────────────────────────────────────
+ * ⚠ TEMPORARY. THIS NUMBER IS NOT DERIVED FROM ANYTHING AND MUST GO.
+ * ─────────────────────────────────────────────────────────────────────
+ *
+ * 32 was chosen because it is comfortably below a ceiling measured on one
+ * unit of one product. That is not a rule - it is a number that happened
+ * to work on one device, and nothing in the KNX specification, the ETS
+ * project, or the device's product data says 32. A second device with a
+ * lower real ceiling would fail here exactly as the first one did, and a
+ * device with a higher one is read more slowly than it needs to be.
+ *
+ * What should replace it is a declared limit. The device's own
+ * PID_MAX_APDULENGTH is the specified ceiling and is already honoured
+ * (maxChunkFromApduLength); the open question is what a device that
+ * refuses a request WITHIN that declared limit is actually telling us,
+ * and whether the product data or a mask-version property says so. Until
+ * that is answered from a specification rather than from a measurement,
+ * this constant is a hack standing in for the answer - one that only
+ * runs after a device has already refused, which is the only reason it
+ * is tolerable at all.
+ *
+ * Do not tune this number against another device. Replace it.
  */
 const LEGACY_RETRY_CHUNK = 32;
 

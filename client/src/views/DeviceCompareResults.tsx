@@ -299,20 +299,20 @@ export function DeviceCompareResults({
     : [];
   const matchCount = paramDecoded.filter((d) => d.match === true).length;
   const mismatchCount = paramDecoded.filter((d) => d.match === false).length;
+  // How many of the differing parameters are ones the download never
+  // writes (server-side `written`, see VerifyDecodedParam). Their bytes
+  // keep the parameter segment's fill, so the "expected" side is a decode
+  // of filler and the difference is an artefact, not device drift.
+  // Reported next to the mismatch count rather than removed from it,
+  // until there is evidence of how much of a real device's mismatch this
+  // actually accounts for.
   // Column widths, now that two of the five columns are optional.
   const optionalCols = (showGroupCol ? 1 : 0) + (showLayoutCol ? 1 : 0);
   const nameColWidth = `${52 - optionalCols * 10}%`;
   const valueColWidth = `${19 - optionalCols * 3}%`;
 
-  // Parameters the download never writes (server-side `written`, see
-  // VerifyDecodedParam). Their bytes keep the parameter segment's fill, so
-  // there is no expectation to compare the device against, and the server
-  // reports them as not applicable rather than matching or differing.
-  // Counted here so they are visible rather than silently absent: on the
-  // real device this came from, 130 of 139 rows previously reported as
-  // differing were these.
-  const notComparedCount = paramDecoded.filter(
-    (d) => d.written === false,
+  const unwrittenMismatchCount = paramDecoded.filter(
+    (d) => d.match === false && d.written === false,
   ).length;
   const gaMatchCount = gaDecoded.filter((d) => d.match === true).length;
   const gaMismatchCount = gaDecoded.filter((d) => d.match === false).length;
@@ -551,22 +551,26 @@ export function DeviceCompareResults({
                       />
                     </button>
                   )}
-                  {/* Neither matched nor differing: shown so the two
-                      counts adding up to less than the row count is
-                      explained rather than puzzling. */}
-                  {notComparedCount > 0 && (
+                  {/* Diagnostic, 2026-09-12: how much of a real device's
+                      mismatch is parameters the download never writes at
+                      all, whose expected side is a decode of the segment's
+                      fill. Shown beside the differ count rather than
+                      removed from it - the point right now is to find out
+                      how much this accounts for, not to quietly shrink the
+                      number. See VerifyDecodedParam.written. */}
+                  {unwrittenMismatchCount > 0 && (
                     <span
                       className={styles.cacheNote}
                       title={
-                        `${notComparedCount} parameters are not compared: this download never ` +
-                        `writes them. The app declares them, but they are an inactive ` +
-                        `alternative for their channel, or have no value and no default, so ` +
-                        `their bytes keep the parameter segment's fill. There is nothing to ` +
-                        `compare the device against - the "Project" side would be a decode of ` +
-                        `filler. Turn on "Show byte layout" to see which rows these are.`
+                        `${unwrittenMismatchCount} of the differing parameters are ones this ` +
+                        `download never writes: the app declares them, but they are an ` +
+                        `inactive alternative for their channel or have no value and no ` +
+                        `default, so their bytes keep the segment's fill. The comparison ` +
+                        `still decodes them on both sides, so "expected" there is a decode ` +
+                        `of filler and the difference is an artefact rather than device drift.`
                       }
                     >
-                      {notComparedCount} not compared
+                      {unwrittenMismatchCount} never written
                     </span>
                   )}
                   {/* The group label span (e.g. "named parameters / GAs")

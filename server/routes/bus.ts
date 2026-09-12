@@ -2419,12 +2419,20 @@ export async function runVerifyDevice(
      * those the "expected" value is a decode of filler and comparing it
      * to the device means nothing.
      *
-     * A false here makes the row's `match` null - not applicable - rather
-     * than false. Measured on the device that prompted this: 130 of its
-     * 139 "differing" parameters were ones the download never writes,
-     * including every "Dummy, nicht sichtbar ..." row and every
-     * mutually-exclusive alternative for a channel's mode. Undefined on
-     * GA-link and Object 3 rows, which aren't parameters.
+     * Deliberately a diagnostic and not a verdict. It was briefly used to
+     * mark such rows "not applicable" (2026-09-12), and that was reverted
+     * the same day: the rule behind it is buildParamMem()'s own
+     * activation gate, and that gate is known to select the wrong member
+     * of a <Union>. On the device this came from, koolenex computed the
+     * 16-bit members UP-430 "Debounce time" (bytes 1-2) and UP-44 "Long
+     * operation after" (bytes 3-4) while the device, programmed by ETS,
+     * holds the 8-bit members P-3, UP-429, UP-33 and UP-34 that occupy
+     * those same four bytes - all six values being the parameters' own
+     * declared defaults. Until union-member selection is derived from the
+     * product data, a row this flag excludes may be excluded for the
+     * wrong reason, so it stays visible and stays counted.
+     *
+     * Undefined on GA-link and Object 3 rows, which aren't parameters.
      */
     written?: boolean;
   };
@@ -2464,19 +2472,12 @@ export async function runVerifyDevice(
     const actualByKey = new Map(actualDecoded.map((d) => [d.key, d]));
     decoded = expectedDecoded.map(({ value, ...exp }) => {
       const act = actualByKey.get(exp.key);
-      const written = writtenParams ? writtenParams.has(exp.key) : true;
       return {
         ...exp,
         expectedValue: value,
         actualValue: act?.value ?? null,
-        // A parameter the download never writes has no expectation to
-        // compare against - its "expected" side is a decode of the
-        // segment's fill - so it is not applicable rather than differing.
-        // Confirmed on a real device, 2026-09-12: of 139 parameters
-        // reported as differing on a device that could not have drifted
-        // from its project, 130 were these.
-        match: !written ? null : act ? act.value === value : null,
-        written,
+        match: act ? act.value === value : null,
+        written: writtenParams ? writtenParams.has(exp.key) : true,
       };
     });
   }
