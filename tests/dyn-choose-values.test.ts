@@ -58,6 +58,40 @@ const dynTree = {
   moduleDefs: [],
 } as unknown as DynTree;
 
+describe('a <choose> whose controller is declared valueless', () => {
+  // <TypeNone/> has no value by definition, so a <choose> on one is not a
+  // decision at all - it is how ETS wraps a block it always includes, and
+  // the `default` <when> is the branch it declares. 77 of one real
+  // product's 496 controllers are of that kind ("General", "Channel A",
+  // "_Sensor_Dimmen", all ParameterType PT-_dummy with Value=""), and
+  // taking their default branch is correct rather than a fallback.
+  const structural = {
+    main: {
+      items: [
+        {
+          type: 'choose',
+          paramRefId: 'APP_P-1_R-1',
+          accessNone: false,
+          defaultValue: null,
+          controllerValueless: true,
+          whens: [
+            {
+              isDefault: true,
+              items: [{ type: 'paramRef', refId: 'APP_UP-B_R-B' }],
+            },
+          ],
+        },
+      ],
+    },
+    moduleDefs: [],
+  } as unknown as DynTree;
+
+  it('takes the declared default branch', () => {
+    const active = evalConditionallyActiveParamRefs(structural, {}, {});
+    assert.ok(active.has('APP_UP-B_R-B'));
+  });
+});
+
 describe('evalConditionallyActiveParamRefs with a memory-less controller', () => {
   it('takes the default branch when the controller cannot be resolved', () => {
     // The behaviour before paramRefValues existed, and the behaviour a

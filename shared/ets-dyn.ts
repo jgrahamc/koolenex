@@ -86,6 +86,13 @@ export interface DynItem {
   // choose
   paramRefId?: string;
   defaultValue?: string | null;
+  /**
+   * The controlling parameter is <TypeNone/>, so it has no value and the
+   * choose's `default` branch is the one it declares - see ets-app.ts's
+   * DynItemChoose.controllerValueless. Absent on app models cached before
+   * 2026-09-12.
+   */
+  controllerValueless?: boolean;
   whens?: DynWhen[];
   // assign
   target?: string;

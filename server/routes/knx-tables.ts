@@ -550,11 +550,12 @@ export function evalConditionallyActiveParamRefs(
   /**
    * ParamModel.paramRefValues - the declared value of every ParameterRef,
    * including the ones `params` filters out. A <choose> may be controlled
-   * by a parameter with no memory and no UI presence, and without this
-   * its value reads as the empty string, matches no <when test> and sends
-   * the whole branch to `default`. Optional because app models cached
-   * before 2026-09-12 don't carry it; those keep the old behaviour until
-   * the project is reimported.
+   * by a parameter with no UI presence, whose value would otherwise read
+   * as the empty string and send the branch to `default`. A narrow gap in
+   * practice - one controller in 1472 in one real product, none in
+   * another - see that field's own comment for the measurements.
+   * Optional because app models cached before 2026-09-12 don't carry it;
+   * those keep the old behaviour until the project is reimported.
    */
   paramRefValues?: Record<string, string>,
 ): Set<string> {
@@ -585,6 +586,27 @@ export function evalConditionallyActiveParamRefs(
     const val = String(
       raw !== '' && raw != null ? raw : (ch.defaultValue ?? ''),
     );
+    // Nothing resolved. Two quite different situations produce that, and
+    // they used to be indistinguishable - both silently took the default
+    // branch.
+    //
+    // A <TypeNone/> controller has no value by declaration: a <choose> on
+    // one is how ETS wraps a block it always includes, and its `default`
+    // <when> is the branch it means. Taking it is correct, and 77 of this
+    // one real product's 496 controllers are of that kind.
+    //
+    // A controller with a real type and no resolvable value is the other
+    // case, and there the default branch is a guess - the product declares
+    // a value we failed to find, and the branch we pick decides which
+    // parameters get written. Say so rather than choose in silence; the
+    // same reasoning as buildParamMem()'s collision report.
+    if (val === '' && ch.controllerValueless !== true) {
+      logger.warn(
+        'ets',
+        'Dynamic tree: no value for a <choose> controller, taking the default branch',
+        { paramRefId: ch.paramRefId },
+      );
+    }
     let matched = false;
     let def: DynWhen | undefined;
     for (const w of ch.whens || []) {

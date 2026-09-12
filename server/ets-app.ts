@@ -169,6 +169,23 @@ interface DynItemChoose {
   paramRefId: string;
   accessNone: boolean;
   defaultValue: string | null;
+  /**
+   * True when the controlling parameter is declared <TypeNone/>, which has
+   * no value by definition.
+   *
+   * A <choose> on one of those is not a decision: it is how ETS wraps a
+   * block it always includes, and the `default` <when> is the branch it
+   * means. M-0002_A-A001-13-63C2 has 77 of them - "General", "Channel A",
+   * "_Sensor_Dimmen" and the like, all ParameterType PT-_dummy with
+   * Value="".
+   *
+   * Without this, taking the default branch for a controller that resolves
+   * to nothing is indistinguishable from taking it because we failed to
+   * resolve a controller that does have a value - the first is correct by
+   * declaration, the second is a guess. See
+   * evalConditionallyActiveParamRefs (routes/knx-tables.ts).
+   */
+  controllerValueless: boolean;
   whens: DynWhen[];
 }
 interface DynWhen {
@@ -377,18 +394,25 @@ export interface ParamModel {
    * `params` and `paramMemLayout` are both filtered: the first drops
    * Access="None", TypeNone and unlabelled refs because it drives the
    * parameter editor, the second drops anything with no memory offset
-   * because it builds the download image. A <choose> in the Dynamic
-   * section can name a ParameterRef that neither keeps, and a real
-   * product does so routinely: in M-0004_A-5017-51-218F, 257 of its 851
-   * <choose> elements are controlled by a parameter with no Offset at all
-   * - declared and typed, carrying a Value, but allocated no device
-   * memory ("Operating mode" Value="0", "Type of cooling" Value="1").
+   * because it builds the download image. A <choose> can name a
+   * ParameterRef that neither keeps, and its value then reads as the
+   * empty string, matches no <when test>, and sends the branch to
+   * `default`.
    *
-   * Without their values every one of those chooses resolves its
-   * controlling value to the empty string, matches no <when test>, and
-   * silently takes the default branch - selecting the wrong branch of the
-   * dynamic tree and, through it, the wrong member of overlapping
-   * <Union>s. See evalConditionallyActiveParamRefs (routes/knx-tables.ts).
+   * Measured rather than assumed, because the first version of this
+   * comment overstated it badly. A parameter having no MEMORY is not the
+   * same as having no VALUE, and most memory-less parameters are ordinary
+   * labelled ones that `params` keeps: of M-0004_A-5017-51-218F's 1472
+   * <choose> controllers exactly ONE resolves only through this map
+   * (P-370_R-370 = "1"), and of M-0002_A-A001-13-63C2's 496, none do.
+   * This closes a real gap, but a narrow one - it is not what makes a
+   * dynamic tree pick a wrong branch, and looking here for that is a
+   * dead end.
+   *
+   * A controller that resolves to nothing after all of this is either
+   * declared <TypeNone/>, where the default branch is correct and
+   * intended, or a real gap worth reporting - see
+   * DynItemChoose.controllerValueless.
    *
    * Absent from app models cached before 2026-09-12; a project has to be
    * reimported for this to be populated.
@@ -1455,12 +1479,16 @@ export function buildAppIndex(buf: Buffer): AppIndex | null {
             items: serOrderedItems(ordChildNodes(w)),
           });
         }
+        // TypeNone carries no value at all, so a choose on it always
+        // means its default branch - see DynItemChoose.controllerValueless.
+        const controllerKind = pd ? paramTypes[pd.typeRef]?.kind : undefined;
         if (prId)
           result.push({
             type: 'choose',
             paramRefId: prId,
             accessNone: effectiveAccess === 'None',
             defaultValue: pr?.prDefault ?? pd?.value ?? null,
+            controllerValueless: controllerKind === 'none',
             whens,
           });
       } else if (tag === 'Rename') {
