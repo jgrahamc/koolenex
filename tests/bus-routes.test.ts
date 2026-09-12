@@ -1427,7 +1427,7 @@ describe('POST /bus/verify-device — AbsSegment read-back diff', () => {
     );
   });
 
-  it('leaves the verdict of an unwritten parameter alone', async () => {
+  it('does not judge a parameter the download never wrote', async () => {
     mockBus.connected = true;
     const map = expectedMemMap();
     // Byte 5 of the segment at 0x4400 is the unwritten parameter's. The
@@ -1446,9 +1446,28 @@ describe('POST /bus/verify-device — AbsSegment read-back diff', () => {
       (d: any) => d.key === `${ABS_APP}_P-2_R-1`,
     );
     assert.equal(row.written, false);
-    // Still reported as differing - the flag is a diagnostic for now, not
-    // a change of verdict.
-    assert.equal(row.match, false);
+    assert.equal(row.match, null, 'not applicable, not differing');
+  });
+
+  it('does not credit a match on a parameter the download never wrote', async () => {
+    // The other half, and the reason this is null rather than just "not
+    // differing": the computed image and the device agreeing on a byte
+    // nobody wrote is a coincidence between two fills, not a verified
+    // match. Reporting it as one is false confidence.
+    mockBus.connected = true;
+    mockBus.memImage = expectedMemMap();
+    const r = await req(ts.baseUrl, 'POST', '/bus/verify-device', {
+      deviceAddress: deviceAddr,
+      projectId,
+    });
+    mockBus.memImage = null;
+    const body = r.data as any;
+    const row = (body.decoded ?? []).find(
+      (d: any) => d.key === `${ABS_APP}_P-2_R-1`,
+    );
+    assert.equal(row.written, false);
+    assert.equal(row.expectedValue, row.actualValue, 'the bytes do agree');
+    assert.equal(row.match, null, 'and it is still not a match');
   });
 });
 

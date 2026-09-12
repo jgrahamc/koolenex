@@ -2419,12 +2419,12 @@ export async function runVerifyDevice(
      * those the "expected" value is a decode of filler and comparing it
      * to the device means nothing.
      *
-     * Reported rather than acted on for now: a real device that cannot
-     * have drifted from its project reported 139 differing parameters,
-     * several of them named "Dummy, nicht sichtbar ..." - exactly the
-     * shape this would explain - and the first thing to establish is how
-     * many of the 139 this actually accounts for. Undefined on GA-link
-     * and Object 3 rows, which aren't parameters.
+     * A false here makes the row's `match` null - not applicable - rather
+     * than false. Measured on the device that prompted this: 130 of its
+     * 139 "differing" parameters were ones the download never writes,
+     * including every "Dummy, nicht sichtbar ..." row and every
+     * mutually-exclusive alternative for a channel's mode. Undefined on
+     * GA-link and Object 3 rows, which aren't parameters.
      */
     written?: boolean;
   };
@@ -2464,12 +2464,19 @@ export async function runVerifyDevice(
     const actualByKey = new Map(actualDecoded.map((d) => [d.key, d]));
     decoded = expectedDecoded.map(({ value, ...exp }) => {
       const act = actualByKey.get(exp.key);
+      const written = writtenParams ? writtenParams.has(exp.key) : true;
       return {
         ...exp,
         expectedValue: value,
         actualValue: act?.value ?? null,
-        match: act ? act.value === value : null,
-        written: writtenParams ? writtenParams.has(exp.key) : true,
+        // A parameter the download never writes has no expectation to
+        // compare against - its "expected" side is a decode of the
+        // segment's fill - so it is not applicable rather than differing.
+        // Confirmed on a real device, 2026-09-12: of 139 parameters
+        // reported as differing on a device that could not have drifted
+        // from its project, 130 were these.
+        match: !written ? null : act ? act.value === value : null,
+        written,
       };
     });
   }
