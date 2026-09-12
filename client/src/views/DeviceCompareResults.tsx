@@ -47,6 +47,21 @@ function composeCount(entries: Array<{ count: number; word: string }>): string {
     .join(' / ');
 }
 
+/**
+ * Where a decoded parameter lives in the parameter segment, and whether the
+ * download writes it: "0x1a" for a whole byte, "0x1a.3+2" for a 2-bit field
+ * at bit 3, with a trailing "!" when the download never writes those bytes
+ * (VerifyDecodedParam.written) and the Project side is therefore a decode of
+ * the segment's fill rather than an expectation.
+ */
+function byteLayout(r: VerifyDecodedParam): string {
+  const whole = r.bitOffset === 0 && r.bitSize % 8 === 0;
+  const where = whole
+    ? `0x${r.offset.toString(16)}`
+    : `0x${r.offset.toString(16)}.${r.bitOffset}+${r.bitSize}`;
+  return r.written === false ? `${where} !` : where;
+}
+
 /** Compact match/differ glyph for the per-row MATCH column - a text Badge
  * ("MATCH"/"DIFFERS") has a fixed minimum width from its own padding, which
  * overflowed its cell once the MATCH column's percentage width shrank below
@@ -193,6 +208,12 @@ export function DeviceCompareResults({
   const [rowFilter, setRowFilter] = useState<'all' | 'differ' | 'match'>('all');
   const [onlyNamed, setOnlyNamed] = useState(true);
   const [showGroupCol, setShowGroupCol] = useState(false);
+  // Diagnostic column, 2026-09-12: where in the parameter segment each row
+  // was decoded from, and whether the download writes it at all. Two rows
+  // reporting different values from the same byte are the signature of a
+  // union of mutually-exclusive alternatives, which reads as a pile of
+  // unrelated mismatches without this.
+  const [showLayoutCol, setShowLayoutCol] = useState(false);
   const [sectionsOpen, setSectionsOpen] = useState(false);
   const bodyRef = useRef<HTMLDivElement | null>(null);
   const sectionsPopoverRef = useRef<HTMLDivElement | null>(null);
@@ -278,6 +299,21 @@ export function DeviceCompareResults({
     : [];
   const matchCount = paramDecoded.filter((d) => d.match === true).length;
   const mismatchCount = paramDecoded.filter((d) => d.match === false).length;
+  // How many of the differing parameters are ones the download never
+  // writes (server-side `written`, see VerifyDecodedParam). Their bytes
+  // keep the parameter segment's fill, so the "expected" side is a decode
+  // of filler and the difference is an artefact, not device drift.
+  // Reported next to the mismatch count rather than removed from it,
+  // until there is evidence of how much of a real device's mismatch this
+  // actually accounts for.
+  // Column widths, now that two of the five columns are optional.
+  const optionalCols = (showGroupCol ? 1 : 0) + (showLayoutCol ? 1 : 0);
+  const nameColWidth = `${52 - optionalCols * 10}%`;
+  const valueColWidth = `${19 - optionalCols * 3}%`;
+
+  const unwrittenMismatchCount = paramDecoded.filter(
+    (d) => d.match === false && d.written === false,
+  ).length;
   const gaMatchCount = gaDecoded.filter((d) => d.match === true).length;
   const gaMismatchCount = gaDecoded.filter((d) => d.match === false).length;
   const obj3MatchCount = obj3Decoded.filter((d) => d.match === true).length;
@@ -515,6 +551,28 @@ export function DeviceCompareResults({
                       />
                     </button>
                   )}
+                  {/* Diagnostic, 2026-09-12: how much of a real device's
+                      mismatch is parameters the download never writes at
+                      all, whose expected side is a decode of the segment's
+                      fill. Shown beside the differ count rather than
+                      removed from it - the point right now is to find out
+                      how much this accounts for, not to quietly shrink the
+                      number. See VerifyDecodedParam.written. */}
+                  {unwrittenMismatchCount > 0 && (
+                    <span
+                      className={styles.cacheNote}
+                      title={
+                        `${unwrittenMismatchCount} of the differing parameters are ones this ` +
+                        `download never writes: the app declares them, but they are an ` +
+                        `inactive alternative for their channel or have no value and no ` +
+                        `default, so their bytes keep the segment's fill. The comparison ` +
+                        `still decodes them on both sides, so "expected" there is a decode ` +
+                        `of filler and the difference is an artefact rather than device drift.`
+                      }
+                    >
+                      {unwrittenMismatchCount} never written
+                    </span>
+                  )}
                   {/* The group label span (e.g. "named parameters / GAs")
                       that used to sit here was removed 2026-08-29 per
                       explicit request - redundant once the match badge
@@ -607,6 +665,23 @@ export function DeviceCompareResults({
                 />
                 Show group column ⓘ
               </label>
+              <label
+                className={styles.checkToggle}
+                title={
+                  'Byte offset, bit offset and bit width each parameter is decoded from, ' +
+                  'and whether the download actually writes it. A parameter the app declares ' +
+                  'but the download skips - an inactive alternative for its channel, or one ' +
+                  'with no value and no default - keeps the segment fill, so its "Project" ' +
+                  'value is a decode of filler and any difference from the device is an artefact.'
+                }
+              >
+                <input
+                  type="checkbox"
+                  checked={showLayoutCol}
+                  onChange={(e) => setShowLayoutCol(e.target.checked)}
+                />
+                Show byte layout ⓘ
+              </label>
             </div>
           </div>
         )}
@@ -678,10 +753,11 @@ export function DeviceCompareResults({
                     </div>
                     <table className={styles.table}>
                       <colgroup>
-                        <col style={{ width: showGroupCol ? '42%' : '52%' }} />
+                        <col style={{ width: nameColWidth }} />
                         {showGroupCol && <col style={{ width: '22%' }} />}
-                        <col style={{ width: showGroupCol ? '16%' : '19%' }} />
-                        <col style={{ width: showGroupCol ? '16%' : '19%' }} />
+                        {showLayoutCol && <col style={{ width: '14%' }} />}
+                        <col style={{ width: valueColWidth }} />
+                        <col style={{ width: valueColWidth }} />
                         <col style={{ width: '4%' }} />
                       </colgroup>
                       <thead>
@@ -690,6 +766,7 @@ export function DeviceCompareResults({
                           {showGroupCol && (
                             <th className={styles.th}>Group (raw)</th>
                           )}
+                          {showLayoutCol && <th className={styles.th}>Byte</th>}
                           <th className={styles.th}>Project</th>
                           <th className={styles.th}>Device</th>
                           <th className={styles.th} title="Match">
@@ -724,6 +801,13 @@ export function DeviceCompareResults({
                                     {r.group || '—'}
                                   </span>
                                 </span>
+                              </td>
+                            )}
+                            {showLayoutCol && (
+                              <td
+                                className={`${styles.td} ${styles.mono} ${styles.groupCell}`}
+                              >
+                                {isGA || isObj3 ? '—' : byteLayout(r)}
                               </td>
                             )}
                             <td className={`${styles.td} ${styles.mono}`}>

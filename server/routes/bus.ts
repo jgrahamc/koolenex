@@ -21,6 +21,7 @@ import {
   decodeGroupObjectEntryFlags,
   resolveParamSegment,
   buildParamMem,
+  writtenParamKeys,
   diffMemory,
   decodeParamMem,
 } from './knx-tables.ts';
@@ -1060,6 +1061,14 @@ type DeviceProgramming =
       appId: string;
       paramMemLayout: Record<string, unknown>;
       params: Record<string, unknown> | null;
+      /**
+       * The parameters buildParamMem() actually wrote into paramMem. Every
+       * other entry in paramMemLayout kept the segment's fill, so there is
+       * no expectation to compare a device against for those - see
+       * paramMemWritesParam() (routes/knx-tables.ts). `null` when there is
+       * no parameter segment at all.
+       */
+      writtenParamKeys: Set<string> | null;
       isSecureEnabled?: boolean;
       supportsExtendedMemoryServices?: boolean;
       // Real request, 2026-08-31: this device's own cached
@@ -1255,6 +1264,7 @@ function buildDeviceProgramming(dev: Device): DeviceProgramming {
     model as Parameters<typeof resolveParamSegment>[0],
   );
   let paramMem: Buffer | null = null;
+  let writtenParams: Set<string> | null = null;
   if (paramSize > 0 && model.paramMemLayout) {
     let currentValues: Record<string, unknown> = {};
     try {
@@ -1271,6 +1281,12 @@ function buildDeviceProgramming(dev: Device): DeviceProgramming {
       relSegHex,
       model.dynTree as Parameters<typeof buildParamMem>[5],
       model.params as Parameters<typeof buildParamMem>[6],
+    );
+    writtenParams = writtenParamKeys(
+      model.paramMemLayout as Parameters<typeof writtenParamKeys>[0],
+      currentValues,
+      model.dynTree as Parameters<typeof writtenParamKeys>[2],
+      model.params as Parameters<typeof writtenParamKeys>[3],
     );
   } else if (paramSize > 0) {
     paramMem = Buffer.alloc(paramSize, 0xff);
@@ -1294,6 +1310,7 @@ function buildDeviceProgramming(dev: Device): DeviceProgramming {
     appId: model.appId ?? dev.app_ref,
     paramMemLayout: model.paramMemLayout ?? {},
     params: model.params ?? null,
+    writtenParamKeys: writtenParams,
     isSecureEnabled: model.isSecureEnabled,
     supportsExtendedMemoryServices: model.supportsExtendedMemoryServices,
     // Real request, 2026-08-31: parses `dev.apdu_length` (the project's
@@ -2179,6 +2196,9 @@ export async function runVerifyDevice(
     paramMemLayout,
     params: paramDefs,
     cachedMaxApduLength,
+    // Renamed on the way in: the imported writtenParamKeys() helper that
+    // produced it is in scope here too.
+    writtenParamKeys: writtenParams,
   } = built;
 
   // Derive the read-back plan from the SAME artifacts the download would use.
@@ -2388,6 +2408,25 @@ export async function runVerifyDevice(
     // undefined for every other row kind (params, GA links).
     obj3Expected?: GroupObjectEntryFlags;
     obj3Actual?: GroupObjectEntryFlags | null;
+    /**
+     * Whether the download actually writes this parameter's bytes.
+     *
+     * paramMemLayout carries every ParamRef the app declares, but
+     * buildParamMem() writes only some of them - an inactive alternative
+     * for a channel, or a parameter with no value and no default, keeps
+     * the segment's fill instead (see paramMemWritesParam()). Decoding
+     * runs over the whole layout on both sides regardless, so for one of
+     * those the "expected" value is a decode of filler and comparing it
+     * to the device means nothing.
+     *
+     * Reported rather than acted on for now: a real device that cannot
+     * have drifted from its project reported 139 differing parameters,
+     * several of them named "Dummy, nicht sichtbar ..." - exactly the
+     * shape this would explain - and the first thing to establish is how
+     * many of the 139 this actually accounts for. Undefined on GA-link
+     * and Object 3 rows, which aren't parameters.
+     */
+    written?: boolean;
   };
   let decoded: DecodedComparison[] | undefined;
   // Which of the compared segments is the parameter image.
@@ -2430,6 +2469,7 @@ export async function runVerifyDevice(
         expectedValue: value,
         actualValue: act?.value ?? null,
         match: act ? act.value === value : null,
+        written: writtenParams ? writtenParams.has(exp.key) : true,
       };
     });
   }

@@ -62,6 +62,16 @@ export interface VerifyDecodedParam {
   /** Object 3 rows only - undefined for every other row kind (params, GA links). */
   obj3Expected?: GroupObjectEntryFlags;
   obj3Actual?: GroupObjectEntryFlags | null;
+  /**
+   * Whether the download actually writes this parameter's bytes. False for
+   * a ParamRef the app declares but buildParamMem() skips - an inactive
+   * alternative for a channel, or one with no value and no default - whose
+   * bytes therefore keep the segment's fill. The comparison still decodes
+   * it on both sides, so its "expected" is a decode of filler and the
+   * mismatch it reports means nothing. Undefined on GA-link and Object 3
+   * rows, which aren't parameters.
+   */
+  written?: boolean;
 }
 
 export interface VerifyDeviceResult {

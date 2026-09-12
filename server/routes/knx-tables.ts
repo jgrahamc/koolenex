@@ -882,6 +882,84 @@ export function resolveParamSegment(model: DeviceModel): ParamSegmentResult {
   return { paramSize: 0, paramFill: 0xff, relSegHex: null, paramBase: null };
 }
 
+/**
+ * Whether buildParamMem() actually writes a given parameter's bytes.
+ *
+ * Not every entry in paramMemLayout ends up in the image. A
+ * `fromMemoryChild` parameter is written only when it is the genuinely
+ * active alternative for its channel, and any parameter with neither a
+ * current value nor a default is skipped outright. The bytes of the rest
+ * keep whatever `fill` put there (0xFF, or 0 for sub-byte padding).
+ *
+ * That matters beyond this function: a verify decodes both the computed
+ * image and the device and compares them parameter by parameter, and for
+ * a parameter nobody wrote, the "expected" side is a decode of filler.
+ * Comparing that to the device's real content produces a mismatch that
+ * means nothing - real request 2026-09-11, a device that could not have
+ * drifted from its project reporting 139 differing parameters.
+ *
+ * Exported so the verify applies the same rule as the writer rather than
+ * a second copy of it that can drift.
+ */
+export function paramMemWritesParam(
+  prId: string,
+  info: ParamMemEntry,
+  currentValues: Record<string, unknown>,
+  conditionallyActive: Set<string> | null,
+  unconditionalChannel: Set<string> | null,
+): boolean {
+  if (info.offset === null || info.offset === undefined) return false;
+
+  if (info.fromMemoryChild) {
+    if (!info.isVisible && prId in currentValues) {
+      // User explicitly set a hidden param — write it
+    } else if (unconditionalChannel && unconditionalChannel.has(prId)) {
+      // Unconditionally visible — write it
+    } else if (!(conditionallyActive && conditionallyActive.has(prId))) {
+      return false;
+    }
+  }
+
+  const rawVal =
+    prId in currentValues
+      ? (currentValues[prId] as string | number | null)
+      : info.defaultValue;
+  return !(rawVal === '' || rawVal === null || rawVal === undefined);
+}
+
+/**
+ * Every parameter buildParamMem() would actually write, for the same
+ * inputs. See paramMemWritesParam() for why a caller wants this.
+ */
+export function writtenParamKeys(
+  paramMemLayout: Record<string, ParamMemEntry>,
+  currentValues: Record<string, unknown>,
+  dynTree: DynTree | null,
+  params: Record<string, ParamDef> | null,
+): Set<string> {
+  const conditionallyActive =
+    dynTree && params
+      ? evalConditionallyActiveParamRefs(dynTree, params, currentValues)
+      : null;
+  const unconditionalChannel = dynTree
+    ? buildUnconditionalChannelSet(dynTree)
+    : null;
+  const keys = new Set<string>();
+  for (const [prId, info] of Object.entries(paramMemLayout)) {
+    if (
+      paramMemWritesParam(
+        prId,
+        info,
+        currentValues,
+        conditionallyActive,
+        unconditionalChannel,
+      )
+    )
+      keys.add(prId);
+  }
+  return keys;
+}
+
 // Build parameter memory segment from the paramMemLayout.
 export function buildParamMem(
   size: number,
@@ -947,25 +1025,25 @@ export function buildParamMem(
     : null;
 
   for (const [prId, info] of Object.entries(paramMemLayout)) {
+    // Repeated from paramMemWritesParam() only to narrow info.offset for
+    // the writes below; the predicate is still the authority on whether
+    // this parameter is written at all.
     if (info.offset === null || info.offset === undefined) continue;
-
-    if (info.fromMemoryChild) {
-      if (!info.isVisible && prId in currentValues) {
-        // User explicitly set a hidden param — write it
-      } else if (unconditionalChannel && unconditionalChannel.has(prId)) {
-        // Unconditionally visible — write it
-      } else {
-        const passConditional =
-          conditionallyActive && conditionallyActive.has(prId);
-        if (!passConditional) continue;
-      }
-    }
+    if (
+      !paramMemWritesParam(
+        prId,
+        info,
+        currentValues,
+        conditionallyActive,
+        unconditionalChannel,
+      )
+    )
+      continue;
 
     const rawVal =
       prId in currentValues
         ? (currentValues[prId] as string | number | null)
         : info.defaultValue;
-    if (rawVal === '' || rawVal === null || rawVal === undefined) continue;
 
     if (info.isText) {
       const byteSize = Math.floor(info.bitSize / 8);

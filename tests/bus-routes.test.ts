@@ -1143,8 +1143,26 @@ const ABS_MODEL = {
       fromMemoryChild: false,
       isVisible: true,
     },
+    // Declared by the app but never written by a download: no current
+    // value and no default, so buildParamMem() skips it and byte 5 keeps
+    // the segment fill. Its bytes are identical with or without it, so
+    // every existing expectation in this file is unaffected - it exists
+    // to give the `written` flag something to be false about.
+    [`${ABS_APP}_P-2_R-1`]: {
+      offset: 5,
+      bitOffset: 0,
+      bitSize: 8,
+      defaultValue: null,
+      isText: false,
+      isFloat: false,
+      fromMemoryChild: false,
+      isVisible: true,
+    },
   },
-  params: { [`${ABS_APP}_P-1_R-1`]: { defaultValue: '170' } },
+  params: {
+    [`${ABS_APP}_P-1_R-1`]: { defaultValue: '170' },
+    [`${ABS_APP}_P-2_R-1`]: { defaultValue: null },
+  },
   dynTree: { main: { items: [] } },
 };
 
@@ -1378,6 +1396,59 @@ describe('POST /bus/verify-device — AbsSegment read-back diff', () => {
     assert.ok(row);
     assert.equal(row.match, false);
     assert.notEqual(row.actualValue, row.expectedValue);
+  });
+
+  // Diagnostic for a real device, 2026-09-12: 139 differing parameters on
+  // a device that could not have drifted from its project, many named
+  // "Dummy, nicht sichtbar ..." - the shape of a parameter the download
+  // never writes, whose Project side is a decode of the segment's fill.
+  // Reported, not acted on: the rows keep the match they had.
+  it('says which decoded parameters the download actually writes', async () => {
+    mockBus.connected = true;
+    mockBus.memImage = expectedMemMap();
+    const r = await req(ts.baseUrl, 'POST', '/bus/verify-device', {
+      deviceAddress: deviceAddr,
+      projectId,
+    });
+    mockBus.memImage = null;
+    assert.equal(r.status, 200);
+    const body = r.data as any;
+    const written = (body.decoded ?? []).find(
+      (d: any) => d.key === `${ABS_APP}_P-1_R-1`,
+    );
+    assert.equal(written.written, true, 'a param with a default is written');
+    const skipped = (body.decoded ?? []).find(
+      (d: any) => d.key === `${ABS_APP}_P-2_R-1`,
+    );
+    assert.equal(
+      skipped.written,
+      false,
+      'a param with no value and no default is not',
+    );
+  });
+
+  it('leaves the verdict of an unwritten parameter alone', async () => {
+    mockBus.connected = true;
+    const map = expectedMemMap();
+    // Byte 5 of the segment at 0x4400 is the unwritten parameter's. The
+    // computed image left it at the fill; give the device something else,
+    // which is exactly the situation that produced a meaningless
+    // mismatch on the real device.
+    map.set(0x4400 + 5, 0x42);
+    mockBus.memImage = map;
+    const r = await req(ts.baseUrl, 'POST', '/bus/verify-device', {
+      deviceAddress: deviceAddr,
+      projectId,
+    });
+    mockBus.memImage = null;
+    const body = r.data as any;
+    const row = (body.decoded ?? []).find(
+      (d: any) => d.key === `${ABS_APP}_P-2_R-1`,
+    );
+    assert.equal(row.written, false);
+    // Still reported as differing - the flag is a diagnostic for now, not
+    // a change of verdict.
+    assert.equal(row.match, false);
   });
 });
 
