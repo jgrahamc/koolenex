@@ -339,6 +339,30 @@ export interface ParamModel {
   };
   modArgs: Record<string, Record<string, string | number>>;
   paramMemLayout: Record<string, ParamMemLayoutEntry>;
+  /**
+   * The declared value of EVERY ParameterRef, keyed by ParameterRef id -
+   * ParameterRef@Value where present, otherwise Parameter@Value.
+   *
+   * `params` and `paramMemLayout` are both filtered: the first drops
+   * Access="None", TypeNone and unlabelled refs because it drives the
+   * parameter editor, the second drops anything with no memory offset
+   * because it builds the download image. A <choose> in the Dynamic
+   * section can name a ParameterRef that neither keeps, and a real
+   * product does so routinely: in M-0004_A-5017-51-218F, 257 of its 851
+   * <choose> elements are controlled by a parameter with no Offset at all
+   * - declared and typed, carrying a Value, but allocated no device
+   * memory ("Operating mode" Value="0", "Type of cooling" Value="1").
+   *
+   * Without their values every one of those chooses resolves its
+   * controlling value to the empty string, matches no <when test>, and
+   * silently takes the default branch - selecting the wrong branch of the
+   * dynamic tree and, through it, the wrong member of overlapping
+   * <Union>s. See evalConditionallyActiveParamRefs (routes/knx-tables.ts).
+   *
+   * Absent from app models cached before 2026-09-12; a project has to be
+   * reimported for this to be populated.
+   */
+  paramRefValues: Record<string, string>;
   relSegData: Record<number, string>;
   absSegData: Record<number, { size: number; hex: string }>;
   loadProcedures?: LoadProcedureStep[];
@@ -1779,12 +1803,24 @@ export function buildAppIndex(buf: Buffer): AppIndex | null {
       }
     }
 
+    // Every ParameterRef's declared value, unfiltered - see the field's
+    // own doc comment on ParamModel for why neither map above can serve
+    // this purpose.
+    const paramRefValues: Record<string, string> = {};
+    for (const [prId, pr] of Object.entries(paramRefDefs)) {
+      const pd = paramDefs[pr.paramId];
+      if (!pd) continue;
+      const value = pr.prDefault ?? pd.value ?? '';
+      if (value !== '') paramRefValues[prId] = String(value);
+    }
+
     return {
       appId,
       params,
       dynTree,
       modArgs,
       paramMemLayout,
+      paramRefValues,
       relSegData,
       absSegData,
     };

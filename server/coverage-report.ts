@@ -42,6 +42,13 @@ interface Model {
   paramMemLayout?: Record<string, unknown>;
   dynTree?: unknown;
   params?: Record<string, unknown>;
+  /**
+   * ParamModel.paramRefValues - the declared value of every ParameterRef,
+   * needed to evaluate <choose> elements controlled by a parameter that
+   * has no memory and no UI presence. Optional: app models cached before
+   * 2026-09-12 don't carry it.
+   */
+  paramRefValues?: Record<string, string>;
   absSegData?: Record<number, { size: number; hex?: string | null }>;
 }
 
@@ -121,6 +128,7 @@ function buildFor(dev: Device): Row {
       relSegHex,
       model.dynTree as Parameters<typeof buildParamMem>[5],
       model.params as Parameters<typeof buildParamMem>[6],
+      model.paramRefValues as Parameters<typeof buildParamMem>[7],
     );
   } else if (paramSize > 0) {
     paramMem = Buffer.alloc(paramSize, 0xff);

@@ -1035,6 +1035,13 @@ interface DeviceModel {
   paramMemLayout?: Record<string, unknown>;
   dynTree?: unknown;
   params?: Record<string, unknown>;
+  /**
+   * ParamModel.paramRefValues - the declared value of every ParameterRef,
+   * needed to evaluate <choose> elements controlled by a parameter that
+   * has no memory and no UI presence. Optional: app models cached before
+   * 2026-09-12 don't carry it.
+   */
+  paramRefValues?: Record<string, string>;
   absSegData?: Record<number, { size: number; hex?: string | null }>;
   // Object 3 (Group Object Table) real buffer size - see ets-app.ts's
   // ParamModel.groupObjectTableSize's doc comment for the formula/rationale.
@@ -1281,12 +1288,14 @@ function buildDeviceProgramming(dev: Device): DeviceProgramming {
       relSegHex,
       model.dynTree as Parameters<typeof buildParamMem>[5],
       model.params as Parameters<typeof buildParamMem>[6],
+      model.paramRefValues as Parameters<typeof buildParamMem>[7],
     );
     writtenParams = writtenParamKeys(
       model.paramMemLayout as Parameters<typeof writtenParamKeys>[0],
       currentValues,
       model.dynTree as Parameters<typeof writtenParamKeys>[2],
       model.params as Parameters<typeof writtenParamKeys>[3],
+      model.paramRefValues as Parameters<typeof writtenParamKeys>[4],
     );
   } else if (paramSize > 0) {
     paramMem = Buffer.alloc(paramSize, 0xff);

@@ -70,6 +70,31 @@ describe('LS-Touch: parameter model', () => {
     assert.equal(Object.keys(layout).length, 3194);
   });
 
+  // paramRefValues exists because the two maps above are each filtered for
+  // their own purpose and a <choose> can be controlled by a ParameterRef
+  // neither of them keeps - see tests/dyn-choose-values.test.ts. It is
+  // unfiltered, so it covers every ParameterRef with a declared value,
+  // including ones with no memory at all.
+  it('carries a declared value for every ParameterRef that has one', () => {
+    const refValues: Record<string, string> = model.paramRefValues;
+    assert.equal(Object.keys(refValues).length, 3147);
+    // Every memory-mapped ref with a non-empty default is covered.
+    for (const [key, l] of Object.entries(layout)) {
+      if (l.defaultValue === '' || l.defaultValue == null) continue;
+      assert.equal(
+        refValues[key],
+        String(l.defaultValue),
+        `${key} disagrees with its layout default`,
+      );
+    }
+    // And it reaches refs the layout drops for having no memory.
+    const beyondLayout = Object.keys(refValues).filter((k) => !(k in layout));
+    assert.ok(
+      beyondLayout.length > 0,
+      'paramRefValues must cover refs with no memory allocation',
+    );
+  });
+
   it('every param has a label, typeKind, and defaultValue', () => {
     for (const [key, p] of Object.entries(params)) {
       assert(typeof p.label === 'string', `${key} missing label`);

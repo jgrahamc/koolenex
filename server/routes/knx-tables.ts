@@ -10,6 +10,7 @@ import {
 } from '../../shared/ets-dyn.ts';
 export { etsTestMatch };
 export type { DynWhen, DynItem, DynTree };
+import { logger } from '../log.ts';
 
 // ── ETS dynamic tree types (matches ets-app.ts DynItem emission) ────────────
 // The stored model shape is a single recursive `items` array of tagged
@@ -524,11 +525,27 @@ export function evalConditionallyActiveParamRefs(
   dynTree: DynTree | null | undefined,
   params: Record<string, ParamDef>,
   currentValues: Record<string, unknown>,
+  /**
+   * ParamModel.paramRefValues - the declared value of every ParameterRef,
+   * including the ones `params` filters out. A <choose> may be controlled
+   * by a parameter with no memory and no UI presence, and without this
+   * its value reads as the empty string, matches no <when test> and sends
+   * the whole branch to `default`. Optional because app models cached
+   * before 2026-09-12 don't carry it; those keep the old behaviour until
+   * the project is reimported.
+   */
+  paramRefValues?: Record<string, string>,
 ): Set<string> {
   const conditional = new Set<string>();
   const getVal = (prKey: string): string => {
     if (prKey in currentValues) return String(currentValues[prKey]);
-    return String(params[prKey]?.defaultValue ?? '');
+    // `params` first so a ParameterRef that IS in the editor keeps
+    // resolving exactly as before; paramRefValues carries the same
+    // declared value for those, and is the only source for the rest.
+    const fromParams = params[prKey]?.defaultValue;
+    if (fromParams !== undefined && fromParams !== null && fromParams !== '')
+      return String(fromParams);
+    return String(paramRefValues?.[prKey] ?? '');
   };
   function walk(items: DynItem[] | undefined, inChoice: boolean): void {
     for (const it of items || []) {
@@ -936,10 +953,16 @@ export function writtenParamKeys(
   currentValues: Record<string, unknown>,
   dynTree: DynTree | null,
   params: Record<string, ParamDef> | null,
+  paramRefValues?: Record<string, string>,
 ): Set<string> {
   const conditionallyActive =
     dynTree && params
-      ? evalConditionallyActiveParamRefs(dynTree, params, currentValues)
+      ? evalConditionallyActiveParamRefs(
+          dynTree,
+          params,
+          currentValues,
+          paramRefValues,
+        )
       : null;
   const unconditionalChannel = dynTree
     ? buildUnconditionalChannelSet(dynTree)
@@ -969,6 +992,8 @@ export function buildParamMem(
   relSegHex: string | null = null,
   dynTree: DynTree | null = null,
   params: Record<string, ParamDef> | null = null,
+  /** ParamModel.paramRefValues - see evalConditionallyActiveParamRefs. */
+  paramRefValues?: Record<string, string>,
 ): Buffer {
   const relSegBase = relSegHex ? Buffer.from(relSegHex, 'hex') : null;
 
@@ -1018,11 +1043,28 @@ export function buildParamMem(
 
   const conditionallyActive =
     dynTree && params
-      ? evalConditionallyActiveParamRefs(dynTree, params, currentValues)
+      ? evalConditionallyActiveParamRefs(
+          dynTree,
+          params,
+          currentValues,
+          paramRefValues,
+        )
       : null;
   const unconditionalChannel = dynTree
     ? buildUnconditionalChannelSet(dynTree)
     : null;
+
+  // Which parameter last claimed each byte. Members of a <Union> share
+  // memory by design - the point of a Union is that exactly one of them is
+  // live - so two of them writing the same byte is not a layout quirk to
+  // absorb, it is a contradiction in which branch of the dynamic tree was
+  // selected. Whichever happens to come later in Object.entries() order
+  // then wins, which is how a real device ended up holding the 16-bit
+  // union members koolenex chose over the 8-bit ones ETS had written.
+  // Recorded and reported rather than thrown: the image is still produced,
+  // but the collision is no longer invisible.
+  const byteOwner = new Map<number, string>();
+  const collisions: string[] = [];
 
   for (const [prId, info] of Object.entries(paramMemLayout)) {
     // Repeated from paramMemWritesParam() only to narrow info.offset for
@@ -1039,6 +1081,20 @@ export function buildParamMem(
       )
     )
       continue;
+
+    {
+      const spanBytes = Math.max(
+        1,
+        Math.ceil((info.bitOffset + info.bitSize) / 8),
+      );
+      for (let i = 0; i < spanBytes; i++) {
+        const byteIdx = info.offset + i;
+        const prev = byteOwner.get(byteIdx);
+        if (prev !== undefined && prev !== prId && collisions.length < 20)
+          collisions.push(`0x${byteIdx.toString(16)}: ${prev} then ${prId}`);
+        byteOwner.set(byteIdx, prId);
+      }
+    }
 
     const rawVal =
       prId in currentValues
@@ -1189,6 +1245,15 @@ export function buildParamMem(
       );
     }
   }
+
+  if (collisions.length)
+    logger.warn(
+      'ets',
+      `Parameter memory: ${collisions.length} byte(s) claimed by more than one parameter - ` +
+        'two members of a <Union> cannot both be live, so the dynamic tree selected ' +
+        'contradictory branches and the later writer silently won',
+      { collisions },
+    );
 
   return buf;
 }
