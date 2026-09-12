@@ -158,9 +158,17 @@ function pickSourceBuffer(
   assocTable: Buffer | null,
   paramMem: Buffer | null,
   absSegData: Record<number, AbsSegSeed>,
+  paramMemBySegment?: Map<number, Buffer> | null,
 ): Buffer | null {
   if (lsmIdx === addrTableLsm) return gaTable;
   if (lsmIdx === assocTableLsm) return assocTable;
+  // An application may declare more than one parameter-carrying segment,
+  // each numbering its offsets from zero, so the buffer for THIS address
+  // is the one built from the parameters that name this segment. Checked
+  // before the single paramBase below, which is what a model that doesn't
+  // track segments still falls back to.
+  const bySeg = paramMemBySegment?.get(address);
+  if (bySeg) return bySeg;
   if (paramBase != null && address === paramBase) return paramMem;
   const seed = absSegData[address];
   if (seed?.hex) return Buffer.from(seed.hex, 'hex');
@@ -195,6 +203,13 @@ export function planDownload(
   paramBase: number | null,
   absSegData: Record<number, AbsSegSeed> = {},
   appId: string = '',
+  /**
+   * One parameter buffer per declared segment (buildParamMemBySegment).
+   * Takes precedence over `paramMem`/`paramBase`, which remain the path
+   * for RelSegment devices and for app models that predate segment
+   * tracking.
+   */
+  paramMemBySegment?: Map<number, Buffer> | null,
 ): PlannedOp[] {
   const ops: PlannedOp[] = [];
 
@@ -244,6 +259,7 @@ export function planDownload(
         assocTable,
         paramMem,
         absSegData,
+        paramMemBySegment,
       );
       if (!buf || buf.length === 0) continue;
 
@@ -464,6 +480,8 @@ export function planVerify(
   appId: string = '',
   relBaseByObj: Record<number, number> = {},
   groupObjectTable: Buffer | null = null,
+  /** See planDownload's parameter of the same name. */
+  paramMemBySegment?: Map<number, Buffer> | null,
 ): VerifyPlan {
   const undeclaredTableMem = buildUndeclaredTableMem(
     steps,
@@ -483,6 +501,7 @@ export function planVerify(
       paramBase,
       absSegData,
       appId,
+      paramMemBySegment,
     );
     const mem: VerifyMemRegion[] = [];
     for (const op of ops) {

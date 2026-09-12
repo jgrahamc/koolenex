@@ -35,6 +35,14 @@ export interface ParamMemEntry {
   coefficient?: number;
   fromMemoryChild?: boolean;
   isVisible?: boolean;
+  /**
+   * Address of the AbsoluteSegment `offset` is relative to - see
+   * ets-app.ts's ParamMemLayoutEntry.segmentAddress. Undefined on
+   * RelSegment devices, on parameters naming no segment, and on app
+   * models cached before 2026-09-12; consumers must then behave as they
+   * did before segments were tracked.
+   */
+  segmentAddress?: number;
   // Display metadata for entries `params` (ParamDef, below) doesn't cover -
   // e.g. Access="None" download-only params, which are excluded from
   // `params` for its own (UI-editing) purposes but still get read/written
@@ -72,6 +80,20 @@ export interface DeviceModel {
   // Object 3 (Group Object Table) real buffer size - see ets-app.ts's
   // ParamModel.groupObjectTableSize's doc comment for the formula/rationale.
   groupObjectTableSize?: number;
+}
+
+/** One parameter-carrying AbsoluteSegment, as the application declares it. */
+export interface ParamSegment {
+  /** Absolute address the segment loads at. */
+  address: number;
+  /** Its declared Size. */
+  size: number;
+  /** Fill byte for bytes no parameter writes. */
+  fill: number;
+  /** Its factory seed data, hex, or null. */
+  seedHex: string | null;
+  /** The paramMemLayout keys whose offsets are relative to this segment. */
+  keys: string[];
 }
 
 export interface ParamSegmentResult {
@@ -874,6 +896,57 @@ export function collectActiveAssigns(
 }
 
 // Determine parameter segment size and base data for a device model.
+/**
+ * Every parameter-carrying segment the application declares, taken from
+ * the parameters' own <Memory CodeSegment="..."/> bindings rather than
+ * guessed from offsets.
+ *
+ * An application program may declare more than one, and each numbers its
+ * offsets from zero. M-0002_A-A001-13-63C2 declares two that carry
+ * parameters - AS-6D00 (160 bytes at 0x6D00, holding four channels' worth
+ * at offsets 1..135) and AS-6F00 (8 bytes at 0x6F00, the device-level
+ * General block at offsets 0..4) - so flattening them into one buffer put
+ * General's five bytes on top of Channel A's. See ParamMemLayoutEntry's
+ * segmentAddress (ets-app.ts).
+ *
+ * Returns an empty list when no entry carries a segmentAddress: either a
+ * RelSegment/WriteRelMem device, which addresses memory relatively and has
+ * no absolute segments at all, or an app model cached before segments were
+ * tracked. Callers fall back to resolveParamSegment() for those, which is
+ * exactly what they did before this existed.
+ */
+export function resolveParamSegments(model: DeviceModel): ParamSegment[] {
+  const layout = model.paramMemLayout ?? {};
+  const absSegs = model.absSegData ?? {};
+  const keysByAddress = new Map<number, string[]>();
+  for (const [key, entry] of Object.entries(layout)) {
+    const addr = entry.segmentAddress;
+    if (addr === undefined || entry.offset == null) continue;
+    const list = keysByAddress.get(addr);
+    if (list) list.push(key);
+    else keysByAddress.set(addr, [key]);
+  }
+  const out: ParamSegment[] = [];
+  for (const [address, keys] of keysByAddress) {
+    const seg = absSegs[address];
+    // A segment the parameters name but the application never declared
+    // would be a contradiction in the product data; skip it rather than
+    // invent a size for it.
+    if (!seg) continue;
+    out.push({
+      address,
+      size: seg.size,
+      // Matching resolveParamSegment()'s AbsoluteSegment branch: an
+      // absolute segment ships a factory seed, so unwritten bytes come
+      // from that rather than from an 0xFF fill.
+      fill: 0x00,
+      seedHex: seg.hex ?? null,
+      keys,
+    });
+  }
+  return out.sort((a, b) => a.address - b.address);
+}
+
 export function resolveParamSegment(model: DeviceModel): ParamSegmentResult {
   const lps = model.loadProcedures ?? [];
   // Try RelativeSegment path first (most common)
@@ -933,6 +1006,58 @@ export function resolveParamSegment(model: DeviceModel): ParamSegmentResult {
     };
   }
   return { paramSize: 0, paramFill: 0xff, relSegHex: null, paramBase: null };
+}
+
+/**
+ * One parameter buffer per declared segment, each built by buildParamMem()
+ * from only the parameters that segment actually owns.
+ *
+ * This is the multi-segment form of the single buffer buildParamMem()
+ * produces. Segments are declared by the application and each numbers its
+ * offsets from zero, so a parameter's offset only means something together
+ * with the segment it belongs to. Building one flat buffer put one
+ * segment's parameters on top of another's - on a real device, five bytes
+ * of a General block landing on Channel A's.
+ *
+ * Returns an empty map when the model declares no parameter segments,
+ * which is every RelSegment device and every model cached before segments
+ * were tracked. Callers fall back to the single-buffer path for those, so
+ * their behaviour is unchanged.
+ */
+export function buildParamMemBySegment(
+  model: DeviceModel,
+  currentValues: Record<string, unknown>,
+  dynTree: DynTree | null = null,
+  params: Record<string, ParamDef> | null = null,
+  paramRefValues?: Record<string, string>,
+): Map<number, Buffer> {
+  const out = new Map<number, Buffer>();
+  const layout = model.paramMemLayout ?? {};
+  for (const seg of resolveParamSegments(model)) {
+    // buildParamMem() is given only this segment's own parameters, so
+    // every offset it sees is relative to the buffer it is filling and the
+    // collision check inside it becomes meaningful: a clash there is two
+    // members of one Union both being live, not two segments overlapping.
+    const segLayout: Record<string, ParamMemEntry> = {};
+    for (const key of seg.keys) {
+      const entry = layout[key];
+      if (entry) segLayout[key] = entry;
+    }
+    out.set(
+      seg.address,
+      buildParamMem(
+        seg.size,
+        segLayout,
+        currentValues,
+        seg.fill,
+        seg.seedHex,
+        dynTree,
+        params,
+        paramRefValues,
+      ),
+    );
+  }
+  return out;
 }
 
 /**

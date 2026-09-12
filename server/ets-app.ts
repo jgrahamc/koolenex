@@ -104,6 +104,20 @@ interface ParamDef {
   bitOffset: number;
   fromMemoryChild: boolean;
   isDefaultUnionParam: boolean;
+  /**
+   * The CodeSegment this parameter's offset is relative to, from
+   * <Memory CodeSegment="..." Offset="..."/> - its own, or its <Union>'s.
+   * Null when the parameter has no <Memory> element at all.
+   *
+   * An application program may declare several segments, and each one
+   * numbers its own offsets from zero. M-0002_A-A001-13-63C2 declares two
+   * that carry parameters: AS-6D00 (160 bytes at 0x6D00, the four
+   * channels) and AS-6F00 (8 bytes at 0x6F00, the device-level General
+   * block). Both start at offset 0, so dropping this attribute - which
+   * koolenex did until 2026-09-12 - makes the General block's five bytes
+   * land on Channel A's.
+   */
+  codeSegment: string | null;
 }
 
 interface ParamRefDef {
@@ -316,6 +330,23 @@ export interface ParamMemLayoutEntry {
   isFloat: boolean;
   fromMemoryChild: boolean;
   isVisible: boolean;
+  /**
+   * Address of the AbsoluteSegment this entry's `offset` is relative to,
+   * from the parameter's <Memory CodeSegment="..."/> and that segment's
+   * own <AbsoluteSegment Address="..."/> declaration.
+   *
+   * Undefined when the parameter names no segment, or names a
+   * RelativeSegment (those are keyed by LoadStateMachine, not an address,
+   * and go through relSegData), or when the model predates 2026-09-12.
+   * A consumer seeing undefined must behave as it did before segments
+   * were tracked - one flat parameter buffer.
+   *
+   * An application program may declare several parameter-carrying
+   * segments, each numbering its offsets from zero, so without this two
+   * parameters in different segments look like they share a byte. See
+   * ParamDef.codeSegment for the real example this came from.
+   */
+  segmentAddress?: number;
   coefficient?: number;
   // Display metadata, derived the same way as `params` (pr.text || pd.text,
   // the section/group maps, ti.enums/unit) but WITHOUT the Access="None"
@@ -1071,6 +1102,7 @@ export function buildAppIndex(buf: Buffer): AppIndex | null {
     baseOffset = 0,
     baseFromMem = false,
     baseBitOffset = 0,
+    baseCodeSegment: string | null = null,
   ) => {
     const id = attr(p, 'Id');
     if (!id) return;
@@ -1081,12 +1113,19 @@ export function buildAppIndex(buf: Buffer): AppIndex | null {
     // Track the source so buildParamMem can distinguish absolute-offset params (Memory child)
     // from Union params (direct Offset="0" attribute) for relSeg blob convention detection.
     let fromMemoryChild = baseFromMem;
-    if (rawOff === '') {
+    // A Union's children inherit their parent's segment along with its
+    // offset; a standalone parameter names its own.
+    let codeSegment = baseCodeSegment;
+    {
       const mem = Array.isArray(p.Memory) ? p.Memory[0] : p.Memory;
       if (mem) {
-        rawOff = attr(mem, 'Offset');
-        rawBitOff = attr(mem, 'BitOffset');
-        if (rawOff !== '') fromMemoryChild = true;
+        const seg = attr(mem, 'CodeSegment');
+        if (seg !== '') codeSegment = seg;
+        if (rawOff === '') {
+          rawOff = attr(mem, 'Offset');
+          rawBitOff = attr(mem, 'BitOffset');
+          if (rawOff !== '') fromMemoryChild = true;
+        }
       }
     }
     paramDefs[id] = {
@@ -1111,6 +1150,7 @@ export function buildAppIndex(buf: Buffer): AppIndex | null {
       // DefaultUnionParameter="0" marks the first (default-active) param in a Union —
       // its default value should be written even when not in currentValues.
       isDefaultUnionParam: attr(p, 'DefaultUnionParameter') === '0',
+      codeSegment,
     };
   };
   for (const st of allStaticSections) {
@@ -1123,12 +1163,15 @@ export function buildAppIndex(buf: Buffer): AppIndex | null {
       let uOffset = parseInt(attr(u, 'Offset'), 10);
       let uBitOffset = parseInt(attr(u, 'BitOffset'), 10) || 0;
       let uFromMem = false;
+      let uCodeSegment: string | null = null;
       // The Union's <Memory> child can supply the byte offset, the bit offset,
       // or both. Read it whenever present so a Union that carries its BitOffset
       // in <Memory> is not dropped just because its byte Offset happens to be a
       // direct (nonzero) attribute.
       const uMem = Array.isArray(u.Memory) ? u.Memory[0] : u.Memory;
       if (uMem) {
+        const seg = attr(uMem, 'CodeSegment');
+        if (seg !== '') uCodeSegment = seg;
         const memBitOff = parseInt(attr(uMem, 'BitOffset'), 10);
         if (!isNaN(memBitOff)) uBitOffset = memBitOff;
         if (isNaN(uOffset) || uOffset === 0) {
@@ -1141,7 +1184,7 @@ export function buildAppIndex(buf: Buffer): AppIndex | null {
       }
       if (isNaN(uOffset)) uOffset = 0;
       for (const p of toArr(u.Parameter))
-        addParam(p, uOffset, uFromMem, uBitOffset);
+        addParam(p, uOffset, uFromMem, uBitOffset, uCodeSegment);
     }
   }
 
@@ -1698,6 +1741,22 @@ export function buildAppIndex(buf: Buffer): AppIndex | null {
     walkForChooseOwners(dynTree.main?.items ?? null, null);
     for (const md of dynTree.moduleDefs) walkForChooseOwners(md.items, null);
 
+    // Which address each CodeSegment id actually sits at, from the
+    // <AbsoluteSegment Id="..." Address="..."/> declarations themselves.
+    // A parameter's <Memory CodeSegment="..." Offset="N"/> is an offset
+    // INTO that segment, so this is what turns a parameter's offset into
+    // a place in the device's memory. RelativeSegments are keyed by their
+    // LoadStateMachine rather than an address and are handled by the
+    // existing relSegData path, so only absolute ones are mapped here.
+    const codeSegmentAddress: Record<string, number> = {};
+    for (const st of allStaticSections) {
+      for (const as_ of toArr(st.Code?.AbsoluteSegment)) {
+        const id = attr(as_, 'Id');
+        const addr = parseInt(attr(as_, 'Address'), 10);
+        if (id && !isNaN(addr)) codeSegmentAddress[id] = addr;
+      }
+    }
+
     // paramMemLayout: ALL paramRefs (including Access=None download-only params)
     // keyed by paramRefId → { offset, bitOffset, bitSize, defaultValue }
     // Used by the download engine to build the parameter memory segment.
@@ -1738,9 +1797,13 @@ export function buildAppIndex(buf: Buffer): AppIndex | null {
         }
       }
 
+      const segmentAddress =
+        pd.codeSegment != null ? codeSegmentAddress[pd.codeSegment] : undefined;
+
       paramMemLayout[prId] = {
         offset: pd.offset,
         bitOffset: pd.bitOffset || 0,
+        ...(segmentAddress !== undefined ? { segmentAddress } : {}),
         bitSize: ti.sizeInBit || 8,
         defaultValue: pr.prDefault ?? pd.value ?? '',
         isText: ti.kind === 'text',

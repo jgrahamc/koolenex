@@ -52,3 +52,8 @@ client/dist/
 .vscode
 .zprofile
 .zshrc
+
+# Manufacturer product XML dropped in for investigation. Not ours to
+# redistribute, and large; koolenex reads it from the .knxproj at import
+# time and never needs a copy in the tree.
+/M-*.xml

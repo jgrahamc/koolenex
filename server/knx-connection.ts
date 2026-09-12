@@ -156,6 +156,14 @@ export interface DownloadProgress {
 /** Extra context needed to plan an AbsoluteSegment (MDT-style) download. */
 export interface DownloadExtra {
   paramBase?: number | null;
+  /**
+   * One parameter buffer per declared AbsoluteSegment. An application may
+   * declare several parameter-carrying segments, each numbering its
+   * offsets from zero; this says which buffer belongs at which address.
+   * Omitted for RelSegment devices and for app models that predate
+   * segment tracking, where paramBase/paramMem remain the single buffer.
+   */
+  paramMemBySegment?: Map<number, Buffer> | null;
   absSegData?: Record<number, AbsSegSeed>;
   appId?: string;
   resolvedBases?: Record<number, number>;
@@ -1805,6 +1813,7 @@ export class KnxConnection extends EventEmitter {
           extra?.paramBase ?? null,
           extra?.absSegData ?? {},
           extra?.appId ?? '',
+          extra?.paramMemBySegment ?? null,
         );
 
         for (const op of ops) {

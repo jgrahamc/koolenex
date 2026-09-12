@@ -70,6 +70,20 @@ describe('LS-Touch: parameter model', () => {
     assert.equal(Object.keys(layout).length, 3194);
   });
 
+  // Segment binding: this product declares exactly one CodeSegment, which
+  // is why nothing in this repo ever caught parameters from different
+  // segments being flattened together (see tests/param-segments.test.ts).
+  // It still pins that the binding is parsed rather than ignored.
+  it('binds every memory-mapped parameter to a declared segment', () => {
+    const addresses = new Set(
+      Object.values(layout).map((l) => l.segmentAddress),
+    );
+    assert.equal(addresses.size, 1, 'one CodeSegment in this product');
+    // A RelativeSegment carries no address, so this product's parameters
+    // resolve to undefined and keep the single-buffer path.
+    assert.deepEqual([...addresses], [undefined]);
+  });
+
   // paramRefValues exists because the two maps above are each filtered for
   // their own purpose and a <choose> can be controlled by a ParameterRef
   // neither of them keeps - see tests/dyn-choose-values.test.ts. It is

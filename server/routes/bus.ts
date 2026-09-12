@@ -21,6 +21,8 @@ import {
   decodeGroupObjectEntryFlags,
   resolveParamSegment,
   buildParamMem,
+  buildParamMemBySegment,
+  resolveParamSegments,
   writtenParamKeys,
   diffMemory,
   decodeParamMem,
@@ -1064,6 +1066,13 @@ type DeviceProgramming =
       groupObjectTable: Buffer | null;
       paramMem: Buffer | null;
       paramBase: number | null;
+      /**
+       * One parameter buffer per declared AbsoluteSegment, when the app
+       * model records which segment each parameter belongs to. Null for
+       * RelSegment devices and for models cached before segments were
+       * tracked, where `paramMem`/`paramBase` remain the single buffer.
+       */
+      paramMemBySegment: Map<number, Buffer> | null;
       absSegData: Record<number, { size: number; hex?: string | null }>;
       appId: string;
       paramMemLayout: Record<string, unknown>;
@@ -1271,6 +1280,7 @@ function buildDeviceProgramming(dev: Device): DeviceProgramming {
     model as Parameters<typeof resolveParamSegment>[0],
   );
   let paramMem: Buffer | null = null;
+  let paramMemBySegment: Map<number, Buffer> | null = null;
   let writtenParams: Set<string> | null = null;
   if (paramSize > 0 && model.paramMemLayout) {
     let currentValues: Record<string, unknown> = {};
@@ -1290,6 +1300,14 @@ function buildDeviceProgramming(dev: Device): DeviceProgramming {
       model.params as Parameters<typeof buildParamMem>[6],
       model.paramRefValues as Parameters<typeof buildParamMem>[7],
     );
+    const bySegment = buildParamMemBySegment(
+      model as Parameters<typeof buildParamMemBySegment>[0],
+      currentValues,
+      model.dynTree as Parameters<typeof buildParamMemBySegment>[2],
+      model.params as Parameters<typeof buildParamMemBySegment>[3],
+      model.paramRefValues,
+    );
+    if (bySegment.size) paramMemBySegment = bySegment;
     writtenParams = writtenParamKeys(
       model.paramMemLayout as Parameters<typeof writtenParamKeys>[0],
       currentValues,
@@ -1315,6 +1333,7 @@ function buildDeviceProgramming(dev: Device): DeviceProgramming {
     groupObjectTable,
     paramMem,
     paramBase,
+    paramMemBySegment,
     absSegData: model.absSegData ?? {},
     appId: model.appId ?? dev.app_ref,
     paramMemLayout: model.paramMemLayout ?? {},
@@ -1480,6 +1499,7 @@ export async function runProgramDevice(
     groupObjectTable,
     paramMem,
     paramBase,
+    paramMemBySegment,
     absSegData,
     appId,
     isSecureEnabled,
@@ -1892,6 +1912,7 @@ export async function runProgramDevice(
       onProgress,
       {
         paramBase,
+        paramMemBySegment,
         absSegData,
         appId,
         mode,
@@ -2205,6 +2226,7 @@ export async function runVerifyDevice(
     paramMemLayout,
     params: paramDefs,
     cachedMaxApduLength,
+    paramMemBySegment,
     // Renamed on the way in: the imported writtenParamKeys() helper that
     // produced it is in scope here too.
     writtenParamKeys: writtenParams,
@@ -2300,6 +2322,7 @@ export async function runVerifyDevice(
     appId,
     bases,
     groupObjectTable,
+    paramMemBySegment,
   );
 
   if (plan.family === 'none' || (!plan.mem.length && !plan.props.length)) {
@@ -2463,32 +2486,74 @@ export async function runVerifyDevice(
   // device", with no way to see which parameters the 5,847 differing
   // bytes belonged to. There was never a reason for it beyond relmem
   // being the family that happened to have one segment.
-  const paramSegment =
-    plan.family === 'relmem'
-      ? segments.length === 1
-        ? segments[0]
-        : undefined
-      : plan.family === 'absmem' && paramBase != null
-        ? segments.find((seg) => seg.offset === paramBase)
-        : undefined;
-  if (paramSegment && paramMemLayout && Object.keys(paramMemLayout).length) {
-    const expectedBuf = Buffer.from(paramSegment.expectedHex, 'hex');
-    const actualBuf = Buffer.from(paramSegment.actualHex, 'hex');
-    const layout = paramMemLayout as Parameters<typeof decodeParamMem>[1];
+  //
+  // An absmem application may declare more than one parameter-carrying
+  // segment, each numbering its offsets from zero, so "the parameter
+  // image" is a list: each compared region paired with the parameters
+  // that name its address. Decoding the whole layout against one buffer
+  // reads a parameter at another segment's byte - on the device this came
+  // from, the five parameters of an 8-byte General block at 0x6F00 were
+  // decoded against Channel A's bytes in the 160-byte segment at 0x6D00.
+  const fullLayout = (paramMemLayout ?? {}) as Parameters<
+    typeof decodeParamMem
+  >[1];
+  const layoutFor = (keys: string[]): Parameters<typeof decodeParamMem>[1] => {
+    const sub: Record<string, (typeof fullLayout)[string]> = {};
+    for (const k of keys) {
+      const e = fullLayout[k];
+      if (e) sub[k] = e;
+    }
+    return sub;
+  };
+
+  type DecodePair = {
+    segment: (typeof segments)[number];
+    layout: Parameters<typeof decodeParamMem>[1];
+  };
+  const decodePairs: DecodePair[] = [];
+  if (plan.family === 'relmem' && segments.length === 1 && segments[0]) {
+    // One region, and it IS the parameter image.
+    decodePairs.push({ segment: segments[0], layout: fullLayout });
+  } else if (plan.family === 'absmem') {
+    const declared = resolveParamSegments({
+      paramMemLayout,
+      absSegData,
+    } as Parameters<typeof resolveParamSegments>[0]);
+    if (declared.length) {
+      for (const d of declared) {
+        const seg = segments.find((x) => x.offset === d.address);
+        if (seg) decodePairs.push({ segment: seg, layout: layoutFor(d.keys) });
+      }
+    } else if (paramBase != null) {
+      // No segment information in this app model - the single-segment
+      // behaviour, unchanged.
+      const seg = segments.find((x) => x.offset === paramBase);
+      if (seg) decodePairs.push({ segment: seg, layout: fullLayout });
+    }
+  }
+
+  if (decodePairs.length && Object.keys(fullLayout).length) {
     const defs = paramDefs as Parameters<typeof decodeParamMem>[2];
-    const expectedDecoded = decodeParamMem(expectedBuf, layout, defs);
-    const actualDecoded = decodeParamMem(actualBuf, layout, defs);
-    const actualByKey = new Map(actualDecoded.map((d) => [d.key, d]));
-    decoded = expectedDecoded.map(({ value, ...exp }) => {
-      const act = actualByKey.get(exp.key);
-      return {
-        ...exp,
-        expectedValue: value,
-        actualValue: act?.value ?? null,
-        match: act ? act.value === value : null,
-        written: writtenParams ? writtenParams.has(exp.key) : true,
-      };
-    });
+    const rows: DecodedComparison[] = [];
+    for (const { segment: seg, layout } of decodePairs) {
+      if (!Object.keys(layout).length) continue;
+      const expectedBuf = Buffer.from(seg.expectedHex, 'hex');
+      const actualBuf = Buffer.from(seg.actualHex, 'hex');
+      const expectedDecoded = decodeParamMem(expectedBuf, layout, defs);
+      const actualDecoded = decodeParamMem(actualBuf, layout, defs);
+      const actualByKey = new Map(actualDecoded.map((d) => [d.key, d]));
+      for (const { value, ...exp } of expectedDecoded) {
+        const act = actualByKey.get(exp.key);
+        rows.push({
+          ...exp,
+          expectedValue: value,
+          actualValue: act?.value ?? null,
+          match: act ? act.value === value : null,
+          written: writtenParams ? writtenParams.has(exp.key) : true,
+        });
+      }
+    }
+    if (rows.length) decoded = rows;
   }
 
   // Verify the GA table / Association table too, when the model didn't
