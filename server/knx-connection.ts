@@ -1244,14 +1244,22 @@ export class KnxConnection extends EventEmitter {
     fns: ManagementSessionFns,
     deviceAddr: string,
   ): Promise<boolean | null> {
-    const { waitResponse } = fns;
+    const { waitResponse, sendData } = fns;
     try {
-      const apdu = apduGroup('DeviceDescriptor_Read');
-      const cemi = buildCEMI(this.localAddr, deviceAddr, apdu, false, {
-        priority: 'system',
-      });
+      // Connection-oriented, like every other request in this session.
+      //
+      // This was the one connectionless frame inside an open T_Connect
+      // session, and a real device ignores it: a Zennio at 1.3.60
+      // (M-0071_A-1222-15-CBCE) never answered the connectionless
+      // DeviceDescriptor_Read - a full 3s timeout - and then answered the
+      // very next frame, a connection-oriented A_Memory_Read, in the same
+      // session. A device in the connected transport state is not obliged
+      // to serve T_Data_Individual, and this one does not.
+      //
+      // restartDevice() has always sent this service through sendData()
+      // (connection-oriented) in its own session; only this copy differed.
       const respP = waitResponse('DeviceDescriptor_Response', 3000);
-      await this.sendCEMI(cemi);
+      await sendData('DeviceDescriptor_Read');
       const resp = await respP;
       const mask =
         resp.apduData.length >= 2
