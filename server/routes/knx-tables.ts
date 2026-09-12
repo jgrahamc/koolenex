@@ -614,13 +614,47 @@ export function writeBits(
   if (byteOffset >= buf.length || bitSize <= 0) return;
   const mask = bitSize >= 32 ? 0xffffffff : (1 << bitSize) - 1;
   value = value & mask;
-  // Byte-aligned multi-byte: write big-endian (KNX/ETS standard)
+  // Byte-aligned multi-byte: little-endian - least significant byte at the
+  // lowest offset.
+  //
+  // This was big-endian until 2026-09-12, on the strength of a code comment
+  // reading "(KNX/ETS standard)" with nothing behind it: no captured bytes,
+  // and three unit tests that only restated this function's own choice.
+  //
+  // A product's own declaration proves otherwise, without reference to any
+  // device. In M-0002_A-A001-13-63C2 a <Union> exposes the same two bytes
+  // as one 16-bit parameter and as two 8-bit ones:
+  //
+  //   UP-44 "Long operation after"       16-bit @3  enum 1283 -> "0.5s"
+  //   UP-33 "Long operation after: Base"  8-bit @3  enum    3 -> "100ms"
+  //   UP-34 "Factor [2...255]"            8-bit @4  default  5
+  //
+  // 1283 = 0x0503. Little-endian that is [0x03, 0x05]: base 3 = 100ms at
+  // offset 3, factor 5 at offset 4, and 100ms x 5 = 0.5s - exactly what
+  // the 16-bit enum's own label says. Every other entry in that enum
+  // agrees: 0x0303 -> 100ms x 3 = "0.3s", 0x0403 -> "0.4s", 0x0603 ->
+  // "0.6s", 0x0A03 -> "1s". Big-endian would make 1283 mean base 5 = 10s
+  // with factor 3, i.e. 30s, contradicting the label it carries.
+  //
+  // A second Union in the same product says the same thing independently:
+  // UP-430 "Debounce time" 16-bit @1 enum 5634 -> "50ms debounce time",
+  // 0x1602 little-endian = [0x02, 0x16], which is P-3's default 2 at
+  // offset 1 and UP-429's enum 22 -> "50ms" at offset 2.
+  //
+  // ETS is one implementation with no per-product byte-order switch, and
+  // the real device this project programmed holds precisely these bytes.
+  // The repo's golden ETS-capture replays pass either way - their
+  // multi-byte parameters do not discriminate - so nothing real contradicts
+  // this.
+  //
+  // Sub-byte fields below are NOT affected: bit numbering inside a byte is
+  // MSB-first (bitOffset 0 = bit 7) and stays exactly as it was.
   if (bitOffset === 0 && bitSize % 8 === 0) {
     const byteCount = bitSize / 8;
     for (let i = 0; i < byteCount; i++) {
       const bIdx = byteOffset + i;
       if (bIdx >= buf.length) continue;
-      buf[bIdx] = (value >>> ((byteCount - 1 - i) * 8)) & 0xff;
+      buf[bIdx] = (value >>> (i * 8)) & 0xff;
     }
     return;
   }
@@ -655,13 +689,15 @@ export function readBits(
   bitSize: number,
 ): number {
   if (bitSize <= 0) return 0;
+  // Little-endian, mirroring writeBits() above - see its comment for the
+  // product-data evidence.
   if (bitOffset === 0 && bitSize % 8 === 0) {
     const byteCount = bitSize / 8;
     let value = 0;
     for (let i = 0; i < byteCount; i++) {
       const bIdx = byteOffset + i;
       const byte = bIdx < buf.length ? buf[bIdx]! : 0;
-      value = value * 256 + byte;
+      value += byte * 256 ** i;
     }
     return value;
   }

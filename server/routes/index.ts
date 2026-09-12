@@ -15,6 +15,7 @@ import {
 import {
   writeKnxFloat16,
   writeBits,
+  readBits,
   buildGATable,
   buildAssocTable,
   etsTestMatch,
@@ -56,6 +57,7 @@ export {
   router,
   writeKnxFloat16,
   writeBits,
+  readBits,
   normalizeDptKey,
   decodeRawValue,
   buildGATable,

@@ -20,6 +20,7 @@ import {
 import {
   writeKnxFloat16,
   writeBits,
+  readBits,
   normalizeDptKey,
   decodeRawValue,
   etsTestMatch,
@@ -278,17 +279,73 @@ describe('writeBits', () => {
     assert.equal(buf[0], 0x0f);
   });
 
-  it('writes 16-bit big-endian value', () => {
+  // These two asserted big-endian until 2026-09-12, and asserted nothing:
+  // they restated writeBits()'s own choice with no captured bytes and no
+  // product data behind them. The real evidence is arithmetic in a
+  // product's own declaration - see the overlapping-Union case below and
+  // writeBits()'s comment for the full derivation.
+  it('writes a 16-bit value least-significant byte first', () => {
     const buf = Buffer.alloc(2);
     writeBits(buf, 0, 0, 16, 0x1234);
-    assert.equal(buf[0], 0x12);
-    assert.equal(buf[1], 0x34);
+    assert.equal(buf[0], 0x34);
+    assert.equal(buf[1], 0x12);
   });
 
-  it('writes 32-bit big-endian value', () => {
+  it('writes a 32-bit value least-significant byte first', () => {
     const buf = Buffer.alloc(4);
     writeBits(buf, 0, 0, 32, 0xdeadbeef);
-    assert.deepEqual([...buf], [0xde, 0xad, 0xbe, 0xef]);
+    assert.deepEqual([...buf], [0xef, 0xbe, 0xad, 0xde]);
+  });
+
+  /**
+   * The byte order is not a convention picked here - a real product states
+   * it. M-0002_A-A001-13-63C2 declares one <Union> over two bytes, exposed
+   * both as a single 16-bit parameter and as two 8-bit ones:
+   *
+   *   UP-44 "Long operation after"       16-bit @3  enum 1283 -> "0.5s"
+   *   UP-33 "Long operation after: Base"  8-bit @3  enum    3 -> "100ms"
+   *   UP-34 "Factor [2...255]"            8-bit @4  default  5
+   *
+   * The 16-bit member and its 8-bit siblings must describe the same two
+   * bytes, and only one byte order makes the labels agree: 100ms x 5 is
+   * 0.5s. Big-endian would put base 5 ("10s") at offset 3 with factor 3,
+   * meaning 30s, contradicting the enum's own text.
+   */
+  it("agrees with a product's own 16-bit and 8-bit views of two bytes", () => {
+    const buf = Buffer.alloc(8);
+    writeBits(buf, 3, 0, 16, 1283); // "0.5s"
+
+    assert.equal(readBits(buf, 3, 0, 8), 3, 'base at the lower offset = 100ms');
+    assert.equal(readBits(buf, 4, 0, 8), 5, 'factor at the higher offset');
+    assert.equal(readBits(buf, 3, 0, 16), 1283, 'and it round-trips');
+
+    // Every other entry of that same enum decomposes the same way:
+    // base 3 (100ms) with the factor the label implies.
+    for (const [value, tenths] of [
+      [771, 3],
+      [1027, 4],
+      [1539, 6],
+      [2051, 8],
+      [2563, 10],
+    ] as const) {
+      const b = Buffer.alloc(8);
+      writeBits(b, 3, 0, 16, value);
+      assert.equal(readBits(b, 3, 0, 8), 3, `${value} base`);
+      assert.equal(readBits(b, 4, 0, 8), tenths, `${value} factor`);
+    }
+  });
+
+  /**
+   * The second Union in the same product, independently. UP-430 "Debounce
+   * time" is 16-bit at offset 1 with enum 5634 -> "50ms debounce time";
+   * its 8-bit siblings are P-3 "Transmission delay" at offset 1 (default
+   * 2) and UP-429 "Debounce time" at offset 2 (enum 22 -> "50ms").
+   */
+  it("agrees with the same product's second overlapping Union", () => {
+    const buf = Buffer.alloc(8);
+    writeBits(buf, 1, 0, 16, 5634);
+    assert.equal(readBits(buf, 1, 0, 8), 2);
+    assert.equal(readBits(buf, 2, 0, 8), 22, '22 is "50ms" in UP-429');
   });
 
   it('handles sub-byte spanning two bytes', () => {
