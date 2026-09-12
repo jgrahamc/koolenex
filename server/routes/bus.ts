@@ -1290,16 +1290,6 @@ function buildDeviceProgramming(dev: Device): DeviceProgramming {
         unknown
       >;
     } catch (_) {}
-    paramMem = buildParamMem(
-      paramSize,
-      model.paramMemLayout as Parameters<typeof buildParamMem>[1],
-      currentValues,
-      paramFill,
-      relSegHex,
-      model.dynTree as Parameters<typeof buildParamMem>[5],
-      model.params as Parameters<typeof buildParamMem>[6],
-      model.paramRefValues as Parameters<typeof buildParamMem>[7],
-    );
     const bySegment = buildParamMemBySegment(
       model as Parameters<typeof buildParamMemBySegment>[0],
       currentValues,
@@ -1307,7 +1297,28 @@ function buildDeviceProgramming(dev: Device): DeviceProgramming {
       model.params as Parameters<typeof buildParamMemBySegment>[3],
       model.paramRefValues,
     );
+    // `paramMem` is the single buffer everything that predates segment
+    // tracking still works in: the RelSegment write path, planVerify's
+    // relmem branch, pickSourceBuffer's paramBase fallback. When the app
+    // does declare segments it must be one OF them, not a flattening of
+    // all of them - building it from the whole layout writes every other
+    // segment's parameters into this one's bytes, which is the very fault
+    // the segment binding exists to remove, and reports it as a Union
+    // contradiction it is not.
+    const forBase = paramBase != null ? bySegment.get(paramBase) : undefined;
     if (bySegment.size) paramMemBySegment = bySegment;
+    paramMem =
+      forBase ??
+      buildParamMem(
+        paramSize,
+        model.paramMemLayout as Parameters<typeof buildParamMem>[1],
+        currentValues,
+        paramFill,
+        relSegHex,
+        model.dynTree as Parameters<typeof buildParamMem>[5],
+        model.params as Parameters<typeof buildParamMem>[6],
+        model.paramRefValues as Parameters<typeof buildParamMem>[7],
+      );
     writtenParams = writtenParamKeys(
       model.paramMemLayout as Parameters<typeof writtenParamKeys>[0],
       currentValues,
