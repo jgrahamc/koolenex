@@ -335,7 +335,13 @@ describe('KnxConnection.managementSession', () => {
       await sendData('Memory_Read', Buffer.from([0x01, 0x00, 0x60]));
     });
 
-    assert.deepEqual(seqs, [0, 1]);
+    // sendData() now consumes and advances the session's own sequence
+    // counter too (real bug fix, 2026-09-13 - see knx-connection.ts's
+    // sendData doc comment) - every new connection-oriented data frame
+    // needs its own number, sendData's included. So the second nextSeq()
+    // call sees the counter already bumped by the sendData() call before
+    // it: 0, (sendData consumes 1), 2.
+    assert.deepEqual(seqs, [0, 2]);
     // CONNECT + 2 data frames + DISCONNECT = 4 frames minimum
     assert.ok(conn.sent.length >= 4, `sent ${conn.sent.length}, expected >= 4`);
   });
