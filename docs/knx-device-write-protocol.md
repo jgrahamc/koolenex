@@ -789,6 +789,26 @@ segment, vs. an ETS-side convention) is not confirmed — only that it happens u
 alongside any other write to this object. A Partial Download write that omits this byte leaves it
 at its previous value, which reads back as a real mismatch on the next verify.
 
+### 6.1a Multi-byte numeric parameter byte order 🟢
+
+Byte order for a byte-aligned multi-byte parameter is a real, per-app ETS declaration —
+`<Static><Options ParameterByteOrder="LittleEndian"/"BigEndian">`, a direct attribute on the app's
+own `<Options>` element, not a fixed convention. `writeBits`/`readBits` resolve it from there,
+falling back to big-endian when the attribute is absent.
+
+Checked across every `.knxproj` project file available to this project (305 real app
+declarations, several manufacturers): every app that declares this attribute is internally
+consistent with every other app from the same manufacturer, and no manufacturer contradicts
+itself. Albrecht Jung and GIRA apps declare (or, where the attribute is absent, real-hardware
+Full Download captures confirm) `BigEndian`. Zennio (KLIC-DI v2) and a product in the same
+manufacturer family as the one this default was originally based on both declare `LittleEndian`
+explicitly.
+
+🔴 Where the attribute is absent, defaulting to big-endian matches every real-hardware case
+checked so far — that is an observation, not a confirmed ETS-defined default. No case has been
+found where an app both omits the attribute and turns out little-endian on real hardware, but the
+absence of a counter-example isn't proof one doesn't exist.
+
 ### 6.2 Object 1 — group address table
 
 Wire format: a 2-byte count, followed by one 2-byte group address per entry, in the standard raw

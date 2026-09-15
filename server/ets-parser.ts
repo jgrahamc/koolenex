@@ -1354,6 +1354,8 @@ export function parseKnxproj(
         // 🟡 See ParamModel.supportsExtendedMemoryServices's own doc
         // comment (ets-app.ts).
         m.supportsExtendedMemoryServices = idx.supportsExtendedMemoryServices;
+        // See ParamModel.parameterByteOrder's own doc comment (ets-app.ts).
+        m.parameterByteOrder = idx.parameterByteOrder;
         paramModels[aid] = m;
       }
     } catch (e) {

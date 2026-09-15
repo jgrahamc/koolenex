@@ -861,13 +861,35 @@ describe('buildParamMem', () => {
   // this order makes their enum labels agree. See writeBits() in
   // routes/knx-tables.ts for the derivation, and tests/dpt.test.ts for the
   // arithmetic stated as a test.
-  it('writes a 16-bit integer least-significant byte first', () => {
+  it('writes a 16-bit integer least-significant byte first (LittleEndian app)', () => {
+    const layout: any = {
+      pr1: { offset: 0, bitOffset: 0, bitSize: 16, defaultValue: '258' },
+    };
+    const buf = buildParamMem(
+      4,
+      layout,
+      {},
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      'LittleEndian',
+    );
+    assert.equal(buf[0], 2); // 258 & 0xff
+    assert.equal(buf[1], 1); // 258 >> 8
+  });
+
+  // When the app's ParameterByteOrder is absent (or BigEndian), the same
+  // field writes most-significant byte first - see writeBits()'s own doc
+  // comment for the evidence and status.
+  it('writes a 16-bit integer most-significant byte first when byteOrder is absent', () => {
     const layout: any = {
       pr1: { offset: 0, bitOffset: 0, bitSize: 16, defaultValue: '258' },
     };
     const buf = buildParamMem(4, layout, {});
-    assert.equal(buf[0], 2); // 258 & 0xff
-    assert.equal(buf[1], 1); // 258 >> 8
+    assert.equal(buf[0], 1); // 258 >> 8
+    assert.equal(buf[1], 2); // 258 & 0xff
   });
 
   it('processes Assign operations from active dynTree branches', () => {

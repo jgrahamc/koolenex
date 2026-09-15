@@ -279,22 +279,39 @@ describe('writeBits', () => {
     assert.equal(buf[0], 0x0f);
   });
 
-  // These two asserted big-endian until 2026-09-12, and asserted nothing:
-  // they restated writeBits()'s own choice with no captured bytes and no
-  // product data behind them. The real evidence is arithmetic in a
+  // These asserted big-endian until 2026-09-12, and asserted nothing: they
+  // restated writeBits()'s own choice with no captured bytes and no product
+  // data behind them. The real evidence for LittleEndian is arithmetic in a
   // product's own declaration - see the overlapping-Union case below and
-  // writeBits()'s comment for the full derivation.
-  it('writes a 16-bit value least-significant byte first', () => {
+  // writeBits()'s comment for the full derivation. `byteOrder` is now a real,
+  // per-app ETS declaration (ParameterByteOrder) rather than a fixed
+  // convention - these pass 'LittleEndian' explicitly to keep testing the
+  // case the evidence below actually supports.
+  it('writes a 16-bit value least-significant byte first (LittleEndian)', () => {
     const buf = Buffer.alloc(2);
-    writeBits(buf, 0, 0, 16, 0x1234);
+    writeBits(buf, 0, 0, 16, 0x1234, 'LittleEndian');
     assert.equal(buf[0], 0x34);
     assert.equal(buf[1], 0x12);
   });
 
-  it('writes a 32-bit value least-significant byte first', () => {
+  it('writes a 32-bit value least-significant byte first (LittleEndian)', () => {
     const buf = Buffer.alloc(4);
-    writeBits(buf, 0, 0, 32, 0xdeadbeef);
+    writeBits(buf, 0, 0, 32, 0xdeadbeef, 'LittleEndian');
     assert.deepEqual([...buf], [0xef, 0xbe, 0xad, 0xde]);
+  });
+
+  // The other side of the same coin: when the attribute is absent (or
+  // explicitly BigEndian), the byte order is reversed - matching every
+  // real-hardware case checked so far (see writeBits()'s own doc comment),
+  // though not itself a confirmed ETS-defined default.
+  it('writes a 16-bit value most-significant byte first when byteOrder is absent/BigEndian', () => {
+    const buf = Buffer.alloc(2);
+    writeBits(buf, 0, 0, 16, 0x1234);
+    assert.equal(buf[0], 0x12);
+    assert.equal(buf[1], 0x34);
+    const buf2 = Buffer.alloc(2);
+    writeBits(buf2, 0, 0, 16, 0x1234, 'BigEndian');
+    assert.deepEqual([...buf2], [...buf]);
   });
 
   /**
@@ -313,11 +330,23 @@ describe('writeBits', () => {
    */
   it("agrees with a product's own 16-bit and 8-bit views of two bytes", () => {
     const buf = Buffer.alloc(8);
-    writeBits(buf, 3, 0, 16, 1283); // "0.5s"
+    writeBits(buf, 3, 0, 16, 1283, 'LittleEndian'); // "0.5s"
 
-    assert.equal(readBits(buf, 3, 0, 8), 3, 'base at the lower offset = 100ms');
-    assert.equal(readBits(buf, 4, 0, 8), 5, 'factor at the higher offset');
-    assert.equal(readBits(buf, 3, 0, 16), 1283, 'and it round-trips');
+    assert.equal(
+      readBits(buf, 3, 0, 8, 'LittleEndian'),
+      3,
+      'base at the lower offset = 100ms',
+    );
+    assert.equal(
+      readBits(buf, 4, 0, 8, 'LittleEndian'),
+      5,
+      'factor at the higher offset',
+    );
+    assert.equal(
+      readBits(buf, 3, 0, 16, 'LittleEndian'),
+      1283,
+      'and it round-trips',
+    );
 
     // Every other entry of that same enum decomposes the same way:
     // base 3 (100ms) with the factor the label implies.
@@ -329,9 +358,13 @@ describe('writeBits', () => {
       [2563, 10],
     ] as const) {
       const b = Buffer.alloc(8);
-      writeBits(b, 3, 0, 16, value);
-      assert.equal(readBits(b, 3, 0, 8), 3, `${value} base`);
-      assert.equal(readBits(b, 4, 0, 8), tenths, `${value} factor`);
+      writeBits(b, 3, 0, 16, value, 'LittleEndian');
+      assert.equal(readBits(b, 3, 0, 8, 'LittleEndian'), 3, `${value} base`);
+      assert.equal(
+        readBits(b, 4, 0, 8, 'LittleEndian'),
+        tenths,
+        `${value} factor`,
+      );
     }
   });
 
@@ -343,9 +376,13 @@ describe('writeBits', () => {
    */
   it("agrees with the same product's second overlapping Union", () => {
     const buf = Buffer.alloc(8);
-    writeBits(buf, 1, 0, 16, 5634);
-    assert.equal(readBits(buf, 1, 0, 8), 2);
-    assert.equal(readBits(buf, 2, 0, 8), 22, '22 is "50ms" in UP-429');
+    writeBits(buf, 1, 0, 16, 5634, 'LittleEndian');
+    assert.equal(readBits(buf, 1, 0, 8, 'LittleEndian'), 2);
+    assert.equal(
+      readBits(buf, 2, 0, 8, 'LittleEndian'),
+      22,
+      '22 is "50ms" in UP-429',
+    );
   });
 
   it('handles sub-byte spanning two bytes', () => {
