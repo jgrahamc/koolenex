@@ -347,6 +347,16 @@ export class KnxConnection extends EventEmitter {
     this._scanAbort = false;
   }
 
+  // Source address for GROUP communication frames specifically. Base
+  // default is just `localAddr` (e.g. USB, where there's no separate
+  // gateway-assigned tunnel address); `KnxIpConnection` overrides this to
+  // prefer the real router-assigned address once known. Management/
+  // point-to-point frames always use `localAddr` directly (real ETS's own
+  // `0.0.0` convention) - never this getter.
+  get groupCommAddr(): string {
+    return this.localAddr;
+  }
+
   /**
    * Send a CEMI frame over the transport. Must be implemented by subclasses.
    * @param {Buffer} cemi - raw CEMI frame
@@ -440,7 +450,7 @@ export class KnxConnection extends EventEmitter {
   }> {
     if (!this.connected) throw new Error('Not connected');
     const apdu = apduGroupWrite(value, dpt);
-    const cemi = buildCEMI(this.localAddr, ga, apdu, true);
+    const cemi = buildCEMI(this.groupCommAddr, ga, apdu, true);
     await this.sendCEMI(cemi);
     return { ok: true, ga, value, dpt };
   }
@@ -466,7 +476,7 @@ export class KnxConnection extends EventEmitter {
         reject(new Error('Read timeout'));
       }, timeoutMs);
       this.on('telegram', onTelegram);
-      const cemi = buildCEMI(this.localAddr, ga, apduGroupRead(), true);
+      const cemi = buildCEMI(this.groupCommAddr, ga, apduGroupRead(), true);
       this.sendCEMI(cemi).catch((err: Error) => {
         clearTimeout(timer);
         this.off('telegram', onTelegram);
@@ -506,12 +516,23 @@ export class KnxConnection extends EventEmitter {
       apciName: string,
       extraBuf: Buffer | null = null,
     ): Promise<void> => {
+      // Consumes and advances the session's own sequence counter, same as
+      // nextSeq() - every NEW connection-oriented data frame in a T_Connect
+      // session needs its own number. Real, confirmed bug this fixes: a
+      // caller that sends one frame via sendData() (e.g. a connection-
+      // oriented DeviceDescriptor_Read) and then a further frame via
+      // nextSeq() in the same session used to have both land on the SAME
+      // sequence number (sendData() never advanced it) - the device
+      // correctly treats the second as a retransmission of the first and
+      // silently declines to re-process it (T_Ack'd, but never answered),
+      // which looks identical to the device simply not responding at all.
+      const thisSeq = seq++;
       logger.debug('knx', 'Management data frame sent', {
         dst: deviceAddr,
         apciName,
-        seq,
+        seq: thisSeq,
       });
-      const apdu = apduConnected(seq, apciName, extraBuf);
+      const apdu = apduConnected(thisSeq, apciName, extraBuf);
       const cemi = buildCEMI(this.localAddr, deviceAddr, apdu, false, {
         priority: 'system',
       });
