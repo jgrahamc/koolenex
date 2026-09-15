@@ -50,6 +50,8 @@ interface Model {
    */
   paramRefValues?: Record<string, string>;
   absSegData?: Record<number, { size: number; hex?: string | null }>;
+  // See ets-app.ts's ParamModel.parameterByteOrder's own doc comment.
+  parameterByteOrder?: 'LittleEndian' | 'BigEndian';
 }
 
 interface Region {
@@ -129,6 +131,7 @@ function buildFor(dev: Device): Row {
       model.dynTree as Parameters<typeof buildParamMem>[5],
       model.params as Parameters<typeof buildParamMem>[6],
       model.paramRefValues as Parameters<typeof buildParamMem>[7],
+      model.parameterByteOrder,
     );
   } else if (paramSize > 0) {
     paramMem = Buffer.alloc(paramSize, 0xff);

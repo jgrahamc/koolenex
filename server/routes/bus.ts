@@ -1055,6 +1055,8 @@ interface DeviceModel {
   // 🟡 See ets-app.ts's ParamModel.supportsExtendedMemoryServices's own
   // doc comment.
   supportsExtendedMemoryServices?: boolean;
+  // See ets-app.ts's ParamModel.parameterByteOrder's own doc comment.
+  parameterByteOrder?: 'LittleEndian' | 'BigEndian';
 }
 
 type DeviceProgramming =
@@ -1087,6 +1089,8 @@ type DeviceProgramming =
       writtenParamKeys: Set<string> | null;
       isSecureEnabled?: boolean;
       supportsExtendedMemoryServices?: boolean;
+      // See ets-app.ts's ParamModel.parameterByteOrder's own doc comment.
+      parameterByteOrder?: 'LittleEndian' | 'BigEndian';
       // Real request, 2026-08-31: this device's own cached
       // `LastUsedAPDULength` (from `Device.apdu_length`) - see that
       // field's own doc comment (shared/types.ts) for the real evidence.
@@ -1318,6 +1322,7 @@ function buildDeviceProgramming(dev: Device): DeviceProgramming {
         model.dynTree as Parameters<typeof buildParamMem>[5],
         model.params as Parameters<typeof buildParamMem>[6],
         model.paramRefValues as Parameters<typeof buildParamMem>[7],
+        model.parameterByteOrder,
       );
     writtenParams = writtenParamKeys(
       model.paramMemLayout as Parameters<typeof writtenParamKeys>[0],
@@ -1352,6 +1357,7 @@ function buildDeviceProgramming(dev: Device): DeviceProgramming {
     writtenParamKeys: writtenParams,
     isSecureEnabled: model.isSecureEnabled,
     supportsExtendedMemoryServices: model.supportsExtendedMemoryServices,
+    parameterByteOrder: model.parameterByteOrder,
     // Real request, 2026-08-31: parses `dev.apdu_length` (the project's
     // own cached `LastUsedAPDULength`, see shared/types.ts's own doc
     // comment) - empty string / non-numeric / non-positive all correctly
@@ -2241,6 +2247,7 @@ export async function runVerifyDevice(
     // Renamed on the way in: the imported writtenParamKeys() helper that
     // produced it is in scope here too.
     writtenParamKeys: writtenParams,
+    parameterByteOrder,
   } = built;
 
   // Derive the read-back plan from the SAME artifacts the download would use.
@@ -2550,8 +2557,18 @@ export async function runVerifyDevice(
       if (!Object.keys(layout).length) continue;
       const expectedBuf = Buffer.from(seg.expectedHex, 'hex');
       const actualBuf = Buffer.from(seg.actualHex, 'hex');
-      const expectedDecoded = decodeParamMem(expectedBuf, layout, defs);
-      const actualDecoded = decodeParamMem(actualBuf, layout, defs);
+      const expectedDecoded = decodeParamMem(
+        expectedBuf,
+        layout,
+        defs,
+        parameterByteOrder,
+      );
+      const actualDecoded = decodeParamMem(
+        actualBuf,
+        layout,
+        defs,
+        parameterByteOrder,
+      );
       const actualByKey = new Map(actualDecoded.map((d) => [d.key, d]));
       for (const { value, ...exp } of expectedDecoded) {
         const act = actualByKey.get(exp.key);
@@ -2937,6 +2954,7 @@ router.post(
       gaTable,
       assocTable,
       groupObjectTable,
+      parameterByteOrder,
     } = built;
 
     let segments: RecomputeSegment[] = cached.segments;
@@ -2975,8 +2993,18 @@ router.post(
 
       const layout = paramMemLayout as Parameters<typeof decodeParamMem>[1];
       const defs = paramDefs as Parameters<typeof decodeParamMem>[2];
-      const expectedDecoded = decodeParamMem(paramMem!, layout, defs);
-      const actualDecoded = decodeParamMem(cachedActualBuf, layout, defs);
+      const expectedDecoded = decodeParamMem(
+        paramMem!,
+        layout,
+        defs,
+        parameterByteOrder,
+      );
+      const actualDecoded = decodeParamMem(
+        cachedActualBuf,
+        layout,
+        defs,
+        parameterByteOrder,
+      );
       const actualByKey = new Map(actualDecoded.map((d) => [d.key, d]));
       paramRows = expectedDecoded.map(({ value, ...exp }) => {
         const act = actualByKey.get(exp.key);

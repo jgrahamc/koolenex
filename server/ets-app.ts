@@ -476,6 +476,8 @@ export interface ParamModel {
   // `Knx.Ets.Sdk.Product.ApplicationOptions.SupportsExtendedMemoryServices`),
   // not an inferred correlate like `isSecureEnabled`.
   supportsExtendedMemoryServices?: boolean;
+  // See AppIndex.parameterByteOrder's own doc comment for the full evidence.
+  parameterByteOrder?: 'LittleEndian' | 'BigEndian';
 }
 
 // ─── AppIndex return type ───────────────────────────────────────────────────
@@ -565,6 +567,18 @@ export interface AppIndex {
   // fallback chain underneath it. Further testing against a wider sample
   // of devices/manufacturers would strengthen confidence in this signal.
   supportsExtendedMemoryServices: boolean;
+  // Real, literal ETS App schema attribute (`<Static><Options
+  // ParameterByteOrder="LittleEndian"/"BigEndian">`), read the same way as
+  // `supportsExtendedMemoryServices` above - not inferred, a genuine
+  // per-app declaration. `writeBits`/`readBits` (routes/knx-tables.ts) read
+  // this to decide how to pack/unpack a byte-aligned multi-byte value.
+  // Checked across every real .knxproj this project has: every app that
+  // declares this attribute is consistent with every other app from the
+  // same manufacturer, no manufacturer contradicts itself. Where absent, no
+  // confirmed ETS-defined default is documented - `writeBits`/`readBits`
+  // fall back to big-endian, matching every real-hardware case tested so
+  // far (see docs/knx-device-write-protocol.md §6.1a), not a settled rule.
+  parameterByteOrder?: 'LittleEndian' | 'BigEndian';
   paramRefKeys: string[];
   moduleKeys: string[];
   getDefault: (prKey: string) => string | null;
@@ -643,6 +657,18 @@ export function buildAppIndex(buf: Buffer): AppIndex | null {
   // (not per-module, not per-ComObject).
   const supportsExtendedMemoryServices =
     attr(el(ap.Static).Options, 'SupportsExtendedMemoryServices') === 'true';
+  // See AppIndex.parameterByteOrder's own doc comment for the full
+  // evidence. Same element as SupportsExtendedMemoryServices above -
+  // `<Static><Options ParameterByteOrder="LittleEndian"/"BigEndian">`.
+  const parameterByteOrderRaw = attr(
+    el(ap.Static).Options,
+    'ParameterByteOrder',
+  );
+  const parameterByteOrder =
+    parameterByteOrderRaw === 'LittleEndian' ||
+    parameterByteOrderRaw === 'BigEndian'
+      ? parameterByteOrderRaw
+      : undefined;
 
   // Parse the app XML a second time with the order-preserving parser, which
   // exists for two things the main parse cannot carry: document order across
@@ -2043,6 +2069,7 @@ export function buildAppIndex(buf: Buffer): AppIndex | null {
     maxComObjectNumber,
     isSecureEnabled,
     supportsExtendedMemoryServices,
+    parameterByteOrder,
     paramRefKeys: Object.keys(paramRefDefs),
     moduleKeys: Object.keys(modArgs), // "{appId}_MD-n_M-k" — one per instantiated module
     getDefault,
