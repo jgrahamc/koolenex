@@ -143,6 +143,89 @@ class TestKnxConnection extends KnxConnection {
   }
 }
 
+/** A minimal in-memory device for the AbsSegment (MDT-style) write path -
+ *  answers PropertyValue_Write (LSM/load-state transitions), Memory_Write
+ *  (classic), and MemoryExtended_Read (for the final pre-Restart read-back
+ *  verification, see downloadDevice()'s own comments) against a real
+ *  backing buffer, so a genuine write is genuinely read back matching. 🟢
+ *  Added alongside the AbsSegment fork's own write-confirmation/
+ *  read-back verification - `TestKnxConnection`'s plain never-answer
+ *  default (correct for the many tests exercising timeout/fallback
+ *  behavior) would otherwise make every propWrite/memWrite/read-back in a
+ *  structural "does this route correctly" test time out for 3s each. */
+class TestAbsSegmentDevice extends KnxConnection {
+  sent: Buffer[] = [];
+  memory = Buffer.alloc(0x10000);
+  /** When true, MemoryExtended_Read (the final pre-Restart read-back
+   *  verification, see downloadDevice()'s own AbsSegment-fork comments)
+   *  answers with deliberately WRONG bytes instead of the real memory
+   *  content - simulates a write that completed the protocol sequence
+   *  correctly (no error, no timeout) but was never actually committed,
+   *  the exact class of bug this mechanism exists to catch. */
+  corruptReadBack = false;
+
+  private reply(respApdu: Buffer): void {
+    const resp = parseCEMI(buildCEMI('1.1.2', '1.0.1', respApdu, false))!;
+    setImmediate(() => this._onCEMI(resp));
+  }
+
+  sendCEMI(cemi: Buffer): Promise<void> {
+    this.sent.push(cemi);
+    const frame = parseCEMI(cemi);
+    if (!frame) return Promise.resolve();
+    const fullApci =
+      frame.apdu.length >= 2
+        ? ((frame.apdu[0]! & 0x03) << 8) | frame.apdu[1]!
+        : -1;
+    if (fullApci === 0x3d7 /* PropertyValue_Write */) {
+      const word = (TPCI.DATA_CONNECTED << 10) | 0x3d5;
+      this.reply(Buffer.from([(word >> 8) & 0xff, word & 0xff, 0, 0, 0]));
+      return Promise.resolve();
+    }
+    if (frame.apciName === 'Memory_Write') {
+      // Classic A_Memory_Write encodes its 6-bit byte count in the low bits
+      // of the APCI itself (apduMemoryWrite()'s own doc comment), NOT as a
+      // leading payload byte - apduData is exactly [addrHi][addrLo][data...].
+      // (Unlike MemoryExtended_Write, whose payload does lead with a real
+      // count byte - a different wire format, despite the similar name.)
+      const count = frame.apdu[1]! & 0x3f;
+      const address = (frame.apduData[0]! << 8) | frame.apduData[1]!;
+      frame.apduData.subarray(2, 2 + count).copy(this.memory, address);
+      this.reply(apduGroup('Memory_Response', 0, frame.apduData));
+      return Promise.resolve();
+    }
+    if (frame.apciName === 'MemoryExtended_Read') {
+      const count = frame.apduData[0]!;
+      const address =
+        (frame.apduData[1]! << 16) |
+        (frame.apduData[2]! << 8) |
+        frame.apduData[3]!;
+      const data = this.corruptReadBack
+        ? Buffer.from(
+            this.memory.subarray(address, address + count).map((b) => b ^ 0xff),
+          )
+        : this.memory.subarray(address, address + count);
+      const word =
+        ((TPCI.DATA_CONNECTED << 10) | APCI_EXT.MemoryExtended_Read_Response) &
+        0xffff;
+      this.reply(
+        Buffer.concat([
+          Buffer.from([
+            (word >> 8) & 0xff,
+            word & 0xff,
+            0x00,
+            (address >> 16) & 0xff,
+            (address >> 8) & 0xff,
+            address & 0xff,
+          ]),
+          data,
+        ]),
+      );
+    }
+    return Promise.resolve();
+  }
+}
+
 // ── KnxConnection._onCEMI ─────────────────────────────────────────────────────
 
 describe('KnxConnection._onCEMI', () => {
@@ -1075,7 +1158,11 @@ describe('KnxConnection.downloadDevice', () => {
     conn.autoAnswerIdentityReads = true;
 
     const steps: DownloadStep[] = [
-      { type: 'WriteProp', objIdx: 0, propId: 56, data: Buffer.from([0x01]) },
+      // objIdx 4 (not 0) - real WriteProp targets are always objIdx 1-4;
+      // objIdx 0 is the Device Object and is guarded (see
+      // propWrite()'s own doc comment) - only the internal PID_DEVICE_CONTROL
+      // (P=14) write may target it.
+      { type: 'WriteProp', objIdx: 4, propId: 56, data: Buffer.from([0x01]) },
     ];
     const progress: string[] = [];
 
@@ -1438,7 +1525,13 @@ describe('KnxConnection.downloadDevice', () => {
   // ── AbsoluteSegment (MDT-style) procedure — routes through planDownload ──
 
   it('routes AbsSegment-style steps through planDownload and sends the PID-5 sequence', async () => {
-    const conn = new TestKnxConnection();
+    // Uses TestAbsSegmentDevice (not the plain never-answer
+    // TestKnxConnection): propWrite/memWrite await a real
+    // response before continuing (write-confirmation), and Restart is preceded by a
+    // real memory read-back verification - a device that never answers
+    // would make every step time out and withhold Restart, which isn't
+    // what this test is checking.
+    const conn = new TestAbsSegmentDevice();
     conn.connected = true;
     conn.localAddr = '1.0.1';
 
@@ -1480,6 +1573,114 @@ describe('KnxConnection.downloadDevice', () => {
     // Every frame actually went out over sendCEMI (still fully in-process —
     // TestKnxConnection.sendCEMI never touches a socket).
     assert.ok(conn.sent.length > 0);
+  });
+
+  // ── AbsSegment final pre-Restart read-back verification + Restart-
+  //    withhold - this fork has no confirmed PID_MCB_TABLE
+  //    (P=27) usage (planDownload() never declares it - see
+  //    downloadDevice()'s own comment), so it reuses this device family's
+  //    own already-proven verification mechanism (planVerify()'s 'absmem'
+  //    family: read back exactly what was written and byte-compare it)
+  //    rather than forcing an unconfirmed P=27 read onto it. Gives this
+  //    fork the same safety property as the RelSegment fork's checksum
+  //    check via the mechanism actually established for this device
+  //    family.
+
+  it('AbsSegment: a correct read-back after a real write restarts normally', async () => {
+    const conn = new TestAbsSegmentDevice();
+    conn.connected = true;
+    conn.localAddr = '1.0.1';
+
+    const steps: DownloadStep[] = [
+      { type: 'Connect', objIdx: 0, propId: 0 },
+      { type: 'Unload', objIdx: 0, propId: 0, lsmIdx: 1 },
+      { type: 'Load', objIdx: 0, propId: 0, lsmIdx: 1 },
+      {
+        type: 'AbsSegment',
+        objIdx: 0,
+        propId: 0,
+        lsmIdx: 1,
+        address: 0x4000,
+        size: 3,
+      },
+      { type: 'LoadCompleted', objIdx: 0, propId: 0, lsmIdx: 1 },
+      { type: 'Restart', objIdx: 0, propId: 0 },
+      { type: 'Disconnect', objIdx: 0, propId: 0 },
+    ];
+    const gaTable = Buffer.from([0x01, 0x08, 0x00]);
+
+    const result = await conn.downloadDevice(
+      '1.1.2',
+      steps,
+      gaTable,
+      null,
+      null,
+      undefined,
+      {},
+    );
+
+    assert.ok(
+      !result.restartWithheld,
+      'a genuinely matching read-back must not withhold Restart',
+    );
+    assert.equal(result.verificationIssues.length, 0);
+    assert.ok(
+      conn.sent.some((c) => parseCEMI(c)?.apciName === 'Restart'),
+      'Restart must have been sent to the device',
+    );
+  });
+
+  it('AbsSegment: a real content mismatch on the final read-back withholds Restart', async () => {
+    const conn = new TestAbsSegmentDevice();
+    conn.connected = true;
+    conn.localAddr = '1.0.1';
+
+    const steps: DownloadStep[] = [
+      { type: 'Connect', objIdx: 0, propId: 0 },
+      { type: 'Unload', objIdx: 0, propId: 0, lsmIdx: 1 },
+      { type: 'Load', objIdx: 0, propId: 0, lsmIdx: 1 },
+      {
+        type: 'AbsSegment',
+        objIdx: 0,
+        propId: 0,
+        lsmIdx: 1,
+        address: 0x4000,
+        size: 3,
+      },
+      { type: 'LoadCompleted', objIdx: 0, propId: 0, lsmIdx: 1 },
+      { type: 'Restart', objIdx: 0, propId: 0 },
+      { type: 'Disconnect', objIdx: 0, propId: 0 },
+    ];
+    const gaTable = Buffer.from([0x01, 0x08, 0x00]);
+    // The write itself lands correctly - only the final read-back
+    // (MemoryExtended_Read) answers with wrong bytes, simulating a write
+    // that completed the protocol sequence with no error/timeout but was
+    // never actually committed on the device.
+    conn.corruptReadBack = true;
+
+    const result = await conn.downloadDevice(
+      '1.1.2',
+      steps,
+      gaTable,
+      null,
+      null,
+      undefined,
+      {},
+    );
+
+    assert.equal(
+      result.restartWithheld,
+      true,
+      'a genuine mismatch must withhold Restart',
+    );
+    assert.ok(result.verificationIssues.length > 0);
+    assert.ok(
+      result.restartWithheldReasons && result.restartWithheldReasons.length > 0,
+    );
+    assert.ok(
+      !conn.sent.some((c) => parseCEMI(c)?.apciName === 'Restart'),
+      'Restart must NOT have been sent to the device',
+    );
   });
 
   it('skips memory writes for AbsSegments with no source buffer', async () => {

@@ -285,6 +285,42 @@ describe('buildAppIndex - StartElement, Count and PeiType', () => {
   </ManufacturerData>
 </KNX>`;
 
+  it('parses StartElement on LdCtrlWriteProp, and leaves it absent when not declared', () => {
+    const idx = buildAppIndex(
+      Buffer.from(
+        app(
+          '',
+          '<LdCtrlWriteProp ObjIdx="4" PropId="27" InlineData="0000000A00330000" />' +
+            '<LdCtrlWriteProp ObjIdx="4" PropId="27" StartElement="2" InlineData="0000000401330000" />',
+        ),
+        'utf8',
+      ),
+    );
+    const writes = idx!.loadProcedures.filter((s) => s.type === 'WriteProp');
+    assert.equal(writes.length, 2);
+    assert.equal(
+      (writes[0] as { startElement?: number }).startElement,
+      undefined,
+    );
+    assert.equal((writes[1] as { startElement?: number }).startElement, 2);
+  });
+
+  it('parses Count on LdCtrlLoadImageProp, and leaves it absent when not declared', () => {
+    const idx = buildAppIndex(
+      Buffer.from(
+        app(
+          '',
+          '<LdCtrlLoadImageProp ObjIdx="4" PropId="27" Count="2" />' +
+            '<LdCtrlLoadImageProp ObjIdx="1" PropId="27" />',
+        ),
+        'utf8',
+      ),
+    );
+    const reads = idx!.loadProcedures.filter((s) => s.type === 'LoadImageProp');
+    assert.equal((reads[0] as { count?: number }).count, 2);
+    assert.equal((reads[1] as { count?: number }).count, undefined);
+  });
+
   it('parses PeiType from the ApplicationProgram, undefined when absent', () => {
     const withPei = buildAppIndex(
       Buffer.from(app('PeiType="0"', '<LdCtrlConnect />'), 'utf8'),

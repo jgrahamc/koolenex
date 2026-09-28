@@ -360,3 +360,89 @@ describe('planDownload - SegFlags contradicting the address-only descriptor rule
     assert.doesNotThrow(() => plan(stepsWith(0x4936)));
   });
 });
+
+// ── planVerify() - prop family (property-configured devices, e.g. routers) ─
+//
+// Closes a real gap: this exact scenario (CompareProp wrongly
+// conflated with WriteProp for the same PID) was already found and
+// root-caused as a real bug during a live KNX IP router test but
+// never turned into a regression test or fixed at the time. These tests guard the fix
+// (knx-download-plan.ts, propSteps now filters to WriteProp only) so it
+// can't silently regress.
+
+describe('planVerify() - prop family', () => {
+  it('a WriteProp step with real data becomes a verifiable prop entry', () => {
+    const steps: PlanStep[] = [
+      {
+        type: 'WriteProp',
+        objIdx: 0,
+        propId: 12,
+        data: Buffer.from('0004', 'hex'),
+      },
+    ];
+    const plan = planVerify(steps, null, null, null, null, {}, '', {}, null);
+    assert.equal(plan.family, 'prop');
+    assert.equal(plan.props.length, 1);
+    assert.equal(plan.props[0]!.obj, 0);
+    assert.equal(plan.props[0]!.pid, 12);
+    assert.equal(plan.props[0]!.expected.toString('hex'), '0004');
+  });
+
+  it('BUG FIX (root-caused during a live router test): a CompareProp step for the same PID must NOT also become a prop entry - it is a manufacturer-identity precondition check ETS runs BEFORE downloading, not post-download config, and would otherwise guarantee a spurious mismatch', () => {
+    // Real shape: a router declares BOTH a CompareProp precondition check
+    // AND a WriteProp for PID 12 (manufacturer id) with genuinely different
+    // constants - the CompareProp's `00a6` is what ETS checks for BEFORE
+    // attempting the download at all; the WriteProp's `0004` is what
+    // actually gets written and is what a post-download Verify should
+    // compare against the live device.
+    const steps: PlanStep[] = [
+      {
+        type: 'CompareProp',
+        objIdx: 0,
+        propId: 12,
+        data: Buffer.from('00a6', 'hex'),
+      },
+      {
+        type: 'WriteProp',
+        objIdx: 0,
+        propId: 12,
+        data: Buffer.from('0004', 'hex'),
+      },
+    ];
+    const plan = planVerify(steps, null, null, null, null, {}, '', {}, null);
+    assert.equal(plan.family, 'prop');
+    assert.equal(
+      plan.props.length,
+      1,
+      'only the WriteProp entry should be verifiable, not both',
+    );
+    assert.equal(
+      plan.props[0]!.expected.toString('hex'),
+      '0004',
+      "must be the WriteProp's real config value, not CompareProp's precondition constant",
+    );
+  });
+
+  it('a CompareProp-only step list (no WriteProp at all) produces no prop entries and family stays none', () => {
+    const steps: PlanStep[] = [
+      {
+        type: 'CompareProp',
+        objIdx: 0,
+        propId: 78,
+        data: Buffer.from('0102', 'hex'),
+      },
+    ];
+    const plan = planVerify(steps, null, null, null, null, {}, '', {}, null);
+    assert.equal(plan.family, 'none');
+    assert.equal(plan.props.length, 0);
+  });
+
+  it('an empty-payload WriteProp (a load-state trigger, not readable config) is excluded', () => {
+    const steps: PlanStep[] = [
+      { type: 'WriteProp', objIdx: 6, propId: 5, data: Buffer.alloc(0) },
+    ];
+    const plan = planVerify(steps, null, null, null, null, {}, '', {}, null);
+    assert.equal(plan.family, 'none');
+    assert.equal(plan.props.length, 0);
+  });
+});

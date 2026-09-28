@@ -33,7 +33,7 @@ testbed (1.1.9, 1.1.10), both mask `0x07B0` (System B, a device classification e
 nothing there has been confirmed against a different manufacturer or mask version, unless noted.
 §4.1 (memory-write service selection) and §4.1d (Verify Mode) have a much broader real sample: all
 eight devices in the Test hardware table above, across four manufacturers (Albrecht Jung, HDL,
-Gira, Weinzierl) as of 2026-09-01 — see those sections for the breakdown. §4.1a–§4.1c (chunk sizing, cached APDU length,
+Gira, Weinzierl) — see those sections for the breakdown. §4.1a–§4.1c (chunk sizing, cached APDU length,
 the legacy write-encoding fix) are confirmed on HDL in addition to the two Jung devices. §9 (device
 addressing) is confirmed on HDL in addition to Jung. §3.4 (Module architecture addressing) is
 confirmed against a separate Albrecht Jung module-architecture-based multi-gang pushbutton, mask
@@ -138,9 +138,11 @@ memory content had been tampered with out-of-band (relevant to §7.3).
 An authorize request/response exchange, using an access-level key. Sent once, early, with the
 well-known default key (`0xFFFFFFFF` — used when a device has no special access restriction
 configured); the response carries a 1-byte access level (`0` = full access, observed in every
-capture). 🟢 Present in every real capture. 🔴 whether a device configured with a non-default
+capture). 🟢 Present in every real capture. 🔴 Whether a device configured with a non-default
 access key would behave differently is untested (this testbed's devices are presumed
-factory-default).
+factory-default) — deliberately left untested rather than setting a non-default key on real
+hardware, since that's a security-adjacent device change; open for a future pass, not attempted
+here.
 
 ### 2.3 KNXnet/IP Tunnelling v2 feature negotiation 🟢
 
@@ -216,13 +218,13 @@ memory segment has never been allocated: `PID_TABLE_REFERENCE` reads back `0x000
 StartLoading/LoadData declarations across *all* objects together. An implementation that resolves
 one object's address immediately after its own StartLoading/LoadData — before the other objects'
 declarations have been sent — can read back an unallocated address for objects later in the
-sequence, even though the exact same write would succeed once batched correctly. This was found
-and fixed 2026-08-30 in `downloadDevice()` (`server/knx-connection.ts`) by collecting every
-object's write into one job list and running each phase (Unload-all, StartLoading+LoadData-all,
-resolve-all, write, LoadCompleted-all) across the whole batch, instead of a per-object sequential
-loop. Confirmed end to end afterward: a real Full Download against a genuinely blank, factory-reset
-device wrote all four objects cleanly in one run, and a subsequent Verify matched the parameter
-memory byte-for-byte (0 of 8178 bytes differing).
+sequence, even though the exact same write would succeed once batched correctly.
+`downloadDevice()` (`server/knx-connection.ts`) avoids this by collecting every object's write into
+one job list and running each phase (Unload-all, StartLoading+LoadData-all, resolve-all, write,
+LoadCompleted-all) across the whole batch, instead of a per-object sequential loop. Confirmed end
+to end: a real Full Download against a genuinely blank, factory-reset device wrote all four
+objects cleanly in one run, and a subsequent Verify matched the parameter memory byte-for-byte (0
+of 8178 bytes differing).
 
 ### 3.2 Object processing order comes from a per-mask template, not the application program 🟢
 
@@ -282,10 +284,13 @@ confidence), not yet a proven mapping from "kind of download requested" to "whic
 Treat the SubType names as strongly suggestive of their evident purpose, not as an independently
 verified selection rule.
 
-One structural detail worth noting precisely rather than assuming away: the `all` template issues
-`LdCtrlLoad`+`LdCtrlWriteProp` for object 5 but never a corresponding `LdCtrlLoadCompleted` for
-it — as written, object 5 is loaded and written to but never explicitly marked committed. This is
-the template's literal content, not a simplification made in this document.
+🟢 The `all` template's `<Procedure ProcedureType="Load" ProcedureSubType="all">` block includes a
+`<LdCtrlLoadCompleted LsmIdx="5" />` step, immediately before the corresponding step for object 4
+— confirmed directly against `data/knx_master_1.xml` and, independently, the live Test Bed
+project's own `data/knx_master_21.xml`. Object 5 is loaded, written to (`WriteProp` PropId="13"),
+and explicitly marked committed by this template, exactly like every other object it declares —
+see §3.3.1 below for the separate, still-open question of whether real ETS actually sends these
+steps on the wire.
 
 #### 3.2.2 Real code: `knx-mask-procedures.ts` computes this order rather than hand-declaring it 🟢
 
@@ -378,10 +383,14 @@ on the wire. In full, as written:
 <LdCtrlLoad LsmIdx="5" />
 <!-- ...intervening steps for other objects... -->
 <LdCtrlWriteProp ObjIdx="5" PropId="13" Verify="true" InlineData="0000000000" />
-<!-- note: no corresponding LdCtrlLoadCompleted LsmIdx="5" appears anywhere in this
-     template — object 5 is loaded and written to but never explicitly marked
-     committed, as literally written -->
+<!-- ...intervening steps for other objects... -->
+<LdCtrlLoadCompleted LsmIdx="5" />
 ```
+
+🟢 Confirmed directly against `data/knx_master_1.xml` and, independently, the live Test Bed
+project's own `data/knx_master_21.xml`: the `LdCtrlLoadCompleted LsmIdx="5"` step is real,
+positioned right before the `LoadCompleted` for object 4. As written, the template does mark
+object 5 loaded, matching the same shape as every other object it declares.
 
 Property 13 is `PID_PROGRAM_VERSION` — the same property already documented in §4.3 for object 4,
 where real ETS reads the current value early in a session and writes that *identical* value back
@@ -391,7 +400,8 @@ real configuration data — but this has never been confirmed, because:
 
 - Every real capture examined so far — including genuine real-ETS sessions, not just this engine's
   own — shows object 5 receiving **only** the initial `Unload`. No capture has ever shown a
-  subsequent `Load`, `WriteProp`, or `LoadCompleted` targeting object 5.
+  subsequent `Load`, `WriteProp`, or `LoadCompleted` targeting object 5, even though the template
+  itself declares all three.
 - An earlier controlled test (real hardware, a legacy-mask device unrelated to this mask family)
   found that removing *just* the `Unload OX=5` step from an otherwise-verbatim real ETS replay made
   no difference to whether the rest of the session's writes succeeded and confirmed correctly —
@@ -564,12 +574,12 @@ this is unlikely to mean "an error occurred"; more likely a status/return code w
 meaning per the KNX spec isn't confirmed here) plus a 2-byte trailing value that looks like a
 checksum of the written data 🔴 (pattern observed, not verified against a specific algorithm).
 
-**Mask-version gating — 🔴 DISPROVEN as a sole/reliable rule, 2026-08-31, see the
+**Mask-version gating — 🔴 DISPROVEN as a sole/reliable rule, see the
 `IsSecureEnabled` hypothesis below for the current candidate replacement**:
 
 - 🟢 Both real Jung devices tested (1.1.9, 1.1.10) report mask `0x07B0` ("System B") and both
-  used the extended write service exclusively — reconfirmed with a fresh live capture 2026-08-31,
-  same result.
+  used the extended write service exclusively — confirmed across multiple independent live
+  captures, same result each time.
 - 🟢 A verbatim byte-for-byte replay of a real captured ETS write against real hardware
   persisted correctly. An identical write attempted using the legacy service instead (chosen
   because the target address happened to fit in 16 bits) failed to persist — reproducibly, with
@@ -579,7 +589,7 @@ checksum of the written data 🔴 (pattern observed, not verified against a spec
   built for an address that itself fits within 16 bits still failed to persist, meaning the fix
   needed is not just "switch to extended once the address exceeds 0xFFFF".)
 - 🔴 **The generalization "mask `0x07B0` ⇒ requires the extended service" is now known FALSE**: a
-  third mask-`0x07B0` device (HDL `M/AG40B.1`, this project's own testbed, added 2026-08-31) used
+  third mask-`0x07B0` device (HDL `M/AG40B.1`, this project's own testbed) used
   **legacy** `A_Memory_Write` for its own real Full Download — confirmed via a live capture, at an
   address (`0x170E`) that also fits comfortably in 16 bits. koolenex forcing extended for this
   device (inherited from the mask-based rule) produced a real, reproducible silent write failure —
@@ -591,12 +601,12 @@ checksum of the written data 🔴 (pattern observed, not verified against a spec
   also tolerate the extended one, is still untested — no such device has ever been available to
   test.
 
-**Candidate rule #1 (`IsSecureEnabled`) — 🔴 SPECULATIVE, NOT YET CONFIRMED, real request
-2026-08-31**: comparing the real `<ApplicationProgram>` XML of all four apps in this project's own
-testbed `.knxproj`, the one clean, binary signal consistent with every known real data point is
-the app's own `IsSecureEnabled` attribute — `true` on all three Jung apps (including both
-confirmed-extended devices, 1.1.9/1.1.10), completely **absent** (not `false` — never written at
-all) from the HDL app (confirmed-legacy). Implemented in `server/ets-app.ts`
+**Candidate rule #1 (`IsSecureEnabled`) — 🔴 SPECULATIVE, NOT YET CONFIRMED**: comparing the real
+`<ApplicationProgram>` XML of all four apps in this project's own testbed `.knxproj`, the one
+clean, binary signal consistent with every known real data point is the app's own
+`IsSecureEnabled` attribute — `true` on all three Jung apps (including both confirmed-extended
+devices, 1.1.9/1.1.10), completely **absent** (not `false` — never written at all) from the HDL
+app (confirmed-legacy). Implemented in `server/ets-app.ts`
 (`ParamModel.isSecureEnabled`/`AppIndex.isSecureEnabled`) and threaded through
 `DownloadExtra.isSecureEnabled` into `downloadDevice()`'s write-service decision
 (`server/knx-connection.ts`) — now the second fallback layer, since candidate rule #2 below
@@ -633,8 +643,8 @@ with `IsSecureEnabled=true` and a SMALL segment — neither combination has ever
 Re-test against a new device/app before trusting this in any context where a silent write failure
 would matter.
 
-**Update 2026-09-01 — sample considerably broadened, including a same-manufacturer control test,
-still an inference not a confirmed rule.** Real captures now cover all eight devices in the Test
+**The sample has been considerably broadened, including a same-manufacturer control test — still
+an inference, not a confirmed rule.** Real captures cover all eight devices in the Test
 hardware table above, across four manufacturers: `IsSecureEnabled="true"` and extended service —
 three Jung devices (1.1.9, 1.1.10, and the production 5292 1ST pushbutton). `IsSecureEnabled`
 absent and legacy service — HDL (`M/AG40B.1`), a Gira smoke-alarm device, Weinzierl's `KNX IO 534
@@ -702,9 +712,9 @@ only that reading `PID_MCB_TABLE` isn't it. What would settle the open question:
 without `LdCtrlWriteProp` for property 27 whose live byte-5 read doesn't match its actual required
 service — not yet seen.
 
-**Update 2026-09-01 — this candidate rule is now DIRECTLY FALSIFIED, not merely "confirmed for
-apps that declare it"; downgrade accordingly.** The counter-example the "open" paragraph above
-flagged as never having been seen has now been found: the Weinzierl `KNX IO 534 CV (4D)` app
+**This candidate rule is DIRECTLY FALSIFIED, not merely "confirmed for apps that declare it".**
+The counter-example the "open" paragraph above flagged as never having been seen has been found:
+the Weinzierl `KNX IO 534 CV (4D)` app
 declares `LdCtrlWriteProp` for `PropId="27"` on object 4 (`InlineData="00000014003200000000"`,
 byte 5 = `0x32`), and a real capture confirms this matches the live device exactly (`PropValueResp
 OX=4 P=27 ... $0000001400327908...`) — objects 1/2/3's own `PID_MCB_TABLE` values are likewise
@@ -716,10 +726,10 @@ device. **Demoted — byte 5 of `PID_MCB_TABLE` is not a reliable write-service 
 updated `IsSecureEnabled` discussion above (candidate rule #1), which has since absorbed the
 leading-signal role this rule briefly held.
 
-**Update 2026-09-10 — `PID_MCB_TABLE` byte 5 restored as a write-service signal, tightened to `==0x33`, and
-a new signal (`SupportsExtendedMemoryServices`) added ahead of it.**
+**`PID_MCB_TABLE` byte 5 is restored as a write-service signal, tightened to `==0x33`, with a
+further signal (`SupportsExtendedMemoryServices`) checked ahead of it.**
 
-`IsSecureEnabled` (candidate rule #1) produced its own counter-example: an application program
+`IsSecureEnabled` (candidate rule #1) has its own counter-example: an application program
 (Zennio KLIC-DI v2) declares `IsSecureEnabled=false` but requires the extended service — confirmed
 against real captures: a Full Download to this device uses `MemExtWrite` throughout, reproduced
 across repeated downloads to a factory-reset, re-addressed instance of the same device.
@@ -742,15 +752,15 @@ Still a small number of data points, drawn from three distinct byte-5 values obs
 fourth distinct value. `IsSecureEnabled` is kept as the next-priority signal underneath this,
 ahead of the live mask read as a last-resort fallback.
 
-A related gap was found and fixed at the same time: the Zennio application program declares no
-`LdCtrlWriteProp` for property 27 at all — only the read-only `LdCtrlLoadImageProp`, the same
-shape as HDL's application program. The static-declaration-only form of this rule silently skipped
-such application programs entirely and fell through to `IsSecureEnabled`. Fixed by adding a live
+A related gap exists for the Zennio application program: it declares no `LdCtrlWriteProp` for
+property 27 at all — only the read-only `LdCtrlLoadImageProp`, the same shape as HDL's application
+program. The static-declaration-only form of this rule would silently skip such application
+programs entirely and fall through to `IsSecureEnabled`. This is closed by a live
 `PropertyValue_Read` fallback, issued deliberately early, before any data write, when no static
 declaration exists — the "live read used as a fallback correlate" this document already
-anticipated for application programs like HDL's (§4.1's "Apps with no `LdCtrlWriteProp`" bullet
-above), but which had not previously been wired into the write-service decision itself (only into
-the trailing verification-pass reads already described there).
+anticipates for application programs like HDL's (§4.1's "Apps with no `LdCtrlWriteProp`" bullet
+above), now wired into the write-service decision itself, not just the trailing
+verification-pass reads already described there.
 
 **New signal, checked before `PID_MCB_TABLE` above: `SupportsExtendedMemoryServices` 🟡
 well-supported, not yet fully confirmed.** A literal boolean on the app's own `<Static><Options>`
@@ -789,7 +799,7 @@ harness, one case per resolution-chain branch, plus a golden-capture replay agai
 ### 4.1a Real per-device memory-chunk size ceiling (`PID_MAX_APDULENGTH`) 🟢
 
 **A device's own declared max APDU length — not a fixed protocol-theoretical constant — is the
-real, deterministic basis for safe chunk sizing**, confirmed 2026-08-31 after a real Full Download
+real, deterministic basis for safe chunk sizing**, confirmed after a real Full Download
 to the HDL device stalled silently: koolenex sent a single 152-byte `MemoryExtended_Write` chunk
 (well under the previously-assumed-universal 228-byte "safe" ceiling, itself only ever confirmed
 against 1.1.10) and got no response at all — not a NAK, total silence — leaving the device
@@ -815,22 +825,22 @@ maxUsableChunk = (declared PID_MAX_APDULENGTH value + 1) − headerBytes
 ```
 
 For the HDL device this gives `(55+1)−4 = 52` — exactly the number found by direct empirical
-bisection of real legacy reads against the same device earlier the same session (52 succeeds, 53
-fails, every time, independent of starting address). Implemented in
+bisection of real legacy reads against the same device (52 succeeds, 53 fails, every time,
+independent of starting address). Implemented in
 `KnxConnection._resolveMaxApduLength()`/`maxChunkFromApduLength()` (`server/knx-connection.ts`),
 used by both the read path (`readMemory()`/`readMemoryMany()`) and the write path
 (`downloadDevice()`'s `MEM_CHUNK`), replacing the fixed 63/255 (reads) and 228 (writes) constants
 with this per-device real value, falling back to those same constants only when the property read
-fails. Confirmed end-to-end on real hardware the same day: a fresh Full Download to the HDL device,
+fails. Confirmed end-to-end on real hardware: a fresh Full Download to the HDL device,
 correctly chunked at ~50 bytes (safely under the real 52-byte ceiling), completed with zero NAKs
 and all four interface objects (parameter memory, GA table, Association table, Object 3) genuinely
 persisting — independently verified via direct read-back after the download.
 
-🟢 **The extended-service header formula (6 bytes) is now independently cross-checked too**, not
+🟢 **The extended-service header formula (6 bytes) is independently cross-checked too**, not
 just derived from code — the project file itself caches a real device's own `PID_MAX_APDULENGTH`
 (see §4.1b below): 1.1.10's cached value is `233`, and `(233+1)−6 = 228` — exactly the real
-228-byte extended chunk ceiling already established from a separate 2026-08-30 capture analysis, a
-genuine independent confirmation, not a coincidence of re-deriving the same number.
+228-byte extended chunk ceiling already established from a separate capture analysis, a genuine
+independent confirmation, not a coincidence of re-deriving the same number.
 
 ### 4.1b The project file caches this value — no live read needed for a previously-downloaded device 🟢
 
@@ -850,23 +860,30 @@ cap layered on top of the device's own raw maximum. This distinction has not bee
 (e.g. by doing a live property-56 read against 1.1.9 and comparing it to both cached values) - said
 here as the most likely reading of the two field names, not a confirmed fact.
 
-**Implemented 2026-08-31**: `ets-parser.ts` already parsed `LastUsedAPDULength` per device
-(`apdu_length` on the parsed device record) but silently dropped it before it ever reached the
-database — never persisted, never used anywhere. Fixed: `devices.apdu_length` is now a real
-persisted column (`server/db.ts` migration, `server/routes/projects.ts`'s insert), threaded
-through `buildDeviceProgramming()` → `DownloadExtra.cachedMaxApduLength` /
-`KnxConnection.readMemory()`/`readMemoryMany()`'s new optional parameter, and preferred over the
-live `_resolveMaxApduLength()` read whenever present — a real device that's already been
-downloaded to from this project needs zero extra bus round-trips to get its correct chunk size.
-The live read remains the fallback for a device that's never been downloaded to from this project
-(no cached value yet, e.g. right after import, before any real session).
+`ets-parser.ts` parses `LastUsedAPDULength` per device (`apdu_length` on the parsed device
+record); `devices.apdu_length` is a real persisted column (`server/db.ts` migration,
+`server/routes/projects.ts`'s insert), threaded through `buildDeviceProgramming()` →
+`DownloadExtra.cachedMaxApduLength`.
 
-🔴 The cached-path branch itself has not yet been exercised end-to-end on real hardware — the HDL
-Full Download that confirmed the 52-byte ceiling (§4.1a) predates this caching code and used the
-live property-56 read instead. Typechecked and covered by the existing `PID_MAX_APDULENGTH` test
-suite (which exercises the underlying `maxChunkFromApduLength()` formula, not the cached-value
-plumbing specifically), but a real download that actually takes the cached-value branch (not the
-live-read fallback) has not been independently confirmed.
+**This value is consumed differently by the read path and the write path — a real, deliberate
+divergence, not an inconsistency to fix**:
+
+- 🟢 **Read path** (`KnxConnection.readMemory()`/`readMemoryMany()`): the cached value is preferred
+  over a live `_resolveMaxApduLength()` read whenever present — a device that's already been
+  downloaded to from this project needs zero extra bus round-trips to get its correct chunk size on
+  a subsequent read. The live read remains the fallback for a device with no cached value yet (e.g.
+  right after import, before any real session).
+- 🟢 **Write path** (`downloadDevice()`'s own `MEM_CHUNK` sizing): the live read is always attempted
+  FIRST regardless of any cached value present, on the reasoning that a cached value can go stale
+  after a firmware or unit change — the cached value is used only as a fallback when the live read
+  gets no response at all, and a mismatch between the two is logged rather than silently resolved.
+  **Confirmed on real hardware**: a real Partial Download to 1.1.10, which had a cached
+  `apdu_length` of `233` at the time, still issued a live `PropValueRead OX=0 P=56` and used its
+  result — exactly the designed behavior, not a gap. This means a real download exercising the
+  write path's own cached-value FALLBACK specifically requires a device that gives no response at
+  all to that read while still accepting the rest of the session — a narrower, harder-to-hit
+  condition than "hasn't been tried yet", and 🔴 remains genuinely untested; every real download in
+  this project's corpus has had a device that answers property reads normally.
 
 **Gotcha**: at least one common packet-capture tool's own protocol dissector has repeatedly
 mis-displayed this write's target address in its one-line summary view (observed showing one
@@ -925,7 +942,7 @@ it with a genuine `Memory_Response returned zero bytes` failure. Fixed by cappin
 count to the real limit of whichever service is in use (63 legacy / 255 extended) before building
 the request, rather than only after receiving a response.
 
-### 4.1c Legacy `A_Memory_Write` wire-encoding bug, fixed 2026-09-01 🟢
+### 4.1c Legacy `A_Memory_Write` wire-encoding bug 🟢
 
 Every legacy `A_Memory_Write` frame koolenex ever sent was malformed on the wire, in every code
 path that used it (the main `WriteRelMem` chunk loop, the raw `memWrite` download-step handler, and
@@ -974,7 +991,7 @@ legacy, `MEM_CHUNK` for extended), decided before slicing rather than after.
 
 Regression-tested against the real captured frame's own bytes
 (`tests/memory-read.test.ts`, `describe('apduMemoryWrite')`) and against the mixed-service chunking
-behavior (`tests/relmem-write-protocol.test.ts`). 🟢 **Confirmed on real hardware, 2026-09-01**: a
+behavior (`tests/relmem-write-protocol.test.ts`). 🟢 **Confirmed on real hardware**: a
 real Full Download to 1.1.20 sent legacy `MemWrite` frames at the correct addresses
 (`X=$1766`→`$179A`→`$17CE` for the parameter object, `X=$1002` for the GA table — all matching the
 dry run below exactly), captured via tshark — no more `$3417`/`$3017` garbage. A subsequent real
@@ -984,7 +1001,7 @@ set (`Update=Yes Write=Yes` as expected) — this is the exact "flags reading ba
 from the prior (buggy) session, now resolved. 164 of 164 decoded comparison points matched, 0
 mismatches.
 
-**Confirmed hardware-free via a dry run, 2026-09-01**: `downloadDevice()` (real, unmodified code)
+**Confirmed hardware-free via a dry run**: `downloadDevice()` (real, unmodified code)
 run against real 1.1.20 project data (`buildDeviceProgramming()`, same pipeline the real route
 uses) through a fake in-process bus device seeded with the real base addresses and MCB values
 already captured from ETS — no hardware touched. Three of the four real interface-object writes
@@ -1065,6 +1082,18 @@ above — it concerns device-side content persistence, not reply behavior — an
 Nothing in the relevant `Parameter`/`ParameterType`/`RelativeSegment` declarations in the project
 file distinguishes this byte from any neighboring one.
 
+🔴 **Separately open: WHEN in the session this write happens, as opposed to whether it happens at
+all.** `downloadDevice()` currently sends `PropertyValue_Write OX=0 P=14` immediately after
+`A_Authorize_Request`, before Unload/StartLoading begins. Two independent real ETS captures of the
+same legacy-service device checked directly against this code path both show the write happening
+considerably later instead — right after the parameter object's own `PropertyValue_Read OX=4 P=7`
+(table-reference resolution), immediately before the very first memory write, well after
+Unload/StartLoading has already run. The exact written value also differs between the two captures
+(`$04` in one, `$05` in the other) — a second, smaller discrepancy noticed in passing, not
+investigated further. Left unfixed: no second legacy-service device exists in this project's
+capture corpus to check whether the late-timing pattern generalizes beyond this one app, or is
+itself just an artifact of this one device's own particular session.
+
 ### 4.2 The 9-byte "LoadData" declaration
 
 Before writing the real content, the tool declares what's about to come, as 9 extra bytes on the
@@ -1082,9 +1111,13 @@ byte:    0     1-2      3-4         5      6      7-8
   98, 10, or 6 bytes, depending on the object). 🟢
 - **mode** — **one value means a Full Download, a different value means a Partial Download**,
   confirmed for the parameter-memory object across one real Full and two real Partial Downloads
-  on the same device. 🟢 for that object; 🔴 not independently confirmed for the other objects
-  (no real Partial-Download example of this declaration exists for them, since those objects
-  were only ever loaded at all during a Full Download in every real capture available).
+  on the same device. 🟢 for that object. 🟢 **This field is object-4/5-specific, not merely
+  under-sampled for the others**: scanning every `RelSegment` step across all 49 real app models
+  cached in this project's own `data/apps/` found `lsmIdx` values of only 4 or 5 — never 1, 2, or
+  3, in any app, from any manufacturer. Objects 1/2/3's own tables are written entirely through the
+  separate mechanism §7.2 describes (outside any app-declared `RelSegment`/`LoadData` step at all),
+  which is consistent with a Full-vs-Partial `mode` distinction never applying to them in the first
+  place, rather than merely never having been captured doing so.
 - **fill** — the byte value the tool declares for filling any part of the segment it doesn't
   explicitly write (observed as one value for the parameter object, a different value for the
   others, both consistent with what's actually found on real device memory for genuinely
@@ -1112,8 +1145,32 @@ will take" field) is not spec-confirmed.
 acknowledgement typically 5–15ms per message; most load-state transitions ~10–60ms, except
 "start loading → declare data" and the final "mark loaded" step, which can take 300–600ms — worth
 knowing if a write-path implementation has a timeout waiting for the device to restart and
-respond again afterward. Full Download total wall time ~6s; Partial Download ~2.7s. 🔴 whether
-these scale with parameter memory size or network conditions is untested.
+respond again afterward. Full Download total wall time ~6s; Partial Download ~2.7s.
+
+🟢 **The declared RelSegment size is a poor proxy for wall time — the REAL bytes actually
+transmitted is what correlates.** A device's own `RelSegment` size (§6.1a) declares the whole
+allocated segment, but most of that segment can be unused padding that a Full Download never
+sends an explicit chunk for — the two are not the same number. Checked directly across four real
+Full Download captures, using each session's own real `MemExtWrite`/`MemWrite` chunks (not the
+declared segment size):
+
+| Device | Declared segment size | Real bytes actually written | Real chunk count | Session wall time |
+|---|---|---|---|---|
+| HDL M/AG40B.1 | 152 bytes | 93 bytes (5 chunks, max 52B) | 5 | 7.21s |
+| Weinzierl IO534CV | 6,465 bytes | 83 bytes (4 chunks, max 52B) | 4 | 6.67s |
+| Jung 1.1.9 | 8,178 bytes | 124 bytes (5 chunks, max 98B) | 5 | 5.77s |
+| Jung 1.1.10 | 10,433 bytes | 3,316 bytes (60 chunks, max 228B) | 60 | 21.39s |
+
+Once the real transmitted bytes/chunk count are used instead of the declared segment size, the
+result is far less surprising: three devices with similar real bytes-written (83–124 bytes) and
+similar chunk counts (4–5) also have similar wall times (5.77–7.21s), while 1.1.10's dramatically
+higher real chunk count (60, versus 4–5 for the others) tracks its dramatically longer wall time
+(21.39s). The declared segment size (152 vs. 6,465 vs. 8,178 vs. 10,433 bytes) shows no such
+pattern at all — using it as a timing predictor would have been actively misleading here. Real
+chunk size also varies by device (52B legacy for HDL/Weinzierl vs. 98–228B extended for the two
+Jung devices, per §4.1a) and is a further real confound on top of raw byte count. 🔴 Network
+conditions specifically (as opposed to memory size) remain untested — every capture here was taken
+on the same local network.
 
 ## 6. Per-object write mechanics
 
@@ -1194,11 +1251,10 @@ with no other change anywhere (the object-3 flags described below, and the group
 itself, are both unaffected). Link direction is **not** represented anywhere else — this entry
 order is the only encoding of it.
 
-**A real bug, found 2026-08-30**: koolenex's own table builder sorted entries by group-address
-index/communication-object number before writing them, discarding this real declared order. The
-communication objects are already supplied to the builder in the project's own declared order;
-the sort was unnecessary and actively wrong. Fixed by removing it. Confirmed byte-for-byte against
-a real ETS capture once removed.
+The table builder does not sort entries by group-address index/communication-object number before
+writing them — the communication objects are already supplied to the builder in the project's own
+declared order, and any such sort would discard this real declared order and actively corrupt link
+direction. Confirmed byte-for-byte against a real ETS capture.
 
 ### 6.4 Object 3 — per-communication-object flags table
 
@@ -1263,12 +1319,12 @@ configuration data before capturing the real device, and matched exactly):
   | High | `01` |
   | System | `00` 🟡 inferred by pattern — this level isn't reachable from ETS's own user interface at all (per KNX's own documentation), so no real configuration can exercise this value directly to confirm it |
 
-**A real parser bug, found 2026-08-30**: a project's XML declares each communication object twice
-— once at the application level (the object's default `Read-On-Init`/`Priority`), and once per
-device instance, which can override either. koolenex's parser only read the application-level
-declaration; a device-instance override was silently dropped. Fixed by also reading the
-instance-level attributes, when present, and preferring them. Confirmed against a real ETS
-capture: the affected byte (Read-On-Init) now matches exactly once the override is applied.
+A project's XML declares each communication object twice — once at the application level (the
+object's default `Read-On-Init`/`Priority`), and once per device instance, which can override
+either. The parser reads the instance-level attributes, when present, and prefers them over the
+application-level declaration (an earlier version read only the application-level declaration,
+silently dropping any device-instance override). Confirmed against a real ETS capture: the
+affected byte (Read-On-Init) matches exactly once the override is applied.
 
 **Group Object Size code** (the companion byte) — the standard KNX 4-bit code for a
 communication object's expected data size, confirmed 4-for-4 against real declared sizes on both
@@ -1341,10 +1397,14 @@ downloads, on the one device whose configuration declares it:
   always exactly 2 bytes longer than what's actually sent over the wire** — the tool drops the
   last 2 declared bytes before transmitting.
 
-🔴 Only one device configuration has ever declared property 27 at all — the *shape* of both
-facts above is backed by many different manufacturers' declared configuration data (the same
-two-step pattern, just with different embedded byte values, recurs across several unrelated
-manufacturer IDs), but live wire confirmation is from this one real device only.
+🟢 **Property 27 usage is common across real app declarations, not a one-off**: of the 49 real app
+models cached in this project's own `data/apps/`, 33 declare property 27 in some form (16 declare
+none at all, matching the shape of 1.1.9's own app). Of those 33, 18 (spanning multiple unrelated
+manufacturer IDs, not just Jung) declare the specific "write this literal fixed value" `WriteProp`
+two-step pattern described above; the remaining 15 declare only the read-only `LoadImageProp`
+variant, with no write step at all. 🔴 **Live wire confirmation, however, is still from the one
+real device this project has physical access to (1.1.10)** — the other 32 apps' behavior is known
+only from their own static declarations, never independently confirmed against real hardware.
 
 ### 7.2 The group-address/association/flags tables are written by a mechanism outside any one configuration's control
 
@@ -1395,6 +1455,391 @@ configuration change to a group-address link" triggers the comprehensive rewrite
 declares the checksum mechanism at all) is untested, as is the precise decision rule once an
 anomaly is detected (whether it's graded, or always the same universal rewrite).
 
+### 7.3.1 What determines whether ETS performs the early check at all — address-scoped, not serial- or record-scoped
+
+§7.3 above establishes that the early property-27 read (§7.1) is the detection mechanism for the
+comprehensive-rewrite safety net once it runs — the separate, earlier question is what makes real
+ETS decide to run that check in the first place for a given session, as opposed to skipping it and
+rewriting the interface objects unconditionally.
+
+🟢 **The check is keyed on the individual address itself** — real ETS's own project/session
+tracking of "has this address had a successful download before" — **not** on the device's serial
+number, and **not** on the underlying device object's own project-record identity. Testing, using a
+sequence of real ETS downloads captured specifically to answer this
+question (renaming a device in place, deleting its recorded serial number, and re-addressing it to
+a fresh individual address, each isolated as its own session), found two results that together
+disambiguate address from every other candidate identity:
+
+- Renaming a device in place — same project record, same full download history, only the
+  individual address changes — loses the early check entirely on the next download.
+- Downloading again to that *same new* address immediately afterward — even with the serial number
+  deleted from the project in between — gets the check back.
+
+Both results only make sense if the signal ETS is tracking lives on the address, not on the
+project's own record for that device or on anything read from the device itself (no serial-number
+read of any kind precedes the decision in any of these sessions).
+
+🟡 **A related finding from the same test sequence, worth keeping visible so the two are not
+conflated**: a separate device-history-aware decision this project's app-model parser has
+independently found evidence for elsewhere (whether real ETS conditionally skips its Unload of the
+PEI Program interface object, based on the device's own prior-download state) is tracked by a
+**different** signal than this early property-27 check. In several of the sessions, that other
+decision behaved as if history existed for the address (a live read, then a skip) while, in the
+very same session, objects 1/2/3's early property-27 check behaved as if there were no history at
+all (no early read, unconditional rewrite). These are two independently-tracked signals inside real
+ETS, not one shared "does this address have history" bit — a fix or investigation touching one
+should not assume it moves the other.
+
+🔴 Not independently re-confirmed against this project's own capture corpus — the specific
+scenario sequence needed (rename in place, re-address with serial deleted, repeated on the same
+address) requires deliberate, multi-session real-hardware setup this project's own testbed has not
+yet been used for. Flagged as an evidence gap, not treated as unconfirmed speculation — the
+underlying mechanism (§7.1's early read; §3.3's separate object-5 signal) is otherwise consistent
+with what this project's own corpus already shows.
+
+### 7.3.2 Object 4's own separate early property-27 read — no trigger pattern found
+
+Distinct from §7.3.1 above: `downloadDevice()`'s `LoadImageProp` step handler issues a live
+`PropertyValue_Read OX=4 P=27` unconditionally whenever an app declares `LdCtrlLoadImageProp` for
+objIdx 4 (needed for write-service byte-5 detection, §4.1) — a separate code path from objects
+1/2/3's own checksum-gate mechanism above.
+
+🔴 **No trigger condition found, across an exhaustive real-capture survey.** Every real-ETS-labelled
+Full Download capture available (~15 sessions, several device/app families) was checked for whether
+real ETS performs this same early read for objIdx 4. Only 3 of the ~15 sessions show it at all, and
+none of the following explain the split:
+
+- **Not blank vs. already-programmed**: one genuinely blank/first-touch device shows the early read
+  on both of two independent sessions; a different genuinely blank/fresh device never shows it.
+- **Not first-download vs. repeat-download**: one device's repeat download *gains* early reads its
+  own first download didn't have; a different device's repeat download is byte-identical to its own
+  first run in this respect.
+- **Not manufacturer-specific** on its own either, since the one device family that shows it
+  consistently (both of its own sessions agree) and the one that shows it inconsistently (one of two
+  sessions) are different manufacturers, while several other manufacturers checked never show it at
+  all across every session on file.
+
+The read is harmless regardless (its own result is explicitly discarded, not used for any decision)
+— this is a real, low-stakes protocol-fidelity gap, not a write-safety concern. Resolving it
+properly would need the same deliberately-controlled, purpose-built real-session methodology §7.3.1
+used above (rename/re-address/repeat sequences against one specific device), rather than surveying
+whatever captures already exist for other reasons.
+
+### 7.4 The content-status value's exact byte structure and checksum algorithm
+
+🟢 **Byte structure confirmed, real capture data cross-checked against the real project source**:
+for objects 1 (group address table), 2 (association table), and 3 (per-communication-object flags
+table), the 8-byte property-27 value decodes as:
+
+```
+[reserved:2][object's own table size, bytes, BE:2][reserved:1][write-service signal byte:1][checksum:2]
+```
+
+The size field matches the object's own real table length exactly in every case checked. The
+write-service signal byte is the same byte already documented in §4.1's `PID_MCB_TABLE` byte-5
+candidate rule above — unrelated to the checksum itself, just co-located in the same property
+value.
+
+🟢 **The checksum algorithm is confirmed exactly**: CRC-16/CCITT, polynomial `0x1021`, initial
+value `0x1D0F`, no input/output reflection, no final XOR — computed directly over the object's own
+raw table bytes, no address prefix, no header, no padding. Verified against three independent real
+TestBed devices (one manufacturer/app family), all three of group-address table, association
+table, and the flags table each — 9 of 9 exact matches, zero exceptions, computed fresh from the
+real project source and compared byte-for-byte against the real captured value. The `0x1D0F`
+initial value is real and device/firmware-specific — not one of the well-known named CRC-16
+presets (CCITT-FALSE, XMODEM, KERMIT, etc., all tried and ruled out first).
+
+🟡 **This refines, rather than confirms, one part of §7.3's own mechanism** — comparing an
+object's own early-session read against its own end-of-session read directly, across three real
+sessions, shows the flags table's (object 3's) skip/rewrite decision tracking **its own** value:
+identical early-to-final when the object was genuinely skipped that session, different when it was
+genuinely rewritten (independently confirmed via a separate byte-comparison against the real
+capture). §7.3 above documents the original finding using object 4's own value as the gating
+signal for object 3's rewrite decision on a different device configuration - not necessarily in
+conflict (a real per-device/per-configuration difference is plausible), but not reconciled either;
+flagged here rather than silently overwritten.
+
+🟢 **Object 4's own property-27 value is N concatenated copies of the same 8-byte structure
+documented above, where N is declared by the app's own real XML** as N separate
+`WriteProp(ObjIdx=4, PropId=27, StartElement=1..N)` steps (or, symmetrically, read back via a
+single `PropValueRead ... N=<count>`) — not a hardcoded constant. Each element covers its own byte
+range of the object's own raw content, `[0 : n]`/`[size − m : size]`/etc., with `n`/`m`-style
+per-element boundaries each a static per-app constant read directly off that element's own
+declared step data, not computed from device content at download time. Each 8-byte element
+independently follows this section's own `[reserved:2][size:2][reserved:1][signal
+byte:1][checksum:2]` layout with its own independent CRC.
+
+Confirmed on two real devices with different N: a Jung app declares N=2 (elements `StartElement="1"`
+implicit and `StartElement="2"`), matching this project's own real 16-byte example quoted at the
+top of §7.1/§7.3 (`000028C0003365E4000000010133DCBD`, splitting into `0000 28C0 00 33 65E4`
+(size=10432) and `0000 0001 01 33 DCBD` (size=1)). A real ETS Full Download capture of a Weinzierl
+IO534CV device (1.1.11) declares N=4 and returns a 32-byte response:
+
+```
+195  PropValueRead  OX=4 P=27 N=4
+201  PropValueResp  OX=4 P=27 N=4  $00000014003279080000153C0032FB58000003F00032ED74000000010132DCBD
+```
+
+```
+elem1  0000 0014 00 32 7908   size=20
+elem2  0000 153C 00 32 FB58   size=5436
+elem3  0000 03F0 00 32 ED74   size=1008
+elem4  0000 0001 01 32 DCBD   size=1  (reserved byte here is 0x01, not 0x00 - unexplained, minor)
+```
+
+6 elements checked across two real devices in total — the per-element structure is confirmed;
+the element count itself is per-app, not fixed.
+
+### 7.5 The checksum-gated skip, wired into `downloadDevice()`'s partial mode
+
+🟢 `downloadDevice()`'s `mode: 'partial'` path (`server/knx-connection.ts`)
+gates GA table/Association table/Object 3 (objIdx 1/2/3 only — object 4/parameter memory keeps
+using the pre-existing `pendingWriteRanges` heuristic unconditionally, since its own N-element
+property-27 shape, §7.4, isn't wired into this comparison yet) on a live `PropertyValue_Read` of
+P=27, compared against a fresh `crc16Knx()` (exported, same file) computed from the session's own
+target table content:
+
+- **Checksum matches** → the object's entire load cycle is skipped (no Unload/StartLoading/
+  LoadData/write/LoadCompleted at all), matching real ETS's own behavior (§7.3).
+- **Checksum mismatches** → the object's FULL content is written, superseding whatever narrower
+  `pendingWriteRanges` may have tracked for it — a checksum is whole-object-scoped evidence, not a
+  byte-range diff, per §7.3's own finding.
+- **Read fails/no response** → falls back to the pre-existing `pendingWriteRanges` heuristic
+  unchanged, and the failure itself is recorded three ways: an events-log line (`log()`, not
+  `logDebug()` — visible without enabling Debug), a structured `logger.warn('knx', ...)` line, and
+  `DownloadResult.verificationIssues` (a new `string[]`, always present, empty when clean) — the
+  same "don't let a real problem hide in debug-only output" motivation as §7.3's own detection
+  mechanism.
+
+`crc16Knx()` was independently re-validated against this project's **own** real fixtures before being wired in, per this project's standing rule
+to validate protocol claims against real captured ETS downloads:
+`tests/fixtures/relmem-real-devices/ga-assoc-wire-format-1.1.10.json`'s real GA table
+(`00020A010A02`) and Association table (`00020001001F00020020`) both produce the exact checksums a
+real ETS Full Download captured for this same device
+(a real ETS Partial Download capture of 1.1.10: `$...0033E5AF`
+/ `$...0033D15E`) — 2 of 2 exact matches, computed fresh from this project's own content, confirming
+§7.4's algorithm independently of the doc's own prior (also 🟢) evidence.
+
+🟢 **The checksum algorithm is now independently confirmed against Object 3's own real content
+too, closing this section's prior open question.** A real Object 3 byte fixture for 1.1.10 was
+reconstructed directly from the actual `MemExtWrite` chunks in a real Partial Download capture (5
+chunks, `0xC2000`–`0xC2390`, 942 bytes total, reassembled in address order): `crc16Knx()` over
+those exact bytes produces `0x3B56` — matching, byte-for-byte, the value the device itself
+reported via a `PropertyValue_Read P=27` immediately after that same write. This is a different,
+later content state than the one an earlier real ETS Partial Download capture (referenced above,
+checksum `C327`) recorded — that specific historical content was never separately saved as a byte
+fixture and, since Object 3's content has since changed on the real device, can no longer be
+reconstructed after the fact — but the algorithm itself is now proven against real Object 3
+content in general, not just inferred from the GA/Association tables above.
+
+🔴 **The checksum-gated skip's END-TO-END behavior does not reproduce ETS's own skip decision on
+every app.** A real koolenex Partial Download to 1.1.10, compared byte-for-byte against a real ETS
+Partial Download to the same device in the same state (via `compare-capture-sessions.ts`), found
+ETS wrote almost nothing — 2 single-byte memory writes, everything else a read-only checksum check
+that came back "unchanged, skip" — while koolenex's own download wrote the entire GA table,
+Association table, Object 3, and parameter memory: a Full-Download-sized payload sent under
+`mode: 'partial'`. The checksum ALGORITHM itself is unaffected (§7.5's own 2-of-2 match still
+holds); this is specifically the skip DECISION failing to trigger for this app. Confirmed on 1.1.10
+only — whether this is specific to that app/device or a more general gap in the skip-gating logic
+is not yet root-caused.
+
+### 7.6 Real ETS's own final pre-Restart PID_MCB_TABLE verification read
+
+🟢 Immediately after the last LoadCompleted and immediately
+before Restart, real ETS reads `PropertyValue_Read P=27` on every interface object it considered
+this session, in ascending objIdx order — a pure verification/confirmation read; nothing in the
+captured protocol suggests real ETS branches on the result, so this doesn't interpret or act on it
+either. Wired into `downloadDevice()` right before the existing Restart delay, reading from
+`relmemJobs` (not `activeJobs`), so it correctly covers objects the checksum-gated skip (§7.5) or
+`pendingWriteRanges` filtered out of this session's active writes — matching real ETS's own
+"read every object regardless of whether it needed writing" behavior.
+
+🟢 **Retry-hardened, and a real MISMATCH check, not just a logged read** —
+`propReadFinal()` retries a lost frame up to two
+extra times (300ms apart) before concluding "no response" — a read has no side effects, so retrying
+costs nothing beyond a little time, and a device that still won't answer after retrying is a
+materially stronger signal than one lost frame. For objIdx 1/2/3 (GA table/Association table/Group
+Object Table — the three objects whose single 8-byte `PID_MCB_TABLE` element shape is confirmed, see
+§7.4), the read result is compared against a fresh `crc16Knx()` of this session's own target content
+(the same value the checksum-gated skip in §7.5 already computes) — a genuine, persistent mismatch
+is a real problem, not just a log line. Object 4 (parameter memory)'s own P=27 shape is a variable
+N-element structure (§7.4) not yet wired into this comparison, so it still only gets the
+retry-hardened presence/response check, matching the same boundary §7.5's own checksum-gated skip
+already draws for object 4.
+
+🟢 **Gated on `appUsesP27`**: real ETS does **not** perform this read at
+all for an app that never declares
+`WriteProp`/`LoadImageProp` for property 27 anywhere in its own load procedure — confirmed via
+a genuine live capture showing zero P=27 traffic for such an app, contrasted against an app that
+does declare it, whose capture shows exactly this mechanism on every object. This is confirmed
+directly against both of this project's own testbed apps' real declared load procedures, not just
+by inference: 1.1.9's app declares no `WriteProp`/`LoadImageProp` step for property 27 anywhere at
+all, while 1.1.10's app declares both — two `WriteProp` steps (`ObjIdx=4`) and four
+`LoadImageProp` steps (`ObjIdx=1,2,3,4`) — matching each device's own real capture behavior exactly.
+`appUsesP27` is tracked as a single whole-session flag (not per-object — real apps only ever declare
+P=27 on objIdx 4, never 1/2/3, so gating each object on its own declaration would wrongly skip 1/2/3
+for every app that uses P=27 at all) incrementally as steps are processed, set by either a
+`WriteProp` or `LoadImageProp` step with `propId === 27`.
+
+### 7.7 Write-process safety guards, ObjIdx=0 and RelSegment/WriteRelMem size
+
+🟢 **Two further safety guards** —
+both hard, synchronous, before-any-bus-I/O checks in `downloadDevice()`:
+
+- **ObjIdx=0 (Device Object) write guard**, in `propWrite()`: refuses any `PropertyValue_Write` to
+  objIdx 0 except the one deliberate `PID_DEVICE_CONTROL` (P=14, Verify Mode) write this engine
+  already makes internally — every other object index must be 1 or above. Protects against a real,
+  known gap: a load-procedure step whose `ObjIdx` attribute is missing could parse to objIdx=0 via
+  a silent fallback upstream, and nothing structural stopped that from reaching the wire before this.
+- **`LdCtrlRelSegment`/`LdCtrlWriteRelMem` declared-size cross-check**, in the `WriteRelMem` step
+  handler: refuses to write when the two independently-parsed XML attributes disagree for the same
+  object — an understated `LoadData` size relative to what's actually streamed is a textbook
+  overflow past the device's allocated segment; an overstated one leaves part of a "loaded" segment
+  genuinely uninitialized while the device trusts the whole thing once `LoadCompleted` arrives.
+  Every real app examined so far declares these identically; nothing enforced that before this
+  check.
+
+Both are covered by protocol-level tests (`tests/partial-download-mode.test.ts`, "write-process
+safety guards" describe block) — not yet exercised against real hardware, since neither is expected
+to ever fire against a well-formed real app (they exist to fail loudly on a malformed/mis-parsed one).
+
+🟢 **`propReadFinal()`'s retry-hardening, live CRC-mismatch detection, and the Restart-withhold
+policy.** See
+§7.6 above for the retry/mismatch mechanism itself. `DownloadResult` gained `restartWithheld`/
+`restartWithheldReasons`: a confirmed content mismatch or a persistent (retried) no-response on the
+final pre-Restart read withholds Restart entirely rather than sending it regardless. The reasoning:
+a device not yet restarted is, by the Load State Machine's own
+staged-write design, still running its OLD, untouched application — safe to leave un-rebooted while
+an operator retries or investigates, with nothing lost by not restarting. koolenex has no DB
+persistence layer for this outcome (see `DownloadResult.restartWithheld`'s own doc comment). Covered by protocol-level tests in
+`tests/partial-download-mode.test.ts` (a lost-frame-then-recovered case, a persistent checksum
+mismatch, and a persistent no-response) — not yet exercised against real hardware.
+
+### 7.8 Extending the same mechanism to the AbsSegment (MDT-style) fork
+
+🟢 `downloadDevice()` has two forks (§ architecture notes elsewhere in this repo) —
+legacy RelSegment (§7.5–7.7 above) and AbsSegment/MDT, planned via the pure `planDownload()`
+function (`knx-download-plan.ts`). The AbsSegment fork has its own live-verification
+mechanism, described below.
+
+This fork has no confirmed `PID_MCB_TABLE` (P=27) usage anywhere — `planDownload()` never declares a
+property write for it, and no real capture in this project's corpus shows an AbsSegment-family app
+declaring `LdCtrlWriteProp`/`LdCtrlLoadImageProp` for property 27 either. Porting §7.6's mechanism
+onto this fork literally (forcing a P=27 read it was never shown to use) would be speculative in the
+same way the earlier mask-based memory-write-service rule turned out to be (§4.1) — a rule that fit
+every sample checked until a genuine counter-example turned up.
+
+Instead, this fork reuses the verification mechanism this device family already has independently
+proven: `planVerify()`'s own `'absmem'` family (§ read-back verification, above) reads back exactly
+what `planDownload()` streamed and byte-compares it against what was intended. `downloadDevice()`
+now runs this same check inline, retry-hardened the same way `propReadFinal()` is (two extra
+attempts, 300ms apart), immediately before sending Restart: every `memWrite` region this session
+actually wrote gets re-read via `MemoryExtended_Read` and compared byte-for-byte. A genuine mismatch
+or a persistent no-response withholds Restart — same `restartWithheld`/`restartWithheldReasons`
+policy as the RelSegment fork, same reasoning (the device is still running its old application until
+a real Restart happens).
+
+Alongside this, the AbsSegment fork's `propWrite`/`memWrite` execution now waits for a real device
+response before continuing (previously fire-and-forget, tracked in `unconfirmedWrites`/
+`unconfirmedDetails` the same way the RelSegment fork already does), and gained the same ObjIdx=0
+(Device Object) write guard as the RelSegment fork's `propWrite()` closure.
+
+🔴 Protocol-level tested only (`tests/knx-connection.test.ts`, a fake in-process device with a real
+backing memory buffer) — not yet exercised against a real AbsSegment/MDT device. No real
+AbsSegment-family device write has ever been confirmed on real hardware in this project at all (see
+the architecture notes' own caveat), so this is a real gap independent of this specific port.
+
+### 7.9 Two real bugs in the checksum-gated skip's own supporting machinery
+
+🟢 **The generic `LoadImageProp` step handler only issues a live P=27 read for objIdx 4, not for
+every declared `LdCtrlLoadImageProp` step regardless of objIdx.** This project's own real capture
+corpus (real ETS Full Downloads to 1.1.9/1.1.10) never shows an early
+`OX=1`/`OX=2 P=27` read anywhere before the closing Restart — only as part of the post-write final
+verification pass (§7.6). The one case where real ETS genuinely DOES read objIdx 1/2/3 early is a
+different mechanism this codebase already has: a real ETS Partial Download capture of 1.1.10
+shows it reading `OX=1,2,3,4 P=27` early,
+in ascending order — that is the checksum-gated skip decision (§7.5), which already issues its own
+dedicated read for objIdx 1/2/3. An unscoped generic read here would mean a real double read for
+every one of objIdx 1/2/3 in partial mode (this generic, result-discarded read, plus the
+checksum-gate's own read moments later), and a wasted, ETS-incorrect early read for objIdx 1/2/3
+in full mode (where the checksum-gate never runs at all). Only objIdx 4 keeps a live read at this
+step (genuinely needed early, for the memory-write-service byte5 detection, §4.1) — objIdx 1/2/3
+rely entirely on the checksum-gate's own read (partial mode) and/or the final verification pass,
+never this generic step. Regression tests: `tests/partial-download-mode.test.ts`, "LoadImageProp no
+longer reads OX=1/2/3 P=27 early".
+
+🟢 **The final pre-Restart verification read (§7.6) follows each app's own real declared
+`LoadImageProp` order, not a hardcoded ascending objIdx order.** Every app this project's own
+capture corpus has seen that declares `LdCtrlLoadImageProp` at all happens to declare it
+ascending, so a fixed ascending rule would never visibly diverge — but the order is still derived
+from the app's own declaration, unlike Unload/write order (which a separate mask-procedure module
+derives from the declaration; that module is not present on this branch, and this section is
+scoped to the final-verification read order only). The final verification loop records each app's
+own real declared `LoadImageProp` order as it's encountered, and follows it directly; any objIdx
+the app never declares an order for falls back to the ascending sort. A discriminating regression
+test uses a deliberately non-ascending declared order (3, 1, 4, 2) — an ascending fixture could
+never tell "follows the declaration" apart from "always sorts ascending regardless" — and confirms
+the live engine follows it exactly. Test: `tests/partial-download-mode.test.ts`, "final
+verification read order follows the app's own declared LoadImageProp order".
+
+🟢 **Separately, `restartDevice()` (the standalone identity-confirm-and-restart step reused by the
+address-write paths, §9) branches between the plain/Basic and Extended `A_Restart` variant by the
+device's own live mask** — unlike the RelSegment fork's own end-of-download Restart (§7.6), which
+has no Basic/Extended distinction of its own on this branch. This project's own real capture
+corpus settles which variant real ETS actually sends at this step: real ETS captures of 1.1.9 and
+1.1.10 — both real System B devices (mask low byte 0xB0) — show real ETS sending `RestartReq
+$0100` and waiting for a real `RestartResp` (`$000008`/`$000000`) at exactly this
+identity-confirm-and-restart step (a `PropertyValue_Read` on P=11 immediately beforehand, matching
+this method's own shape); a real ETS capture of a non-System-B device (1.1.60) confirms the plain
+variant with no response for the other family. `restartDevice()` reads the device's own live mask
+from its existing `DeviceDescriptor_Read` and branches the same way `useExtendedMemory` already
+does elsewhere in this file (`(mask & 0xff) === 0xb0`). APCI entries `Restart_Extended`/
+`Restart_Extended_Response` (`knx-cemi.ts`) and an `apduRestartExtended()` builder mirror the
+existing `MemoryExtended_*` pattern for services sharing a 4-bit base APCI. Tests:
+`tests/restart-variant.test.ts`.
+
+### 7.10 Real ETS drains a `Verify="false"` write's response before its next request
+
+🟢 Real ETS capture, Partial Download, same device/app:
+
+```
+23.649  → PropValueWrite OX=4 P=27          (element 1 sent)
+23.791  ← PropValueResp  OX=4 P=27          (element 1's response)
+23.821  → PropValueWrite OX=4 P=27 X=2      (element 2 - sent only after element 1's response)
+23.964  ← PropValueResp  OX=4 P=27 X=2      (element 2's response)
+23.991  → PropValueRead  OX=4 P=7           (sent only after element 2's response)
+24.120  ← PropValueResp  OX=4 P=7 $000C3000
+```
+
+Even though `Verify="false"` doesn't require ETS to check the confirmation, it still waits for and
+consumes each write's own response before sending the next request - it never has two exchanges
+outstanding on the same channel at once. `propWrite()`/`propRead()` here now do the same: a
+`Verify="false"` write holds a short (200ms) listener scoped to its own echoed `objIdx`/`propId` until
+it resolves or times out (discarding the result either way), and `propRead()` requires a response's
+echoed `objIdx`/`propId` to match the request before accepting it - the same `accept`-predicate pattern
+`MemoryExtended_Read`/`Memory_Read` already used elsewhere in this file, now applied to property
+reads/writes too. Verified via full regression (1860 tests, including a dedicated
+`tests/modarch-loopback.test.ts` case) rather than a live repro - a single-threaded, always-in-order
+loopback can't reproduce two overlapping exchanges in the first place.
+
+### 7.11 ETS downloads are deltas whenever it has, or thinks it has, history for a device
+
+🟢 Real ETS always performs a delta (non-destructive) download when it has, or believes it has,
+history for a device. It first reads `PID_PROGRAM_VERSION` (`OX=4 P=13`); for a device that already
+holds the same application it loads objIdx 4 in mode `00` and writes only what it needs — on a
+repeat download to an already-matching unit, as little as a single byte of parameter memory (the
+object's own last byte), with the parameter writes starting at offset 12 and skipping the segment
+header. GA/Association/Object 3 (objIdx 1/2/3) are still written in full. Only for a device it
+treats as new (for example after an explicit Unload) does ETS load objIdx 4 in mode `01` and write
+the whole image, header first.
+
+koolenex reproduces the delta behaviour with Partial Download. Full Download does not
+try to: it writes everything as if the device were new (mode `01`, whole image, header included).
+
+🔴 Do not narrow a Full download's content while keeping mode `01`. On a real Jung dimmer that
+combination left the first five bytes of the parameter segment (`49 6E 73 30 06`, not a named
+parameter) zeroed, and the device misbehaved until a full download after an Unload restored them.
+
 ## 8. Known tooling/methodology gotchas
 
 - **At least one common packet-capture tool's own protocol dissector mis-displays memory-write
@@ -1409,6 +1854,18 @@ anomaly is detected (whether it's graded, or always the same universal rewrite).
   `C:/Users/...`-style forward-slash paths for direct file I/O on Windows, and prefer writing
   intermediate results to files rather than piping between processes when mixing a Unix-style
   shell with native Windows tools.
+- **🟢 `planVerify()`'s prop-family branch (`server/knx-download-plan.ts`) must not conflate a
+  `CompareProp` step's manufacturer-identity PRECONDITION-check constant with a `WriteProp` step's
+  real post-download config value for the same `(objIdx, propId)`** — doing so guarantees a
+  spurious mismatch whenever those two constants genuinely differ (they check different things: a
+  CompareProp is what real ETS verifies *before* attempting a download at all, a WriteProp is the
+  real config written and what a post-download Verify should compare against). `propSteps` filters
+  to `WriteProp` only; `downloadDevice()`'s own `CompareProp` case (a deliberate no-op) is
+  unaffected. Regression coverage:
+  `planVerify() - prop family` in `tests/knx-download-plan.test.ts` (including a direct reproduction
+  of the conflation — a `CompareProp` and `WriteProp` for the same PID with genuinely different
+  values), plus `tests/knx-verify-plan.test.ts`'s and `tests/bus-routes.test.ts`'s existing
+  property-configured-device tests updated to reflect the corrected behavior.
 
 ## 9. Device addressing — a separate protocol family
 
@@ -1553,9 +2010,8 @@ Sequence:
 5. Connect P2P to the new address, `DeviceDescriptor_Read`, and reads of properties 56/11 (same
    identity-confirmation pattern as every other session in this document).
 6. **`A_Restart`** — sent, then a **real ~3.0s wait** (80.60s → 83.60s in the capture, exact),
-   *then* `T_Disconnect`. Confirms `restartDevice()`'s own `postRestartDelayMs` (added
-   2026-08-31, default 3000ms) against a real capture, not a guess - see that method's own doc
-   comment.
+   *then* `T_Disconnect`. Confirms `restartDevice()`'s own `postRestartDelayMs` (default 3000ms)
+   against a real capture, not a guess - see that method's own doc comment.
 7. A separate KNXnet/IP Tunnel-level `DisconnectReq`/`Resp` a couple seconds later - the whole IP
    session closing, not device-specific.
 
@@ -1564,8 +2020,8 @@ plain address write relies on the Restart alone to end programming mode. Confirm
 was specific to Factory Reset, not a general property of every address-related ETS operation.
 
 This capture directly validates koolenex's own `assignIndividualAddressBySerial()`/`programIA()`
-restart-after-write sequence (write → verify → Restart → wait → disconnect), added the same day
-this capture was taken, in the same order real ETS uses.
+restart-after-write sequence (write → verify → Restart → wait → disconnect), which follows the
+same order real ETS uses.
 
 ### 9.5 koolenex's own detect-before-write UI flow, live-tested end-to-end on a second manufacturer 🟢
 

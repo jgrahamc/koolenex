@@ -114,7 +114,18 @@ describe('planVerify — RelSegment reads paramMem at offsets', () => {
 });
 
 describe('planVerify — property-configured devices', () => {
-  it('enumerates CompareProp/WriteProp (with data) as property reads', () => {
+  // 🟢 CompareProp is a manufacturer-identity
+  // PRECONDITION check real ETS runs BEFORE attempting a download (e.g.
+  // PID 78/hardware-type) — its own InlineData is a check constant, not
+  // post-download configuration, so it must NOT become a verifiable prop
+  // entry alongside WriteProp (a real bug, root-caused during a live router
+  // test — see
+  // `planVerify() - prop family` in knx-download-plan.test.ts for the
+  // dedicated regression coverage, including the case where CompareProp and
+  // WriteProp target the SAME (objIdx, propId), which is what actually
+  // exposed the conflation). This test's title and assertions are updated
+  // to match the fixed, correct behavior — only WriteProp is verifiable.
+  it('enumerates WriteProp (with data) as property reads, excluding CompareProp', () => {
     const steps: PlanStep[] = [
       { type: 'Connect' },
       {
@@ -136,14 +147,17 @@ describe('planVerify — property-configured devices', () => {
     const plan = planVerify(steps, null, null, null, null);
     assert.equal(plan.family, 'prop');
     assert.equal(plan.mem.length, 0);
-    assert.equal(plan.props.length, 2);
+    assert.equal(
+      plan.props.length,
+      1,
+      'only WriteProp is verifiable — CompareProp is a precondition check, not config',
+    );
     assert.deepEqual(plan.props[0], {
       obj: 0,
-      pid: 78,
-      expected: Buffer.from('aabb', 'hex'),
-      label: 'prop obj=0 pid=78',
+      pid: 12,
+      expected: Buffer.from('01', 'hex'),
+      label: 'prop obj=0 pid=12',
     });
-    assert.equal(plan.props[1]!.pid, 12);
   });
 });
 

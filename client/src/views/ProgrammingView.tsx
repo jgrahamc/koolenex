@@ -66,9 +66,8 @@ export function ProgrammingView() {
     router: 'var(--router)',
     generic: 'var(--muted)',
   };
-  // Real request 2026-08-31: the device-type icon's color had no
-  // explanation on hover - operators had to be told, rather than being
-  // able to see, what amber/blue/green meant.
+  // The device-type icon's color had no explanation on hover - operators had
+  // to be told, rather than being able to see, what amber/blue/green meant.
   const DEVICE_TYPE_LABEL: Record<string, string> = {
     actuator: 'Actuator',
     sensor: 'Sensor',
@@ -277,7 +276,10 @@ export function ProgrammingView() {
     // retry after the user (or 'auto_address_by_serial') has decided. See
     // server/routes/bus.ts's own doc comment on the same param.
     addressMethod?: 'button' | 'serial',
-  ) => {
+    // Resolves to true when a batch driving this call should stop (the
+    // device was left un-restarted after a failed pre-Restart check).
+  ): Promise<boolean> => {
+    let stopBatch = false;
     setLogOpen(true);
     programPctMaxRef.current[deviceId] = 0;
     // Resetting the ratchet above isn't enough alone - a device that
@@ -385,6 +387,16 @@ export function ProgrammingView() {
         addLog(
           `[${new Date().toLocaleTimeString()}] ${devAddr} not found at its assigned address — choose how to locate it`,
         );
+      } else if (errCode(err) === 'restart_withheld') {
+        // The download was written but a pre-Restart check failed, so the
+        // device was deliberately left un-restarted (still running its old
+        // application). Not a success and not an ordinary failure: needs a
+        // person to look, so a batch must not carry on to the next device.
+        stopBatch = true;
+        setProgress((p) => ({ ...p, [deviceId]: { state: 'error' } }));
+        addLog(
+          `[${new Date().toLocaleTimeString()}] ⚠ Restart withheld (${mode}) → ${devAddr} — ${errMessage(err)}`,
+        );
       } else {
         setProgress((p) => ({ ...p, [deviceId]: { state: 'error' } }));
         addLog(
@@ -393,6 +405,7 @@ export function ProgrammingView() {
       }
     }
     delete programAbortRef.current[deviceId];
+    return stopBatch;
   };
 
   // Wired to the "press the button" modal's own Cancel button (see the
@@ -564,7 +577,13 @@ export function ProgrammingView() {
     );
     try {
       for (const d of targets) {
-        await programDevice(d.id, d.individual_address, mode);
+        const stop = await programDevice(d.id, d.individual_address, mode);
+        if (stop) {
+          addLog(
+            `[${new Date().toLocaleTimeString()}] Program All Modified stopped at ${d.individual_address} — the device needs attention before continuing`,
+          );
+          break;
+        }
       }
     } finally {
       setProgrammingAll(false);

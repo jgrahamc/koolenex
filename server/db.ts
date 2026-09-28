@@ -297,6 +297,19 @@ export async function init(
   // server/routes/shared.ts).
   migrate('devices', 'last_verify_match', 'INTEGER');
   migrate('devices', 'last_verify_at', 'TEXT');
+  // Set when a download completed its writes but withheld Restart because a
+  // pre-Restart verification check failed (server/knx-connection.ts's
+  // DownloadResult.restartWithheld) - the device is left running its
+  // previous, un-restarted application. Cleared on a subsequent download
+  // that completes without withholding Restart, and by the operator's own
+  // "clear device history" action (server/routes/bus.ts). Kept separate
+  // from `status`, which stays 'modified': a withheld Restart is not a
+  // trusted write, so status must not advance to 'programmed' - but the
+  // device still needs its own distinct, persisted indicator, since the
+  // in-flight 409 response is otherwise the only place this fact exists.
+  migrate('devices', 'restart_withheld', 'INTEGER DEFAULT 0');
+  migrate('devices', 'restart_withheld_at', 'TEXT');
+  migrate('devices', 'restart_withheld_reason', 'TEXT');
   db.run(`INSERT OR IGNORE INTO settings VALUES ('demo_mode', '')`);
   db.run(`INSERT OR IGNORE INTO settings VALUES ('demo_addr_map', '')`);
 

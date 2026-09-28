@@ -103,6 +103,17 @@ export interface Device {
   // and on any edit made after a verify recorded a result.
   last_verify_match: number | null;
   last_verify_at: string | null;
+  // Set when a download wrote its content but withheld Restart because a
+  // pre-Restart verification check failed - the device is still running its
+  // previous, un-restarted application. `status` stays 'modified' in this
+  // case (a withheld Restart is not a trusted write), so this is the only
+  // persisted signal of it. Cleared by a later download that completes
+  // without withholding Restart, or by the operator's own "clear device
+  // history" action. `restart_withheld_reason` is the joined reasons string
+  // from DownloadResult.restartWithheldReasons.
+  restart_withheld: SqliteBool;
+  restart_withheld_at: string | null;
+  restart_withheld_reason: string | null;
 }
 
 export interface GroupAddress {

@@ -891,10 +891,70 @@ router.post(
   ),
 );
 
-// Detect a device in physical programming mode (button held down) -
-// broadcasts A_IndividualAddress_Read and reports whether/what answered.
-// Read-side counterpart to /bus/program-ia; a different mechanism from
-// /bus/assign-address-by-serial below.
+// Resets a device's download/restart-withheld history back to "never
+// downloaded to from this project" - the operator's recovery action for two
+// otherwise-permanent states this download engine can leave a device in:
+//
+// - Its recorded download history no longer matches reality (e.g. it was
+//   unloaded or reflashed outside this tool): downloadDevice()'s Object 5
+//   decision then refuses every further download, since a live read that
+//   isn't exactly $00 has no known meaning and a wrong guess risks leaving
+//   the device unresponsive - see the refusal message this clears the way
+//   for.
+// - A prior download withheld Restart (restart_withheld): the device wrote
+//   its content but is still running its previous, un-restarted
+//   application - this only ever clears on a later download that restarts
+//   it cleanly, or here.
+//
+// Deliberately does not require a live connection - a device this action is
+// needed for may be genuinely offline (replaced, dead, or not yet wired
+// up). It only edits this project's own records of the device, never the
+// device itself; the very next download to it is what actually re-confirms
+// its state, unconditionally this time.
+router.post(
+  '/bus/clear-download-history',
+  busRoute(
+    z.object({
+      projectId: z.number().int(),
+      deviceId: z.number().int(),
+    }),
+    'Clear download history failed',
+    (b, body) => {
+      const dev = db.get<Device>(
+        'SELECT * FROM devices WHERE id=? AND project_id=?',
+        [body.deviceId, body.projectId],
+      );
+      if (!dev) throw new Error('Device not found');
+      db.run(
+        "UPDATE devices SET last_download='', last_download_serial='', restart_withheld=0, restart_withheld_at=NULL, restart_withheld_reason=NULL WHERE id=?",
+        [dev.id],
+      );
+      db.audit(
+        body.projectId,
+        'update',
+        'device',
+        dev.individual_address,
+        `download/restart history cleared on "${dev.name || dev.id}"`,
+      );
+      db.scheduleSave();
+      b.broadcast('program:progress', {
+        deviceAddress: dev.individual_address,
+        msg: `Download/restart history cleared for ${dev.individual_address} - the next download will treat it as never downloaded to`,
+        pct: -1,
+      });
+      return {
+        ok: true,
+        device: db.get('SELECT * FROM devices WHERE id=?', [dev.id]),
+      };
+    },
+    404,
+  ),
+);
+
+// Detect a device currently in physical programming mode (button held
+// down) - broadcasts A_IndividualAddress_Read and reports whether/what
+// answered. Read-side counterpart to /bus/program-ia above; independent of
+// (not the same mechanism as) /bus/assign-address-by-serial below.
 router.post(
   '/bus/check-programming-mode',
   busRoute(
@@ -1914,6 +1974,43 @@ export async function runProgramDevice(
     // a failure, so status is left alone for a fresh Download/Verify to
     // resolve. The client has already disconnected.
     if (downloadResult.aborted) return null;
+    // A withheld Restart is not a trusted write - the device is still
+    // running its previous application, so recording it as programmed,
+    // stamping last_download, or clearing pending changes would all falsely
+    // claim it now matches the project. Return a distinct error instead.
+    if (downloadResult.restartWithheld) {
+      const reasons = downloadResult.restartWithheldReasons ?? [];
+      // An earlier Verify result no longer describes this device (its
+      // content did change) - cleared here even though status/pending
+      // changes are left alone. `restart_withheld` is the only persisted
+      // record of this outcome; cleared by a later clean download or the
+      // operator's "clear device history" action.
+      db.run(
+        'UPDATE devices SET last_verify_match=NULL, last_verify_at=NULL, restart_withheld=1, restart_withheld_at=?, restart_withheld_reason=? WHERE id=?',
+        [new Date().toISOString(), reasons.join(' | '), dev.id],
+      );
+      b.broadcast('program:progress', {
+        deviceAddress,
+        msg: `Restart withheld - ${reasons.length} pre-Restart check(s) failed`,
+        pct: -1,
+        error: true,
+      });
+      return {
+        status: 409,
+        body: {
+          error: 'restart_withheld',
+          message:
+            `Download written but the device was NOT restarted: ${reasons.length} pre-Restart verification check(s) failed. ` +
+            `It is still running its previous application, and its status and pending changes were left unchanged (its last verify result was cleared). ` +
+            `Reasons: ${reasons.join(' | ')}`,
+          restartWithheld: true,
+          restartWithheldReasons: reasons,
+          verificationIssues: downloadResult.verificationIssues,
+          unconfirmedWrites: downloadResult.unconfirmedWrites,
+          unconfirmedDetails: downloadResult.unconfirmedDetails,
+        },
+      };
+    }
     // Verify requires both address and serial on record; a plain
     // Program/Full-Download never captured the serial (only the addressing
     // flow's read-back did), so read it back here best-effort - failure is
@@ -1948,9 +2045,13 @@ export async function runProgramDevice(
     // verify result describes content that this download just replaced,
     // so verify status can't be trusted regardless of whether this
     // download's own writes were all confirmed.
+    // A download that reaches this point completed AND restarted the
+    // device (the restartWithheld branch above returns early otherwise) -
+    // a trusted write, so any earlier withheld-Restart record no longer
+    // describes the device's current state.
     if (serialNumber) {
       db.run(
-        'UPDATE devices SET status=?, last_download=?, last_download_serial=?, serial_number=?, unconfirmed_writes_count=?, unconfirmed_writes_detail=?, last_verify_match=NULL, last_verify_at=NULL WHERE id=?',
+        'UPDATE devices SET status=?, last_download=?, last_download_serial=?, serial_number=?, unconfirmed_writes_count=?, unconfirmed_writes_detail=?, last_verify_match=NULL, last_verify_at=NULL, restart_withheld=0, restart_withheld_at=NULL, restart_withheld_reason=NULL WHERE id=?',
         [
           'programmed',
           new Date().toISOString(),
@@ -1963,7 +2064,7 @@ export async function runProgramDevice(
       );
     } else {
       db.run(
-        'UPDATE devices SET status=?, last_download=?, last_download_serial=?, unconfirmed_writes_count=?, unconfirmed_writes_detail=?, last_verify_match=NULL, last_verify_at=NULL WHERE id=?',
+        'UPDATE devices SET status=?, last_download=?, last_download_serial=?, unconfirmed_writes_count=?, unconfirmed_writes_detail=?, last_verify_match=NULL, last_verify_at=NULL, restart_withheld=0, restart_withheld_at=NULL, restart_withheld_reason=NULL WHERE id=?',
         [
           'programmed',
           new Date().toISOString(),

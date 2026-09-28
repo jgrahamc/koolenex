@@ -543,14 +543,19 @@ export function planVerify(
     return { family: 'relmem', mem, props: [], undeclaredTableMem };
   }
 
-  // Property-configured device (e.g. KNX IP router): no downloadable
-  // parameter memory image, just interface-object property steps. Only
-  // CompareProp/WriteProp steps carrying a comparison value are verifiable
-  // (empty payloads are load-state triggers) - typically the manufacturer-id
-  // (PID 12) and hardware-type (PID 78) identity checks.
-  const propSteps = steps.filter(
-    (s) => s.type === 'CompareProp' || s.type === 'WriteProp',
-  );
+  // Property-configured device (e.g. KNX IP router): no downloadable parameter
+  // memory image — its load procedure is just interface-object property
+  // steps. Only WriteProp steps carrying a comparison value are verifiable
+  // (empty payloads are load-state triggers, not readable config).
+  //
+  // CompareProp is deliberately excluded: it's a manufacturer-identity
+  // PRECONDITION check real ETS runs before attempting a download (e.g. PID
+  // 12/manufacturer-id, PID 78/hardware-type), not post-download
+  // configuration - including it would pair a WriteProp and a CompareProp
+  // for the same (objIdx, propId) against the same live value, guaranteeing
+  // a spurious mismatch whenever the two constants genuinely differ. Matches
+  // downloadDevice()'s own CompareProp handling (a deliberate no-op).
+  const propSteps = steps.filter((s) => s.type === 'WriteProp');
   if (propSteps.length) {
     const props: VerifyPropRead[] = [];
     for (const s of propSteps) {

@@ -271,6 +271,13 @@ interface LpWriteProp extends LpBase {
   // false = device sends no application-layer confirmation (don't wait for
   // one), true = it does. Absent = step waits, as always.
   verifyResponse?: boolean;
+  // `StartElement` of `LdCtrlWriteProp`: the property-array index the write
+  // starts at (KNX property services are 1-based). Apps that split one
+  // property over several writes (PID_MCB_TABLE on the parameter object is
+  // declared twice, the second with StartElement="2") rely on it - dropping
+  // it sends both writes to index 1, the second overwriting the first.
+  // Absent when the XML has no StartElement.
+  startElement?: number;
 }
 interface LpCompareProp extends LpBase {
   type: 'CompareProp';
@@ -296,6 +303,9 @@ interface LpLoadImageProp extends LpBase {
   type: 'LoadImageProp';
   objIdx: number;
   propId: number;
+  // `Count` of `LdCtrlLoadImageProp`: how many array elements the property
+  // has, i.e. how many the read-back covers. Absent when not declared.
+  count?: number;
 }
 interface LpAbsSegment extends LpBase {
   type: 'AbsSegment';
@@ -2242,6 +2252,9 @@ export function buildAppIndex(buf: Buffer): AppIndex | null {
               objIdx: parseInt(attr(el, 'ObjIdx'), 10) || 0,
               propId: parseInt(attr(el, 'PropId'), 10) || 0,
               data,
+              ...(!isNaN(parseInt(attr(el, 'StartElement'), 10))
+                ? { startElement: parseInt(attr(el, 'StartElement'), 10) }
+                : {}),
               ...(attr(el, 'Verify') === 'true' ||
               attr(el, 'Verify') === 'false'
                 ? { verifyResponse: attr(el, 'Verify') === 'true' }
@@ -2281,6 +2294,9 @@ export function buildAppIndex(buf: Buffer): AppIndex | null {
               type: 'LoadImageProp',
               objIdx: parseInt(attr(el, 'ObjIdx'), 10) || 0,
               propId: parseInt(attr(el, 'PropId'), 10) || 27,
+              ...(!isNaN(parseInt(attr(el, 'Count'), 10))
+                ? { count: parseInt(attr(el, 'Count'), 10) }
+                : {}),
               ...withMergeId,
             });
             break;

@@ -68,7 +68,10 @@ class MockBus extends EventEmitter {
 
   attachWSS(): void {}
 
-  broadcast(): void {}
+  broadcasts: Array<{ type: string; payload: Record<string, unknown> }> = [];
+  broadcast(type: string, payload: Record<string, unknown>): void {
+    this.broadcasts.push({ type, payload });
+  }
 
   connect(
     host: string,
@@ -223,19 +226,24 @@ class MockBus extends EventEmitter {
   }
 
   // Set to make downloadDevice() report a specific outcome (for example an
-  // aborted write); null keeps the ordinary all-clear result.
+  // aborted write or a withheld Restart); null keeps the ordinary all-clear
+  // result.
   downloadResultOverride: Record<string, unknown> | null = null;
 
   async downloadDevice(): Promise<{
     unconfirmedWrites: number;
     unconfirmedDetails: string[];
     aborted?: boolean;
+    verificationIssues?: string[];
+    restartWithheld?: boolean;
+    restartWithheldReasons?: string[];
   }> {
     this.calls.push({ method: 'downloadDevice', args: [...arguments] });
     if (!this.connected) throw new Error('Not connected to KNX bus');
     return {
       unconfirmedWrites: 0,
       unconfirmedDetails: [],
+      verificationIssues: [],
       ...(this.downloadResultOverride ?? {}),
     };
   }
@@ -1162,12 +1170,23 @@ const ABS_MODEL = {
 // A fictional property-configured device (no downloadable memory image): its
 // load procedure is only identity CompareProps + a trigger WriteProp.
 const PROP_APP = 'M-00FA_A-0002-01-EF01';
+// Real shape (matching a real router load procedure -
+// see knx-download-plan.ts's planVerify() "prop family" comment): a
+// property-configured device declares BOTH a CompareProp precondition check
+// (what ETS verifies BEFORE attempting a download at all - not part of the
+// post-download configuration) AND a genuine WriteProp for the same
+// identity properties (the real config a post-download Verify should read
+// back and compare). Only WriteProp is verifiable, so both are declared
+// here to keep this suite's /bus/verify-device coverage meaningful after
+// the CompareProp/WriteProp conflation fix.
 const PROP_MODEL = {
   appId: PROP_APP,
   loadProcedures: [
     { type: 'Connect' },
     { type: 'CompareProp', objIdx: 0, propId: 12, data: '00fa' },
     { type: 'CompareProp', objIdx: 0, propId: 78, data: '0000fa07000a' },
+    { type: 'WriteProp', objIdx: 0, propId: 12, data: '00fa' },
+    { type: 'WriteProp', objIdx: 0, propId: 78, data: '0000fa07000a' },
     { type: 'WriteProp', objIdx: 0, propId: 201, data: '' },
     { type: 'Disconnect' },
   ],
@@ -3403,5 +3422,208 @@ describe('program-device and verify-device: reconnect only when there is no live
     });
     assert.equal(reconnects(), 1);
     mockBus.connected = true;
+  });
+});
+
+describe('/bus/program-device: a withheld Restart is not recorded as a successful download', () => {
+  it('returns restart_withheld and leaves status, last_download and pending changes untouched', async () => {
+    const app = 'M-00FA_A-0001-01-WHLD';
+    writeModel(app, {
+      appId: app,
+      loadProcedures: [{ type: 'Connect' }],
+      params: {},
+    });
+    ts.db.run("INSERT INTO projects (name) VALUES ('withheld')");
+    const pid = ts.db.get<{ id: number }>(
+      'SELECT last_insert_rowid() AS id',
+    )!.id;
+    const did = seedDevice(ts.db, pid, '1.1.42', app, [], []);
+    ts.db.run("UPDATE devices SET status='modified' WHERE id=?", [did]);
+    ts.db.run(
+      "UPDATE devices SET last_verify_match=1, last_verify_at='2026-01-01T00:00:00.000Z' WHERE id=?",
+      [did],
+    );
+    ts.db.run(
+      "INSERT INTO device_pending_changes (device_id, kind, key, baseline_value, current_value) VALUES (?, 'param', 'p1', '0', '1')",
+      [did],
+    );
+    const dev = ts.db.get<any>('SELECT * FROM devices WHERE id=?', [did])!;
+
+    mockBus.connected = true;
+    mockBus.downloadResultOverride = {
+      restartWithheld: true,
+      restartWithheldReasons: ['ObjIdx=4 P=27 MISMATCH'],
+      verificationIssues: ['ObjIdx=4 P=27 MISMATCH'],
+    };
+    const result = await runProgramDevice(
+      mockBus as any,
+      dev,
+      {
+        deviceAddress: '1.1.42',
+        projectId: pid,
+        deviceId: did,
+        mode: 'full',
+      },
+      () => false,
+    );
+    mockBus.downloadResultOverride = null;
+
+    assert.ok(result, 'expected a response, not an abort');
+    assert.equal(result.status, 409);
+    const body = result.body as {
+      error: string;
+      restartWithheld: boolean;
+      restartWithheldReasons: string[];
+    };
+    assert.equal(body.error, 'restart_withheld');
+    assert.equal(body.restartWithheld, true);
+    assert.deepEqual(body.restartWithheldReasons, ['ObjIdx=4 P=27 MISMATCH']);
+
+    const after = ts.db.get<any>('SELECT * FROM devices WHERE id=?', [did])!;
+    assert.equal(
+      after.status,
+      'modified',
+      'status must not advance to programmed',
+    );
+    assert.equal(
+      after.last_verify_match,
+      null,
+      'a stale verify result must be cleared',
+    );
+    assert.equal(
+      after.last_verify_at,
+      null,
+      'a stale verify timestamp must be cleared',
+    );
+    assert.equal(
+      after.last_download,
+      dev.last_download,
+      'last_download must not be stamped',
+    );
+    assert.equal(
+      after.restart_withheld,
+      1,
+      'must be persisted, not just returned in the response',
+    );
+    assert.ok(after.restart_withheld_at, 'a timestamp must be recorded');
+    assert.equal(after.restart_withheld_reason, 'ObjIdx=4 P=27 MISMATCH');
+    const pending = ts.db.get<{ n: number }>(
+      'SELECT COUNT(*) AS n FROM device_pending_changes WHERE device_id=?',
+      [did],
+    )!.n;
+    assert.equal(pending, 1, 'the pending-change log must be kept');
+  });
+
+  it('a later download that completes and restarts the device clears a previously withheld Restart record', async () => {
+    const app = 'M-00FA_A-0001-01-WHLD2';
+    writeModel(app, {
+      appId: app,
+      loadProcedures: [{ type: 'Connect' }],
+      params: {},
+    });
+    ts.db.run("INSERT INTO projects (name) VALUES ('withheld2')");
+    const pid = ts.db.get<{ id: number }>(
+      'SELECT last_insert_rowid() AS id',
+    )!.id;
+    const did = seedDevice(ts.db, pid, '1.1.43', app, [], []);
+    ts.db.run(
+      "UPDATE devices SET restart_withheld=1, restart_withheld_at='2026-01-01T00:00:00.000Z', restart_withheld_reason='previous mismatch' WHERE id=?",
+      [did],
+    );
+    const dev = ts.db.get<any>('SELECT * FROM devices WHERE id=?', [did])!;
+
+    mockBus.connected = true;
+    mockBus.downloadResultOverride = null;
+    const result = await runProgramDevice(
+      mockBus as any,
+      dev,
+      { deviceAddress: '1.1.43', projectId: pid, deviceId: did, mode: 'full' },
+      () => false,
+    );
+    assert.ok(
+      result,
+      'a genuinely completed download still returns a response',
+    );
+    assert.equal(result.status, 200);
+
+    const after = ts.db.get<any>('SELECT * FROM devices WHERE id=?', [did])!;
+    assert.equal(after.restart_withheld, 0);
+    assert.equal(after.restart_withheld_at, null);
+    assert.equal(after.restart_withheld_reason, null);
+  });
+});
+
+describe('/bus/clear-download-history', () => {
+  it('resets last_download, last_download_serial and a withheld-Restart record, and logs it', async () => {
+    const app = 'M-00FA_A-0001-01-CLR1';
+    writeModel(app, {
+      appId: app,
+      loadProcedures: [{ type: 'Connect' }],
+      params: {},
+    });
+    ts.db.run("INSERT INTO projects (name) VALUES ('clear-history')");
+    const pid = ts.db.get<{ id: number }>(
+      'SELECT last_insert_rowid() AS id',
+    )!.id;
+    const did = seedDevice(ts.db, pid, '1.1.80', app, [], []);
+    ts.db.run(
+      `UPDATE devices SET last_download='2026-01-01T00:00:00.000Z', last_download_serial='aabbccddeeff',
+         restart_withheld=1, restart_withheld_at='2026-01-01T00:00:00.000Z', restart_withheld_reason='mismatch'
+       WHERE id=?`,
+      [did],
+    );
+    mockBus.connected = true;
+    mockBus.broadcasts.length = 0;
+
+    const r = await req(ts.baseUrl, 'POST', '/bus/clear-download-history', {
+      projectId: pid,
+      deviceId: did,
+    });
+
+    assert.equal(r.status, 200);
+    assert.equal((r.data as any).ok, true);
+    const after = ts.db.get<any>('SELECT * FROM devices WHERE id=?', [did])!;
+    assert.equal(after.last_download, '');
+    assert.equal(after.last_download_serial, '');
+    assert.equal(after.restart_withheld, 0);
+    assert.equal(after.restart_withheld_at, null);
+    assert.equal(after.restart_withheld_reason, null);
+    // Not touched - this clears download/restart history only.
+    assert.equal(after.serial_number, 'aabbccddeeff');
+
+    assert.ok(
+      mockBus.broadcasts.some(
+        (b) =>
+          b.type === 'program:progress' &&
+          (b.payload.deviceAddress as string) === '1.1.80' &&
+          /history cleared/i.test(b.payload.msg as string),
+      ),
+      'the reset must be visible in the events log',
+    );
+  });
+
+  it('404s for a device id that does not belong to the given project', async () => {
+    const app = 'M-00FA_A-0001-01-CLR2';
+    writeModel(app, {
+      appId: app,
+      loadProcedures: [{ type: 'Connect' }],
+      params: {},
+    });
+    ts.db.run("INSERT INTO projects (name) VALUES ('clear-history-a')");
+    const pidA = ts.db.get<{ id: number }>(
+      'SELECT last_insert_rowid() AS id',
+    )!.id;
+    ts.db.run("INSERT INTO projects (name) VALUES ('clear-history-b')");
+    const pidB = ts.db.get<{ id: number }>(
+      'SELECT last_insert_rowid() AS id',
+    )!.id;
+    const did = seedDevice(ts.db, pidA, '1.1.81', app, [], []);
+    mockBus.connected = true;
+
+    const r = await req(ts.baseUrl, 'POST', '/bus/clear-download-history', {
+      projectId: pidB,
+      deviceId: did,
+    });
+    assert.equal(r.status, 404);
   });
 });

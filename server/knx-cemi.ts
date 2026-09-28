@@ -307,6 +307,21 @@ export function apduAuthorizeRequest(
   return apduConnectedFull(seq, APCI_EXT.Authorize_Request, extra);
 }
 
+/**
+ * A_Restart (Extended, with response) - see APCI_EXT.Restart_Extended's own
+ * comment for the real capture evidence this is built from. Payload is the
+ * literal 2 bytes real ETS sends ($01, $00) - not independently derived
+ * from the KNX spec's Restart Type/Erase Code/Channel Number field layout,
+ * just replayed byte-for-byte as captured.
+ */
+export function apduRestartExtended(seq: number): Buffer {
+  return apduConnectedFull(
+    seq,
+    APCI_EXT.Restart_Extended,
+    Buffer.from([0x01, 0x00]),
+  );
+}
+
 export function apduMemoryRead(
   seq: number,
   count: number,
@@ -365,20 +380,6 @@ export function apduMemoryExtendedWrite(
     data,
   ]);
   return apduConnectedFull(seq, APCI_EXT.MemoryExtended_Write, extra);
-}
-
-/**
- * A_Restart (Extended, with response) - see APCI_EXT.Restart_Extended.
- * Payload is the literal 2 bytes real ETS sends ($01, $00), replayed
- * byte-for-byte; not derived from the KNX spec's Restart Type/Erase
- * Code/Channel Number field layout.
- */
-export function apduRestartExtended(seq: number): Buffer {
-  return apduConnectedFull(
-    seq,
-    APCI_EXT.Restart_Extended,
-    Buffer.from([0x01, 0x00]),
-  );
 }
 
 /**

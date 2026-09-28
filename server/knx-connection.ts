@@ -129,6 +129,13 @@ export interface DownloadStep {
   // confirmation for it, so the download must not wait for one. Absent =
   // wait (default). See ets-app.ts's LpWriteProp.verifyResponse.
   verifyResponse?: boolean;
+  // `LdCtrlWriteProp StartElement`: the 1-based property-array index the
+  // write starts at (absent = 1). PID_MCB_TABLE on the parameter object is
+  // declared twice, the second with StartElement="2".
+  startElement?: number;
+  // `LdCtrlLoadImageProp Count`: how many array elements the property has,
+  // i.e. how many the read-back covers (absent = not declared).
+  count?: number;
   // AbsoluteSegment (MDT-style) load-procedure fields — see knx-download-plan.ts
   lsmIdx?: number;
   address?: number;
@@ -159,6 +166,9 @@ export interface DownloadProgress {
   // still reacts to every message regardless. Absent/false for anything
   // a normal operator should always see.
   debug?: boolean;
+  // Present on the final "Download complete" message - true when Restart
+  // was withheld. See DownloadResult.restartWithheld's own doc comment.
+  restartWithheld?: boolean;
 }
 
 /** Extra context needed to plan an AbsoluteSegment (MDT-style) download. */
@@ -266,6 +276,37 @@ export interface DownloadResult {
   // normal completion, even one with unconfirmed writes (a tolerated
   // outcome, not a deliberate stop).
   aborted?: boolean;
+  // Real problems found by live verification reads - verification issues
+  // should surface to callers directly rather than only being logged
+  // internally. Currently populated by
+  // the partial-mode pre-write PID_MCB_TABLE (P=27) checksum read (objIdx
+  // 1/2/3) when it fails to get a live response - NOT the same thing as
+  // `unconfirmedDetails` above (a write whose response never arrived): this
+  // is a live READ that failed, before any decision about what to write was
+  // even made. Always present (empty array, not undefined) so callers can
+  // log/persist it unconditionally. koolenex has no DB persistence layer
+  // for this yet - a caller wanting persisted issue counts/details would
+  // add it at the route/DB layer, same shape as this array.
+  verificationIssues: string[];
+  // 🟢 True when the final pre-Restart verification (P=27
+  // checksum on the RelSegment path, memory read-back on the AbsSegment
+  // path - see downloadDevice()'s own comments for both) found a genuine
+  // problem, a confirmed content MISMATCH or a persistent no-response
+  // surviving retry, and Restart was deliberately WITHHELD rather than
+  // sent anyway. A device not yet restarted is, by the Load State
+  // Machine's own staged-write design, still running its OLD, untouched
+  // application - safe to leave un-rebooted while an operator retries or
+  // investigates, with nothing lost by not restarting. Callers should
+  // treat this as a distinct, non-"ok" outcome rather than an ordinary
+  // success - koolenex has no DB persistence layer for this yet, same
+  // caveat as verificationIssues above.
+  restartWithheld?: boolean;
+  // Human-readable reasons for restartWithheld=true, one per failed
+  // region/object - same detail level as verificationIssues' own entries
+  // (often literally the same strings), kept separate so a caller doesn't
+  // have to guess which of potentially several verificationIssues actually
+  // triggered the withhold.
+  restartWithheldReasons?: string[];
 }
 
 // ── Device info type ───────────────────────────────────────────────────────────
@@ -703,6 +744,12 @@ export class KnxConnection extends EventEmitter {
    * capture. The pre-connect settle delay is a conservative guess, not
    * capture-calibrated — a device that just adopted a new address may not
    * be immediately ready for a T_Connect.
+   *
+   * Restart variant depends on the device's own live mask: System B
+   * (`(mask & 0xff) === 0xb0`) sends the Extended `RestartReq`/`RestartResp`
+   * pair on this same identity-confirm step; other families get the plain
+   * Basic `A_Restart` with no response — same branch `useExtendedMemory`
+   * uses elsewhere in this file.
    */
   async restartDevice(
     deviceAddr: string,
@@ -733,20 +780,63 @@ export class KnxConnection extends EventEmitter {
             );
           }
         };
+        // Same signal `useExtendedMemory` elsewhere in this file uses
+        // (device mask low byte 0xB0 = System B family) - see this
+        // method's own doc comment above for why it's needed here too.
+        let deviceMask: number | null = null;
         try {
+          const respP = waitResponse('DeviceDescriptor_Response', 2000);
           await sendData('DeviceDescriptor_Read');
-          await waitResponse('DeviceDescriptor_Response', 2000);
+          const resp = await respP;
+          deviceMask =
+            resp.apduData.length >= 2
+              ? (resp.apduData[0]! << 8) | resp.apduData[1]!
+              : null;
         } catch (e) {
           logger.warn(
             'knx',
-            'restartDevice: DeviceDescriptor_Read before Restart failed (continuing anyway)',
+            'restartDevice: DeviceDescriptor_Read before Restart failed (continuing anyway - Restart variant will default to Basic)',
             { deviceAddr, error: (e as Error).message },
           );
         }
         await propRead(0, 56);
         await propRead(0, 11);
-        await sendData('Restart');
-        if (postRestartDelayMs > 0) await delay(postRestartDelayMs);
+        const useExtendedRestart =
+          deviceMask !== null && (deviceMask & 0xff) === 0xb0;
+        if (useExtendedRestart) {
+          const seq = nextSeq();
+          const apdu = apduRestartExtended(seq);
+          const cemi = buildCEMI(this.localAddr, deviceAddr, apdu, false, {
+            priority: 'system',
+          });
+          const respP = waitResponse('Restart_Extended_Response', 3000);
+          await this.sendCEMI(cemi);
+          try {
+            await respP;
+            logger.info(
+              'knx',
+              'restartDevice: RestartResp received (Extended Restart, System B device)',
+              { deviceAddr },
+            );
+          } catch {
+            logger.warn(
+              'knx',
+              'restartDevice: No RestartResp within 3s on Extended Restart - falling back to a settle delay',
+              { deviceAddr },
+            );
+          }
+          // A RestartResp only means the device ACCEPTED the restart request,
+          // not that it has finished rebooting. Wait the full settle delay on
+          // success as well as on timeout: callers resume sending straight
+          // after this returns (address programming, the early restart of a
+          // Full Download), and frames sent into a device that is still
+          // rebooting are silently lost, which can leave the following
+          // session without a valid connection.
+          if (postRestartDelayMs > 0) await delay(postRestartDelayMs);
+        } else {
+          await sendData('Restart');
+          if (postRestartDelayMs > 0) await delay(postRestartDelayMs);
+        }
       },
     );
   }
@@ -1641,6 +1731,21 @@ export class KnxConnection extends EventEmitter {
     const unconfirmed: string[] = [];
     refuseUnhandledSteps(steps);
     let aborted = false;
+    // Real, worth-a-second-look problems found during live verification
+    // reads - see DownloadResult.verificationIssues' own
+    // doc comment for why this is a separate list from `unconfirmed` above
+    // (a write whose response never arrived vs. a live checksum read that
+    // failed are different kinds of problem, worth telling apart, not
+    // folded into one bucket). Populated by both the RelSegment branch
+    // (PID_MCB_TABLE checksum reads) and the AbsSegment branch (memory
+    // read-back verification) below.
+    const verificationIssues: string[] = [];
+    // See DownloadResult.restartWithheld's own doc comment. Set true by
+    // either branch's own final pre-Restart verification on a confirmed
+    // mismatch or a persistent (retried) no-response; when true, Restart is
+    // skipped entirely rather than sent regardless.
+    let restartWithheld = false;
+    const restartWithheldReasons: string[] = [];
 
     // AbsoluteSegment (MDT-style) load procedures — Connect/Unload/Load/
     // AbsSegment/TaskSegment/LoadCompleted/Restart/Disconnect — are planned
@@ -1654,13 +1759,17 @@ export class KnxConnection extends EventEmitter {
         async ({ nextSeq, waitResponse }) => {
           const MEM_CHUNK = 44;
 
-          // KNX Master Data mask-Procedure ordering (knx-mask-procedures.ts),
-          // same source the RelSegment/System-B executor draws from - only
-          // the "all" subtype applies here, since this path has no
-          // partial-mode variant. Best-effort: no DeviceDescriptor response,
-          // no project id, or no matching mask Procedure in master data
-          // leaves `mergedOps` null, and planDownload() falls back to the
-          // application program's own declared step order.
+          // Real KNX Master Data mask-Procedure ordering (knx-mask-
+          // procedures.ts), same source the RelSegment/System-B executor
+          // above draws from - only the "all" subtype applies here, since
+          // this path has no partial-mode variant of its own. Best-effort: a
+          // device that never answers DeviceDescriptor_Read, has no
+          // project id, or whose mask genuinely has no matching Procedure
+          // declared in this project's own master data (a real, observed
+          // case for at least one mask family - see this module's own
+          // header comment) leaves `mergedOps` `null`, and planDownload()
+          // then falls back to its own pre-existing behavior (the
+          // application program's own declared step order) unchanged.
           let mergedOps: MaskOp[] | null = null;
           if (extra?.projectId != null) {
             try {
@@ -1715,6 +1824,73 @@ export class KnxConnection extends EventEmitter {
             mergedOps,
           );
 
+          // Every memWrite op actually sent during this download - the source
+          // of truth for the final pre-Restart read-back verification below.
+          // 🟢 This AbsSegment fork has no confirmed PID_MCB_TABLE
+          // (P=27) usage anywhere (planDownload() never emits a propWrite for
+          // it - this device family's own load procedure only ever declares
+          // Unload/Load/AbsSegment/TaskSegment/LoadCompleted steps, not
+          // WriteProp/LoadImageProp), so the RelSegment fork's checksum-based
+          // final verification doesn't apply here as-is. This fork's own
+          // family already has a real, independently-confirmed verification
+          // mechanism though - planVerify()'s 'absmem' family (see
+          // knx-download-plan.ts) reads back exactly what planDownload()
+          // streamed and byte-compares it. Reusing that same mechanism here,
+          // inline and retry-hardened, gives this fork the same safety
+          // property as the RelSegment fork's checksum check (a genuine,
+          // confirmed-bad write withholds Restart) via the mechanism that's
+          // actually proven for this device family, rather than forcing an
+          // unconfirmed P=27 read onto it.
+          const writtenMem: Array<{ addr: number; bytes: Buffer }> = [];
+
+          /** Retry-hardened extended memory read, used only for the final
+           *  pre-Restart verification below - mirrors propReadFinal()'s
+           *  retry policy on the RelSegment path (2 extra attempts, 300ms
+           *  apart) so a single lost frame doesn't look the same as a
+           *  genuinely non-responding device. Chunks the read the same way
+           *  readMemoryExtended() does. Returns null if any chunk never gets
+           *  a valid response after retrying. */
+          const memReadFinal = async (
+            address: number,
+            length: number,
+            retries = 2,
+          ): Promise<Buffer | null> => {
+            const chunkSize = 11;
+            const out = Buffer.alloc(length);
+            for (let off = 0; off < length; off += chunkSize) {
+              const n = Math.min(chunkSize, length - off);
+              let got: Buffer | null = null;
+              for (let attempt = 0; attempt <= retries; attempt++) {
+                const seq = nextSeq();
+                const apdu = apduMemoryExtendedRead(seq, n, address + off);
+                const respP = waitResponse(
+                  'MemoryExtended_Read_Response',
+                  3000,
+                );
+                await this.sendCEMI(
+                  buildCEMI(this.localAddr, deviceAddr, apdu, false, {
+                    priority: 'system',
+                  }),
+                );
+                try {
+                  const frame = await respP;
+                  const { returnCode, data } =
+                    parseMemoryExtendedResponse(frame);
+                  if (returnCode === 0) {
+                    got = data;
+                    break;
+                  }
+                } catch (_e) {
+                  // fall through to retry
+                }
+                if (attempt < retries) await delay(300);
+              }
+              if (!got) return null;
+              got.copy(out, off);
+            }
+            return out;
+          };
+
           for (const op of ops) {
             switch (op.kind) {
               case 'connect':
@@ -1726,6 +1902,19 @@ export class KnxConnection extends EventEmitter {
                 break;
               }
               case 'propWrite': {
+                // 🟢 Same objIdx=0 (Device Object) guard as the RelSegment
+                // path's own propWrite() closure - see that guard's own
+                // comment for the full reasoning. No allowlisted exception
+                // here (unlike that closure's PID_DEVICE_CONTROL case) - no
+                // legitimate objIdx=0 write is known to exist on this
+                // AbsSegment/MDT-style path (every propWrite op here is a
+                // PID 5 LoadStateControl transition on a real interface
+                // object, never the Device Object itself).
+                if (op.obj === 0) {
+                  throw new Error(
+                    `Refusing PropertyValue_Write to ObjIdx=0 (Device Object) PropId=${op.pid} on the AbsSegment write path - every real object index here must be 1 or above. This usually means a load-procedure step's own ObjIdx attribute was missing/unparsed and silently defaulted to 0 - check the app XML.`,
+                  );
+                }
                 logDebug(`PropWrite ObjIdx=${op.obj} PropId=${op.pid}`);
                 const seq = nextSeq();
                 const apdu = apduPropertyValueWrite(
@@ -1743,7 +1932,25 @@ export class KnxConnection extends EventEmitter {
                     priority: 'system',
                   },
                 );
+                // Confirmed on real hardware - this used to be
+                // unconditional fire-and-forget (send the CEMI frame, move
+                // on after a fixed delay, response never awaited). Now
+                // mirrors the RelSegment path's own established tolerance
+                // policy - await a real response, log-and-continue rather
+                // than hard-abort on a timeout (a still-unconfirmed write is
+                // tracked and surfaced in the real return value instead of
+                // being silently indistinguishable from a confirmed one).
+                const respP = waitResponse('OTHER', 3000);
                 await this.sendCEMI(cemi);
+                try {
+                  await respP;
+                } catch (_e) {
+                  const detail = `PropertyValue write ObjIdx=${op.obj} PropId=${op.pid} unconfirmed`;
+                  logDebug(
+                    `No PropertyValue_Response for ObjIdx=${op.obj} PropId=${op.pid} (continuing)`,
+                  );
+                  unconfirmed.push(detail);
+                }
                 await delay(50);
                 break;
               }
@@ -1751,6 +1958,7 @@ export class KnxConnection extends EventEmitter {
                 logDebug(
                   `MemWrite Addr=0x${op.addr.toString(16)} Len=${op.bytes.length}`,
                 );
+                writtenMem.push({ addr: op.addr, bytes: op.bytes });
                 for (let off = 0; off < op.bytes.length; off += MEM_CHUNK) {
                   const chunk = op.bytes.subarray(off, off + MEM_CHUNK);
                   const addr = op.addr + off;
@@ -1763,12 +1971,82 @@ export class KnxConnection extends EventEmitter {
                     false,
                     { priority: 'system' },
                   );
+                  // Confirmed on real hardware - waits on the classic
+                  // Memory_Response (NOT the generic 'OTHER' bucket extended
+                  // services share), matching apduMemoryWrite()'s own
+                  // classic Memory_Write APCI. Unconfirmed, not fatal - same
+                  // log-and-continue policy as propWrite above.
+                  const respP = waitResponse('Memory_Response', 3000);
                   await this.sendCEMI(cemi);
+                  try {
+                    await respP;
+                  } catch (_e) {
+                    const detail = `Memory write Addr=0x${addr.toString(16)} Len=${chunk.length} unconfirmed`;
+                    logDebug(
+                      `No Memory_Response for Addr=0x${addr.toString(16)} (continuing)`,
+                    );
+                    unconfirmed.push(detail);
+                  }
                   await delay(30);
                 }
                 break;
               }
               case 'restart': {
+                // 🟢 Final pre-Restart verification - see the
+                // `writtenMem`/`memReadFinal` comments above for why this
+                // fork uses a memory read-back check rather than the
+                // RelSegment fork's P=27 checksum. Re-reads every region
+                // actually written during this download and byte-compares it
+                // against what was sent; a confirmed mismatch or a persistent
+                // (retried) no-response withholds Restart, same policy as
+                // the RelSegment fork - see DownloadResult.restartWithheld's
+                // own doc comment.
+                for (const region of writtenMem) {
+                  const readBack = await memReadFinal(
+                    region.addr,
+                    region.bytes.length,
+                  );
+                  if (!readBack) {
+                    const issue = `Final verification read: Addr=0x${region.addr.toString(16)} Len=${region.bytes.length} - no response after the last write (persisted after retry), right before Restart`;
+                    log(issue);
+                    logger.error('knx', issue, {
+                      deviceAddr,
+                      stage: 'final verification (absmem)',
+                    });
+                    verificationIssues.push(issue);
+                    restartWithheld = true;
+                    restartWithheldReasons.push(issue);
+                    continue;
+                  }
+                  if (!readBack.equals(region.bytes)) {
+                    const issue = `Final verification read: Addr=0x${region.addr.toString(16)} Len=${region.bytes.length} MISMATCH after the last write - this region's real content may not match the intended target content, right before Restart`;
+                    log(issue);
+                    logger.error('knx', issue, {
+                      deviceAddr,
+                      stage: 'final verification (absmem)',
+                    });
+                    verificationIssues.push(issue);
+                    restartWithheld = true;
+                    restartWithheldReasons.push(issue);
+                  } else {
+                    logDebug(
+                      `Final verification read (matches what was written): Addr=0x${region.addr.toString(16)} Len=${region.bytes.length}`,
+                    );
+                  }
+                }
+                if (restartWithheld) {
+                  const alert =
+                    `RESTART WITHHELD - ${restartWithheldReasons.length} pre-Restart verification problem(s) found; ` +
+                    `device left un-restarted, still running its previous application, pending operator review: ` +
+                    restartWithheldReasons.join(' | ');
+                  log(alert);
+                  logger.error('knx', alert, {
+                    deviceAddr,
+                    stage: 'restart withheld',
+                    reasons: restartWithheldReasons,
+                  });
+                  break;
+                }
                 logDebug('Restart');
                 const seq = nextSeq();
                 const apdu = apduConnected(seq, 'Restart');
@@ -1787,14 +2065,36 @@ export class KnxConnection extends EventEmitter {
             }
           }
 
-          log('Download complete');
+          if (restartWithheld) {
+            log(
+              `Download complete with Restart WITHHELD - device requires operator review before it can be restarted`,
+            );
+          } else if (unconfirmed.length) {
+            log(
+              `Download complete with ${unconfirmed.length} unconfirmed write(s) - verify recommended`,
+            );
+          } else {
+            log('Download complete');
+          }
           if (onProgress)
-            onProgress({ msg: 'Download complete', pct: 100, done: true });
+            onProgress({
+              msg: restartWithheld
+                ? 'Download complete - Restart withheld, review required'
+                : 'Download complete',
+              pct: 100,
+              done: true,
+              unconfirmedWrites: unconfirmed.length,
+              restartWithheld,
+            });
         },
       );
-      // AbsSegment (MDT-style) procedures don't yet track unconfirmed
-      // writes the way the RelSegment path below does.
-      return { unconfirmedWrites: 0, unconfirmedDetails: [] };
+      return {
+        unconfirmedWrites: unconfirmed.length,
+        unconfirmedDetails: unconfirmed,
+        verificationIssues,
+        restartWithheld,
+        restartWithheldReasons,
+      };
     }
 
     await this.managementSession(deviceAddr, async (fns) => {
@@ -1833,6 +2133,25 @@ export class KnxConnection extends EventEmitter {
         // confirmation, so send and pace instead of waiting out the timeout.
         verify = true,
       ): Promise<void> => {
+        // 🟢 Real, hard guard (an adversarial safety-review finding) -
+        // objIdx 0 is the Device Object: identity,
+        // serial, individual address, the device's own bus manageability.
+        // It must never be touched by this download's own Unload/Load/
+        // content-write machinery. The one deliberate objIdx=0 write this
+        // engine ever makes is PID_DEVICE_CONTROL (P=14, Verify Mode, see
+        // that call site further below) - allowlisted explicitly here so
+        // this guard protects every OTHER caller without needing to touch
+        // that call site. A real, known gap this protects against: a
+        // WriteProp/CompareProp/LoadImageProp step whose ObjIdx attribute
+        // is missing could parse to objIdx=0 via a silent fallback
+        // upstream - this throws synchronously, before any bus I/O,
+        // instead of silently sending a wire write to the one object this
+        // whole process must never disturb.
+        if (objIdx === 0 && propId !== 14) {
+          throw new Error(
+            `Refusing PropertyValue_Write to ObjIdx=0 (Device Object) PropId=${propId} - only the deliberate PID_DEVICE_CONTROL (P=14) write may target objIdx 0; every other object index must be 1 or above. This usually means a load-procedure step's own ObjIdx attribute was missing/unparsed and silently defaulted to 0 - check the app XML.`,
+          );
+        }
         const seq = nextSeq();
         const apdu = apduPropertyValueWrite(
           seq,
@@ -1878,12 +2197,16 @@ export class KnxConnection extends EventEmitter {
 
       /** Read a property's current value. Returns null on no response - see
        *  `consecutiveNoResponse` above for why it can also throw once misses
-       *  keep coming. */
+       *  keep coming. `countTowardFailureLimit` (default true) exists only for
+       *  a separate final-verification read with its own retry policy, which
+       *  must be able to report every object's outcome instead of aborting on
+       *  the first object's third retry. */
       const propRead = async (
         objIdx: number,
         propId: number,
         count = 1,
         startIndex = 1,
+        countTowardFailureLimit = true,
       ): Promise<Buffer | null> => {
         const seq = nextSeq();
         const apdu = apduPropertyValueRead(
@@ -1900,11 +2223,12 @@ export class KnxConnection extends EventEmitter {
         await this.sendCEMI(cemi);
         try {
           const res = await respP;
-          consecutiveNoResponse = 0;
+          if (countTowardFailureLimit) consecutiveNoResponse = 0;
           return res.apduData.length > 4
             ? Buffer.from(res.apduData.subarray(4))
             : Buffer.alloc(0);
         } catch (_e) {
+          if (!countTowardFailureLimit) return null;
           consecutiveNoResponse++;
           if (consecutiveNoResponse >= CONSECUTIVE_NO_RESPONSE_LIMIT) {
             throw new Error(
@@ -1916,9 +2240,30 @@ export class KnxConnection extends EventEmitter {
         }
       };
 
-      // Which memory-write service (legacy vs extended) this device
-      // requires. Resolution chain, in priority order, each a fallback for
-      // when the previous is unavailable:
+      /** Retries a property read up to `retries` extra times ((retries+1)
+       *  total attempts, 300ms apart) before giving up - used only for the
+       *  final pre-Restart verification reads, where a single lost frame
+       *  and a genuinely non-responding device would otherwise look
+       *  identical. A read has no side effects, so retrying costs nothing
+       *  beyond time. See DownloadResult.restartWithheld's own doc comment
+       *  for the policy this feeds. */
+      const propReadFinal = async (
+        objIdx: number,
+        propId: number,
+        count = 1,
+        startIndex = 1,
+        retries = 2,
+      ): Promise<Buffer | null> => {
+        for (let attempt = 0; attempt <= retries; attempt++) {
+          const res = await propRead(objIdx, propId, count, startIndex, false);
+          if (res) return res;
+          if (attempt < retries) await delay(300);
+        }
+        return null;
+      };
+
+      // Which memory-write service this device actually requires. The
+      // resolution chain below is based on a small real-hardware sample.
       //
       //  1. SupportsExtendedMemoryServices - literal, KNX-Association-
       //     documented app attribute (`<Static><Options>`), no bus
@@ -2216,6 +2561,19 @@ export class KnxConnection extends EventEmitter {
         });
       }
       let anyRelSegmentLoaded = false;
+      // 🟢 Real capture evidence (a genuine live 1.1.9 Full Download) showed
+      // ETS never touches P=27 anywhere in the whole download for an app
+      // whose own XML declares no WriteProp/LoadImageProp for it - whether
+      // THIS app uses P=27 (PID_MCB_TABLE) at all, anywhere. Gates the final
+      // pre-Restart verification read below: real
+      // apps only ever declare P=27 on objIdx 4 (never 1/2/3 - the checksum
+      // for those three is device-maintained, never explicitly declared) -
+      // so this is deliberately a SINGLE whole-download gate, not
+      // per-object: if the app uses P=27 at all, ETS checks every object; if
+      // it never declares it anywhere, ETS checks none, and a live read
+      // here would withhold Restart on a real device that never expected to
+      // be asked in the first place.
+      let appUsesP27 = false;
 
       // One real, resolved-write job per interface object - the parameter
       // object (from a `WriteRelMem` step below) and the GA/Association/
@@ -2255,24 +2613,43 @@ export class KnxConnection extends EventEmitter {
       const relmemJobs: RelmemJob[] = [];
 
       // A WriteProp step for an object that gets a real Unload/StartLoading/
-      // LoadData cycle this session (relSegByObj.has(step.objIdx)) is
-      // deferred here, keyed by objIdx, and executed right after that same
-      // object's StartLoading+LoadData call rather than firing immediately
-      // as `steps` is iterated - real ETS interleaves an object's own
-      // declared WriteProp steps (e.g. the PID_MCB_TABLE checksum-set for
-      // objIdx 4) with that object's own load-state cycle, not as an
-      // isolated upfront pass before Unload begins. A WriteProp for an
-      // object outside this session's load cycle still fires immediately,
-      // unchanged.
+      // LoadData cycle during this download (relSegByObj.has(step.objIdx))
+      // is deferred here, keyed by objIdx, and executed right after that
+      // same object's StartLoading+LoadData call rather than firing
+      // immediately as `steps` is iterated - real ETS interleaves an
+      // object's own declared WriteProp steps (e.g. the PID_MCB_TABLE
+      // checksum-set for objIdx 4) with that object's own load-state cycle,
+      // not as an isolated upfront pass before Unload begins. A WriteProp
+      // for an object outside this download's load cycle still fires
+      // immediately, unchanged.
       const deferredWriteProps = new Map<
         number,
-        Array<{ propId: number; data: Buffer; verify: boolean }>
+        Array<{
+          propId: number;
+          data: Buffer;
+          startElement: number;
+          verify: boolean;
+        }>
       >();
+
+      // 🟢 The final post-write verification read
+      // (further below) used to hardcode ascending objIdx order
+      // unconditionally. Real-evidence-based (every app in this project's
+      // own capture corpus that declares LdCtrlLoadImageProp at all happens
+      // to declare it ascending), but still a fixed rule, not one derived
+      // from this specific app's own declaration the way Unload/write order
+      // already is (see `knx-mask-procedures.ts`). Records this app's own
+      // real declared LoadImageProp order (from the 'LoadImageProp' case
+      // below) so the final verification loop can follow it directly,
+      // falling back to the ascending sort only for any objIdx this app
+      // doesn't declare an order for at all.
+      const loadImagePropOrder: number[] = [];
 
       for (const step of steps) {
         switch (step.type) {
           case 'WriteProp': {
             logDebug(`WriteProp ObjIdx=${step.objIdx} PropId=${step.propId}`);
+            if (step.propId === 27) appUsesP27 = true;
             if (step.data && step.data.length) {
               // Property 27's declared InlineData is always 2 bytes longer
               // than what real ETS puts on the wire - always 10 bytes
@@ -2287,6 +2664,7 @@ export class KnxConnection extends EventEmitter {
                 list.push({
                   propId: step.propId!,
                   data,
+                  startElement: step.startElement ?? 1,
                   verify: step.verifyResponse ?? true,
                 });
                 deferredWriteProps.set(step.objIdx, list);
@@ -2296,7 +2674,7 @@ export class KnxConnection extends EventEmitter {
                 step.objIdx,
                 step.propId,
                 data,
-                1,
+                step.startElement ?? 1,
                 step.verifyResponse ?? true,
               );
             }
@@ -2312,6 +2690,29 @@ export class KnxConnection extends EventEmitter {
             const objIdx = step.objIdx ?? 4;
             const relSeg = relSegByObj.get(objIdx);
             const presetBase = extra?.resolvedBases?.[objIdx] ?? null;
+            // 🟢 Real, hard cross-check (an
+            // adversarial safety-review finding) - `step.size` (this
+            // WriteRelMem step's own declared Size, used just below to
+            // slice the actual buffer that gets written) and `relSeg.size`
+            // (the separate RelSegment step's own declared Size, used
+            // further down to build the LoadData payload that tells the
+            // DEVICE how big the incoming segment is) are two
+            // independently-parsed XML attributes with no shared
+            // derivation anywhere in this codebase. An understated LoadData
+            // size relative to what's actually streamed is a textbook
+            // overflow past the device's allocated segment; an overstated
+            // one leaves part of a "loaded" segment genuinely uninitialized
+            // while the device trusts the whole thing once LoadCompleted
+            // arrives. Every real app examined so far happens to declare
+            // these two attributes identically - nothing in the KNX file
+            // format or this engine enforced that before this check;
+            // refusing to proceed the one time they disagree is safer than
+            // silently trusting either value.
+            if (relSeg && relSeg.size !== step.size) {
+              throw new Error(
+                `RelSegment/WriteRelMem size mismatch for ObjIdx=${objIdx}: LdCtrlRelSegment declares Size=${relSeg.size} (would become the LoadData size told to the device) but LdCtrlWriteRelMem declares Size=${step.size} (would become the real content actually written) - refusing to write with two disagreeing size declarations for the same object.`,
+              );
+            }
             const mem = paramMem.slice(0, step.size);
             // Deferred to the batched phases below (Unload/StartLoading/
             // LoadData/PID7-resolve/write/LoadCompleted run together across
@@ -2353,9 +2754,26 @@ export class KnxConnection extends EventEmitter {
             logDebug(
               `LoadImageProp ObjIdx=${step.objIdx} PropId=${step.propId} - read-only per real ETS, not writing`,
             );
-            // Issued for capture parity only - its value no longer feeds any
-            // decision (see the useExtendedMemory resolution chain above).
-            await propRead(step.objIdx, step.propId);
+            if (step.propId === 27) appUsesP27 = true;
+            // Only objIdx 4 gets a live read here (genuinely needed early,
+            // for the memory-write-service byte5 detection above) - real
+            // ETS never reads OX=1/2/3 P=27 at this point (only as part of
+            // the final pre-Restart verification, or the partial-mode
+            // checksum-gated skip's own dedicated read); reading here
+            // unconditionally would double up with those.
+            if (step.objIdx === 4) {
+              await propRead(step.objIdx, step.propId, step.count ?? 1, 1);
+            }
+            // This app's own real declared LoadImageProp order, regardless
+            // of objIdx - the final verification loop below follows it,
+            // falling back to ascending sort only for an objIdx never
+            // declared here.
+            if (
+              step.objIdx != null &&
+              !loadImagePropOrder.includes(step.objIdx)
+            ) {
+              loadImagePropOrder.push(step.objIdx);
+            }
             break;
           }
         }
@@ -2464,6 +2882,59 @@ export class KnxConnection extends EventEmitter {
         // not from device content. An object with nothing pending is
         // skipped outright - no PID 7 resolution, no read, no write.
         for (const j of relmemJobs) {
+          // 🟢 Checksum-gated whole-object skip - real ETS's own mechanism for
+          // GA/Association/Object 3 (objIdx 1/2/3 only - object 4/parameter
+          // memory keeps using the pendingWriteRanges heuristic below
+          // unconditionally, because the checksum decode covers the simple
+          // 8-byte element shape for these three objects, while object 4's
+          // N-element shape is verified only in the final pre-Restart pass
+          // below): a live PropertyValue_Read on P=27 (PID_MCB_TABLE),
+          // compared against a fresh crc16Knx() computed from the
+          // download's own target table content. A match means the device
+          // already carries exactly this content - skip the object's
+          // entire Unload/Load/LoadData/LoadCompleted cycle, not just its
+          // content, matching real ETS exactly. A mismatch is
+          // whole-object-scoped evidence (a checksum covers the entire
+          // table, not a byte range) - writes the object's FULL content,
+          // superseding whatever narrower pendingWriteRanges tracked for
+          // it. A failed/no-response read is a real problem (recorded in
+          // `verificationIssues` + logged, not just debug-level - see
+          // DownloadResult.verificationIssues' own doc comment) and falls
+          // through to the pre-existing pendingWriteRanges heuristic below,
+          // same as before the checksum gate existed - there was no live signal to gate on
+          // either way.
+          if ([1, 2, 3].includes(j.objIdx)) {
+            const mcb = await propRead(j.objIdx, 27);
+            const parsed = mcb ? parseMcbTableElement(mcb) : null;
+            if (parsed) {
+              const expected = crc16Knx(j.table);
+              // Size AND checksum must both match: the size guards against
+              // a checksum collision between tables of different lengths.
+              if (
+                parsed.size === j.table.length &&
+                parsed.checksum === expected
+              ) {
+                logDebug(
+                  `ObjIdx=${j.objIdx} (${j.label}): partial mode, live PID_MCB_TABLE size and checksum match (size=${parsed.size}, 0x${expected.toString(16).padStart(4, '0')}) - skipping this object entirely`,
+                );
+                continue;
+              }
+              logDebug(
+                `ObjIdx=${j.objIdx} (${j.label}): partial mode, live PID_MCB_TABLE mismatch (device size=${parsed.size}/checksum=0x${parsed.checksum.toString(16).padStart(4, '0')}, expected size=${j.table.length}/checksum=0x${expected.toString(16).padStart(4, '0')}) - writing full object content`,
+              );
+              j.writeRanges = [{ offset: 0, length: j.table.length }];
+              activeJobs.push(j);
+              continue;
+            }
+            const issue = `ObjIdx=${j.objIdx} (${j.label}): live PID_MCB_TABLE (P=27) read failed during partial-mode verification - falling back to the tracked-change heuristic instead of a live device-truth signal`;
+            log(issue);
+            logger.warn('knx', issue, {
+              deviceAddr,
+              objIdx: j.objIdx,
+              stage: 'pre-start verification',
+            });
+            verificationIssues.push(issue);
+          }
           const ranges = extra?.pendingWriteRanges?.[j.objIdx];
           if (!ranges || !ranges.length) {
             logDebug(
@@ -2612,15 +3083,15 @@ export class KnxConnection extends EventEmitter {
             `PropValueRead ObjIdx=4 PropId=5 (current load state)${loadStateRes ? ` -> ${loadStateRes.toString('hex')}` : ' -> no response'}`,
           );
         }
-        // Real ETS unloads interface object 5 (PEI Program) on the System B
-        // mask before object 4, regardless of whether the app uses it - gated
-        // on the device's own history, not the download mode, and applies to
-        // both Full and Partial. Only the Unload is sent (never a subsequent
-        // Load+WriteProp, which the mask catalog's template declares but no
-        // real capture has shown firing).
+        // Real ETS unloads object 5 (PEI Program) on the System B mask
+        // before object 4, regardless of whether the app uses it - gated on
+        // the device's own history, not the download mode, and applies to
+        // both Full and Partial. Only the Unload is sent (the mask
+        // catalog's template also declares a subsequent Load+WriteProp,
+        // never observed firing in any real capture).
         //
-        // Conditional as on real ETS: a device with no prior download
-        // history always gets an unconditional Unload; a previously-
+        // The Unload is conditional, as on real ETS: a device with no prior
+        // download history gets an unconditional Unload; a previously-
         // downloaded device has object 5's load state read first, and the
         // Unload is skipped only on an exact $00 (Unloaded) reply. Any other
         // answer refuses the download rather than guess - see
@@ -2716,7 +3187,13 @@ export class KnxConnection extends EventEmitter {
               logDebug(
                 `WriteProp ObjIdx=${j.objIdx} PropId=${d.propId} (deferred to match real ETS's own load-phase position)`,
               );
-              await propWrite(j.objIdx, d.propId, d.data, 1, d.verify);
+              await propWrite(
+                j.objIdx,
+                d.propId,
+                d.data,
+                d.startElement,
+                d.verify,
+              );
             }
           }
         }
@@ -2975,64 +3452,340 @@ export class KnxConnection extends EventEmitter {
       // freshly-loaded segment isn't confirmed to actually apply. Only sent
       // if a load cycle actually ran above.
       if (anyRelSegmentLoaded) {
-        // Real ETS waits roughly another second after LoadCompleted's own
-        // response before sending Restart.
-        await delay(1000);
-        logDebug('Restart');
-
-        // Real ETS uses the extended, confirmed Restart (`RestartReq
-        // $0100`, waits for `RestartResp $000000`) for System-B-mask
-        // devices, but the plain unconfirmed basic Restart otherwise.
-        // `hasPeiProgramObject` (the mask-family signal already resolved
-        // above via DeviceDescriptor_Read) is more direct than reusing
-        // `useExtendedMemory` (resolved through a multi-step heuristic
-        // chain). Falls back to `useExtendedMemory` only if the mask read
-        // itself failed.
-        const useExtendedRestart =
-          deviceMask !== null
-            ? hasPeiProgramObject
-            : useExtendedMemory === true;
-
-        // Timing matches real ETS captures: Extended path disconnects
-        // ~200ms after RestartResp (waiting for the real response, capped
-        // by a safety-net timeout); Basic path (no response to wait for)
-        // uses a fixed ~1.4s Restart-to-Disconnect delay.
-        const seq = nextSeq();
-        if (useExtendedRestart) {
-          const apdu = apduRestartExtended(seq);
-          const cemi = buildCEMI(this.localAddr, deviceAddr, apdu, false, {
-            priority: 'system',
-          });
-          // Restart_Extended_Response is one of the codes APCI_EXT_NAMES
-          // (knx-cemi.ts) renames away from the generic 'OTHER' bucket, so
-          // waiting on 'OTHER' here would never match it.
-          const respP = waitResponse('Restart_Extended_Response', 3000);
-          await this.sendCEMI(cemi);
-          try {
-            await respP;
-            logDebug('RestartResp received - device confirmed restart');
-          } catch {
-            logDebug(
-              'No RestartResp within 3s - device may not support the extended Restart after all; falling back to a settle delay before disconnecting',
-            );
-            await delay(3000);
-          }
-          // Real ETS's own ~200ms grace between seeing RestartResp and
-          // sending Disconnect (see comment above).
-          await delay(200);
+        // 🟢 Real ETS's own final pre-Restart verification read (confirmed
+        // via a full operation-by-operation stream comparison against three
+        // real Full Download captures). Immediately after the LAST
+        // LoadCompleted and immediately before Restart, real ETS reads
+        // PropertyValue_Read P=27 (PID_MCB_TABLE) on every interface object
+        // it considered, in ascending objIdx order - UNCONDITIONALLY,
+        // regardless of which objects were actually written vs skipped
+        // (confirmed even for an object whose load cycle was skipped
+        // entirely by the checksum-gated skip above). `relmemJobs` (not
+        // `activeJobs`) is the right source - it's the FULL universe
+        // considered for this download, before partial-mode filtering
+        // strips out whichever
+        // objects the checksum/pendingWriteRanges logic decided to skip,
+        // matching real ETS's own "read every object regardless of whether
+        // it needed writing" behavior.
+        //
+        // Purely a verification/confirmation read for now - nothing in the
+        // captured protocol suggests real ETS itself branches on this
+        // read's own result either, so this doesn't interpret or act on
+        // it. A failed/no-response read is logged and skipped, same
+        // "don't guess from nothing" stance every other propRead() call in
+        // this file already takes.
+        // 🟢 Gates the whole final-verification pass on
+        // `appUsesP27` (see its own doc comment above): an app that never
+        // declares P=27 anywhere never gets it read here either, matching
+        // real ETS's own confirmed behavior and avoiding withholding
+        // Restart on a live device over a read it would never have sent.
+        if (!appUsesP27) {
+          logDebug(
+            "Final verification read: skipped for every object - this app never declares WriteProp or LoadImageProp for P=27 on any object (matches real ETS's own confirmed behavior for such apps)",
+          );
         } else {
-          const apdu = apduConnected(seq, 'Restart');
-          const cemi = buildCEMI(this.localAddr, deviceAddr, apdu, false, {
-            priority: 'system',
+          const finalCheckObjIdxSet = new Set(relmemJobs.map((j) => j.objIdx));
+          // 🟢 This app's own real declared LoadImageProp
+          // order (recorded above, from its own steps array) comes first;
+          // any objIdx this app never declares an order for
+          // (loadImagePropOrder doesn't cover it) falls back to the
+          // ascending sort, real-evidence-based (every app in this
+          // project's own captures agrees on ascending) but no longer the
+          // ONLY source of truth. See loadImagePropOrder's own doc comment
+          // above for the full reasoning.
+          const declaredOrder = loadImagePropOrder.filter((objIdx) =>
+            finalCheckObjIdxSet.has(objIdx),
+          );
+          const fallbackOrder = [...finalCheckObjIdxSet]
+            .filter((objIdx) => !declaredOrder.includes(objIdx))
+            .sort((a, b) => a - b);
+          const finalCheckObjIdxs = [...declaredOrder, ...fallbackOrder];
+          const relmemJobByObj = new Map(
+            relmemJobs.map((j) => [j.objIdx, j] as const),
+          );
+          // 🟢 Retry-hardened reads + live CRC-mismatch detection - this
+          // used to be an unconditional single read whose result was only
+          // ever logged, never compared against anything or acted on. Now
+          // uses propReadFinal() (retries a lost frame before concluding "no
+          // response") and, for objIdx 1/2/3 (GA table/Association
+          // table/Group Object Table - the three objects whose single
+          // 8-byte PID_MCB_TABLE element shape is confirmed, see
+          // parseMcbTableElement()'s own doc comment), computes the expected
+          // checksum from the download's own target content (relmemJobs'
+          // `table` field - the same value the
+          // partial-mode checksum-gated skip above already compares
+          // against) and treats a mismatch as a real problem, not just a
+          // log line. Object 4 (parameter memory)'s own P=27 value holds one
+          // or two elements, read with the declared element count and
+          // compared per element in the block below; the partial-mode
+          // checksum-gated skip above does not apply to it.
+          for (const objIdx of finalCheckObjIdxs) {
+            // Object 4 (parameter memory) holds a 1- or 2-element array.
+            // An app that declares no LdCtrlWriteProp for it has ONE element
+            // whose checksum covers the whole parameter buffer. An app that
+            // declares it twice (the second with StartElement="2") has TWO:
+            // element 1 covers the first N bytes, element 2 the last M, with
+            // N and M taken from bytes 2-3 of each declared write's own
+            // InlineData (per-app constants, not derived from content). How
+            // many elements to read comes from the declared
+            // LdCtrlLoadImageProp Count where present, else from the number
+            // of declared writes.
+            const p27WriteSteps =
+              objIdx === 4
+                ? steps.filter(
+                    (s) =>
+                      s.type === 'WriteProp' &&
+                      s.objIdx === 4 &&
+                      s.propId === 27 &&
+                      !!s.data &&
+                      s.data.length >= 4,
+                  )
+                : [];
+            const elem1Step = p27WriteSteps.find(
+              (s) => !s.startElement || s.startElement === 1,
+            );
+            const elem2Step = p27WriteSteps.find((s) => s.startElement === 2);
+            const declaredCount =
+              objIdx === 4
+                ? steps.find(
+                    (s) =>
+                      s.type === 'LoadImageProp' &&
+                      s.objIdx === 4 &&
+                      s.propId === 27,
+                  )?.count
+                : undefined;
+            const readCount =
+              objIdx === 4
+                ? Math.max(declaredCount ?? 1, p27WriteSteps.length || 1)
+                : 1;
+            const flag = (issue: string): void => {
+              log(issue);
+              logger.error('knx', issue, {
+                deviceAddr,
+                objIdx,
+                stage: 'final verification',
+              });
+              verificationIssues.push(issue);
+              restartWithheld = true;
+              restartWithheldReasons.push(issue);
+            };
+            const finalMcb = await propReadFinal(objIdx, 27, readCount, 1);
+            if (!finalMcb) {
+              flag(
+                `Final verification read: ObjIdx=${objIdx} P=27 (PID_MCB_TABLE) - no response after the last LoadCompleted (persisted after retry), right before Restart`,
+              );
+              continue;
+            }
+            const job = relmemJobByObj.get(objIdx);
+            if (objIdx === 4) {
+              if (!job) {
+                logDebug(
+                  `Final verification read (matches real ETS's own pre-Restart check): ObjIdx=4 P=27 (PID_MCB_TABLE) = 0x${finalMcb.toString('hex')} - no expected content to compare against`,
+                );
+                continue;
+              }
+              if (readCount === 1) {
+                if (finalMcb.length < 8) {
+                  flag(
+                    `Final verification read: ObjIdx=4 P=27 (PID_MCB_TABLE) - short response (${finalMcb.length} bytes, expected 8) after the last LoadCompleted, right before Restart`,
+                  );
+                  continue;
+                }
+                const realCrc = finalMcb.readUInt16BE(6);
+                const expectedCrc = crc16Knx(job.table);
+                if (realCrc === expectedCrc) {
+                  logDebug(
+                    `Final verification read: ObjIdx=4 P=27 (PID_MCB_TABLE) matches (whole-buffer crc=0x${realCrc.toString(16)})`,
+                  );
+                } else {
+                  flag(
+                    `Final verification read: ObjIdx=4 P=27 (PID_MCB_TABLE) MISMATCH after the last LoadCompleted (device crc=0x${realCrc.toString(16)}, expected crc=0x${expectedCrc.toString(16)}) - the parameter memory may not match the intended target content, right before Restart`,
+                  );
+                }
+              } else if (elem1Step && elem2Step) {
+                if (finalMcb.length < 16) {
+                  flag(
+                    `Final verification read: ObjIdx=4 P=27 (PID_MCB_TABLE) - short response (${finalMcb.length} bytes, expected at least 16) after the last LoadCompleted, right before Restart`,
+                  );
+                  continue;
+                }
+                const n1 = elem1Step.data!.readUInt16BE(2);
+                const n2 = elem2Step.data!.readUInt16BE(2);
+                const realCrc1 = finalMcb.readUInt16BE(6);
+                const realCrc2 = finalMcb.readUInt16BE(14);
+                const expectedCrc1 = crc16Knx(
+                  job.table.subarray(0, Math.min(n1, job.table.length)),
+                );
+                const expectedCrc2 = crc16Knx(
+                  job.table.subarray(Math.max(0, job.table.length - n2)),
+                );
+                const match1 = realCrc1 === expectedCrc1;
+                const match2 = realCrc2 === expectedCrc2;
+                if (match1 && match2) {
+                  logDebug(
+                    `Final verification read: ObjIdx=4 P=27 (PID_MCB_TABLE) matches (element1 crc=0x${realCrc1.toString(16)} over first ${n1} bytes, element2 crc=0x${realCrc2.toString(16)} over last ${n2} bytes)`,
+                  );
+                } else {
+                  flag(
+                    `Final verification read: ObjIdx=4 P=27 (PID_MCB_TABLE) MISMATCH after the last LoadCompleted (` +
+                      `element1: device crc=0x${realCrc1.toString(16)}/expected=0x${expectedCrc1.toString(16)} over first ${n1} bytes${match1 ? ' [ok]' : ' [MISMATCH]'}, ` +
+                      `element2: device crc=0x${realCrc2.toString(16)}/expected=0x${expectedCrc2.toString(16)} over last ${n2} bytes${match2 ? ' [ok]' : ' [MISMATCH]'}` +
+                      `) - the parameter memory may not match the intended target content, right before Restart`,
+                  );
+                }
+              } else {
+                // A declared shape with no byte-range evidence (more than two
+                // elements, or one declared write for a multi-element
+                // property): read and logged, deliberately not compared.
+                logDebug(
+                  `Final verification read: ObjIdx=4 P=27 (PID_MCB_TABLE) = 0x${finalMcb.toString('hex')} (no comparison - ${p27WriteSteps.length} declared write(s), ${readCount} element(s))`,
+                );
+              }
+              continue;
+            }
+            if (![1, 2, 3].includes(objIdx)) {
+              logDebug(
+                `Final verification read (matches real ETS's own pre-Restart check): ObjIdx=${objIdx} P=27 (PID_MCB_TABLE) = 0x${finalMcb.toString('hex')}`,
+              );
+              continue;
+            }
+            const parsed = parseMcbTableElement(finalMcb);
+            if (!parsed) {
+              flag(
+                `Final verification read: ObjIdx=${objIdx} P=27 (PID_MCB_TABLE) - short/malformed response (${finalMcb.length} bytes, expected 8) after the last LoadCompleted, right before Restart`,
+              );
+              continue;
+            }
+            if (!job) {
+              // No target content to compare against for this objIdx
+              // (shouldn't happen - finalCheckObjIdxs is derived from
+              // relmemJobs itself - but fail safe rather than guess).
+              logDebug(
+                `Final verification read (matches real ETS's own pre-Restart check): ObjIdx=${objIdx} P=27 (PID_MCB_TABLE) checksum=0x${parsed.checksum.toString(16).padStart(4, '0')} - no expected content to compare against`,
+              );
+              continue;
+            }
+            const expected = crc16Knx(job.table);
+            if (
+              parsed.size === job.table.length &&
+              parsed.checksum === expected
+            ) {
+              logDebug(
+                `Final verification read (matches real ETS's own pre-Restart check): ObjIdx=${objIdx} P=27 (PID_MCB_TABLE) size=${parsed.size} checksum=0x${parsed.checksum.toString(16).padStart(4, '0')} [ok]`,
+              );
+            } else {
+              flag(
+                `Final verification read: ObjIdx=${objIdx} P=27 (PID_MCB_TABLE) MISMATCH after the last LoadCompleted (device size=${parsed.size}/checksum=0x${parsed.checksum.toString(16).padStart(4, '0')}, expected size=${job.table.length}/checksum=0x${expected.toString(16).padStart(4, '0')}) - this object's real content may not match the intended target content, right before Restart`,
+              );
+            }
+          }
+        }
+        // 🟢 A confirmed mismatch or persistent no-response
+        // above means Restart is deliberately WITHHELD, not sent
+        // regardless - see DownloadResult.restartWithheld's own doc
+        // comment. The device is left exactly where it is: still running
+        // its OLD application (per the Load State Machine's own
+        // staged-write design, nothing just-loaded is live until a boot
+        // happens), still reachable, deliberately not pushed through an
+        // uncertain reboot.
+        if (restartWithheld) {
+          const alert =
+            `RESTART WITHHELD - ${restartWithheldReasons.length} pre-Restart verification problem(s) found; ` +
+            `device left un-restarted, still running its previous application, pending operator review: ` +
+            restartWithheldReasons.join(' | ');
+          log(alert);
+          logger.error('knx', alert, {
+            deviceAddr,
+            stage: 'restart withheld',
+            reasons: restartWithheldReasons,
           });
-          await this.sendCEMI(cemi);
-          // Real ETS's own ~1.4s Restart-to-Disconnect gap for this
-          // Restart variant, no response to wait for (see comment above).
-          await delay(1400);
+        } else {
+          // Real ETS itself waits roughly another second after LoadCompleted's
+          // own response before sending Restart (see the doc above's "Restart
+          // race" finding - even with propWrite now waiting for the response
+          // itself, real ETS's extra margin here is real, observed behavior,
+          // not just a safety guess this fix invented on top of it).
+          await delay(1000);
+          logDebug('Restart');
+
+          // Real ETS uses the EXTENDED, confirmed Restart (`RestartReq
+          // $0100`, waits for a real `RestartResp $000000`) for System-B-mask
+          // devices - but sends the plain, unconfirmed basic Restart to at
+          // least one confirmed non-System-B device instead. `hasPeiProgramObject`
+          // is the same live mask-family signal already resolved above (via a
+          // real DeviceDescriptor_Read) for the Object-5 Unload decision - a
+          // more direct signal than reusing `useExtendedMemory` (itself
+          // resolved through a multi-step heuristic chain, any link of which
+          // can win before a real mask read ever happens). Only fall back to
+          // `useExtendedMemory` if the mask read itself genuinely failed (no
+          // DeviceDescriptor_Response at all - rare, network-level failure).
+          const useExtendedRestart =
+            deviceMask !== null
+              ? hasPeiProgramObject
+              : useExtendedMemory === true;
+
+          // Timing is real-capture-calibrated, not guessed: for the Extended
+          // path, real ETS disconnected only ~200ms after seeing the
+          // device's actual RestartResp (a ~620ms REQUEST-to-DISCONNECT
+          // total, not a blind multi-second wait). Waiting for the real
+          // response, capped by a safety-net timeout in case it never
+          // arrives, is what actually matches ETS - not the wait itself. For
+          // the Basic path, real ETS's own capture shows ~1.4s between its
+          // Restart request and the following Disconnect - used verbatim as
+          // this path's fixed delay, since a basic Restart has no response
+          // to wait for at all.
+          const seq = nextSeq();
+          if (useExtendedRestart) {
+            const apdu = apduRestartExtended(seq);
+            const cemi = buildCEMI(this.localAddr, deviceAddr, apdu, false, {
+              priority: 'system',
+            });
+            // Real bug, found while building a loopback test harness (no
+            // real hardware involved in finding this - a synthesized
+            // Restart_Extended_Response never matched here either, which is
+            // what surfaced it): this waited for apciName 'OTHER', but
+            // Restart_Extended_Response is one of the codes APCI_EXT_NAMES
+            // (knx-cemi.ts) renames away from the generic 'OTHER' bucket -
+            // `cemi.apciName !== apciNameExpected`'s strict-equality check
+            // (managementSession()'s own waitResponse) meant a real device's
+            // correct response could never match, silently falling through to
+            // the 3s-timeout branch every single time, on real hardware too
+            // (harmless in practice - the write had already committed by this
+            // point - but the "device may not support the extended Restart"
+            // log line was wrong on every successful run, and this added a
+            // needless 3s delay to every Extended-Restart download).
+            const respP = waitResponse('Restart_Extended_Response', 3000);
+            await this.sendCEMI(cemi);
+            try {
+              await respP;
+              logDebug('RestartResp received - device confirmed restart');
+            } catch {
+              logDebug(
+                'No RestartResp within 3s - device may not support the extended Restart after all; falling back to a settle delay before disconnecting',
+              );
+              await delay(3000);
+            }
+            // Real ETS's own ~200ms grace between seeing RestartResp and
+            // sending Disconnect (see comment above).
+            await delay(200);
+          } else {
+            const apdu = apduConnected(seq, 'Restart');
+            const cemi = buildCEMI(this.localAddr, deviceAddr, apdu, false, {
+              priority: 'system',
+            });
+            await this.sendCEMI(cemi);
+            // Real ETS's own ~1.4s Restart-to-Disconnect gap for this
+            // Restart variant, no response to wait for (see comment above).
+            await delay(1400);
+          }
         }
       }
 
-      if (unconfirmed.length) {
+      if (restartWithheld) {
+        log(
+          `Download complete with Restart WITHHELD - device requires operator review before it can be restarted`,
+        );
+      } else if (unconfirmed.length) {
         log(
           `Download complete with ${unconfirmed.length} unconfirmed write(s) - verify recommended`,
         );
@@ -3041,16 +3794,22 @@ export class KnxConnection extends EventEmitter {
       }
       if (onProgress)
         onProgress({
-          msg: 'Download complete',
+          msg: restartWithheld
+            ? 'Download complete - Restart withheld, review required'
+            : 'Download complete',
           pct: 100,
           done: true,
           unconfirmedWrites: unconfirmed.length,
+          restartWithheld,
         });
     });
     return {
       unconfirmedWrites: unconfirmed.length,
       unconfirmedDetails: unconfirmed,
       aborted,
+      verificationIssues,
+      restartWithheld,
+      restartWithheldReasons,
     };
   }
 
@@ -3450,3 +4209,44 @@ export function maxChunkFromApduLength(
 // upstream, not a device content read diffed here - changes are logged in
 // the database as edits happen, rather than cached as a device memory
 // snapshot.
+
+/**
+ * CRC-16 as used by PID_MCB_TABLE (property 27)'s per-object checksum.
+ * Polynomial 0x1021, initial
+ * value 0x1D0F, no input/output reflection, no final XOR - not one of the
+ * well-known named CRC-16 presets. Computed directly over the object's own
+ * raw table bytes, no address prefix, no header, no padding.
+ */
+export function crc16Knx(buf: Buffer): number {
+  let crc = 0x1d0f;
+  for (const byte of buf) {
+    crc ^= byte << 8;
+    for (let i = 0; i < 8; i++) {
+      crc = crc & 0x8000 ? ((crc << 1) ^ 0x1021) & 0xffff : (crc << 1) & 0xffff;
+    }
+  }
+  return crc;
+}
+
+/**
+ * Parses an 8-byte PID_MCB_TABLE (property 27) element for interface
+ * objects 1 (GA table), 2 (Association table), and 3 (Group Object
+ * Table):
+ * `[reserved:2][table size, BE:2][reserved:1][write-service signal:1][checksum, BE:2]`.
+ * Returns `null` for anything shorter than 8 bytes (object 4/parameter
+ * memory uses a different, N-element shape - not
+ * handled here). Only the first 8 bytes of a longer value are read, on
+ * the (currently untested beyond objects 1/2/3) assumption that a
+ * multi-element value for THESE three objects, if one ever exists, would
+ * still lead with this same per-object element shape.
+ */
+export function parseMcbTableElement(
+  buf: Buffer,
+): { size: number; signalByte: number; checksum: number } | null {
+  if (buf.length < 8) return null;
+  return {
+    size: buf.readUInt16BE(2),
+    signalByte: buf[5]!,
+    checksum: buf.readUInt16BE(6),
+  };
+}
