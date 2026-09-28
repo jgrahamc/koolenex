@@ -44,16 +44,23 @@ describe('KnxIpConnection._onConnectRes', () => {
     buf[18] = 0x11; // 1.1.x
     buf[19] = 0x02; // x.x.2
 
-    conn._onConnectRes(buf);
+    try {
+      conn._onConnectRes(buf);
 
-    assert.equal(conn.channelId, 0x42);
-    assert.equal(conn.connected, true);
-    assert.equal(conn.localAddr, '1.1.2');
-    assert.ok(events.includes('_connected'));
-    assert.ok(events.includes('connected'));
-
-    // Clean up heartbeat timer
-    conn._clearHeartbeat();
+      assert.equal(conn.channelId, 0x42);
+      assert.equal(conn.connected, true);
+      // localAddr stays at the base class's `0.0.0` default; only
+      // assignedAddr (used for GROUP frames, see groupCommAddr) picks up
+      // the router-assigned tunnel address.
+      assert.equal(conn.localAddr, '0.0.0');
+      assert.equal(conn.assignedAddr, '1.1.2');
+      assert.ok(events.includes('_connected'));
+      assert.ok(events.includes('connected'));
+    } finally {
+      // Clear unconditionally: an uncleared heartbeat interval (30s) leaves
+      // the process open and hangs the test file's exit.
+      conn._clearHeartbeat();
+    }
   });
 
   it('emits _connectFailed on non-zero status', () => {
@@ -598,10 +605,9 @@ describe('KnxBusManager._ensureConnected', () => {
   });
 
   it('broadcasts knx:reconnect-failed on a real failure by default', async () => {
-    // Real request 2026-08-31: lets the connection badge distinguish a
-    // calm "not connected" idle state from a genuine "needs manual
-    // attention" one. Every real bus route calls _ensureConnected() with
-    // no arguments, so the default must broadcast.
+    // Default must broadcast: every bus route calls _ensureConnected() with
+    // no arguments, and the connection badge needs to distinguish idle
+    // "not connected" from a genuine failure needing attention.
     const bus = new KnxBusManager();
     bus.host = '10.0.0.5';
     bus.port = 3671;
@@ -622,9 +628,8 @@ describe('KnxBusManager._ensureConnected', () => {
   });
 
   it('does not broadcast when called with broadcastFailure=false', async () => {
-    // _autoReconnect() passes false for its own intermediate retries - a
-    // single attempt failing mid-backoff isn't yet "exhausted" and
-    // shouldn't flip the badge to "needs attention" prematurely.
+    // _autoReconnect() passes false for intermediate retries - a single
+    // failed attempt mid-backoff isn't "exhausted" yet.
     const bus = new KnxBusManager();
     bus.host = '10.0.0.5';
     bus.port = 3671;
@@ -646,11 +651,9 @@ describe('KnxBusManager._ensureConnected', () => {
 
 describe('KnxBusManager.forceReconnect', () => {
   it('reconnects using the last known host/port/type even while already connected', async () => {
-    // Real request 2026-08-31, after a real live failure (a Verify that
-    // started right after an idle-drop-and-reconnect still failed - the
-    // request had already gone out on the dying connection). Unlike
-    // _ensureConnected(), this must reconnect even when `connected` is
-    // already true - that's the whole point.
+    // Unlike _ensureConnected(), must reconnect even when `connected` is
+    // already true - guards against a request going out on a dying
+    // connection right after an idle-drop.
     const bus = new KnxBusManager();
     bus.host = '10.0.0.5';
     bus.port = 3671;
@@ -726,10 +729,9 @@ describe('KnxBusManager.forceReconnect', () => {
   });
 
   it('broadcasts knx:reconnect-failed on a real failure', async () => {
-    // forceReconnect() bypasses _ensureConnected() entirely (calls
-    // connect() directly), so it needs its own broadcast on failure -
-    // otherwise a Program/Verify's own forced reconnect failing would
-    // never surface on the connection badge at all.
+    // forceReconnect() bypasses _ensureConnected() (calls connect()
+    // directly), so it needs its own failure broadcast to surface on the
+    // connection badge.
     const bus = new KnxBusManager();
     bus.host = '10.0.0.5';
     bus.port = 3671;
@@ -784,7 +786,7 @@ describe('KnxBusManager._autoReconnect', () => {
     bus.type = 'tcp';
     bus.connected = false;
     // No addKeepAliveRef() call - nothing has registered interest in a
-    // proactive reconnect (e.g. no Monitor view open, no download running).
+    // proactive reconnect.
 
     let connectCalls = 0;
     bus.connect = (async () => {
@@ -943,11 +945,8 @@ describe('KnxBusManager._autoReconnect', () => {
   });
 
   it('broadcasts knx:reconnect-failed only once retries are genuinely exhausted', async () => {
-    // Real request 2026-08-31: a single attempt failing mid-backoff isn't
-    // "exhausted" - the badge should stay calm/idle through the retry
-    // sequence, only escalating to "needs attention" once every attempt
-    // has failed. Drives all 5 real attempts (maxAttempts in
-    // _autoReconnect) by manually firing each scheduled retry.
+    // Drives all 5 attempts (maxAttempts in _autoReconnect) by manually
+    // firing each scheduled retry; badge only escalates once all fail.
     const bus = new KnxBusManager();
     bus.host = '10.0.0.5';
     bus.port = 3671;

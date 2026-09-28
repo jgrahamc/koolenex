@@ -78,12 +78,11 @@ export function ProgrammingView() {
   const [progress, setProgress] = useState<Record<string, { state: string }>>(
     {},
   );
-  // Persisted server-side (settings table, like knxip_host/demo_mode) so
-  // it's a durable, team-shared preference rather than a per-browser one -
-  // when on, /bus/program-device locates a factory-reset (or otherwise
-  // unreachable-at-its-address) device by its recorded serial
-  // automatically instead of prompting for a choice each time. See the
-  // address-confirmation flow in programDevice()'s own catch block.
+  // Persisted server-side (settings table, like knxip_host/demo_mode) as a
+  // durable, team-shared preference - when on, /bus/program-device locates
+  // a factory-reset (or otherwise unreachable) device by its recorded
+  // serial automatically instead of prompting each time. See the
+  // address-confirmation flow in programDevice()'s catch block.
   const [autoAddressBySerial, setAutoAddressBySerial] = useState(false);
   useEffect(() => {
     api
@@ -103,23 +102,17 @@ export function ProgrammingView() {
       );
     }
   };
-  // A device download isn't one write, it's several in sequence (parameter
-  // memory, then possibly GA table / Association table / Object 3 flags) -
-  // the server's own progress is computed PER SEGMENT, not cumulatively
-  // across the whole download (see server/knx-connection.ts's WriteRelMem
-  // case: `pct: (off / mem.length) * 80`, local to whichever segment is
-  // currently being written). So the raw signal genuinely climbs, resets to
-  // ~0 when the next segment starts, climbs again, etc. Found live
-  // 2026-08-29: "gets to 99%, then goes to 0 for a few seconds before
-  // changing to 100%" is exactly that reset, right before the final
-  // (small, fast) segment. Standard progress-bar practice regardless of the
-  // cause: never let the DISPLAYED value move backward mid-run - track the
-  // max seen per device, reset only when a new run starts.
+  // A device download is several writes in sequence (parameter memory, then
+  // possibly GA table / Association table / Object 3 flags) - server
+  // progress is computed PER SEGMENT, not cumulatively (see
+  // server/knx-connection.ts's WriteRelMem case: `pct: (off / mem.length) *
+  // 80`, local to whichever segment is being written). The raw signal
+  // climbs, resets to ~0 when the next segment starts, climbs again. Never
+  // let the DISPLAYED value move backward mid-run - track the max seen per
+  // device, reset only when a new run starts.
   const programPctMaxRef = useRef<Record<string, number>>({});
-  // Keyed by deviceId - lets the "press the button" modal's own Cancel
-  // button reach the specific in-flight programDevice() call it belongs
-  // to. Real request, 2026-08-31: "somewhere to display the press prog
-  // button. Maybe a modal pop-up with just a cancel button."
+  // Keyed by deviceId - lets the "press the button" modal's Cancel button
+  // reach the specific in-flight programDevice() call it belongs to.
   const programAbortRef = useRef<Record<string, AbortController>>({});
   const {
     entries: log,
@@ -160,9 +153,9 @@ export function ProgrammingView() {
   const [logOpen, setLogOpen] = useState(false);
 
   // ── Log panel orientation: vertical (right-docked, the original layout)
-  // or horizontal (bottom-docked) - real request 2026-08-31, deliberately
-  // its own independent size/preference from the vertical sidebar's width,
-  // so switching back and forth doesn't lose either one's own resize.
+  // or horizontal (bottom-docked) - independent size/preference from the
+  // vertical sidebar's width, so switching back and forth doesn't lose
+  // either one's own resize.
   const SIDEBAR_HEIGHT_MIN = 120;
   const SIDEBAR_HEIGHT_MAX = 420;
   const [sidebarHeight, setSidebarHeight] = useState<number>(() => {
@@ -267,8 +260,8 @@ export function ProgrammingView() {
 
   // Set when /bus/program-device can't find the device at its assigned
   // address and needs the operator to choose how to locate/readdress it
-  // (see server/routes/bus.ts's 'address_needs_confirmation' response) -
-  // drives the choice modal below. null when no choice is pending.
+  // (see server/routes/bus.ts's 'address_needs_confirmation' response).
+  // null when no choice is pending.
   const [addressChoiceFor, setAddressChoiceFor] = useState<{
     deviceId: number;
     devAddr: string;
@@ -287,28 +280,17 @@ export function ProgrammingView() {
   ) => {
     setLogOpen(true);
     programPctMaxRef.current[deviceId] = 0;
-    // Real bug, found live: resetting the ratchet above isn't enough on its
-    // own - a device that finished at 100% in a PRIOR run leaves that
-    // stale entry sitting in programProgress (context, WS-fed) until a
-    // fresh program:progress message for this run overwrites it. On the
-    // very first render after this function starts, the ratchet reads
-    // that stale 100 as the "raw" signal (no new message has arrived yet)
-    // and immediately clamps itself right back up to it, then stays stuck
-    // there for the whole new download since nothing lower can move it.
-    // Clearing the stale entry here closes that window.
+    // Resetting the ratchet above isn't enough alone - a device that
+    // finished at 100% in a prior run leaves that stale entry in
+    // programProgress (context, WS-fed) until a fresh program:progress
+    // message overwrites it. On the first render after this function
+    // starts, the ratchet would read that stale 100 as "raw" and clamp
+    // itself back up, stuck for the whole new download. Clear it here.
     clearProgramProgress(devAddr);
-    // `progress[deviceId]` now only tracks coarse state (running/done/error)
-    // for the button/status-badge - the real percentage/message comes from
-    // `programProgress[devAddr]` (context, fed by the server's own
-    // program:progress WebSocket broadcasts) instead of a fake climb. Real
-    // bug, found live 2026-08-29: the old code faked progress with a
-    // setInterval capped at a hardcoded 90%, completely disconnected from
-    // the real write - "shows 90% then sits there for a few minutes" was
-    // exactly that fake cap, while the real (much slower) write continued
-    // underneath it, unreported. Real progress was already being broadcast
-    // by the server the whole time (server/routes/bus.ts's onProgress,
-    // wired through knx-connection.ts's downloadDevice() calls) - the
-    // client just never listened for it.
+    // `progress[deviceId]` tracks only coarse state (running/done/error)
+    // for the button/status-badge; the real percentage/message comes from
+    // `programProgress[devAddr]` (context, fed by the server's
+    // program:progress WebSocket broadcasts), not a fake climb.
     setProgress((p) => ({ ...p, [deviceId]: { state: 'running' } }));
     addLog(
       `[${new Date().toLocaleTimeString()}] Downloading (${mode}) → ${devAddr}`,
@@ -326,27 +308,16 @@ export function ProgrammingView() {
         addressMethod,
       );
       setProgress((p) => ({ ...p, [deviceId]: { state: 'done' } }));
-      // Real request, 2026-08-31: "the log doesn't say that the download
-      // was successful. We should show this in the logs, including
-      // serial number of the device, and the number of bytes written."
+      // The serial read-back is a separate, deliberately non-fatal
+      // best-effort step AFTER the write, not part of it - the download can
+      // genuinely succeed while that step fails. Say so explicitly rather
+      // than going quiet about it.
       //
-      // Real follow-up, same day: "given that [the post-download serial]
-      // retries failed, why is log saying successful?" - the download
-      // itself genuinely did succeed (independently confirmed - status/
-      // last_download really updated, the write itself completed
-      // normally) - the serial read-back is a separate, deliberately
-      // non-fatal best-effort step AFTER the write, not part of it. But
-      // silently omitting the serial clause when that step fails reads as
-      // "everything's fine" rather than being honest that a real step
-      // didn't complete - say so explicitly instead of going quiet about
-      // it.
-      // Real gap, found live: downloadDevice() completing without throwing
-      // only means the protocol sequence ran to completion, not that every
-      // write got a confirmed response - a device occasionally not
-      // answering one write is real, observed behavior (see
-      // knx-connection.ts's own DownloadResult doc comment), and was
-      // previously only ever logged server-side, invisible here. Report it
-      // plainly instead of an unconditional "successful" when it happens.
+      // downloadDevice() completing without throwing only means the
+      // protocol sequence ran to completion, not that every write got a
+      // confirmed response - a device occasionally not answering one write
+      // is real, observed behavior (see knx-connection.ts's own
+      // DownloadResult doc comment). Report it plainly when it happens.
       const unconfirmed = result.unconfirmedWrites ?? 0;
       addLog(
         `[${new Date().toLocaleTimeString()}] ${unconfirmed ? '⚠' : '✓'} Download ${unconfirmed ? `completed with ${unconfirmed} unconfirmed write${unconfirmed === 1 ? '' : 's'} — verify recommended` : 'successful'} (${mode}) → ${devAddr}` +
@@ -357,10 +328,9 @@ export function ProgrammingView() {
       );
       onDeviceStatus(deviceId, 'programmed');
       // The server already persisted the read-back serial and the
-      // unconfirmed-writes count/detail (see /bus/program-device's own
-      // doc comment) - sync them into local state too, the same way
-      // onDeviceStatus above syncs `status`, so the Verify button (gated
-      // on serial_number) and the "verify recommended" indicator both
+      // unconfirmed-writes count/detail (see /bus/program-device's own doc
+      // comment) - sync them into local state too, so the Verify button
+      // (gated on serial_number) and the "verify recommended" indicator
       // reflect the real state immediately, not just after a reload.
       {
         const patch: Record<string, unknown> = {
@@ -373,13 +343,10 @@ export function ProgrammingView() {
         try {
           await updateDevice(deviceId, patch);
         } catch (e) {
-          // Real, defensive fix: this previously swallowed any failure
-          // silently (fire-and-forget with an empty .catch()) - the
-          // server-side write already succeeded at this point, so a
-          // failure here is purely "the local badges didn't refresh",
-          // genuinely worth knowing about (a reload would still show it
-          // correctly, since the DB write already happened) rather than
-          // vanishing with no trace.
+          // The server-side write already succeeded at this point, so a
+          // failure here is purely "the local badges didn't refresh" - a
+          // reload would still show it correctly - but worth logging
+          // rather than swallowing silently.
           addLog(
             `[${new Date().toLocaleTimeString()}] Download recorded on the device, but the project record didn't refresh locally → ${errMessage(e)} (a reload will show it correctly)`,
           );
@@ -387,11 +354,9 @@ export function ProgrammingView() {
       }
       // A successful write just changed the device's real content - the
       // cached verify result (if any) now describes the PRE-write state and
-      // would otherwise keep showing until the user manually hits "clear
-      // cache" or re-verifies successfully. Found live: a real Program
-      // finished, but the compare page kept showing the old differences as
-      // if nothing had happened. Drop it so the page reverts to "not yet
-      // verified" rather than silently-stale data.
+      // would otherwise keep showing until manually cleared or re-verified.
+      // Drop it so the page reverts to "not yet verified" instead of
+      // silently-stale data.
       clearVerifyResult(deviceId);
     } catch (err) {
       if (errCode(err) === 'aborted') {
@@ -407,10 +372,10 @@ export function ProgrammingView() {
           `[${new Date().toLocaleTimeString()}] Cancelled → ${devAddr} — no address was written, nothing else attempted`,
         );
       } else if (errCode(err) === 'address_needs_confirmation') {
-        // Not a failure - the device genuinely isn't answering at its
-        // assigned address (e.g. a factory reset) and a serial is on
-        // record, so there's a real choice to offer instead of forcing
-        // straight into the button-press wait. No write was attempted.
+        // Not a failure - the device isn't answering at its assigned
+        // address (e.g. a factory reset) and a serial is on record, so
+        // there's a real choice to offer instead of forcing straight into
+        // the button-press wait. No write was attempted.
         setProgress((p) => {
           const next = { ...p };
           delete next[deviceId];
@@ -431,7 +396,7 @@ export function ProgrammingView() {
   };
 
   // Wired to the "press the button" modal's own Cancel button (see the
-  // modal's own render block below) - real request, 2026-08-31.
+  // modal's render block below).
   const cancelProgramDevice = (deviceId: number) => {
     programAbortRef.current[deviceId]?.abort();
   };
@@ -446,30 +411,23 @@ export function ProgrammingView() {
       const pid = data?.project?.id;
       const r = await api.busVerifyDevice(devAddr, pid!, deviceId);
       setVerifyResult(deviceId, r);
-      // Real gap found live 2026-08-29: `status` (Programmed/Modified/
-      // Unassigned - the top summary badges and this button's own color)
-      // was ONLY ever set by a successful Program action, never by Verify -
-      // so a real Verify showing genuine differences left the device still
-      // reading "Programmed" (or whatever it was before), and the Modified
-      // count never populated through normal use at all. Verify now updates
-      // the same persistent status Program does, so it reflects live
-      // read-back state, not just "was this ever successfully programmed
-      // once." Deliberately does NOT touch 'unassigned' - only match/no
-      // match, not "never verified".
+      // `status` (Programmed/Modified/Unassigned) was previously only ever
+      // set by a successful Program action, never by Verify - a real Verify
+      // showing differences left the device reading stale status. Verify
+      // now updates the same persistent status Program does, reflecting
+      // live read-back state. Deliberately doesn't touch 'unassigned' -
+      // only match/no-match, not "never verified".
       onDeviceStatus(deviceId, r.match ? 'programmed' : 'modified');
-      // Persisted verify indicator, added 2026-09-01 - real request: "we
-      // should consider an indicator for both successful verify and
-      // failed". The server already persisted this in the same call (see
-      // runVerifyDevice()'s own doc comment, server/routes/bus.ts) -
-      // reflect it into local state immediately, both outcomes (unlike
-      // the unconfirmed-writes sync below, which is deliberately only for
-      // a clean match).
+      // Persisted verify indicator - the server already persisted this in
+      // the same call (see runVerifyDevice()'s doc comment,
+      // server/routes/bus.ts); reflect it locally immediately, both
+      // outcomes (unlike the unconfirmed-writes sync below, which is only
+      // for a clean match).
       applyDeviceVerifyResult(deviceId, r.match);
-      // A clean verify is real, positive confirmation the device's actual
-      // content matches the project - the server already cleared
-      // unconfirmed_writes_count/detail for this device (see /bus/verify-
-      // device's own doc comment); sync that into local state too, same
-      // reasoning as programDevice()'s own sync above.
+      // A clean verify is positive confirmation the device's content
+      // matches the project - the server already cleared
+      // unconfirmed_writes_count/detail; sync that locally too, same
+      // reasoning as programDevice()'s sync above.
       if (r.match) {
         try {
           await updateDevice(deviceId, {
@@ -482,18 +440,17 @@ export function ProgrammingView() {
           );
         }
       }
-      // r.match now accounts for decoded rows (GA table / communication
-      // flags, i.e. Object 3) as well as raw parameter-memory bytes (see
-      // docs/knx-device-write-protocol.md Part 21, koolenex repo).
-      // `totalDiffering`/`totalBytes` are DELIBERATELY scoped to just the
-      // named-parameter memory region - GA table, Association table, and
-      // Object 3 are each read from their own separate memory address (see
-      // the `undeclaredTableMem` comment in server/routes/bus.ts) - so it's
-      // entirely possible, and not a contradiction, for parameter memory to
-      // match in full while a GA or flags row still differs. Object 3
-      // additionally reports its OWN raw byte totals (`flagsTotalBytes`/
-      // `flagsDifferingBytes`, added 2026-08-29) - quote a real "N/M bytes
-      // match" figure for it too, not just a count of differing named rows.
+      // r.match accounts for decoded rows (GA table / communication flags,
+      // i.e. Object 3) as well as raw parameter-memory bytes (see
+      // docs/knx-device-write-protocol.md §6.4). `totalDiffering`/
+      // `totalBytes` are DELIBERATELY scoped to just the named-parameter
+      // memory region - GA table, Association table, and Object 3 are each
+      // read from their own separate memory address (see the
+      // `undeclaredTableMem` comment in server/routes/bus.ts), so parameter
+      // memory can match in full while a GA or flags row still differs.
+      // Object 3 additionally reports its own raw byte totals
+      // (`flagsTotalBytes`/`flagsDifferingBytes`) for a real "N/M bytes
+      // match" figure, not just a count of differing named rows.
       const scopes = [
         `parameter memory ${r.totalBytes - r.totalDiffering}/${r.totalBytes} bytes match`,
       ];
@@ -502,15 +459,12 @@ export function ProgrammingView() {
           `communication flags ${r.flagsTotalBytes - (r.flagsDifferingBytes ?? 0)}/${r.flagsTotalBytes} bytes match`,
         );
       }
-      // GA links (and Object 3 itself, when its byte totals above already
-      // aren't enough to make a real mismatch obvious - e.g. bytes match but
-      // a decoded row still differs) don't have their own byte-level total
-      // at all, so name them separately rather than let a mismatch there go
-      // unmentioned just because there's no number to attach to it. Counted,
-      // not just named - a bare "Communication Flags differ" (no number)
-      // was reported as unhelpfully vague, matching the same badge wording
-      // used above the row table ("Comm Object" for Object 3's rows, "GA"
-      // for Group Addresses).
+      // GA links (and Object 3, when its byte totals alone don't make a
+      // mismatch obvious - e.g. bytes match but a decoded row still
+      // differs) don't have their own byte-level total, so name them
+      // separately rather than leave a mismatch unmentioned. Counted, not
+      // just named, matching the badge wording above the row table ("Comm
+      // Object" for Object 3, "GA" for Group Addresses).
       const sectionWord = (name: string): string =>
         name === 'Communication Flags'
           ? 'Comm Object'
@@ -519,7 +473,10 @@ export function ProgrammingView() {
             : name;
       const mismatchCountsBySection = new Map<string, number>();
       for (const d of r.decoded ?? []) {
-        if (d.match === false) {
+        // Access="None" (isVisible: false) rows are excluded here too - an
+        // operator can't act on one, so it shouldn't appear in this
+        // per-section mismatch summary either.
+        if (d.match === false && d.isVisible !== false) {
           const name = displaySectionName(d.section);
           mismatchCountsBySection.set(
             name,
@@ -541,10 +498,8 @@ export function ProgrammingView() {
             `${count} ${sectionWord(name)}${count === 1 ? '' : 's'}`,
         );
       // No leading match/mismatch symbol - the byte-match figures and any
-      // named differing sections already say whether it matched, without
-      // needing a separate glyph or color to repeat the same information
-      // (real request 2026-08-31: log entries shouldn't rely on
-      // color/tick to carry the "did this succeed" signal at all).
+      // named differing sections already say whether it matched; log
+      // entries shouldn't rely on color/tick to carry that signal.
       const msg =
         `Verified → ${devAddr} — ${scopes.join('; ')}` +
         (mismatchedSections.length
@@ -577,36 +532,23 @@ export function ProgrammingView() {
     if (dev) setLogOpen(false);
   };
 
-  // Real bug, flagged live 2026-08-29 (task_2abb6756): this used to fire
-  // every device's programDevice() concurrently via .forEach (no await at
-  // all) - a real risk of corrupting overlapping download sessions on the
-  // single shared bus connection, which only ever supports one in-flight
-  // transaction. Also mislabeled: "Program All Modified" was actually
-  // filtering `status !== 'programmed'`, which silently swept in
-  // 'unassigned' devices too - those have no confirmed prior write to
-  // compare against and aren't what "Modified" means. Now: a real
-  // sequential queue (await each device fully before starting the next),
-  // scoped to status === 'modified' only, skipping any device with no
-  // resolved individual address (can't be addressed at all yet - see
-  // knx_serial_number_addressing_research memory for the real fix for
-  // that case, not yet implemented).
+  // Sequential queue (await each device fully before starting the next) -
+  // the single shared bus connection only supports one in-flight
+  // transaction, so firing every device's programDevice() concurrently
+  // would corrupt overlapping sessions. Scoped to status === 'modified'
+  // only (not 'unassigned', which has no confirmed prior write to compare
+  // against), skipping any device with no resolved individual address.
   const [programmingAll, setProgrammingAll] = useState(false);
-  // Real request 2026-09-01: "disable all the buttons on the Programming
-  // Page when Verify or Reprogram are clicked (to stop people doing
-  // multiple clicks)". The underlying KNX bus is a single physical
-  // connection - two device operations running at once would genuinely
-  // interfere with each other on the wire, not just look messy in the UI.
-  // Derived, not new state - `progress`/`verifyingIds` already track every
-  // in-flight operation. OR'd into each gated button's own existing
-  // `disabled` expression (below) rather than replacing it, so a button
-  // re-enables to whatever ITS OWN independent conditions already say once
-  // this goes back to false - "restore to previous state" falls out of
-  // React's normal re-render for free, no extra bookkeeping needed. Scoped
-  // to buttons that could start or interfere with a bus operation (Program,
-  // Verify, the address/serial-assignment icons, Scan for New Device) - log
-  // panel controls and slide-over close buttons are left alone, since
-  // they're not bus operations and blocking them would only get in the way
-  // of someone watching progress on a device that's actively downloading.
+  // Disables buttons that could start/interfere with a bus operation while
+  // one is running - the underlying KNX bus is a single physical
+  // connection, so two device operations at once would genuinely interfere
+  // on the wire. Derived, not new state - `progress`/`verifyingIds` already
+  // track in-flight operations. OR'd into each gated button's existing
+  // `disabled` expression rather than replacing it, so a button re-enables
+  // to its own independent conditions once this goes false. Log panel
+  // controls and slide-over close buttons are left alone - not bus
+  // operations, and blocking them would get in the way of watching
+  // progress on an actively-downloading device.
   const anyOperationRunning =
     Object.values(progress).some((p) => p?.state === 'running') ||
     verifyingIds.size > 0;
@@ -632,23 +574,18 @@ export function ProgrammingView() {
   // ── Full vs Partial download picker: a small popover anchored to
   // whichever Program button was clicked (a device row's own button, or
   // the page-level "Program All Modified"), rather than a page-level
-  // setting or a split-button menu - explicit choice, per click, right
-  // where the action happens. `downloadModePopoverFor` is either a device
-  // id (row button) or the literal 'all' (header button); null means
-  // closed.
+  // setting or a split-button menu. `downloadModePopoverFor` is either a
+  // device id (row button) or the literal 'all' (header button); null
+  // means closed.
   //
-  // Real bug, found live 2026-08-30: an earlier version positioned this
-  // with plain CSS (position:absolute against a wrapper div sitting in
-  // the table's own DOM position). The table's containing .content panel
-  // scrolls (table-layout:fixed forces horizontal scroll once the log
-  // pane is open), and a position:absolute descendant of a scrolling
-  // ancestor gets clipped by that ancestor's overflow - not just visually
-  // cramped, its trailing text was cut off outright rather than wrapping,
-  // which is exactly what showed up live. Fixed by rendering the popover
-  // through a portal into document.body, positioned with `fixed`
+  // Rendered through a portal into document.body, positioned with `fixed`
   // coordinates computed from the real anchor's on-screen rect
-  // (anchorRefs, one per row + the header button) - a portal is
-  // unaffected by any ancestor's overflow/clipping, by definition.
+  // (anchorRefs, one per row + the header button) rather than plain CSS
+  // position:absolute against the table - the table's containing .content
+  // panel scrolls (table-layout:fixed forces horizontal scroll once the
+  // log pane is open), and a position:absolute descendant of a scrolling
+  // ancestor gets clipped by that ancestor's overflow. A portal is
+  // unaffected by any ancestor's overflow/clipping.
   const [downloadModePopoverFor, setDownloadModePopoverFor] = useState<
     number | 'all' | null
   >(null);
@@ -733,25 +670,21 @@ export function ProgrammingView() {
         <SectionHeader
           title="Programming"
           actions={[
-            // Persistently visible (not a one-time "don't ask again" -
-            // real request, 2026-09-01: needs an obvious way to reset it,
-            // not just a checkbox buried in a popup that stops appearing
-            // once checked). Toggling it also settles the choice for any
-            // in-flight "device not found" prompt going forward, since
-            // programDevice() reads this same setting fresh each call.
-            // Chip (not a plain checkbox) to match the page's existing
-            // badge/pill visual language - real request 2026-09-01: "keeps
-            // things looking consistent".
+            // Persistently visible (not a one-time "don't ask again") so
+            // there's an obvious way to reset it. Toggling it also settles
+            // the choice for any in-flight "device not found" prompt, since
+            // programDevice() reads this setting fresh each call. Chip (not
+            // a plain checkbox) to match the page's existing badge/pill
+            // visual language.
             <Chip
               key="auto-serial"
               active={autoAddressBySerial}
               onClick={toggleAutoAddressBySerial}
               title="When a device doesn't answer at its assigned address (e.g. after a factory reset) but a Serial No. is on record, program it by that Serial No. automatically instead of asking each time."
-              // A touch more prominent than the default active styling
-              // when on - real request 2026-09-01. Darker green (not
-              // --amber, which this app already uses for "unassigned/
-              // needs attention" - see theme.ts's STATUS_COLOR - a bad
-              // semantic fit for an intentionally-enabled convenience
+              // A touch more prominent than the default active styling when
+              // on. Darker green (not --amber, which this app uses for
+              // "unassigned/needs attention" - see theme.ts's STATUS_COLOR,
+              // a bad semantic fit for an intentionally-enabled convenience
               // feature) reads as "on and fine", not "something's wrong".
               style={
                 autoAddressBySerial
@@ -764,11 +697,11 @@ export function ProgrammingView() {
                   : undefined
               }
             >
-              {/* "Program by Serial No." (not "Auto-address...") - real
-                  request 2026-09-01: an average non-dev user connects with
-                  "Program"/"Download" more readily than "address", and
-                  "Serial No." (not bare "serial") avoids reading as the
-                  USB serial connection this app also deals with. */}
+              {/* "Program by Serial No." (not "Auto-address...") - a
+                  non-dev user connects with "Program"/"Download" more
+                  readily than "address"; "Serial No." (not bare "serial")
+                  avoids reading as the USB serial connection this app also
+                  deals with. */}
               Auto-program by Serial No.
             </Chip>,
             <Btn
@@ -800,10 +733,8 @@ export function ProgrammingView() {
           ]}
         />
         <div className={styles.content}>
-          {/* Shrunk from a giant stat-card grid (huge numbers + label below)
-              to the app's standard small Badge pills, per explicit request
-              2026-08-29 - this row was disproportionately large next to
-              everything else on the page. */}
+          {/* Small Badge pills (not a giant stat-card grid) to match the
+              app's standard visual scale for this row. */}
           {/* Also the view's filter: each lozenge shows only its own status,
               and clicking the selected one goes back to all. The counts stay
               whole-project whatever is filtered - they are the summary, and
@@ -868,10 +799,10 @@ export function ProgrammingView() {
                   <tr key={d.id} className="rh">
                     <TD>
                       {/* Address folded into the DEVICE cell as a small pill
-                          (was its own ADDRESS column) - reclaims a column's
-                          worth of width, which matters once the log pane is
-                          open and .table's min-width forces horizontal
-                          scroll (see .table's comment in the CSS module). */}
+                          (not its own ADDRESS column) - reclaims width that
+                          matters once the log pane is open and .table's
+                          min-width forces horizontal scroll (see .table's
+                          comment in the CSS module). */}
                       <span className={styles.devName}>
                         <DeviceTypeIcon
                           type={d.device_type}
@@ -888,32 +819,28 @@ export function ProgrammingView() {
                           className={styles.addrBadge}
                           // Opens the same combined AddressDeviceModal the
                           // serial icon does (not the old, separate
-                          // AssignProjectAddressModal - merged in 2026-08-
-                          // 31, see that component's own doc comment) -
-                          // it already supports a locked target with no
-                          // project address yet (lockedNoAddress).
+                          // AssignProjectAddressModal - see that
+                          // component's own doc comment) - it supports a
+                          // locked target with no project address yet
+                          // (lockedNoAddress).
                           onAssignClick={
                             anyOperationRunning
                               ? undefined
                               : () => setAddressModalFor(d.id)
                           }
                         />
-                        {/* Serial-status indicator, added 2026-08-30: a
-                            device can have a real project address and still
-                            never have been physically commissioned - ETS
-                            only ever learns a real unit's serial when its
-                            programming button is pressed during a write, or
-                            when entered by hand (see AddressDeviceModal) -
-                            it is NOT always present just because the
-                            imported project has a planned address. Always
-                            opens AddressDeviceModal, regardless of
-                            has_address (fixed 2026-08-31 - previously
-                            routed a has_address=0 row into the address-
-                            assignment modal instead, which was actually
-                            inconsistent: this icon is about the SERIAL,
-                            and AddressDeviceModal now has its own
+                        {/* Serial-status indicator: a device can have a
+                            real project address and still never have been
+                            physically commissioned - ETS only learns a real
+                            unit's serial when its programming button is
+                            pressed during a write, or when entered by hand
+                            (see AddressDeviceModal); it's not always
+                            present just because the imported project has a
+                            planned address. Always opens AddressDeviceModal
+                            regardless of has_address - this icon is about
+                            the SERIAL, and AddressDeviceModal has its own
                             capture-only layout for a device with no real
-                            address yet - see its lockedNoAddress). */}
+                            address yet (lockedNoAddress). */}
                         <span
                           className={styles.serialIcon}
                           style={{
@@ -962,13 +889,11 @@ export function ProgrammingView() {
                             />
                           )}
                           {/* Persisted across reloads (server/db.ts's
-                              unconfirmed_writes_count) - real gap found
-                              live: downloadDevice() completing without
-                              throwing only means the protocol sequence ran
-                              to completion, not that every write got a
-                              confirmed response. Cleared by a clean Verify
-                              (see /bus/verify-device), not by this badge
-                              alone changing. */}
+                              unconfirmed_writes_count) - downloadDevice()
+                              completing without throwing only means the
+                              protocol sequence ran to completion, not that
+                              every write got a confirmed response. Cleared
+                              by a clean Verify (see /bus/verify-device). */}
                           {!!d.unconfirmed_writes_count && (
                             <span
                               className={styles.serialIcon}
@@ -1012,13 +937,11 @@ export function ProgrammingView() {
                             the slot as much as two text buttons would. */}
                         <div className={styles.viewSlot}>
                           {verifyCache[d.id] && (
-                            // Real request, 2026-09-01: the clear-cache
-                            // icon here felt out of place - moved into
-                            // the compare slide-over's own header,
-                            // to the left of its close button, where it
-                            // acts on the comparison actually on screen
-                            // rather than a row the operator may not be
-                            // looking at.
+                            // The clear-cache icon lives in the compare
+                            // slide-over's own header instead, left of its
+                            // close button - it acts on the comparison
+                            // actually on screen rather than a row the
+                            // operator may not be looking at.
                             <button
                               type="button"
                               className={styles.iconChipBtn}
@@ -1033,38 +956,24 @@ export function ProgrammingView() {
                         <div className={styles.verifyBtnWrap}>
                           <Btn
                             className={`${styles.actionBtn}${verifying ? ' ' + styles.actionBtnRunning : ''}`}
-                            // Real request, 2026-09-01, replacing the
-                            // separate VERIFIED/MISMATCH badge that used
-                            // to sit in the status column (see
-                            // last_verify_match's own doc comment,
-                            // shared/types.ts): it visually overflowed
-                            // into the next column under
-                            // table-layout:fixed once a device had both a
-                            // status badge and a verify badge. Folded
-                            // into this button instead, the same way
-                            // "✓ Re-program" already indicates success
-                            // below - color left at the default `accent`
-                            // while a verify is actively running (the
-                            // progress-fill `style` below overrides
-                            // `color` anyway) or never verified, so this
-                            // only visibly changes anything once a real
-                            // result exists.
+                            // Replaces the separate VERIFIED/MISMATCH badge
+                            // that used to sit in the status column (see
+                            // last_verify_match's doc comment,
+                            // shared/types.ts) - it visually overflowed
+                            // into the next column under table-layout:fixed
+                            // once a device had both a status and a verify
+                            // badge. Folded into this button instead, the
+                            // same way "✓ Re-program" already indicates
+                            // success. Color left at the default `accent`
+                            // while running or never verified.
                             //
-                            // Toned down 2026-09-01 (real feedback: "the
-                            // green text appears brighter than the
-                            // program one") - `var(--green)` is the raw,
-                            // fully-saturated neon token; the Re-program
-                            // button next to this one is actually colored
-                            // off STATUS_COLOR.programmed (a more muted
-                            // green, see its own `color`/`bg` props
-                            // below), not that token. Matched here for
-                            // real visual consistency between the two
-                            // buttons, including the same soft `bg` tint
-                            // (12% mix) Re-program already uses - without
-                            // it, plain text color against the default
-                            // `--selected` background reads noticeably
-                            // more vivid than Re-program's own softer
-                            // look, even at the same hex value.
+                            // `var(--green)` is the raw, fully-saturated
+                            // token; Re-program next to this button is
+                            // colored off STATUS_COLOR.programmed (a more
+                            // muted green - see its own `color`/`bg` props
+                            // below). Matched here, including the same soft
+                            // `bg` tint (12% mix), for visual consistency
+                            // between the two buttons.
                             color={
                               verifying
                                 ? undefined
@@ -1083,28 +992,21 @@ export function ProgrammingView() {
                               verifyDevice(d.id, d.individual_address)
                             }
                             // Gating on serial_number (not just has_address)
-                            // is deliberate, real user confirmation
-                            // 2026-08-31: a physically-confirmed serial is
-                            // the genuine "this exact unit was actually
+                            // is deliberate: a physically-confirmed serial
+                            // is the genuine "this exact unit was actually
                             // commissioned" signal, not merely "the project
-                            // thinks a download happened". The real gap
-                            // this surfaced (a plain Program/Full-Download
-                            // never captured a serial at all, unlike the
-                            // addressing flow) is fixed at the source
-                            // instead - see /bus/program-device's own
-                            // post-write serial read-back, server/routes/
-                            // bus.ts.
+                            // thinks a download happened" - see
+                            // /bus/program-device's post-write serial
+                            // read-back, server/routes/bus.ts.
                             //
-                            // `status === 'unassigned'` is also disabling,
-                            // real gap found live: unassigning a device (see
+                            // `status === 'unassigned'` also disables:
+                            // unassigning a device (see
                             // AddressDeviceModal's doUnassign) resets status
                             // back to 'unassigned' even after a project
-                            // address and serial are both re-entered - that
+                            // address and serial are re-entered - that
                             // status means "not confirmed commissioned in
-                            // this identity", and Verify comparing against a
-                            // device we have no record of ever writing to
-                            // isn't a meaningful action yet, regardless of
-                            // whether address/serial happen to be filled in.
+                            // this identity", and Verify against a device
+                            // never written to isn't meaningful yet.
                             disabled={
                               prog?.state === 'running' ||
                               verifying ||
@@ -1124,22 +1026,14 @@ export function ProgrammingView() {
                                       ? liveVerifyProgress
                                         ? `${liveVerifyProgress.bytesRead}/${liveVerifyProgress.totalBytes} bytes`
                                         : 'Reading device…'
-                                      : // Real request, 2026-09-01: "update
-                                        // the tooltip to reflect the
-                                        // verification status" - prefixes
-                                        // the same persisted result the
-                                        // button's own color/label now
-                                        // show, ahead of the existing
-                                        // generic action description
-                                        // (kept as-is below it, not
-                                        // replaced - still useful context
-                                        // for what clicking the button
-                                        // does). `d.last_verify_match`
-                                        // (persisted, server-side) rather
-                                        // than `verifyCache[d.id]` (local-
-                                        // session-only) deliberately, so
-                                        // this survives a reload the way
-                                        // the button's own color does.
+                                      : // Prefixes the persisted result the
+                                        // button's own color/label already
+                                        // show, ahead of the generic action
+                                        // description. `d.last_verify_match`
+                                        // (persisted server-side) rather
+                                        // than `verifyCache[d.id]`
+                                        // (session-only) so this survives a
+                                        // reload like the button's color.
                                         (d.last_verify_match != null
                                           ? `${d.last_verify_match ? 'Last verify matched the project' : 'Last verify found differences from the project'}${d.last_verify_at ? ` (${new Date(d.last_verify_at).toLocaleString()})` : ''} — `
                                           : '') +
@@ -1150,14 +1044,11 @@ export function ProgrammingView() {
                             // Same treatment as the Program button - the
                             // button's own background becomes the progress
                             // bar while a verify read is in flight, with the
-                            // live percentage as its text. Previously paired
-                            // with a separate floating popover (byte
-                            // counter, its own mini bar) - removed, it read
-                            // as messy/overlapping neighboring rows once the
-                            // button itself already showed the percentage.
-                            // The total byte count now goes into the log
-                            // once at the start of the read instead (see
-                            // verifyDevice()) for anyone who wants it.
+                            // live percentage as its text (not a separate
+                            // floating popover, which read as messy/
+                            // overlapping neighboring rows). The total byte
+                            // count goes into the log once at the start of
+                            // the read instead (see verifyDevice()).
                             style={
                               verifying && liveVerifyProgress
                                 ? ({
@@ -1167,11 +1058,9 @@ export function ProgrammingView() {
                                     // Clips the flow animation's ::before
                                     // to just the filled portion (see
                                     // .actionBtnRunning, ProgrammingView.
-                                    // module.css) - real request
-                                    // 2026-08-31: it swept the whole
-                                    // button regardless of real progress,
-                                    // which didn't read as "part of the
-                                    // progress bar".
+                                    // module.css) - unclipped it swept the
+                                    // whole button regardless of real
+                                    // progress.
                                     '--action-pct': `${Math.round(liveVerifyProgress.pct)}%`,
                                   } as CSSProperties)
                                 : undefined
@@ -1207,15 +1096,11 @@ export function ProgrammingView() {
                           <Btn
                             className={`${styles.actionBtn}${prog?.state === 'running' ? ' ' + styles.actionBtnRunning : ''}`}
                             onClick={() => {
-                              // Real request 2026-08-30: only offer the
-                              // Full/Partial choice when there's something a
-                              // Partial Download could actually skip - a
-                              // device with no known modifications (never
-                              // downloaded, or already matching what was
-                              // last written) has nothing to differentiate
-                              // the two modes on, so the popup would just be
-                              // an extra click for no real decision. Go
-                              // straight to a Full download for those.
+                              // Only offer the Full/Partial choice when
+                              // there's something a Partial Download could
+                              // actually skip - a device with no known
+                              // modifications has nothing to differentiate
+                              // the two modes on, so go straight to Full.
                               if (d.status !== 'modified') {
                                 programDevice(
                                   d.id,
@@ -1242,18 +1127,14 @@ export function ProgrammingView() {
                             }
                             // Colored/labeled off the PERSISTENT status
                             // (d.status, stored server-side), not the
-                            // transient in-memory `prog` state, so it still
-                            // reads correctly after a page reload/navigation,
-                            // not just immediately after a click. Reuses
-                            // STATUS_COLOR (the same map the summary badges
-                            // use) rather than a green-only check - found
-                            // live: 'modified' devices (a real, populated
-                            // status as of the same day this button's color
-                            // was added) fell through to the exact same
-                            // plain, uncolored "Program" as a device that's
-                            // never been touched (unassigned) at all, no
-                            // visual distinction despite being materially
-                            // different states.
+                            // transient in-memory `prog` state, so it reads
+                            // correctly after a reload/navigation, not just
+                            // right after a click. Reuses STATUS_COLOR (the
+                            // same map the summary badges use) rather than a
+                            // green-only check, so 'modified' devices are
+                            // visually distinct from a never-touched
+                            // (unassigned) one instead of both showing a
+                            // plain, uncolored "Program".
                             color={
                               prog?.state !== 'error' &&
                               d.status !== 'unassigned'
@@ -1268,21 +1149,17 @@ export function ProgrammingView() {
                             }
                             // While running, the button's own background
                             // becomes the progress bar (a hard-stop
-                            // linear-gradient, filled up to the live
-                            // percentage) instead of popping a separate
-                            // PROGRESS column open elsewhere in the row -
-                            // explicit request, replacing that column
-                            // entirely. `style` is spread last inside Btn, so
-                            // this overrides its usual disabled-state gray.
-                            // The `actionBtnRunning` flow animation (below,
-                            // this module's own CSS - not the global `pulse`
-                            // whole-button opacity fade, found too harsh on a
-                            // filled button, real request 2026-08-31) and
-                            // `wait` cursor make clear the download is still
-                            // active during a real, long, percentage-static
-                            // stretch late in a write (observed live: ~20s+
-                            // sitting at 80% before jumping to 100%) rather than
-                            // reading as stalled.
+                            // linear-gradient filled to the live percentage)
+                            // rather than a separate PROGRESS column.
+                            // `style` is spread last inside Btn, overriding
+                            // its usual disabled-state gray. The
+                            // `actionBtnRunning` flow animation (this
+                            // module's CSS, not the global `pulse`
+                            // whole-button opacity fade - too harsh on a
+                            // filled button) and `wait` cursor make clear
+                            // the download is still active during a long,
+                            // percentage-static stretch late in a write,
+                            // rather than reading as stalled.
                             style={
                               prog?.state === 'running'
                                 ? ({
@@ -1338,12 +1215,11 @@ export function ProgrammingView() {
             >
               LOG
               <div className={styles.logHeaderActions}>
-                {/* Real request, 2026-09-01: moved to leftmost, with extra
-                    space (styles.logClearBtn's own margin-right, not just
-                    the container's uniform gap) separating it from the
-                    debug/collapse icons - a destructive one-click action
-                    (no confirm) sitting right next to frequently-clicked
-                    icons was an accidental-click risk. */}
+                {/* Leftmost, with extra space (styles.logClearBtn's own
+                    margin-right, not just the container's uniform gap)
+                    separating it from the debug/collapse icons - a
+                    destructive one-click action (no confirm) next to
+                    frequently-clicked icons is an accidental-click risk. */}
                 <button
                   type="button"
                   className={`${styles.iconChipBtn} ${styles.clearCacheBtn} ${styles.logClearBtn}`}
@@ -1352,15 +1228,13 @@ export function ProgrammingView() {
                 >
                   🗑
                 </button>
-                {/* Real request, 2026-09-01: the write-service-resolution
-                    work added a lot of low-level protocol detail to the
-                    log (per-step Unload/StartLoading/WriteProp/mask-
-                    resolution messages etc.) - genuinely useful for
-                    debugging, too much clutter for a normal operator just
-                    watching a download happen. Filtered at the source
-                    (App.tsx's program:progress handler), not just
-                    visually hidden - see DownloadProgress.debug's own
-                    doc comment (knx-connection.ts). */}
+                {/* Low-level protocol detail (per-step Unload/
+                    StartLoading/WriteProp/mask-resolution messages) is
+                    useful for debugging but too much clutter for a normal
+                    operator watching a download. Filtered at the source
+                    (App.tsx's program:progress handler), not just visually
+                    hidden - see DownloadProgress.debug's doc comment
+                    (knx-connection.ts). */}
                 <button
                   type="button"
                   className={`${styles.iconChipBtn} ${showDebug ? styles.debugLogBtnActive : styles.clearCacheBtn}`}
@@ -1403,21 +1277,16 @@ export function ProgrammingView() {
                   // Every entry is logged as "[HH:MM:SS] message" (see
                   // addLog() call sites throughout this file/
                   // AddressDeviceModal/AssignProjectAddressModal) - split
-                  // that back apart at render time rather than changing
-                  // every call site to pass a structured {time, text},
-                  // added 2026-08-30: the timestamp gets its own line
-                  // (dim/grey) with the message indented below it (normal
-                  // text), instead of one long wrapped line mixing both,
-                  // which read as cluttered once a message wrapped to a
-                  // second line with no visual break from the timestamp.
+                  // apart at render time rather than passing a structured
+                  // {time, text}: the timestamp gets its own dim line with
+                  // the message indented below, instead of one long
+                  // wrapped line mixing both.
                   const m = l.match(/^\[([^\]]+)\]\s*([\s\S]*)$/);
                   const time = m?.[1];
                   const text = m ? m[2] : l;
                   // Deliberately no success/failure color or symbol here -
-                  // real request 2026-08-31: every entry's own wording
-                  // already says what happened ("Downloaded", "Download
-                  // failed", "Verified", etc.), so a separate color/tick
-                  // was redundant, not an extra signal.
+                  // every entry's own wording already says what happened
+                  // ("Downloaded", "Download failed", "Verified", etc.).
                   return (
                     <div
                       key={i}
@@ -1463,39 +1332,30 @@ export function ProgrammingView() {
       {/* Slide-over: opens automatically once a Verify read completes,
           showing the full device-vs-project comparison. Same
           DeviceCompareResults component the standalone "Device vs Project"
-          page uses, reading the same shared verify cache - no separate
-          fetch, no duplicated rendering logic.
+          page uses, reading the same shared verify cache.
 
           Both the slide-over and its scrim stop short of the log
           panel/collapsed strip (right: <its current width> instead of a
           flat 0) rather than covering it - both anchor from .root's right
-          edge, so a flat right:0 would render the slide-over directly on
-          top of the log, making it look like the log "disappeared" the
-          moment a verify completes and the slide-over opens (it isn't
-          cleared - see logOpen/log state above - just hidden behind a
-          higher-stacked, opaque sibling).
+          edge, so a flat right:0 would render the slide-over on top of the
+          log, making it look like the log disappeared when the slide-over
+          opens (it's only hidden behind a higher-stacked sibling).
 
-          Only while OPEN, though: this div stays mounted (with
-          transform:translateX(100%)) even when closed so the slide-in/out
-          animation has something to animate, and that transform pushes it
-          offscreen by 100% of ITS OWN box - which starts from `right`, not
-          from the true viewport edge. Give it a non-zero `right` even
-          while closed and the "offscreen" resting position shifts left by
-          that same amount, leaving a sliver of the (empty) panel visible
-          over the log instead of nothing - which is exactly what covering
-          the log's own collapse/expand button looked like. Closed always
-          reverts to right:0 so it goes fully offscreen as before.
+          Stays mounted (transform:translateX(100%)) even when closed so
+          the slide-in/out animation has something to animate; that
+          transform pushes it offscreen by 100% of its own box, which
+          starts from `right`, not the true viewport edge. A non-zero
+          `right` while closed would shift the "offscreen" resting position
+          left by that amount, leaving a sliver of the empty panel visible
+          over the log - so closed always reverts to right:0.
 
-          width is ALSO overridden inline while open, not left at its CSS
-          default of min(900px, 96%) - that 96% is 96% of .root's FULL
+          width is also overridden inline while open, not left at its CSS
+          default of min(900px, 96%) - that 96% is 96% of .root's full
           width, independent of `right`, so right (up to ~525px for a
           widened log panel) plus that width could exceed .root's actual
-          width, pushing the panel's left edge negative and clipping away
-          everything but a sliver near its own right edge (exactly what a
-          too-wide log panel looked like: only a fragment of a summary
-          chip visible, header/table clipped off). calc(96% - Rpx) instead
-          of a flat 96% keeps right + width always <= 96% of .root's
-          width, however wide the log panel's own reserved space gets. */}
+          width, clipping everything but a sliver near its own right edge.
+          calc(96% - Rpx) instead of a flat 96% keeps right + width always
+          <= 96% of .root's width. */}
       <div
         className={`${styles.slideOver} ${slideOverDevice ? styles.slideOverOpen : ''}`}
         style={
@@ -1533,13 +1393,11 @@ export function ProgrammingView() {
                 — {slideOverDevice.name}
               </span>
               <span className={styles.slideOverHeaderActions}>
-                {/* Moved here from the device table row, 2026-09-01 -
-                    real request: it "feels out of place" sitting next to
-                    View in the row. Acts on the comparison actually on
-                    screen, so this is a more natural home for it than a
-                    row the operator may not currently be looking at.
-                    Closes the panel afterward - once the cache is
-                    cleared, there's nothing left for this view to show. */}
+                {/* Not in the device table row - acts on the comparison
+                    actually on screen, a more natural home than a row the
+                    operator may not be looking at. Closes the panel
+                    afterward, since there's nothing left to show once the
+                    cache is cleared. */}
                 <button
                   type="button"
                   className={`${styles.iconChipBtn} ${styles.clearCacheBtn}`}
@@ -1587,13 +1445,10 @@ export function ProgrammingView() {
           // recorded serial or a real address yet - only the top-level
           // "Scan for New Device" button (addressModalFor === 'scan', no
           // row context) leaves it unlocked, since picking among several
-          // detected devices is the actual point there. A known-serial
-          // device (already commissioned once) additionally opens
-          // straight on the serial tab, pre-filled - re-scanning/
-          // re-picking a device we already have a record for is
-          // unnecessary friction. A row with no recorded serial still
-          // opens on the general 'detect' tab (its own default), since
-          // that IS the discovery step.
+          // detected devices is the point there. A known-serial device
+          // opens straight on the serial tab, pre-filled - re-scanning a
+          // device already on record is unnecessary friction. A row with
+          // no recorded serial opens on the general 'detect' tab instead.
           const rowDevice =
             typeof addressModalFor === 'number'
               ? devices.find((d) => d.id === addressModalFor)
@@ -1625,15 +1480,11 @@ export function ProgrammingView() {
             panelRef={popoverRef}
             pos={popoverPos}
             width={DOWNLOAD_POPOVER_WIDTH}
-            // Defensive only, in practice never true: a row's own Program
-            // button (see its onClick above) now skips this popup
-            // entirely and goes straight to a Full download unless
-            // status==='modified', and the header's "Program All
-            // Modified" only ever targets status==='modified' devices
-            // (see programmAll) - so by the time this popup can be
-            // showing at all, there's always something real for Partial
-            // to diff against. Kept as a belt-and-braces check rather
-            // than assuming that invariant can never drift.
+            // Defensive only, in practice never true: a row's Program
+            // button skips this popup entirely unless status==='modified',
+            // and "Program All Modified" only ever targets status==
+            // 'modified' devices (see programmAll) - kept as a
+            // belt-and-braces check rather than assuming the invariant.
             partialDisabled={
               downloadModePopoverFor !== 'all' &&
               devices.find((d) => d.id === downloadModePopoverFor)?.status !==
@@ -1643,18 +1494,15 @@ export function ProgrammingView() {
           />,
           document.body,
         )}
-      {/* "Press the programming button" modal - real request, 2026-08-31:
-          "somewhere to display the press prog button. Maybe a modal
-          pop-up with just a cancel button, which automatically
-          disappears once the device is found." Driven entirely by
+      {/* "Press the programming button" modal - auto-dismisses once the
+          device is found. Driven entirely by
           programProgress[address].awaitingButton (see ProgramProgress's
-          own doc comment, contexts.ts) - true only for the one message
+          doc comment, contexts.ts) - true only for the one message
           announcing the wait; any later message for the same device
-          (found, ambiguous, written, confirmed, or an error) clears it,
-          which is what makes this auto-dismiss with no extra state of
-          its own. Cancel wired to the same AbortController the fetch
-          itself carries (programAbortRef) - a genuine cancellation, not
-          just hiding the modal. */}
+          (found, ambiguous, written, confirmed, or an error) clears it.
+          Cancel wired to the same AbortController the fetch itself carries
+          (programAbortRef) - a genuine cancellation, not just hiding the
+          modal. */}
       {Object.keys(progress)
         .filter((idStr) => progress[idStr]?.state === 'running')
         .map((idStr) => {
@@ -1688,8 +1536,8 @@ export function ProgrammingView() {
       {/* "How should we locate this device?" choice - shown when
           /bus/program-device can't find it at its assigned address but a
           serial is on record (real ETS offers the same choice). Only
-          reached when 'auto_address_by_serial' is off - when it's on, the
-          server just picks serial automatically and this never fires. */}
+          reached when 'auto_address_by_serial' is off - when on, the
+          server picks serial automatically and this never fires. */}
       {addressChoiceFor &&
         (() => {
           const d = devices.find((dev) => dev.id === addressChoiceFor.deviceId);
@@ -1742,16 +1590,11 @@ export function ProgrammingView() {
 }
 
 /**
- * Full vs Partial download choice, shown as a small popover anchored right
- * under whichever Program button was clicked - see downloadModePopoverFor's
- * own comment in ProgrammingView for why this is a per-click popover rather
- * than a page-level setting or a split-button menu, and its own comment for
- * why this renders through a portal (document.body) at `fixed` coordinates
- * rather than plain CSS positioning against its trigger button. Mode
- * meanings and the real evidence behind them: docs/knx-device-write-
- * protocol.md §4.2 (koolenex repo) - Full rewrites the object's whole
- * segment, Partial skips whatever the device already matches and writes
- * only the difference.
+ * Full vs Partial download choice, shown as a small popover anchored under
+ * whichever Program button was clicked - see downloadModePopoverFor's own
+ * comment in ProgrammingView for the per-click-popover and portal-rendering
+ * rationale. Mode meanings: docs/knx-device-write-protocol.md §4.2 - Full
+ * rewrites the object's whole segment, Partial writes only the difference.
  */
 function DownloadModePopover({
   panelRef,

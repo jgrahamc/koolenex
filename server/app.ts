@@ -1,17 +1,9 @@
 /**
  * Express app construction, shared by the real server (server/index.ts) and
- * the test harness (tests/helpers.ts).
+ * the test harness (tests/helpers.ts) so both use the same error middleware.
  *
- * This lived in three places until 2026-09-09: server/index.ts's start(),
- * tests/helpers.ts's createTestServer(), and a third hand-rolled copy inside
- * tests/api.test.ts. The copies carried their own error middleware, so the
- * status codes the largest test file asserted against were the copy's, not
- * the ones the server actually returns - a middleware change in index.ts
- * could not fail a test.
- *
- * Routes are imported lazily here for the same reason index.ts did it: they
- * capture the db module at import time, so db.init() must have completed
- * before this is called.
+ * Routes are imported lazily: they capture the db module at import time, so
+ * db.init() must complete before this is called.
  */
 import express from 'express';
 import cors from 'cors';
@@ -38,9 +30,8 @@ export function isLocalOrigin(
   }
   if (host && url.host === host) return true;
   const h = url.hostname.toLowerCase();
-  // URL.hostname keeps the brackets on an IPv6 literal ('[::1]'), which is
-  // why the fc00::/fe80:: patterns below allow for one - the bare '::1' arm
-  // could never match on its own.
+  // URL.hostname keeps brackets on an IPv6 literal ('[::1]'); the fc00::/
+  // fe80:: patterns below allow for that too.
   if (h === 'localhost' || h === '127.0.0.1' || h === '::1' || h === '[::1]')
     return true;
   if (/^10\./.test(h)) return true;

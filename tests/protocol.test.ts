@@ -49,7 +49,7 @@ describe('KNXnet/IP: hpai', () => {
     assert.equal(h.readUInt16BE(6), 0);
   });
 
-  it('encodes protocol code 0x02 for TCP - confirmed against Calimero HPAI.IPV4_TCP', () => {
+  it('encodes protocol code 0x02 for TCP (Calimero HPAI.IPV4_TCP)', () => {
     const h = hpai('0.0.0.0', 0, HOST_PROTOCOL.TCP);
     assert.equal(h[1], 0x02);
   });
@@ -76,7 +76,7 @@ describe('KNXnet/IP: pktConnect', () => {
     assert.equal(pkt.readUInt16BE(12), 50000);
   });
 
-  it("uses the placeholder HPAI (0.0.0.0:0, protocol TCP) when hostProtocol=TCP - matches Calimero's HPAI.Tcp", () => {
+  it('uses the placeholder HPAI (0.0.0.0:0, protocol TCP) for hostProtocol=TCP (Calimero HPAI.Tcp)', () => {
     const pkt = pktConnect('192.168.1.10', 50000, HOST_PROTOCOL.TCP);
     assert.equal(pkt[7], 0x02); // protocol code TCP
     assert.deepEqual([...pkt.slice(8, 12)], [0, 0, 0, 0]);
@@ -369,7 +369,7 @@ describe('APDU: apduControl', () => {
   });
 
   it('builds T_ACK with sequence number (0b11 SSSS 10)', () => {
-    // T_Ack(seq0) = 0xC2 on the wire (confirmed against ETS bus trace).
+    // T_Ack(seq0) = 0xC2 on the wire (ETS bus trace).
     assert.equal(apduControl(TPCI.ACK, 0)[0], 0xc2);
     assert.equal(apduControl(TPCI.ACK, 7)[0], 0xc2 | (7 << 2));
   });
@@ -409,11 +409,9 @@ describe('APDU: apduPropertyValueWrite', () => {
 });
 
 // ── Serial-number individual-address addressing ─────────────────────────────
-// NM_IndividualAddress_SerialNumber_Write/_Read (spec 3/5/2 §2.5/§2.4) - see
-// docs/knx-device-write-protocol.md §9 for the real sourcing (Falcon
-// SDK doc comments + Calimero's real implementation). No real-hardware
-// capture exists for this service yet - these tests only pin down the wire
-// format against the two independent sources it was derived from.
+// NM_IndividualAddress_SerialNumber_Write/_Read (spec 3/5/2 §2.5/§2.4). No
+// real-hardware capture for this service; wire format derived from the
+// Falcon SDK doc comments and Calimero's implementation.
 
 import {
   APCI_EXT,
@@ -458,10 +456,8 @@ describe('APDU: apduIndividualAddressSerialNumberRead', () => {
 
 describe('parseIndividualAddressSerialNumberResponse', () => {
   it('decodes the serial from payload bytes 0-6, address from frame.src', () => {
-    // Real payload shape confirmed against ETS traffic (tshark capture,
-    // 2026-08-30): [serial(6)][4 reserved zero bytes] - there is no
-    // address field in the payload, the device's address is carried by
-    // frame.src instead. See docs/knx-device-write-protocol.md §9.
+    // Payload shape: [serial(6)][4 reserved zero bytes] - no address field;
+    // the device address comes from frame.src instead.
     const serial = Buffer.from([0x00, 0xa6, 0x25, 0x40, 0x1d, 0x94]);
     const apduData = Buffer.concat([serial, Buffer.alloc(4)]);
     const frame = { apduData, src: '1.1.20' } as any;
@@ -473,9 +469,7 @@ describe('parseIndividualAddressSerialNumberResponse', () => {
 
 describe('APDU: apduSystemNetworkParamRead', () => {
   it('builds the exact APDU real ETS sends for NM_Read_SerialNumber_By_ProgrammingMode', () => {
-    // Confirmed byte-for-byte against a real tshark capture of ETS's own
-    // commissioning flow, 2026-08-30 - see
-    // docs/knx-device-write-protocol.md §9.
+    // Byte-for-byte match against ETS's own commissioning flow.
     const apdu = apduSystemNetworkParamRead(0, 11, 1);
     assert.deepEqual([...apdu], [0x01, 0xc8, 0x00, 0x00, 0x00, 0xb0, 0x01]);
     const fullApci = ((apdu[0]! & 0x03) << 8) | apdu[1]!;
@@ -491,7 +485,7 @@ describe('APDU: apduSystemNetworkParamRead', () => {
 
 describe('parseSystemNetworkParamResponse', () => {
   it('skips the echoed operand byte before the value - real captured shape', () => {
-    // Real captured response payload:
+    // Captured response payload:
     // [objType(2)=0000][pidField(2)=00b0][echoedOperand=01][serial(6)]
     const apduData = Buffer.from([
       0x00, 0x00, 0x00, 0xb0, 0x01, 0x00, 0x0a, 0x57, 0x82, 0x04, 0x19,
@@ -517,7 +511,7 @@ describe('buildCEMI: priority and systemBroadcast options', () => {
     assert.equal(cemi[2], 0xbc);
   });
 
-  it('sets ctrl1 = 0xB0 (ordinary broadcast, System priority) for priority: "system" - confirmed against real ETS traffic', () => {
+  it('sets ctrl1 = 0xB0 (ordinary broadcast, System priority) for priority: "system"', () => {
     const cemi = buildCEMI('1.1.1', '0/0/0', apduGroupRead(), true, {
       priority: 'system',
     });
@@ -538,13 +532,9 @@ describe('buildCEMI: priority and systemBroadcast options', () => {
 import { buildGATable, buildAssocTable } from '../server/routes/index.ts';
 
 describe('buildGATable', () => {
-  // Wire format corrected 2026-08-29: [count:2 BE][GA:2 BE]*count - was
-  // previously a 1-byte count field, which doesn't match what real ETS
-  // actually writes. Found and fixed by testing this function's real
-  // output against real hardware for the first time (see
-  // docs/knx-device-write-protocol.md §2.6/§1.1 - a real captured write of
-  // `000249014904` decodes cleanly as `[count=2][GA 9/1/1][GA 9/1/4]` with
-  // a 2-byte count, never a 1-byte one).
+  // Wire format: [count:2 BE][GA:2 BE]*count - a 2-byte count field, not 1
+  // (confirmed against a real capture: `000249014904` = [count=2][GA 9/1/1]
+  // [GA 9/1/4]).
   it('encodes group addresses into binary table', () => {
     const gaLinks: any[] = [
       { main_g: 1, middle_g: 0, sub_g: 0 },
@@ -573,24 +563,17 @@ describe('buildGATable', () => {
 });
 
 describe('buildAssocTable', () => {
-  // Wire format corrected 2026-08-29: [count:2 BE][gaIndex:2 BE]
-  // [coNumber:2 BE]*count (GA index BEFORE com-object number, both 2-byte
-  // fields, 1-based gaIndex) - was previously a 1-byte count field and
-  // 1-byte [CO_num, GA_idx] entries with CO first, matching neither the
-  // real field widths nor the real field order. Confirmed via direct byte
-  // decode of a real captured Full Download - see
-  // docs/knx-device-write-protocol.md §2.6/§1.1 (`00020001000500020008`
-  // decodes as `[count=2][gaIndex=1,coNumber=5][gaIndex=2,coNumber=8]`).
-  it("preserves the real declared entry order (coRows order, then a com object's own GA list order) - does NOT re-sort by GA index", () => {
-    // Real bug, found live 2026-08-30: this used to sort entries by GA
-    // index then CO number, discarding the real declared order entirely -
-    // a real captured ETS association table for a live device came back
-    // reordered by koolenex. Entry order is not incidental: it's the only
-    // encoding of which link a communication object actively sends on
-    // (docs/knx-device-write-protocol.md §6.3). `coRows` is already
-    // fetched `ORDER BY object_number` by the real caller (routes/bus.ts),
-    // which already matches real ETS's own order directly - this function
-    // must preserve that push order, not re-sort it.
+  // Wire format: [count:2 BE][gaIndex:2 BE][coNumber:2 BE]*count - GA index
+  // before CO number, both 2-byte fields, 1-based gaIndex (confirmed via
+  // byte decode: `00020001000500020008` = [count=2][gaIndex=1,coNumber=5]
+  // [gaIndex=2,coNumber=8]).
+  it("emits each object's primary GA link first (object_number order), then every multi-link object's remaining links in a second pass at the end - entry order is not incidental, it encodes which link a comm object actively sends on", () => {
+    // Entries must preserve declared order, not be re-sorted by GA index or
+    // CO number - real ETS emits every comm object's first link in
+    // object_number order, then defers every link past the first to a
+    // second pass at the end of the table (docs/knx-device-write-protocol.md
+    // §6.3). This fixture's object 7 (two links) exercises the deferred
+    // second-link case.
     const gaLinks: any[] = [
       { address: '1/0/0', main_g: 1, middle_g: 0, sub_g: 0 },
       { address: '1/0/1', main_g: 1, middle_g: 0, sub_g: 1 },
@@ -600,16 +583,17 @@ describe('buildAssocTable', () => {
       { object_number: 8, ga_address: '1/0/0' },
     ];
     const buf = buildAssocTable(coRows, gaLinks);
-    assert.equal(buf.readUInt16BE(0), 3); // 3 entries: GA1→CO7, GA2→CO7, GA1→CO8
+    assert.equal(buf.readUInt16BE(0), 3); // 3 entries: GA1→CO7, GA1→CO8, GA2→CO7
     assert.equal(buf.length, 2 + 3 * 4);
-    // Declared order: CO 7's own two links first (in the order its own
-    // ga_address list lists them), then CO 8's one link.
+    // Pass 1 (primary links, object_number order): CO 7's first link, then
+    // CO 8's (only) link. Pass 2 (remaining links, object_number order):
+    // CO 7's second link, deferred to the end.
     assert.equal(buf.readUInt16BE(2), 1); // gaIndex 1 (1/0/0)
     assert.equal(buf.readUInt16BE(4), 7); // coNumber 7
-    assert.equal(buf.readUInt16BE(6), 2); // gaIndex 2 (1/0/1)
-    assert.equal(buf.readUInt16BE(8), 7); // coNumber 7
-    assert.equal(buf.readUInt16BE(10), 1); // gaIndex 1 (1/0/0)
-    assert.equal(buf.readUInt16BE(12), 8); // coNumber 8
+    assert.equal(buf.readUInt16BE(6), 1); // gaIndex 1 (1/0/0)
+    assert.equal(buf.readUInt16BE(8), 8); // coNumber 8
+    assert.equal(buf.readUInt16BE(10), 2); // gaIndex 2 (1/0/1)
+    assert.equal(buf.readUInt16BE(12), 7); // coNumber 7
   });
 
   it('handles empty inputs', () => {

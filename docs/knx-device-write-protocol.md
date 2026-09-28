@@ -35,7 +35,9 @@ nothing there has been confirmed against a different manufacturer or mask versio
 eight devices in the Test hardware table above, across four manufacturers (Albrecht Jung, HDL,
 Gira, Weinzierl) as of 2026-09-01 — see those sections for the breakdown. §4.1a–§4.1c (chunk sizing, cached APDU length,
 the legacy write-encoding fix) are confirmed on HDL in addition to the two Jung devices. §9 (device
-addressing) is confirmed on HDL in addition to Jung.
+addressing) is confirmed on HDL in addition to Jung. §3.4 (Module architecture addressing) is
+confirmed against a separate Albrecht Jung module-architecture-based multi-gang pushbutton, mask
+`0x07B0` — real byte-for-byte parameter memory content, not merely protocol-level success.
 
 ## Some KNX terms used throughout
 
@@ -123,7 +125,8 @@ noted):
 | Property purpose | Notes |
 |---|---|
 | Serial number | Readback, matches the device's real serial |
-| Association-table capability descriptor (a property read on object 2) | Same single read every session, Full or Partial |
+| Property *descriptor* (not value) — object 2, property 23 | A `PropDescrRead`, not an ordinary value read — same single read every session, Full or Partial. Real decoded response shape: property index, PDT (type) code, element count, read/write access levels — a real, meaningful descriptor, not a placeholder. |
+| A property read on Object Type 17, instance 1, property 51 (`FuncPropExtRead OT=17 OI=1 P=51`) | Addressed by (Object Type, Object Instance) rather than a local object index, same mechanism as §6.2's router-config reads. Object Type 17 has not been identified against a KNX interface-object-type reference. Observed response: `$000000`. |
 | Application version marker (object 4) | Read here, written back verbatim later — see §4.3 |
 | A handful of other status fields | 🔴 Several of these values' exact meaning was never looked up against a KNX property reference — not required to understand the write path |
 
@@ -138,6 +141,46 @@ configured); the response carries a 1-byte access level (`0` = full access, obse
 capture). 🟢 Present in every real capture. 🔴 whether a device configured with a non-default
 access key would behave differently is untested (this testbed's devices are presumed
 factory-default).
+
+### 2.3 KNXnet/IP Tunnelling v2 feature negotiation 🟢
+
+A real, distinct KNXnet/IP service family — separate from the ordinary `TunnelReq`/`TunnelAck`
+traffic this document otherwise describes — is sent immediately after every real Tunnel connect,
+with no exceptions found across every real session checked so far:
+
+```
+Tunnel ConnectReq / ConnectResp
+TunnelFeatureGet  BusStatus
+TunnelFeatureResp BusStatus $01
+TunnelFeatureSet  InfoServiceEnable $01
+TunnelFeatureResp InfoServiceEnable $01
+```
+
+Real ETS reads a `BusStatus` feature, then explicitly **writes** `InfoServiceEnable` to `$01`
+(enabled). Found via a genuinely comprehensive, unfiltered full-session comparison (every TCP and
+KNXnet/IP frame, not a display-filtered subset). Implemented: this engine now sends both on every
+real Tunnel connect and decodes `TunnelFeatureResponse`/`TunnelingFeatureInfo` replies.
+
+🟢 **Confirmed, not speculative** (Qt KNX's own documentation, cross-checked against a real
+third-party KNX integration product surfacing this exact feature in a production error message):
+`InfoServiceEnable` is a subscribe toggle — once set, the KNXnet/IP server proactively sends an
+unprompted `TunnelingFeatureInfo` frame (service `0x0425`, defined in the spec, not observed in
+any capture analyzed so far since nothing changed mid-session) whenever a negotiated feature's
+value changes, with no polling needed. `BusStatus` itself maps to a real bus connection-health
+indicator (`QKnx::InterfaceFeature::BusConnectionStatus`) — a genuine connected/broken signal, not
+a decorative one.
+
+Real byte-level decode, this repo's own capture: `FeatureId 0x03` = `BusStatus` (observed value
+`0x01`, healthy/connected, at session start); `FeatureId 0x08` = `InfoServiceEnable` (real ETS sets
+it to `0x01`). Structure: `[StructLength(1)] [ChannelId(1)] [SeqCounter(2)] [FeatureId(1)]
+[Reserved(1)] [Value...]` — SeqCounter is a two-byte field (confirmed byte-for-byte against a real
+capture: a one-byte SeqCounter shifts every following field and is rejected by the gateway with a
+TunnelFeatureResp error).
+
+🔴 **Not yet confirmed**: whether this mechanism ever surfaces a real fault relevant to a write
+session — no capture analyzed so far shows a non-`0x01` `BusStatus` value or an unprompted
+`TunnelingFeatureInfo` push, since none was captured at the moment a real device actually failed.
+Watching for one during and after a real write is the natural next real-hardware test.
 
 ## 3. The load state machine
 
@@ -155,8 +198,8 @@ observed:
 
 Objects that need writing are unloaded first, in reverse index order (e.g. 4 then 3 then 2 then
 1), then loaded in a fixed order that is **not** simple ascending or descending index order
-(observed order: 4, then 3, then 1, then 2) 🟡 — likely dependency ordering between objects
-specific to the application, not verified against other configurations.
+(observed order: 4, then 3, then 1, then 2). This order is not computed per-session or derived
+from the application program — it comes from a literal, per-mask template; see §3.2.
 
 ### 3.1 Phases are batched across objects, not run one object at a time
 
@@ -180,6 +223,329 @@ resolve-all, write, LoadCompleted-all) across the whole batch, instead of a per-
 loop. Confirmed end to end afterward: a real Full Download against a genuinely blank, factory-reset
 device wrote all four objects cleanly in one run, and a subsequent Verify matched the parameter
 memory byte-for-byte (0 of 8178 bytes differing).
+
+### 3.2 Object processing order comes from a per-mask template, not the application program 🟢
+
+Every `.knxproj` project file bundles a shared catalog, `knx_master.xml`, alongside the
+manufacturer-specific application XML. This catalog defines each real KNX **mask version** (the
+underlying chip/BCU generation a device is built on, reported by `DeviceDescriptor_Response`, §2.1)
+once, shared across every manufacturer's application built for that chip — distinct from the
+application program itself, which only supplies its own parameter/communication-object content and
+a handful of small fragments (tagged with a `MergeId`) that get spliced into the mask's own
+template at marked points.
+
+For a given mask (e.g. `MV-07B0`, "System B"), the relevant structure is:
+
+```
+<MaskVersion Id="MV-07B0" ...>
+  <HawkConfigurationData>
+    <Procedures>
+      <Procedure ProcedureType="Load" ProcedureSubType="all" ...>
+        <LdCtrlConnect />
+        <LdCtrlMerge MergeId="1" />
+        <LdCtrlUnload LsmIdx="5" />
+        <LdCtrlUnload LsmIdx="4" />
+        ...
+        <LdCtrlRestart />
+      </Procedure>
+      <!-- further <Procedure> variants, see §3.2.1 -->
+    </Procedures>
+  </HawkConfigurationData>
+</MaskVersion>
+```
+
+Each `<Procedure>` is a **literal, ordered template** of `LdCtrl*` steps — the exact same step
+vocabulary used throughout this document (`LdCtrlUnload`/`LdCtrlLoad`/`LdCtrlWriteRelMem`/
+`LdCtrlLoadCompleted`/`LdCtrlRestart`, each naming the interface-object index it targets via
+`LsmIdx`/`ObjIdx`) — written out in file order. The object-processing order documented at the top
+of §3 is simply this template's own literal step order for the mask in question; it is not
+computed at runtime and does not vary by application, only by mask and by which `Procedure`
+variant is in effect (§3.2.1).
+
+#### 3.2.1 `ProcedureSubType` selects which template applies 🟢 (template content) / 🟡 (selection rule)
+
+A single mask declares **multiple** `Procedure` variants, distinguished by `ProcedureSubType`.
+Confirmed on `MV-07B0`:
+
+| `ProcedureSubType` | Objects touched | Content-aware (compares before writing)? |
+|---|---|---|
+| `all` | 5, 4, 3, 2, 1 | No — unconditional rewrite of everything |
+| `par` (parameters only) | 5, 4 | Yes — `LdCtrlLoadImageProp`+`LdCtrlCompareProp` on both before loading |
+| `grp` (group data only) | 3, 2, 1 | No |
+| `par,grp` (both) | 5, 4, 3, 2, 1 | Yes, on objects 5/4; unconditional on 3/2/1 |
+| `cfg` (property-based config) | none | `LdCtrlConnect` → `LdCtrlDisconnect` only — property-based writes (§4) never use this state machine at all |
+
+🟡 Which `ProcedureSubType` a real session actually uses for a given real download has not been
+independently confirmed by matching a specific capture against a specific template line-by-line —
+the table above documents the templates themselves (directly read from the catalog file, high
+confidence), not yet a proven mapping from "kind of download requested" to "which template runs".
+Treat the SubType names as strongly suggestive of their evident purpose, not as an independently
+verified selection rule.
+
+One structural detail worth noting precisely rather than assuming away: the `all` template issues
+`LdCtrlLoad`+`LdCtrlWriteProp` for object 5 but never a corresponding `LdCtrlLoadCompleted` for
+it — as written, object 5 is loaded and written to but never explicitly marked committed. This is
+the template's literal content, not a simplification made in this document.
+
+#### 3.2.2 Real code: `knx-mask-procedures.ts` computes this order rather than hand-declaring it 🟢
+
+Both download executors (the RelSegment/System-B inline path and the AbsSegment/`planDownload()`
+path) previously derived Unload/Load/content-write ordering from hand-written, per-observation
+rules — each individually correct against the capture it was built from, but not derived from a
+single source, and not universal: this project's own real capture corpus shows a genuinely
+different, ASCENDING order for mask `0x0705` (Gira), the opposite of `0x07B0`'s own descending
+convention — see a real ETS capture of a Gira smoke-alarm device (mask `0x0705`).
+This project's own real master data has no `Load` Procedure declared for that mask at all (only
+`Unload:all`) — confirming ordering genuinely is per-mask, not a hardcodable universal rule, and
+that a mask lacking a `Load` template is a real, expected case, not a parse failure.
+
+`server/knx-mask-procedures.ts` reads a mask's real `<Procedures>` template (§3.2 above) from
+this project's own saved `knx_master_<projectId>.xml` and splices an application program's own
+declared `<LoadProcedure MergeId="N">` steps in at the template's `LdCtrlMerge` points
+(`getMaskProcedure()`/`spliceAppSteps()`), giving a single, real-data-driven ordering source both
+executors draw from (`orderByMergedOps()`) in place of their own independent hand-picked sorts.
+Both executors keep their pre-existing hand-written ordering as a fallback — used whenever no
+project id is available, a device's mask is unknown, or (the Gira case above) the mask genuinely
+has no matching Procedure declared — so a device this module cannot resolve behaves exactly as
+before. `getMaskProcedure()`/`spliceAppSteps()` are unit-tested directly against this project's
+own real `knx_master_1.xml` for both mask `0x07B0` (confirms the descending Unload order 5,4,3,2,1
+straight from the real template) and mask `0x0705` (confirms no `Load` Procedure exists at all, for
+any subtype) — see `tests/knx-mask-procedures.test.ts`.
+
+### 3.3 Interface object 5 — the PEI Program 🟢 (existence/structure) / 🔴 (deeper semantics)
+
+Some masks declare a distinct interface object at index 5 for the **PEI Program** — "Physical
+External Interface" — the small piece of firmware managing an optional external
+interface/programming connector on the device baseboard, logically separate from the device's own
+application program (object 4). Whether a mask has this distinct object is a real, catalog-level
+fact, confirmed directly from `knx_master.xml`'s own `<Features>` block for each mask:
+
+- **`MV-07B0` ("System B")**: `<Feature Name="FirstAppObjectIdx" Value="6" />` — PEI Program is its
+  own object at index 5, separate from the application program at index 4. Confirmed by the
+  `Resources` block declaring a distinct set of `Peiprog*`-named resources (`PeiprogId`,
+  `PeiprogLoadControl`, `PeiprogRunControl`, `PeiprogDataPtr`, `PeiprogStamp`) mapped to that index.
+- **`MV-0705`**: `<Feature Name="FirstAppObjectIdx" Value="5" />` — the PEI Program and application
+  program share the same object, at index 4. No object 5 exists on this mask at all.
+
+This is corroborated by real capture behavior: devices on `MV-07B0` show an `Unload` targeting
+object 5 as the very first step of a session; a device confirmed on `MV-0705` (a smoke-alarm
+device, part 234300) shows no object-5 activity of any kind, consistent with the catalog data
+above.
+
+The object's own real standard identity (its interface object *type* number, as opposed to its
+table *index*) has not been independently confirmed from a primary source; it does respond
+correctly to ordinary load-state property reads/writes exactly like any other real interface
+object (not a decoy or a signal-only response), but nothing in the captures gathered so far reads
+back its actual type.
+
+**External corroboration** — checked against the KNX Association's own support content and
+independent third-party KNX/EIB technical sources, specifically to test whether "PEI = Physical
+External Interface, a mask-standard legacy object shared by every device on a mask regardless of
+the loaded application" could be a misreading of the catalog data above. It isn't — every external
+source found corroborates, none contradicts:
+
+- **KNX Association's own definition**: *"The PEI program controls the PEI (Physical External
+  Interface) between the BCU and the application module and is a separate program laying down the
+  actual functionality of the device."* — [support.knx.org, "Definition of PEI
+  program"](https://support.knx.org/hc/en-us/articles/4708906616338-Definition-of-PEI-program)
+- **The BCU/PEI hardware architecture**, independently: *"A BCU is a KNX bus coupling unit. It has
+  a KNX bus connector on one side and a 10 pole connector on the other side called PEI
+  interface... With the new version of BCU called BCU2, a new protocol (FT1.2) has been defined on
+  the PEI interface."* — [linknx wiki, "Accessing the KNX
+  Bus"](https://github.com/linknx/linknx-wiki/blob/main/Accessing-the-KNX-Bus.md)
+- **A direct match to the catalog-data finding above** — a KNX/EIB software-development source
+  states there are five general interface objects present on a device independent of any specific
+  application: device, address table, association table, application program, and PEI program —
+  the exact same fixed, mask-standard set this document's own `knx_master.xml` reading shows
+  (objects 0-5 mask-standard, `FirstAppObjectIdx="6"`).
+
+No external source found describes the PEI program as anything other than a standard, general
+interface object present on every BCU-family device regardless of the loaded application —
+consistent with, not contradicting, this section's own mask-XML-sourced conclusion.
+
+This does **not** resolve *why* the KNX Association's own mask designers chose to make Object 5's
+Unload unconditional in the mask's own procedure template in the first place — the catalog data
+shows THAT it's fixed, not the original design rationale — nor whether a real device on this mask
+family has an actual physically populated PEI connector, as opposed to purely vestigial firmware
+structure carried for backward compatibility.
+
+#### 3.3.1 Open question: the `all` template's `Load`+`WriteProp` steps for object 5 🔴
+
+The mask catalog's `all` template (§3.2.1) declares more for object 5 than has ever been observed
+on the wire. In full, as written:
+
+```xml
+<LdCtrlLoad LsmIdx="5" />
+<!-- ...intervening steps for other objects... -->
+<LdCtrlWriteProp ObjIdx="5" PropId="13" Verify="true" InlineData="0000000000" />
+<!-- note: no corresponding LdCtrlLoadCompleted LsmIdx="5" appears anywhere in this
+     template — object 5 is loaded and written to but never explicitly marked
+     committed, as literally written -->
+```
+
+Property 13 is `PID_PROGRAM_VERSION` — the same property already documented in §4.3 for object 4,
+where real ETS reads the current value early in a session and writes that *identical* value back
+before marking the object loaded (a version/identity re-stamp, not new functional content). If the
+object-5 step is the same mechanism, it would be a version stamp on the PEI Program object, not
+real configuration data — but this has never been confirmed, because:
+
+- Every real capture examined so far — including genuine real-ETS sessions, not just this engine's
+  own — shows object 5 receiving **only** the initial `Unload`. No capture has ever shown a
+  subsequent `Load`, `WriteProp`, or `LoadCompleted` targeting object 5.
+- An earlier controlled test (real hardware, a legacy-mask device unrelated to this mask family)
+  found that removing *just* the `Unload OX=5` step from an otherwise-verbatim real ETS replay made
+  no difference to whether the rest of the session's writes succeeded and confirmed correctly —
+  evidence against the `Unload` being load-bearing for that narrow question, but that test never
+  covered the `Load`/`WriteProp` steps at all, since ETS itself never sent them in the session being
+  replayed.
+
+**Net position**: it is not known whether real ETS ever actually executes the `Load`+`WriteProp`
+portion of this template in practice (as opposed to it being dead/conditional template content
+that never fires, e.g. suppressed by the same content-status/checksum mechanism documented in §7),
+or whether it simply has never been captured occurring. This engine deliberately does **not**
+implement these steps — only the `Unload`, which is the one part directly evidenced across every
+real capture available. Sending unproven additional writes to a real device is a bigger risk than
+omitting them without stronger evidence either way. **Further investigation is needed** — most
+directly, a real ETS capture of a session against a device where object 5's own content is known
+to differ from what's expected, to see whether ETS ever actually writes to it, and if so, under
+what condition.
+
+#### 3.3.2 Open question: is the Unload itself always unconditional? 🔴
+
+This engine currently sends `Unload(5)` unconditionally, once per Full Download, whenever the mask
+family is known to have the object (§3.3's `hasPeiProgramObject` gate). Every real capture examined
+supports this as a safe baseline — no capture has ever shown ETS skipping the Unload once a session
+against a System-B-family device begins.
+
+A real, open question this document does not attempt to answer: does real ETS ever skip the Unload
+conditionally, based on some content- or history-aware check (analogous to the content-status/
+checksum-gated skip §7 documents for objects 1-3), rather than sending it unconditionally on every
+session? A property-level check exists in principle — the object's own `PID_LOAD_STATE_CONTROL`
+(property 5) could in theory be read before deciding whether to Unload, the same shape as §7's own
+checksum-gated skip for other objects — but no real capture available to this project has ever
+shown ETS performing such a read against object 5 specifically, and no controlled real-hardware
+test has been run to distinguish "ETS genuinely always Unloads it" from "ETS conditionally Unloads
+it and every capture gathered so far happened to hit the same branch".
+
+**Deliberately not implemented**: any conditional/history-aware variant of the Unload decision.
+Given the real, demonstrated risk profile here — an incorrect Object-5 Unload decision was the
+prime suspect in a real device becoming permanently unresponsive early in this class of
+investigation, before the unconditional-Unload baseline was adopted — a change to this behavior
+needs its own dedicated real-hardware investigation (multiple independent sessions, serial-number-
+verified device identity, a deliberate before/after comparison against genuine ETS captures) before
+being implemented here, not a design lifted from a differently-scoped read of the mask template.
+Treat the current unconditional behavior as the considered, conservative default until such an
+investigation happens.
+
+### 3.4 Module architecture: parameter and communication-object addressing 🟢
+
+Some application programs are built from reusable, parameterized building blocks rather than one
+flat, monolithic parameter/communication-object list. The project data declares each reusable
+block once as a `<ModuleDef>` (under `<Static><ModuleDefs>`, a sibling of the application's own
+top-level `<Static>`), and then *instantiates* it — potentially more than once, for genuinely
+independent real channels/positions — via `<Module Id="..." RefId="...MD-n">` elements in the
+application's `<Dynamic>` tree. A real instantiation carries the specific numeric arguments that
+distinguish it from any other instance of the same `ModuleDef`:
+
+```xml
+<Module Id="{app}_MD-13_M-44" RefId="{app}_MD-13" Name="Rocker 1 — Switching">
+  <NumericArg RefId="{app}_MD-13_A-1" Value="340" />
+  <NumericArg RefId="{app}_MD-13_A-2" Value="65" />
+</Module>
+```
+
+`<Module>` elements are not necessarily direct children of `<Dynamic>` — they are commonly nested
+inside `<Channel>`, `<ChannelIndependentBlock>`, or `<choose>`/`<when>` blocks, at any depth. A
+`ModuleDef`'s own `<Dynamic>` section (nested inside the `<ModuleDef>` itself, a sibling of its own
+`<Static>`) can independently declare further conditional structure — including its own
+`<choose>` blocks — governing which of that module's own parameters/communication-objects are
+active, evaluated using that specific instance's own parameter values.
+
+**Addressing.** A `ModuleDef`'s own `<Parameter>` and `<ComObject>` declarations use small,
+block-relative placement values — real, but only meaningful relative to one instance's own base.
+The real, absolute placement for a given instance is that block-relative value plus the resolved
+value of a numeric argument, referenced by name:
+
+- A memory-mapped `<Parameter>`'s `<Memory>` child carries `Offset`/`BitOffset` (block-relative)
+  **and** `BaseOffset` — the Id of an `<Argument>` (declared on the enclosing `<ModuleDef>`) whose
+  real value for a given instance comes from that instance's own `<NumericArg>`. The parameter's
+  real absolute byte offset is `Offset + <resolved BaseOffset argument value>`.
+- A `<ComObject>` carries `Number` (block-relative) and `BaseNumber` — the same mechanism, for the
+  communication object's real absolute number.
+- A `<Union>`'s own member `<Parameter>` elements conventionally declare a direct `Offset="0"`
+  attribute rather than their own `<Memory>` child; in that case `BaseOffset` (and the union's own
+  block-relative `Offset`) are declared on the **enclosing `<Union>`'s** `<Memory>` element instead,
+  and apply to every member.
+
+This means the same `ModuleDef` instantiated twice (e.g. two independently-wired physical channels
+using the same reusable function) resolves to two genuinely different, non-overlapping address
+ranges — provided each instantiation's own `BaseOffset`/`BaseNumber` argument is resolved
+correctly. Resolving only the block-relative `Offset`/`Number` value, without the argument
+addition, collapses every instance of a given `ModuleDef` onto the same address — including
+distinct, unrelated `ModuleDef`s that happen to declare the same small block-relative value.
+
+**Real per-instance identity.** A device's own project data (device-instance-level, not the
+application program itself) references a specific instantiated communication object or parameter
+using its real, fully-qualified id: `{ModuleDef}_{Module instance}_MI-{n}_{object/parameter}`,
+e.g. `MD-13_M-44_MI-1_UP-59_R-68`. The `MI-` (module instance) component distinguishes genuinely
+repeated real-world content within a single `<Module>` instantiation; in observed real project
+data it is consistently `1`.
+
+**Determining which instances are genuinely active on a given device.** A `<Module>`
+instantiation's own activation, and any further conditional selection nested inside that
+`ModuleDef`'s own `<Dynamic>` section (e.g. a per-instance choice among several possible
+sub-behaviors for one channel), is decided the same way as any other conditional content in this
+project format: by evaluating the enclosing `<choose>` against the real, current value of its
+selector parameter — falling back to that parameter's own declared default when the project data
+carries no explicit override for it. Because each real instantiation can carry its own,
+independent selector value, this evaluation must be performed per instance, not once for the whole
+device — two real instances of the same `ModuleDef` can legitimately resolve to different active
+alternatives. A communication object's mere presence in the device's own object-reference list is
+not by itself sufficient to determine which parameter-level alternative is active for that
+instance, since a module can be genuinely active with every one of its own parameters left at
+their declared defaults.
+
+**`ParameterRef` vs `Parameter` default value.** A `<Parameter>` declares its own factory
+`Value=`; separately, a `<ParameterRef Id="..." RefId="...">` — the element the application's
+`<Dynamic>` tree actually references — can independently declare its own `Value=`, which need not
+match the `Parameter` it points to. (Multiple distinct `ParameterRef`s commonly point at the same
+underlying `Parameter`, each with its own `Value=`, gated by different `<choose>` branches or
+reachable unconditionally — this is the mechanism behind several internal, non-user-facing
+"application instance" bookkeeping parameters.) When no explicit per-device override exists for a
+given `ParameterRef`, the value actually written to the device is:
+
+- the `ParameterRef`'s own `Value=`, whenever that specific ref is genuinely reachable through the
+  application's `<Dynamic>` tree — whether unconditionally, or through a matched `<choose>` branch;
+- otherwise (an `Offset`-based, non-`<Memory>`-child parameter never reached by the `<Dynamic>` tree
+  walk at all) the underlying `Parameter`'s own factory `Value=`.
+
+**`BaseValue` — a Parameter's value resolved from a module argument.** A `<Parameter>` inside a
+`<ModuleDef>` can carry a `BaseValue="..."` attribute referencing one of that `ModuleDef`'s own
+`<Argument>`s, instead of (or as well as) its own literal `Value=`. When present, that Parameter's
+real value for a given real instantiation comes from the instantiation's own `<NumericArg>` for
+that Argument — never from a `ParameterInstanceRef` override. This is the same per-instance
+resolution mechanism `BaseOffset` uses for addressing (§3.4), applied to a parameter's value rather
+than its memory offset — commonly used to drive a `<choose>` selecting between two otherwise-
+identical alternatives (e.g. two different valid ranges for the same logical setting) without
+requiring an explicit per-device override for every instance.
+
+**Float parameter encoding.** A `<ParameterType>`'s `<TypeFloat>` element declares its own
+`Encoding=` attribute, and this determines the real wire size — it is not always the 2-byte KNX
+DPT 9 format. `Encoding="DPT 9"` is the standard 2-byte floating-point format; `Encoding="IEEE-754
+Single"` is a full 4-byte IEEE-754 single-precision float, written and read as a plain 32-bit
+float with no DPT 9 mantissa/exponent packing at all. A `SizeInBit=` attribute, when present,
+always takes precedence over the size implied by the encoding.
+
+**A Union member's own reachability, when it is itself a `<choose>` selector.** A `<Union>`
+member `<Parameter>` can independently serve as the selector for its own `<choose>`, declared as a
+separate, syntactically unconnected part of the application's `<Dynamic>` tree — nothing in the
+static structure ties a losing Union member's own choose to the fact that it lost the Union
+selection. Evaluating "is this Ref reachable" therefore requires knowing which Union member has
+genuinely won its own selection first: a losing member's own choose must be excluded entirely
+(neither its matched branch nor its default branch contributes to reachability for anything),
+since real ETS never evaluates it. Determining Union winners and correcting reachability for this
+case are sequential, not simultaneous — winner determination needs the uncorrected reachability
+first.
 
 ## 4. Wire format reference
 
@@ -265,8 +631,7 @@ koolenex writing to those devices). What would actually settle it as a rule, not
 real device/app with `IsSecureEnabled=false` (or absent) and a LARGE parameter segment, or one
 with `IsSecureEnabled=true` and a SMALL segment — neither combination has ever been tested.
 Re-test against a new device/app before trusting this in any context where a silent write failure
-would matter. Tracked in the `knx-ets-manager` repo's `CLAUDE.md` ("Track B write-path status"
-section, standing-gaps list) too — update both if this gets confirmed or disproven.
+would matter.
 
 **Update 2026-09-01 — sample considerably broadened, including a same-manufacturer control test,
 still an inference not a confirmed rule.** Real captures now cover all eight devices in the Test
@@ -509,16 +874,14 @@ address when the real decoded address, from the raw bytes, was a different one).
 capture tool's own summary/quick-view for a memory-write address — always manually decode the
 raw bytes.
 
-**Real per-chunk flow control is required, not a fixed pace** 🟢: sending write chunks as a fast,
-fire-and-forget burst (no wait for each chunk's own response) measurably outruns a device's own
-processing rate — the device falls behind, and any read issued to it while backlogged (e.g. the
-next object's `PID_TABLE_REFERENCE` resolve, §3.1) goes unanswered, indistinguishable from an
-unallocated address. Real ETS avoids this by waiting for each chunk's own write response before
-sending the next one — confirmed directly from a real capture: per-chunk response time varies
-observably (56ms–279ms), never a fixed pace. A per-chunk `await` on the matching
-`Memory_Response`/`MemoryExtended_Write_Response` (generous timeout, tolerant catch-and-continue —
-occasionally missing one response should not abort the whole download) matches this behavior.
-Implemented in `downloadDevice()`'s memory-write loop (`server/knx-connection.ts`).
+**Real per-chunk flow control is required, not a fixed pace** 🟢: a fast, fire-and-forget burst
+(no wait for each chunk's response) outruns a device's processing rate — the device falls behind,
+and any read issued while backlogged (e.g. the next object's `PID_TABLE_REFERENCE` resolve, §3.1)
+goes unanswered, indistinguishable from an unallocated address. Real ETS waits for each chunk's
+write response before sending the next; per-chunk response time varies observably (56ms–279ms),
+never a fixed pace. Implemented as a per-chunk `await` on the matching
+`Memory_Response`/`MemoryExtended_Write_Response` (generous timeout, tolerant catch-and-continue)
+in `downloadDevice()`'s memory-write loop (`server/knx-connection.ts`).
 
 **Real per-chunk size: up to 228 bytes** 🟢. Decoded every `MemoryExtended_Write` chunk size
 directly from a real ETS Full Download capture
@@ -756,7 +1119,9 @@ these scale with parameter memory size or network conditions is untested.
 
 ### 6.1 Object 4 — application parameter memory
 
-The largest object, holding every user-configured setting. 🟢 **A Full Download only writes bytes
+The largest object, holding every user-configured setting. For an application built from
+`ModuleDef`s rather than a flat parameter list, see §3.4 for how a parameter's real absolute
+offset within this object is computed. 🟢 **A Full Download only writes bytes
 that actually differ from what's already on the device** — confirmed directly (a real "clean"
 Full Download, with zero actual configuration changes, wrote a single differing byte, not the
 whole multi-thousand-byte segment) and confirmed history-independent: a device carrying stale or
@@ -849,7 +1214,9 @@ memory location" property, stable across sessions). The size is computable direc
 `size = 2 × (highest communication-object number the configuration statically declares) + 2` —
 deliberately the configuration's total possible range, not a given device's currently-linked
 subset (space is pre-allocated for every communication object the configuration could ever
-expose). Confirmed exact against both real testbed devices.
+expose). Confirmed exact against both real testbed devices. For a `ModuleDef`-based communication
+object, "number" here means the real, fully-resolved value (block-relative `Number` plus the
+resolved `BaseNumber` argument — see §3.4), not the block-relative placeholder alone.
 
 **Record layout** — a 2-byte header followed by 2 bytes per communication object:
 
@@ -1258,13 +1625,10 @@ Real capture files backing every 🟢-tagged claim above live in this project's 
 captures/` directory, organized by date and topic — session bootstrap and the overall Full/
 Partial Download walkthrough (§1–§5), memory-service/mask-version gating (§4.1), group-address
 and association table formats (§6.2–§6.3), the per-communication-object flags table's full
-bit-mapping (§6.4), the content-status/checksum mechanism and its safety-net rewrite trigger
-(§7), and the tshark address-mis-display gotcha (§8). §9's 🟢 claims are sourced from live tests
-against real hardware via this app's own routes, plus a real tshark capture of ETS's own
-commissioning traffic (factory reset + full download) that settled the exact wire format. §9.3's
-factory-reset procedure and §9.4's real address-write sequence are each sourced from a separate,
-dedicated capture against an HDL device (2026-08-31) - see those subsections' own capture-file
-references. The
-dated files under `docs/follow-ups/*.md` consolidate the full investigation narrative,
-including dead ends and exact chronology, for anyone who wants the "how this was found" story
-rather than just the current facts above.
+bit-mapping (§6.4), the content-status/checksum mechanism and its safety-net rewrite trigger (§7),
+and the tshark address-mis-display gotcha (§8). §9's 🟢 claims are sourced from live tests against
+real hardware via this app's own routes, plus a real tshark capture of ETS's own commissioning
+traffic (factory reset + full download) that settled the exact wire format; §9.3/§9.4 each have
+their own dedicated HDL capture (see those subsections' references). The dated files under
+`docs/follow-ups/*.md` hold the full investigation narrative for anyone who wants "how this was
+found" rather than just the current facts above.

@@ -29,18 +29,13 @@ const upload = multer({
   limits: { fileSize: MAX_UPLOAD_BYTES },
 });
 
-// Shared insert logic used by both import and reimport. Exported (test-only
-// convention, matching e.g. knx-cemi.ts's `_apduPropertyValueWrite`) so a
-// script can drive a real parse+insert without going through Express/multer.
+// Shared insert logic used by both import and reimport. Exported for
+// scripts to drive a real parse+insert without Express/multer.
 /**
- * Every table keyed by project_id. Two places wipe a project's rows - a
- * reimport, which replaces the imported content, and DELETE /projects/:id,
- * which removes everything - and each used to carry its own hand-written
- * list of DELETEs: eight tables in one, ten in the other. Adding a
- * per-project table meant editing both, with nothing to catch it if you
- * edited only one. tests/project-tables.test.ts now asserts this list
- * against the live schema, so a new table with a project_id column fails
- * the suite until it is listed here.
+ * Every table keyed by project_id. Reimport and DELETE /projects/:id both
+ * wipe a project's rows from this list; tests/project-tables.test.ts
+ * asserts it against the live schema so a new project_id table can't be
+ * forgotten here.
  *
  * com_objects leads: deleteProjectRows also sweeps it by device, which needs
  * the devices rows to still exist.
@@ -60,12 +55,7 @@ export const PROJECT_TABLES = [
 
 export type ProjectTable = (typeof PROJECT_TABLES)[number];
 
-/**
- * What a reimport leaves alone. Reimporting replaces a project's imported
- * content; the record of what has happened to it - the telegrams captured
- * off the bus and the audit trail - is not part of the .knxproj and
- * survives.
- */
+/** Tables a reimport leaves alone: captured bus telegrams and the audit trail aren't part of the .knxproj. */
 export const REIMPORT_KEEPS: readonly ProjectTable[] = [
   'bus_telegrams',
   'audit_log',
@@ -81,10 +71,8 @@ export function deleteProjectRows(
   projectId: number,
   keep: readonly ProjectTable[] = [],
 ): void {
-  // com_objects carries its own project_id, but sweep by device as well:
-  // DELETE /projects/:id always did, and a row whose project_id ever went
-  // stale would otherwise outlive the device it belongs to. Before the
-  // loop, while devices is still populated.
+  // Sweep com_objects by device too, before the loop deletes devices - a
+  // row with a stale project_id would otherwise outlive its device.
   if (!keep.includes('com_objects'))
     run(
       'DELETE FROM com_objects WHERE device_id IN (SELECT id FROM devices WHERE project_id=?)',
@@ -168,12 +156,8 @@ export function insertParsedData(
         d.is_power_supply ? 1 : 0,
         d.is_coupler ? 1 : 0,
         d.is_rail_mounted ? 1 : 0,
-        // Real request, 2026-08-31: `LastUsedAPDULength`, off the real
-        // `<DeviceInstance>` XML - was already parsed (ets-parser.ts) but
-        // silently dropped before this insert, never persisted. See
-        // db.ts's migration comment for the real evidence this is worth
-        // keeping (an exact match against a live PID_MAX_APDULENGTH
-        // read for one real device).
+        // `LastUsedAPDULength` from `<DeviceInstance>` XML; matches a live
+        // PID_MAX_APDULENGTH read, so used as a cached per-device chunk ceiling.
         d.apdu_length || '',
       ],
     );
@@ -241,13 +225,12 @@ export function insertParsedData(
         co.write ? 1 : 0,
         co.comm ? 1 : 0,
         co.tx ? 1 : 0,
-        // `upd`, not `update` - see the DB-column-naming comment in db.ts.
-        co.update ? 1 : 0,
+        co.update ? 1 : 0, // column is `upd`, not `update` - see db.ts naming comment
       ],
     );
   }
 
-  // Insert topology
+  // Topology
   for (const t of topologyEntries || []) {
     run(
       'INSERT OR REPLACE INTO topology (project_id, area, line, name, medium) VALUES (?,?,?,?,?)',
@@ -424,10 +407,6 @@ router.put('/projects/:id', (req: Request, res: Response) => {
     'SELECT name FROM projects WHERE id=?',
     [id],
   );
-  // Every sibling PUT 404s on an unknown id. This one used to run the
-  // UPDATE against nothing, write an audit row against the project that
-  // does not exist, and answer 200 with a null body - the same shape the
-  // device status PATCH was fixed out of in 1be98b6.
   if (!oldProj) {
     res.status(404).json({ error: 'Not found' });
     return;
@@ -454,9 +433,8 @@ router.delete('/projects/:id', (req: Request, res: Response) => {
     run('DELETE FROM projects WHERE id=?', [pid]);
   });
   invalidateGaDptCache();
-  // The project's knx_master_<id>.xml is left on disk (ids are AUTOINCREMENT,
-  // so nothing can inherit it), but its parsed form should not sit in memory
-  // for the rest of the process.
+  // knx_master_<id>.xml is left on disk (ids are AUTOINCREMENT, so nothing
+  // reuses this id), but drop its cached parsed form from memory.
   clearMasterDataCaches(pid);
   res.json({ ok: true });
 });
@@ -468,17 +446,11 @@ router.delete('/projects/:id', (req: Request, res: Response) => {
 // GET /projects/import/:importId/status.
 
 /**
- * The upload handler for both /projects/import and
- * /projects/:id/reimport. The two differ by three things - reimport
- * resolves and checks the project, passes its id into the job, and names
- * itself in the log line - and were otherwise the same forty lines twice
- * over, down to the 409 body and both 400 messages.
- *
- * Check order is preserved exactly as each route had it: the id resolves
- * first (so a bad :id is a 400 before anything reads the upload), then the
- * file and its extension, then the project's own existence. A reimport
- * posted with no file to a project that does not exist still answers "No
- * file uploaded", not 404.
+ * Shared upload handler for /projects/import and /projects/:id/reimport;
+ * reimport additionally resolves/checks the project and passes its id into
+ * the job. Check order: id resolution, then file/extension, then project
+ * existence - a reimport with no file to a missing project still answers
+ * "No file uploaded", not 404.
  */
 function importRoute(mode: 'import' | 'reimport') {
   return (req: Request, res: Response): void => {

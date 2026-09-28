@@ -92,12 +92,16 @@ describe('LS-Touch: parameter model', () => {
   it('carries a declared value for every ParameterRef that has one', () => {
     const refValues: Record<string, string> = model.paramRefValues;
     assert.equal(Object.keys(refValues).length, 3147);
-    // Every memory-mapped ref with a non-empty default is covered.
+    // Compares against `l.refValue ?? l.defaultValue`, not `l.defaultValue`
+    // alone: `defaultValue` is always the Parameter's own factory value,
+    // while `paramRefValues` (like `refValue`) is the ParameterRef's own
+    // declared value - the two only coincide when a ref has no override.
     for (const [key, l] of Object.entries(layout)) {
-      if (l.defaultValue === '' || l.defaultValue == null) continue;
+      const expected = l.refValue ?? l.defaultValue;
+      if (expected === '' || expected == null) continue;
       assert.equal(
         refValues[key],
-        String(l.defaultValue),
+        String(expected),
         `${key} disagrees with its layout default`,
       );
     }

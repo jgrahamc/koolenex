@@ -2,8 +2,8 @@ import path from 'path';
 import fs from 'fs';
 import { XMLParser } from 'fast-xml-parser';
 import type { DptInfoEntry, MaskVersionEntry } from '../../shared/types.ts';
-// The PARSED catalogue shapes (no project_id yet), not the stored rows of
-// the same name in shared/types.ts - this is what inserts them.
+// Parsed catalogue shapes (no project_id yet), distinct from the stored
+// rows of the same name in shared/types.ts.
 import type { CatalogSection, CatalogItem } from '../ets-hardware.ts';
 export type { MaskVersionEntry };
 import { logger } from '../log.ts';
@@ -27,10 +27,7 @@ export function saveMasterXml(
 ): void {
   if (!xml) return;
   fs.writeFileSync(masterXmlPath(projectId), xml);
-  // Everything parsed out of this file for this project is now stale. Doing
-  // it here rather than at the call sites means a reimport, a catalog
-  // import, or any future writer cannot forget it - this is the one place
-  // the file changes.
+  // Invalidate cached derivations here, not at call sites, so no writer can forget.
   clearMasterDataCaches(projectId);
 }
 
@@ -69,17 +66,9 @@ export const _maskVersionCache: Record<
 > = {};
 
 /**
- * Drop everything cached from one project's master XML (or from every
- * project's, with no argument).
- *
- * The caches above are populated on first read and were never cleared: a
- * reimport into an existing project id rewrites knx_master_<id>.xml, but
- * /dpt-info, /space-usages, /translations, /medium-types and /mask-versions
- * went on serving the previous import's data for the life of the process.
- * saveMasterXml calls this, so the caches follow the file.
- *
- * Numeric and string project ids land on the same JS object key, so
- * clearing by either form clears both.
+ * Drop cached master-XML derivations for one project, or all projects if
+ * no id given. Numeric and string project ids share the same JS object
+ * key, so either form clears both.
  */
 export function clearMasterDataCaches(projectId?: string | number): void {
   const caches: Record<string | number, unknown>[] = [
@@ -134,17 +123,9 @@ interface XmlElement {
 }
 
 /**
- * Read-parse-cache wrapper around a project's ETS master XML.
- *
- * Every master-data lookup (DPT info, space usages, translations, medium
- * types, mask versions) opened with the same six lines: cache probe,
- * readMasterXml, parseMasterXml, drill into KNX.MasterData, and a fallback
- * for a project with no master XML on record. `extract` receives that
- * MasterData node and returns the finished, cacheable value; `empty` builds
- * the value used when the project has no master XML.
- *
- * Note the caches are per-project and never invalidated - a value computed
- * here is served for the lifetime of the process.
+ * Read-parse-cache wrapper around a project's ETS master XML. `extract`
+ * receives the MasterData node and returns the cacheable value; `empty`
+ * covers a project with no master XML on record.
  */
 export function cachedMasterData<T>(
   cache: Record<string | number, T>,
@@ -259,11 +240,8 @@ export function makeUpdateBuilder<T extends object>(old: T): UpdateBuilder {
 }
 
 // ── Pending-change tracking (device_pending_changes) ────────────────────────────
-// Real request, 2026-09-01, replacing an earlier same-day design that read the
-// device's current memory content and diffed it against the computed target:
-// "I don't want to store a device memory cache. I want to log changes in our
-// DB (e.g. by edits). That is all I am interested in." - see the table's own
-// doc comment (db.ts) for the full data-model reasoning.
+// Tracked as a log of edits (device, kind, key), not a cached copy of device
+// memory diffed against the computed target - see db.ts's table comment.
 export interface PendingChangeInput {
   kind: string;
   key: string;
@@ -271,15 +249,10 @@ export interface PendingChangeInput {
   newVal: unknown;
 }
 
-// Upserts one (device, kind, key) row. `baseline_value` is set ONCE, from
-// `oldVal`, the first time this key is edited since its last successful
-// download - never overwritten by a later edit to the SAME key, so it always
-// reflects "what this key held before any of today's pending edits", not
-// "what it held before the most recent one". Real request, verbatim: "if
-// user re-edits a previous change back to original value, we clear the
-// tracking/undo modified status" - if a later edit's `newVal` matches that
-// preserved baseline, the row is deleted outright rather than left as a
-// stale no-op entry.
+// Upserts one (device, kind, key) row. `baseline_value` is set once, from
+// the first `oldVal` since the last successful download, and never
+// overwritten by later edits to the same key. If a later edit's `newVal`
+// matches that baseline, the row is deleted (net-zero edit).
 function trackPendingChange(
   deviceId: number,
   kind: string,
@@ -304,7 +277,7 @@ function trackPendingChange(
     }
     return;
   }
-  if (newJson === oldJson) return; // not a real change - nothing to track
+  if (newJson === oldJson) return; // no real change
   db.run(
     'INSERT INTO device_pending_changes (device_id, kind, key, baseline_value, current_value) VALUES (?,?,?,?,?)',
     [deviceId, kind, key, oldJson, newJson],
@@ -319,7 +292,7 @@ export function hasPendingChanges(deviceId: number): boolean {
   return !!row && row.c > 0;
 }
 
-/** All pending rows for a device - used by resolvePendingWriteRanges() (routes/bus.ts) to build a partial download's write set. */
+/** All pending rows for a device - feeds resolvePendingWriteRanges() (routes/bus.ts) for a partial download's write set. */
 export function getPendingChanges(
   deviceId: number,
 ): Array<{ kind: string; key: string }> {
@@ -329,61 +302,28 @@ export function getPendingChanges(
   );
 }
 
-// Called once a download (full or partial) actually completes - "log
-// changes... until we have programmed successfully" (real request,
-// verbatim). A download that throws/fails never reaches this, so pending
-// rows correctly survive a failed attempt for the next try.
+// Called once a download (full or partial) completes; a failed download
+// never reaches this, so pending rows survive for the next attempt.
 export function clearPendingChanges(deviceId: number): void {
   db.run('DELETE FROM device_pending_changes WHERE device_id=?', [deviceId]);
 }
 
-// Real request, 2026-08-31: editing a com object's flags/priority, GA
-// links, or parameter values previously left the device's own PROGRAMMED/
-// MODIFIED badge untouched - that badge (devices.status) was only ever
-// written by an explicit Verify/Program call, so a local edit that a
-// Verify hadn't yet run against sat silently unreflected in the UI. User
-// feedback, verbatim: "If we make a change, we need to indicate this
-// somehow" - waiting for a live Verify to reveal the drift isn't good
-// enough; the moment we know a target diverges from the last-known-good
-// state, the UI should say so. Called from every route that edits data
-// feeding into a real device write (com-object flags, GA links, param
-// values) right after it confirms a genuine change was made. Only flips
-// 'programmed' -> 'modified' - 'unassigned'/other statuses are left alone
-// (nothing to mark dirty if the device was never programmed in the first
-// place), and it's a no-op (no audit spam) if the device is already
-// 'modified'.
+// Called after any edit to com-object flags/priority, GA links, or
+// parameter values, so devices.status reflects drift immediately rather
+// than waiting for the next Verify/Program. Only flips
+// 'programmed' -> 'modified'; other statuses are left alone. Also clears
+// last_verify_match/last_verify_at, since a manual edit invalidates the
+// last verify result regardless of the status transition.
 //
-// Extended 2026-09-01, same real reasoning applied to the new persisted
-// verify indicator: a manual edit invalidates whatever the last verify
-// found, whether or not the status transition above actually fires (a
-// device already 'modified' from an earlier edit can still carry a real
-// last_verify_match from a verify that ran since - editing it again must
-// still clear that). Real user instruction, verbatim: "Yes to clear last
-// verify on each download AND if any changes made (edits) manually after
-// verification." Unconditional (not gated on dev.status), since this
-// function is only ever called after a caller has already confirmed a
-// genuine change was made - the caller doesn't need to also predict
-// whether a verify result exists first.
+// Single choke-point for pending-change tracking (device_pending_changes):
+// callers pass per-key before/after values here instead of tracking
+// themselves. Handles both directions - if tracking leaves zero pending
+// rows (every edit reverted to its baseline), a 'modified' device reverts
+// to 'programmed' too. Does not restore a cleared last_verify_match on
+// revert; `verifyCleared` reports only what this call did.
 //
-// Extended 2026-09-01: now also the single choke-point for pending-change
-// tracking (device_pending_changes) - every caller below passes its own
-// per-key before/after values here instead of tracking them itself.
-// Real request, verbatim: "please build in logic such that if user re-edits
-// a previous change back to original value, we clear the tracking/undo
-// modified status" - this now handles BOTH directions, not just
-// programmed->modified: if tracking the given changes leaves the device
-// with zero pending rows (every outstanding edit has been reverted back to
-// its own baseline), a 'modified' device reverts to 'programmed' too, with
-// its own audit entry. Deliberately does NOT try to restore a previously-
-// cleared last_verify_match on a revert - the right call, since
-// verify describes a real bus round-trip; a net-zero edit
-// history doesn't recreate the evidence a real Verify would have to
-// provide fresh) - `verifyCleared` reports what happened in THIS call only.
-//
-// Returns the resulting status (for the frontend's SET_DEVICE_STATUS) and
-// whether a verify result was actually cleared (for the frontend to also
-// null out its own cached last_verify_match/last_verify_at without a
-// separate reload).
+// Returns the resulting status (for SET_DEVICE_STATUS) and whether a
+// verify result was cleared (so the frontend can null its own cache).
 export function markDeviceModifiedIfProgrammed(
   pid: number,
   deviceId: number,
@@ -429,10 +369,8 @@ export function markDeviceModifiedIfProgrammed(
     return { status: 'modified', verifyCleared };
   }
 
-  // No pending changes remain - if THIS call's own tracking was what
-  // brought the count to zero (every outstanding edit reverted to its own
-  // baseline), undo the modified status. A device not currently 'modified'
-  // (e.g. 'unassigned') is left alone, same as the forward direction above.
+  // Zero pending changes remain - revert 'modified' back to 'programmed'.
+  // Other statuses (e.g. 'unassigned') are left alone.
   if (dev.status === 'modified') {
     db.run('UPDATE devices SET status=? WHERE id=?', ['programmed', deviceId]);
     db.audit(
@@ -448,15 +386,9 @@ export function markDeviceModifiedIfProgrammed(
 }
 
 /**
- * Insert a parsed catalogue's sections and items for a project.
- *
- * Shared because two paths write the same two tables from the same parsed
- * shape: a full .knxproj import (insertParsedData in projects.ts) and a
- * .knxprod catalogue import (POST /projects/:id/catalog/import). Both loops
- * were written out in full in each place, seventeen bound columns apiece.
- *
- * INSERT OR REPLACE: a catalogue import over an existing project updates the
- * products it knows about and leaves the rest alone.
+ * Insert a parsed catalogue's sections and items for a project. Shared
+ * between a full .knxproj import and a .knxprod catalogue import.
+ * INSERT OR REPLACE: updates known products, leaves the rest alone.
  */
 export function insertCatalog(
   run: (sql: string, params?: unknown[]) => unknown,

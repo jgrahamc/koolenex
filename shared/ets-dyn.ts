@@ -1,15 +1,8 @@
 /**
  * ETS Dynamic-section condition evaluation, shared by the server (which
  * builds a device's download image from it) and the client (which builds
- * the parameter UI from it).
- *
- * This lived in four places until 2026-09-09 - server/routes/knx-tables.ts,
- * a nested copy in server/ets-app.ts's evalDynamic,
- * client/src/detail/DeviceParameters.tsx, and a private near-identical copy
- * inside each of five test files, which described themselves as
- * "replicate client logic". A device's parameter memory image and the UI
- * that edits it have to agree about which parameters are active, so the
- * predicate they agree by belongs in one place.
+ * the parameter UI from it) - both must agree on which parameters are
+ * active, so the predicate lives in one place.
  */
 
 /**
@@ -46,15 +39,12 @@ export function etsTestMatch(
 
 // ── ETS dynamic tree ────────────────────────────────────────────────────────
 // The stored model shape is a single recursive `items` array of tagged
-// DynItems: dynTree.main.items -> DynItem[], where each item's `type` is one
-// of cib/channel/block/choose/paramRef/assign/comRef/rename/separator. This
-// mirrors the `DynItem` union emitted by server/ets-app.ts - NOT the legacy
-// channels/cib/pb + paramRefs/blocks/choices shape that emission never
-// actually produces.
+// DynItems: dynTree.main.items -> DynItem[], each item's `type` one of
+// cib/channel/block/choose/paramRef/assign/comRef/rename/separator. Mirrors
+// the `DynItem` union emitted by server/ets-app.ts.
 //
-// Lives here rather than in server/routes/knx-tables.ts because the client's
-// parameter UI (client/src/detail/paramUI.ts) walks the same tree, and had
-// been typing every step of that walk `any` for want of these.
+// Shared here (rather than routes/knx-tables.ts) because the client's
+// parameter UI (client/src/detail/paramUI.ts) walks the same tree.
 
 /** One row or column of a Table-layout block. */
 export interface TableCellSpec {
@@ -78,9 +68,16 @@ export interface DynItem {
     | 'assign'
     | 'comRef'
     | 'rename'
-    | 'separator';
+    | 'separator'
+    | 'module';
   // paramRef
   refId?: string;
+  // module - a <Module> instantiation nested inside a <choose>/<Channel>
+  // branch. The App-level module-instance id ("{appId}_MD-x_M-y", matching
+  // ParamModel.modArgs' key shape) - exists purely so
+  // evalConditionallyActiveModuleInstances() (routes/knx-tables.ts) can
+  // find it.
+  modId?: string;
   // block / channel / cib
   items?: DynItem[];
   // choose
@@ -88,9 +85,8 @@ export interface DynItem {
   defaultValue?: string | null;
   /**
    * The controlling parameter is <TypeNone/>, so it has no value and the
-   * choose's `default` branch is the one it declares - see ets-app.ts's
-   * DynItemChoose.controllerValueless. Absent on app models cached before
-   * 2026-09-12.
+   * choose's `default` branch is the one it declares - see
+   * ets-app.ts's DynItemChoose.controllerValueless.
    */
   controllerValueless?: boolean;
   whens?: DynWhen[];

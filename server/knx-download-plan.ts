@@ -1,57 +1,46 @@
 /**
- * planDownload — PURE telegram-planning function for the AbsoluteSegment
- * (MDT-style) device download / load-state-machine sequence.
+ * planDownload — pure telegram planner for the AbsoluteSegment (MDT-style)
+ * device download / load-state-machine sequence.
  *
- * This module performs NO I/O: it takes the parsed load-procedure steps plus
- * the already-built GA/association/parameter memory images and returns an
- * ordered list of `PlannedOp`s describing exactly what the executor
- * (`KnxConnection.downloadDevice`) must send. Keeping this logic side-effect
- * free is what makes it possible to validate byte-for-byte against captured
- * ETS6 telegrams (see tests/knx-download-plan.test.ts) without ever opening a
- * socket to a bus or device.
+ * No I/O: takes parsed load-procedure steps plus prebuilt GA/association/
+ * parameter memory images and returns an ordered list of `PlannedOp`s for
+ * the executor (`KnxConnection.downloadDevice`) to send. Side-effect-free so
+ * it can be diffed byte-for-byte against captured ETS6 telegrams (see
+ * tests/knx-download-plan.test.ts) with no socket involved.
  *
- * ── Protocol notes (reverse-engineered from ETS6 gold telegrams) ──────────
+ * ── Protocol notes ──────────────────────────────────────────────────────
  *
- * ETS drives PID 5 (LoadStateControl) on each load-controllable interface
- * object with a 10-byte payload `[event][9-byte LoadControlData]`:
+ * PID 5 (LoadStateControl) payload on each load-controllable interface
+ * object is 10 bytes: `[event][9-byte LoadControlData]`:
  *   - event 4 (Unload):        `04 00000000 00 000000`
  *   - event 1 (Load):          `01 00000000 00 000000`
- *   - event 3 (Additional Load Controls / segment): 9-byte descriptor, see
- *     `buildSegmentDescriptor` / `buildTaskDescriptor` below.
+ *   - event 3 (segment/task descriptor): see `buildSegmentDescriptor` /
+ *     `buildTaskDescriptor` below.
  *   - event 2 (LoadCompleted): `02 00000000 00 000000`
  *
- * Order: unload every LSM object first, then per object: Load(1) ->
- * segment descriptor(s) (event 3) with their A_Memory_Write payload
- * interleaved -> TaskSegment descriptor (event 3, different sub-format) ->
- * LoadCompleted(2).
+ * Order: unload every LSM object, then per object: Load(1) -> segment
+ * descriptor(s) (event 3) with A_Memory_Write interleaved -> TaskSegment
+ * descriptor (event 3, different sub-format) -> LoadCompleted(2).
  *
- * AbsSegment descriptor (event 3) 9-byte payload:
- *   [kind(1)][addrHi][addrLo][sizeHi][sizeLo][footer(4)]
- *   kind   = 1 iff segment size === 1 (a single-byte "pointer" segment),
- *            else 0.
- *   footer = FF 03 80 00 when address >= 0x4000 (Flash/EEPROM segment with
- *            real data to transfer), else 00 02 00 00 (low-address RAM/task
- *            pointer segment ETS declares but never streams memory for).
- *   Verified against ETS gold for both 1.1.2 and 1.1.3: every (addr, size,
- *   kind, footer) tuple matches exactly.
+ * AbsSegment descriptor (event 3), 9 bytes:
+ *   `[kind][addrHi][addrLo][sizeHi][sizeLo][footer(4)]`
+ *   kind   = 1 iff size === 1 (single-byte pointer segment), else 0.
+ *   footer = `FF 03 80 00` for address >= 0x4000 (flash/EEPROM, real data
+ *            follows), else `00 02 00 00` (low-address RAM/task-pointer
+ *            segment, declared but never streamed).
  *
- * TaskSegment descriptor (event 3) 9-byte payload:
- *   [0x02][addrHi][addrLo][0x01][0x00][mfgLo][mfgHi][appNumLow][versionByte]
- *   addr = the TaskSegment step's address. The trailing 6 bytes identify the
- *   application program itself (manufacturer id little-endian, low byte of
- *   the app number, and the version byte) — parsed directly from the
- *   device's `appId` string ("M-<mfg>_A-<appNum>-<ver>-<cookie>"), not
- *   hardcoded. Verified against both 1.1.2 (`...14 21`) and 1.1.3
- *   (`...16 21`).
+ * TaskSegment descriptor (event 3), 9 bytes:
+ *   `[0x02][addrHi][addrLo][0x01][0x00][mfgLo][mfgHi][appNumLow][versionByte]`
+ *   Trailing 6 bytes identify the application program, parsed from the
+ *   device's `appId` ("M-<mfg>_A-<appNum>-<ver>-<cookie>").
  *
- * Address-table memory layout: the classic KNX address table reserves index
- * 0 for the device's own physical address, which ETS never transmits (the
- * device already knows it). So the count byte written is
- * `gaTable[0] + 1` (not `gaTable[0]`), and the GA entries are written
- * starting 3 bytes after the segment base (skipping the 2 reserved bytes),
- * not immediately after the count byte. Verified against 1.1.3 gold: count
- * byte 0x0B (= 10 GAs + 1 reserved slot), entries starting at 0x4003.
+ * Address-table layout: index 0 is reserved for the device's own physical
+ * address (never transmitted), so the written count byte is
+ * `gaTable[0] + 1`, and GA entries start 3 bytes after the segment base
+ * (skipping the 2 reserved bytes).
  */
+
+import { orderByMergedOps, type MaskOp } from './knx-mask-procedures.ts';
 
 // ── Plan step input type ────────────────────────────────────────────────────
 
@@ -64,6 +53,12 @@ export interface PlanStep {
   objIdx?: number;
   propId?: number;
   data?: Buffer;
+  // `SegFlags` declared by an AbsSegment step, when present.
+  segFlags?: number;
+  // LoadProcedure's MergeId attribute (see knx-mask-procedures.ts). Only
+  // meaningful when a mask op list is passed as planDownload()'s
+  // `mergedOps` parameter; unused otherwise.
+  mergeId?: number;
 }
 
 // ── Planned operation output type ───────────────────────────────────────────
@@ -162,11 +157,9 @@ function pickSourceBuffer(
 ): Buffer | null {
   if (lsmIdx === addrTableLsm) return gaTable;
   if (lsmIdx === assocTableLsm) return assocTable;
-  // An application may declare more than one parameter-carrying segment,
-  // each numbering its offsets from zero, so the buffer for THIS address
-  // is the one built from the parameters that name this segment. Checked
-  // before the single paramBase below, which is what a model that doesn't
-  // track segments still falls back to.
+  // Multiple parameter segments each number offsets from zero; resolve by
+  // matching this address to its own segment buffer before falling back to
+  // the single paramBase (used by models with no segment tracking).
   const bySeg = paramMemBySegment?.get(address);
   if (bySeg) return bySeg;
   if (paramBase != null && address === paramBase) return paramMem;
@@ -176,24 +169,21 @@ function pickSourceBuffer(
 }
 
 /**
- * Plan the full AbsoluteSegment (MDT-style) download telegram sequence.
- * Pure: no I/O, no bus, no side effects — safe to unit-test against gold
- * telegrams captured from ETS6.
+ * Plan the full AbsoluteSegment (MDT-style) download sequence. Pure: no I/O.
  *
  * @param steps       Parsed LoadProcedureStep[] for the device (Connect,
  *                     Unload, Load, AbsSegment, TaskSegment, LoadCompleted,
  *                     Restart, Disconnect, ...).
- * @param gaTable      Address-table source buffer (from buildGATable).
- * @param assocTable   Association-table source buffer (from buildAssocTable).
- * @param paramMem     Parameter-memory source buffer (from buildParamMem).
- * @param paramBase    Base address of the parameter AbsSegment, as resolved
- *                     by resolveParamSegment().paramBase.
- * @param absSegData   The app model's factory-seed map (address -> {size,
- *                     hex}), used as the source for AbsSegments that are
- *                     neither the address table, association table, nor
- *                     parameter segment (e.g. the group-object/flags table).
- * @param appId        The device's application-program id string, used to
- *                     derive the TaskSegment descriptor's identity bytes.
+ * @param gaTable      Address-table source buffer (buildGATable).
+ * @param assocTable   Association-table source buffer (buildAssocTable).
+ * @param paramMem     Parameter-memory source buffer (buildParamMem).
+ * @param paramBase    Base address of the parameter AbsSegment
+ *                     (resolveParamSegment().paramBase).
+ * @param absSegData   App model's factory-seed map (address -> {size, hex})
+ *                     for AbsSegments other than the address/association/
+ *                     parameter tables (e.g. the group-object/flags table).
+ * @param appId        Device's application-program id string, used to derive
+ *                     the TaskSegment descriptor's identity bytes.
  */
 export function planDownload(
   steps: PlanStep[],
@@ -205,31 +195,54 @@ export function planDownload(
   appId: string = '',
   /**
    * One parameter buffer per declared segment (buildParamMemBySegment).
-   * Takes precedence over `paramMem`/`paramBase`, which remain the path
-   * for RelSegment devices and for app models that predate segment
-   * tracking.
+   * Takes precedence over `paramMem`/`paramBase`, which remain the path for
+   * RelSegment devices and app models that predate segment tracking.
    */
   paramMemBySegment?: Map<number, Buffer> | null,
+  /**
+   * The mask-Procedure op list (knx-mask-procedures.ts's
+   * `getMaskProcedure()` + `spliceAppSteps()`) for this device's mask, if
+   * available. `null` (default): Unload/Load follow `steps`' own declared
+   * order. When provided, order instead comes from the mask's own
+   * `LdCtrlUnload`/`LdCtrlLoad` positions (falling back to natural order for
+   * any lsmIdx the mask doesn't cover), via `orderByMergedOps()`.
+   */
+  mergedOps: MaskOp[] | null = null,
 ): PlannedOp[] {
   const ops: PlannedOp[] = [];
 
   if (steps.some((s) => s.type === 'Connect')) ops.push({ kind: 'connect' });
 
-  const unloadSteps = steps.filter((s) => s.type === 'Unload');
+  const naturalOrder = (a: PlanStep, b: PlanStep): number =>
+    steps.indexOf(a) - steps.indexOf(b);
+  const unloadSteps = orderByMergedOps(
+    steps.filter((s) => s.type === 'Unload'),
+    mergedOps,
+    'Unload',
+    'lsmIdx',
+    (s) => s.lsmIdx,
+    naturalOrder,
+  );
   for (const u of unloadSteps) {
     if (u.lsmIdx == null) continue;
     ops.push(loadStateWrite(u.lsmIdx, EVENT_UNLOAD, ZERO9));
   }
 
-  const loadSteps = steps.filter((s) => s.type === 'Load');
+  const loadSteps = orderByMergedOps(
+    steps.filter((s) => s.type === 'Load'),
+    mergedOps,
+    'Load',
+    'lsmIdx',
+    (s) => s.lsmIdx,
+    naturalOrder,
+  );
   const lsmOrder = loadSteps
     .map((s) => s.lsmIdx)
     .filter((v): v is number => v != null);
-  // Convention (confirmed against ETS gold + the KNX interface-object
-  // numbering standard): the first LSM object loaded is the address table,
-  // the second is the association table, and any further objects (typically
-  // the application program) carry the group-object/flags table and
-  // parameter data.
+  // KNX interface-object numbering convention: first LSM object loaded is
+  // the address table, second is the association table; further objects
+  // (typically the application program) carry the group-object/flags table
+  // and parameter data.
   const addrTableLsm = lsmOrder[0];
   const assocTableLsm = lsmOrder[1];
 
@@ -241,6 +254,16 @@ export function planDownload(
     );
     for (const seg of segSteps) {
       if (seg.address == null || seg.size == null) continue;
+      // Footer is derived from address alone (RAM vs flash). Refuse if a
+      // declared SegFlags disagrees - untested descriptor combination.
+      if (seg.segFlags != null) {
+        const predictedSegFlags = seg.address >= FLASH_BOUNDARY ? 0x80 : 0x00;
+        if (seg.segFlags !== predictedSegFlags) {
+          throw new Error(
+            `Refusing AbsSegment download: segment at address ${seg.address} (LsmIdx=${lsmIdx}) declares SegFlags=${seg.segFlags}, but the address-only rule used to build its descriptor predicts ${predictedSegFlags}. A descriptor for that combination has never been validated on a device, so the download was refused.`,
+          );
+        }
+      }
       ops.push(
         loadStateWrite(
           lsmIdx,
@@ -264,10 +287,9 @@ export function planDownload(
       if (!buf || buf.length === 0) continue;
 
       if (lsmIdx === addrTableLsm) {
-        // Classic address table: slot 0 (2 bytes right after the count
-        // byte) is reserved for the device's own physical address, which
-        // ETS never transmits. The count byte therefore counts that
-        // reserved slot too.
+        // Slot 0 (2 bytes after the count byte) is reserved for the
+        // device's own physical address, never transmitted; the count byte
+        // includes it.
         ops.push({
           kind: 'memWrite',
           addr: seg.address,
@@ -305,10 +327,8 @@ export function planDownload(
   return ops;
 }
 
-// Detect whether a step list uses the AbsoluteSegment (MDT-style) load
-// procedure — i.e. it contains any step type the old inline downloadDevice
-// loop does not understand. Used by the executor to choose between the
-// planDownload path and the legacy RelSegment/WriteRelMem/LoadImageProp path.
+// True if steps use the AbsoluteSegment (MDT-style) load procedure; selects
+// planDownload vs. the legacy RelSegment/WriteRelMem/LoadImageProp path.
 export function isAbsSegmentProcedure(steps: PlanStep[]): boolean {
   return steps.some((s) =>
     ['Unload', 'Load', 'AbsSegment', 'TaskSegment', 'LoadCompleted'].includes(
@@ -320,10 +340,10 @@ export function isAbsSegmentProcedure(steps: PlanStep[]): boolean {
 // ── Legacy RelSegment download plan ─────────────────────────────────────────
 
 /**
- * Pure planner for legacy RelSegment/WriteRelMem downloads: chunk the parameter
- * image into A_Memory_Write-sized pieces at the segment's ABSOLUTE address
- * (resolved base + relative offset). Mirrors the executor loop in
- * downloadDevice so it can be diffed against a captured ETS download offline.
+ * Pure planner for legacy RelSegment/WriteRelMem downloads: chunks the
+ * parameter image into A_Memory_Write-sized pieces at the segment's absolute
+ * address (resolved base + relative offset). Mirrors downloadDevice()'s
+ * executor loop for offline diffing against a captured ETS download.
  */
 export function planRelmemWrites(
   steps: PlanStep[],
@@ -354,24 +374,19 @@ export function planRelmemWrites(
 
 // ── Read-back verification plan ─────────────────────────────────────────────
 //
-// planVerify() derives, from the *same* artifacts as planDownload(), the exact
-// set of device reads whose results — when byte-diffed against the `expected`
-// bytes here — prove koolenex's computed configuration matches what a
-// correctly-programmed device would hold. This is the read-only counterpart of
-// the download: NOTHING is ever written. If every region/prop matches, the
-// device is "theoretically programmable" (we have proven our bytes are the
-// right bytes) without touching a single memory cell.
+// planVerify() derives, from the same artifacts as planDownload(), the set of
+// device reads that prove the computed configuration matches a correctly-
+// programmed device. Read-only counterpart of the download - nothing is ever
+// written.
 //
-// Every device family the project owns maps to a concrete verify plan:
-//   - absmem : each AbsSegment memory transfer planDownload would emit becomes
-//              a memory read at the same address for the same length.
-//   - relmem : each WriteRelMem segment becomes a memory read of paramMem at
-//              the segment's relative offset (unchanged from the original
-//              verify-device behavior).
-//   - prop   : property-configured devices (KNX IP routers, some sensors) have
-//              no downloadable memory image; their CompareProp/WriteProp steps
-//              become interface-object property reads compared to the step's
-//              expected data.
+// Per family:
+//   - absmem : each AbsSegment memory transfer becomes a read at the same
+//              address/length.
+//   - relmem : each WriteRelMem segment becomes a read of paramMem at its
+//              relative offset.
+//   - prop   : property-configured devices (KNX IP routers, some sensors)
+//              have no downloadable memory image; CompareProp/WriteProp
+//              steps become property reads compared to the expected data.
 
 export interface VerifyMemRegion {
   addr: number;
@@ -393,24 +408,17 @@ export interface VerifyPlan {
   mem: VerifyMemRegion[];
   props: VerifyPropRead[];
   // GA table (objIdx 1) / Association table (objIdx 2) / Group Object Table
-  // (objIdx 3, added 2026-08-29) regions, kept separate from `mem`
-  // deliberately - see downloadDevice()'s writeUndeclaredTable() for the
-  // write-side twin of this same mechanism (hence the name). Only populated
-  // when the app's own model doesn't already declare a WriteRelMem step for
-  // that object (i.e. would otherwise never be verified at all, matching
-  // the fact it'd otherwise never have been written either - see
-  // declaredObjIdxs below for exactly which step type counts as "declared").
-  // Kept out of `mem`/`totalBytes` so the existing "raw memory bytes match"
-  // scope (parameter segment only) and the `segments.length === 1` decode
-  // gate in the verify-device route are unaffected - these are decoded and
-  // surfaced as their own named comparison rows instead (per communication
-  // object, not per raw byte). Named `undeclaredTableMem` (not `gaAssocMem`,
-  // its pre-Object-3 name) since it's no longer just the two GA/Assoc tables.
+  // (objIdx 3) regions, kept separate from `mem` - mirrors downloadDevice()'s
+  // writeUndeclaredTable(). Only populated when the app model doesn't already
+  // declare a WriteRelMem step for that object (see declaredObjIdxs below).
+  // Kept out of `mem` so the "raw memory bytes match" scope (parameter
+  // segment only) is unaffected; decoded and surfaced as named comparison
+  // rows per communication object instead of raw bytes.
   undeclaredTableMem: VerifyMemRegion[];
 }
 
-// Shared by every VerifyPlan branch below - see the `undeclaredTableMem`
-// field comment above for why this exists and is kept separate from `mem`.
+// Shared by every VerifyPlan branch - see the `undeclaredTableMem` field
+// comment above.
 function buildUndeclaredTableMem(
   steps: PlanStep[],
   gaTable: Buffer | null,
@@ -418,15 +426,12 @@ function buildUndeclaredTableMem(
   groupObjectTable: Buffer | null,
   relBaseByObj: Record<number, number>,
 ): VerifyMemRegion[] {
-  // Only a genuine WriteRelMem step (a real content write) counts as
-  // "already handled" - LoadImageProp is confirmed read-only for every
-  // objIdx (docs/knx-device-write-protocol.md Part 7), so a model
-  // declaring it never actually reads/writes the table content itself.
-  // Matches the identical fix already applied on the write side
-  // (knx-connection.ts's downloadDevice(), Part 12) and the route-level
-  // gate in routes/bus.ts's /bus/verify-device - this was a third,
-  // previously-unfixed copy of the same latent bug, found 2026-08-29 while
-  // extending this function to cover Object 3.
+  // Only a genuine WriteRelMem step counts as "already handled" -
+  // LoadImageProp is read-only for every objIdx (see
+  // docs/knx-device-write-protocol.md), so a model declaring it never
+  // actually writes the table content. Matches the same check on the write
+  // side (knx-connection.ts's downloadDevice()) and routes/bus.ts's
+  // /bus/verify-device.
   const declaredObjIdxs = new Set(
     steps.filter((s) => s.type === 'WriteRelMem').map((s) => s.objIdx),
   );
@@ -491,7 +496,7 @@ export function planVerify(
     relBaseByObj,
   );
 
-  // AbsSegment (MDT-style): read back exactly what planDownload would stream.
+  // AbsSegment (MDT-style): read back what planDownload would stream.
   if (isAbsSegmentProcedure(steps)) {
     const ops = planDownload(
       steps,
@@ -538,12 +543,11 @@ export function planVerify(
     return { family: 'relmem', mem, props: [], undeclaredTableMem };
   }
 
-  // Property-configured device (e.g. KNX IP router): no downloadable parameter
-  // memory image — its load procedure is just interface-object property
-  // steps. Only CompareProp/WriteProp steps that actually carry a comparison
-  // value are verifiable (empty WriteProp payloads are load-state triggers,
-  // not readable config); these are typically the manufacturer-id (PID 12) and
-  // hardware-type (PID 78) identity checks ETS runs before a download.
+  // Property-configured device (e.g. KNX IP router): no downloadable
+  // parameter memory image, just interface-object property steps. Only
+  // CompareProp/WriteProp steps carrying a comparison value are verifiable
+  // (empty payloads are load-state triggers) - typically the manufacturer-id
+  // (PID 12) and hardware-type (PID 78) identity checks.
   const propSteps = steps.filter(
     (s) => s.type === 'CompareProp' || s.type === 'WriteProp',
   );

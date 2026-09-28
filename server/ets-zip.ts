@@ -8,9 +8,9 @@
  *   - Decrypting ETS5/6 file-level AES-256-CBC encrypted buffers
  */
 
-import { createRequire } from 'module';
 import crypto from 'crypto';
 import { logger } from './log.ts';
+import { rawMinizipCtor } from './minizip.ts';
 
 export interface MinizipEntry {
   filepath: string;
@@ -36,10 +36,9 @@ export interface ZipEntry {
   release(): void;
 }
 
-const require_ = createRequire(import.meta.url);
-const Minizip = require_('minizip-asm.js') as new (
-  data: Buffer,
-) => MinizipInstance;
+// require()'d once, centrally, via ./minizip.ts, which restores the global
+// ArrayBuffer/DataView the library's bundled polyfill overwrites on import.
+const Minizip = rawMinizipCtor as new (data: Buffer) => MinizipInstance;
 
 /** Open a ZIP buffer and return entries compatible with the ZipEntry interface. */
 export function openZip(buffer: Buffer, password?: string): ZipEntry[] {

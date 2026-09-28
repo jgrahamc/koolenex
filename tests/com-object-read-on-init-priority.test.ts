@@ -1,19 +1,14 @@
 /**
  * Tests for server/ets-app.ts's resolveCoRef()/resolveCoRefById() capturing
- * ReadOnInitFlag and Priority - added 2026-08-29 for Object 3 (Group Object
- * Table) support (docs/knx-device-write-protocol.md §10.1, knx-tables.ts's
- * GroupObjectFlags). Neither attribute was extracted anywhere in the parser
- * before this - a real, separate gap found while wiring Object 3's write
- * trigger into downloadDevice() (see docs/follow-ups/2026-08-29-partial-
- * download-mode-and-obj3-trigger-test.md Part 12).
+ * ReadOnInitFlag and Priority, needed for Object 3 (Group Object Table)
+ * support (docs/knx-device-write-protocol.md §10.1, knx-tables.ts's
+ * GroupObjectFlags).
  *
- * Attribute names/values below are transcribed directly from this project's
- * own real app XML (M-0004_A-0025-10-1BA6-O00A6.xml / M-0004_A-3030-23-F0EA-
- * O000A.xml, extracted from the live Test Bed .knxproj) - ReadOnInitFlag
- * uses the same Enabled/Disabled vocabulary as the other flags; Priority is
- * "Low"/"Alarm"/"High"/"System" (System confirmed unreachable from ETS's own
- * UI per the reference doc, so real projects only ever show Low/Alarm/High -
- * still included here for completeness of the normalization).
+ * Attribute names/values match real app XML: ReadOnInitFlag uses the same
+ * Enabled/Disabled vocabulary as the other flags; Priority is
+ * "Low"/"Alarm"/"High"/"System" (System is unreachable from ETS's own UI, so
+ * real projects only ever show Low/Alarm/High - still covered here for
+ * completeness of the normalization).
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -47,7 +42,7 @@ function appXml(
 }
 
 describe('ets-app.ts: ComObject/ComObjectRef ReadOnInitFlag + Priority', () => {
-  it('resolveCoRef(): ReadOnInitFlag="Disabled", no Priority attribute -> readOnInit=false, priority defaults "low" (real 1.1.9 shape)', () => {
+  it('resolveCoRef(): ReadOnInitFlag="Disabled", no Priority attribute -> readOnInit=false, priority defaults "low"', () => {
     const xml = appXml(
       'AP-1',
       '<ComObject Id="AP-1_O-6" Number="6" Text="t" ObjectSize="1 Byte" ReadFlag="Disabled" WriteFlag="Enabled" CommunicationFlag="Enabled" TransmitFlag="Enabled" UpdateFlag="Disabled" ReadOnInitFlag="Disabled" DatapointType="DPST-5-1" />',
@@ -75,7 +70,7 @@ describe('ets-app.ts: ComObject/ComObjectRef ReadOnInitFlag + Priority', () => {
     assert.equal(resolved!.priority, 'alarm');
   });
 
-  it('resolveCoRef(): a ComObjectRef-level Priority/ReadOnInitFlag overrides the ComObject default (real 1.1.10 shape - per-instance overrides)', () => {
+  it('resolveCoRef(): a ComObjectRef-level Priority/ReadOnInitFlag overrides the ComObject default', () => {
     const xml = appXml(
       'AP-3',
       '<ComObject Id="AP-3_O-32" Number="32" Text="t" ObjectSize="1 Bit" ReadFlag="Enabled" WriteFlag="Disabled" CommunicationFlag="Enabled" TransmitFlag="Enabled" UpdateFlag="Enabled" ReadOnInitFlag="Disabled" Priority="Low" DatapointType="DPST-1-1" />',

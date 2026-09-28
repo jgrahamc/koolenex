@@ -109,22 +109,12 @@ router.put(
         installation_hints: z.string().optional(),
         floor_x: z.number().optional(),
         floor_y: z.number().optional(),
-        // Set after a real device-addressing write (see AddressDeviceModal
-        // in the client, added 2026-08-30) to record the physical serial
-        // number actually written to this address, for traceability -
-        // separate from whatever value the imported project itself carried
-        // (a canary template can arrive with a real prior villa's serial
-        // baked in, which this overwrites once this villa's own device is
-        // actually addressed).
+        // Set by a device-addressing write (AddressDeviceModal) to record
+        // the physical serial actually written at this address.
         serial_number: z.string().optional(),
         // Assigns a real project address to a device imported with none
-        // (has_address=0 - see ets-parser.ts's synthetic-address handling,
-        // added 2026-08-30) - the first step before that device can go
-        // through physical commissioning (AddressDeviceModal). Setting
-        // this always also sets has_address=1: a human explicitly picking
-        // a real X.Y.Z here is by definition no longer the synthetic
-        // placeholder case, regardless of what the value happens to look
-        // like.
+        // (has_address=0, see ets-parser.ts's synthetic-address handling).
+        // Always also sets has_address=1.
         individual_address: z
           .string()
           .regex(/^\d+\.\d+\.\d+$/, 'Must be in X.Y.Z format')
@@ -147,13 +137,9 @@ router.put(
     if (b.comment !== undefined) track('comment', b.comment);
     if (b.installation_hints !== undefined)
       track('installation_hints', b.installation_hints);
-    // last_verify_match/last_verify_at cleared whenever either genuinely
-    // changes - real request, 2026-09-01: "clear verify if... its
-    // serial/device address changed". Deliberately checked against the
-    // OLD value, not just "present in the request body" - serial_number
-    // in particular is resent unchanged by some callers (e.g. the address
-    // PUT alongside an unrelated field), which must not spuriously
-    // invalidate a real, still-accurate verify result.
+    // Clear last_verify_match/last_verify_at only on a genuine change vs.
+    // the OLD value - callers can resend serial_number unchanged alongside
+    // an unrelated field, which must not invalidate a still-accurate verify.
     let verifyInvalidated = false;
     if (b.serial_number !== undefined) {
       const trimmed = b.serial_number.trim();
@@ -167,37 +153,12 @@ router.put(
       verifyInvalidated = true;
       track('individual_address', b.individual_address);
       sets.push('has_address=1');
-      // Real bug found live, 2026-08-31: the address badge went straight
-      // to "blue" (has_address + a non-empty serial_number - see
-      // DeviceAddr, primitives.tsx) the moment a project address was
-      // assigned, even though nothing had been physically written yet.
-      // Root cause: serial_number can carry a real, genuinely-captured
-      // value from a PRIOR, unrelated address/session (this project's own
-      // stated invariant on the write-side, see AddressDeviceModal's own
-      // comment: "separate from whatever value the imported project
-      // itself carried - a canary template can arrive with a real prior
-      // villa's serial baked in") - that old serial is not evidence
-      // anything was ever confirmed at THIS new address. Whenever the
-      // project address genuinely changes, the previously-recorded serial
-      // stops being trustworthy for it and must be cleared, not carried
-      // forward silently.
-      //
-      // Real regression, found live the same day: this fired on EVERY
-      // address change, including has_address 0->1 (a device's FIRST-EVER
-      // project address, from the synthetic placeholder - see ets-
-      // parser.ts) - not just a genuine reassignment between two real
-      // addresses. A real operator workflow - enter a device's serial
-      // manually (Serial Number tab), THEN assign it a project address -
-      // silently lost the serial the moment the address was saved, purely
-      // because that's a separate request that (correctly) doesn't resend
-      // serial_number. The serial in that case is not stale at all - it's
-      // the same value entered moments earlier for this same physical
-      // unit, before it had a project address yet. Scoped to only clear
-      // when the device already HAD a real address (old.has_address) -
-      // a genuine "was at X, now at Y" reassignment, where an old serial
-      // really could be stale. Also switched from a raw sets/vals push to
-      // track() (was previously invisible in the audit log's own diff -
-      // exactly what made this regression hard to find).
+      // A stale serial from a prior address must not make the new address
+      // look physically confirmed (has_address + non-empty serial_number,
+      // see DeviceAddr). Only clear on a genuine reassignment (old.has_address
+      // true) - not on a device's first-ever address from the synthetic
+      // placeholder, where a just-entered serial is still valid. track()
+      // (not a raw sets/vals push) keeps the clear visible in the audit diff.
       if (!b.serial_number && old.has_address) {
         track('serial_number', '');
       }
@@ -243,17 +204,10 @@ router.put(
   },
 );
 
-// Reverts a device's project address back to "unassigned" - real user
-// request, 2026-08-31, made explicit after live testing surfaced the gap:
-// the address-assign route (above) can only ever set has_address=1, never
-// back to 0, so a project address picked in error (or one you've simply
-// changed your mind about before writing it anywhere) had no way back.
-// Deliberately refuses to touch a device that's already been physically
-// confirmed (a non-empty serial_number - see the address-change branch
-// above for why that field is trustworthy evidence of a real write) -
-// unassigning a device that's actually live on the bus at that address
-// would silently orphan real commissioning data; that's a different,
-// not-yet-built operation, not this one.
+// Reverts a device's project address back to "unassigned" - the
+// address-assign route above only ever sets has_address=1, never back to 0.
+// Refuses to touch a device with a non-empty serial_number (physically
+// confirmed) - unassigning that would silently orphan real commissioning data.
 router.patch(
   '/projects/:pid/devices/:did/unassign',
   (req: Request, res: Response): void => {
@@ -282,14 +236,9 @@ router.patch(
       });
       return;
     }
-    // Synthetic placeholder, same convention ets-parser.ts uses for a
-    // device imported with no address at all (device number starting at
-    // 256, past the real 0-255 KNX range, so it can never collide with a
-    // real address) - reuses the device's own current area/line rather
-    // than reconstructing wherever it originally lived in the topology,
-    // and picks the first number in that range not already in use by any
-    // OTHER device in the project (has_address=0 placeholders still
-    // occupy the unique individual_address column, same as a real one).
+    // Synthetic placeholder, same convention as ets-parser.ts: device number
+    // starts at 256, past the real 0-255 KNX range, so it can't collide.
+    // Reuses the device's current area/line; picks the first free number.
     const used = new Set(
       db
         .all<{
@@ -304,17 +253,12 @@ router.patch(
     while (used.has(`${dev.area}.${dev.line}.${n}`)) n++;
     const placeholder = `${dev.area}.${dev.line}.${n}`;
 
-    // last_verify_match/last_verify_at cleared too - real request,
-    // 2026-09-01: "clear verify if the device is unassigned" - whatever a
-    // prior verify found was about a specific physical address this
-    // device no longer occupies.
+    // Verify result was about an address this device no longer occupies.
     db.run(
       'UPDATE devices SET has_address=0, individual_address=?, status=?, last_verify_match=NULL, last_verify_at=NULL WHERE id=?',
       [placeholder, 'unassigned', did],
     );
-    // Pending-change tracking cleared too, same reasoning as verify above -
-    // an unassigned device has no address to program against, so whatever
-    // edits were pending have nothing left to be "pending" for.
+    // Nothing left to program against, so no pending edits either.
     clearPendingChanges(did);
     db.audit(
       pid,
@@ -397,7 +341,7 @@ router.patch(
         status: z.string(),
       }),
     );
-    // Scoped to :pid - see the matching comment on the DELETE route below.
+    // Scoped to :pid, see the DELETE route below.
     const devS = db.get<Record<string, unknown>>(
       'SELECT individual_address, name, status FROM devices WHERE id=? AND project_id=?',
       [did, pid],
@@ -424,18 +368,13 @@ router.delete(
   (req: Request, res: Response): void => {
     const pid = paramId(req, 'pid');
     const did = paramId(req, 'did');
-    // Scoped to :pid, not just :did - a device id belonging to ANOTHER
-    // project used to be deleted here (along with its com objects), with
-    // the audit entry written against the project named in the URL rather
-    // than the one that actually lost the device.
+    // Scoped to :pid, not just :did, so a device id belonging to another
+    // project can't be deleted (or audited) via this URL.
     const devD = db.get<Record<string, unknown>>(
       'SELECT individual_address, name FROM devices WHERE id=? AND project_id=?',
       [did, pid],
     );
-    // Not found *in this project* is the same as not found at all: the
-    // route's contract is idempotent (see api.test.ts's "DELETE returns ok
-    // for nonexistent device"), so this stays a 200 - it just no longer
-    // deletes another project's device on the way, or audits one.
+    // Idempotent: not found in this project stays a 200.
     if (!devD) {
       res.json({ ok: true });
       return;
@@ -543,20 +482,9 @@ router.patch(
         });
       }
     }
-    // Merged into the existing values, not a full replace - real request
-    // 2026-08-31: DeviceParameters.tsx (the only caller so far) always
-    // sends its complete current value set anyway, so merging vs.
-    // replacing produces the same result for it (a merge of the full set
-    // is a superset-equal union, not a partial one) - but replace made
-    // any FUTURE single-key caller (e.g. a compare-page inline edit)
-    // unsafe by construction, silently wiping every other parameter's
-    // value. Merging removes that trap without changing today's behavior,
-    // with one genuine, deliberate difference: a key present in the OLD
-    // blob but genuinely absent from a full resend (e.g. a parameter that
-    // became inactive under a Dynamic condition since last save) no
-    // longer gets garbage-collected on save - it stays in the JSON blob,
-    // unused but harmless (nothing currently reads a key that isn't also
-    // resolved as active).
+    // Merge rather than replace, so a partial-key caller can't silently wipe
+    // other parameters. A key dropped from a full resend (e.g. deactivated
+    // under a Dynamic condition) is left in the JSON blob, unused but harmless.
     const mergedVals = { ...oldVals, ...newVals };
     db.run('UPDATE devices SET param_values=? WHERE id=?', [
       JSON.stringify(mergedVals),

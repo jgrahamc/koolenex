@@ -41,10 +41,8 @@ class MockBus extends EventEmitter {
   // Track calls for assertions
   calls: Array<{ method: string; args: unknown[] }> = [];
 
-  // Mirrors the real KnxBusManager.addKeepAliveRef() shape (see
-  // server/knx-bus.ts) - routes that hold a keep-alive ref for the
-  // duration of an operation (program-device, verify-device) call this
-  // on the bus, real or fake.
+  // Mirrors KnxBusManager.addKeepAliveRef() (server/knx-bus.ts): routes hold a
+  // keep-alive ref for the duration of an operation (program/verify-device).
   _keepAliveRefs = 0;
   addKeepAliveRef(): () => void {
     this._keepAliveRefs++;
@@ -60,9 +58,8 @@ class MockBus extends EventEmitter {
     this._remapFn = fn;
   }
 
-  // Mirrors the real KnxBusManager.forceReconnect() shape (see
-  // server/knx-bus.ts) - /bus/program-device and /bus/verify-device both
-  // call this unconditionally before starting, real bus or fake.
+  // Mirrors KnxBusManager.forceReconnect() (server/knx-bus.ts): called by
+  // /bus/program-device and /bus/verify-device only when not yet connected.
   async forceReconnect(): Promise<void> {
     this.calls.push({ method: 'forceReconnect', args: [] });
     if (!this.host || this.type === 'usb') return;
@@ -147,22 +144,14 @@ class MockBus extends EventEmitter {
     this._scanAbort = true;
   }
 
-  // serialNumber default matches seedDevice()'s own default serial_number
-  // (see that function) - real request, 2026-08-31, verbatim: "ETS when it
-  // does a full download ALWAYS writes the address first, reboots and
-  // then the params... We should first check if we have the serial
-  // number. If so we should then check if that device address exists on
-  // the bus... validate the serial number". /bus/program-device's new
-  // pre-flight now calls this FIRST, before downloadDevice() - matching
-  // by default means every existing test's seeded device passes that
-  // check immediately (addressConfirmed=true) without needing its own
-  // programming-mode/address-write simulation, keeping every test that
-  // isn't specifically about the pre-flight itself unaffected beyond one
-  // extra logged call. Override via deviceInfoSerialOverride for a test
-  // that specifically wants a mismatch/no-serial scenario.
+  // Default matches seedDevice()'s serial_number. Full Download writes the
+  // address first, reboots, then params - /bus/program-device's pre-flight
+  // reads device info first and checks the serial before downloadDevice().
+  // Default match keeps addressConfirmed=true for existing tests without a
+  // programming-mode/address-write simulation. Override via
+  // deviceInfoSerialOverride for a mismatch/no-serial scenario.
   deviceInfoSerialOverride: string | null | undefined = undefined;
-  // A device that never answers - what an address write that did not take
-  // looks like from here (see the address_write_unconfirmed test).
+  // A device that never answers - an address write that did not take.
   deviceInfoFails = false;
   async readDeviceInfo(deviceAddr: string): Promise<any> {
     this.calls.push({ method: 'readDeviceInfo', args: [deviceAddr] });
@@ -184,10 +173,8 @@ class MockBus extends EventEmitter {
     return { ok: true, newAddr };
   }
 
-  // Configurable per-test for the pre-flight's own re-addressing branch
-  // (see readDeviceInfo's own comment) - empty by default, since most
-  // tests never reach this call at all (a matching readDeviceInfo serial
-  // short-circuits the whole re-addressing flow before this would run).
+  // Feeds the pre-flight's re-addressing branch; empty by default since a
+  // matching readDeviceInfo serial short-circuits re-addressing entirely.
   serialsInProgrammingMode: Array<{ serial: string; src: string }> = [];
   async readSerialNumbersInProgrammingMode(
     timeoutMs?: number,
@@ -208,11 +195,12 @@ class MockBus extends EventEmitter {
     return { address: '1.1.20' };
   }
 
-  // Configurable per-test for the address-by-serial choice flow
-  // (/bus/program-device) - real hardware confirmed working (see
-  // docs/knx-device-write-protocol.md §9.2), but a real device can still
-  // fail to answer/verify, and that failure needs its own coverage.
+  // /bus/program-device's address-by-serial flow; a device can fail to
+  // answer/verify, so this needs its own coverage.
   assignBySerialVerified = true;
+  // Makes the next N assignIndividualAddressBySerial() calls throw this
+  // error before behaving normally.
+  assignBySerialFailures: { times: number; message: string } | null = null;
   async assignIndividualAddressBySerial(
     serial: Buffer,
     newAddr: string,
@@ -223,6 +211,10 @@ class MockBus extends EventEmitter {
       args: [serial, newAddr, timeoutMs],
     });
     if (!this.connected) throw new Error('Not connected to KNX bus');
+    if (this.assignBySerialFailures && this.assignBySerialFailures.times > 0) {
+      this.assignBySerialFailures.times--;
+      throw new Error(this.assignBySerialFailures.message);
+    }
     return {
       ok: true,
       verified: this.assignBySerialVerified,
@@ -230,13 +222,22 @@ class MockBus extends EventEmitter {
     };
   }
 
+  // Set to make downloadDevice() report a specific outcome (for example an
+  // aborted write); null keeps the ordinary all-clear result.
+  downloadResultOverride: Record<string, unknown> | null = null;
+
   async downloadDevice(): Promise<{
     unconfirmedWrites: number;
     unconfirmedDetails: string[];
+    aborted?: boolean;
   }> {
     this.calls.push({ method: 'downloadDevice', args: [...arguments] });
     if (!this.connected) throw new Error('Not connected to KNX bus');
-    return { unconfirmedWrites: 0, unconfirmedDetails: [] };
+    return {
+      unconfirmedWrites: 0,
+      unconfirmedDetails: [],
+      ...(this.downloadResultOverride ?? {}),
+    };
   }
 
   // Optional canned device image: address -> byte. readMemory serves from it
@@ -245,9 +246,7 @@ class MockBus extends EventEmitter {
   memImage: Map<number, number> | null = null;
   propImage: Map<string, Buffer> | null = null;
 
-  // Added 2026-09-10 with the first tests for the routes that call them -
-  // /bus/replay-frames, /bus/restart-device and /bus/read-address-by-serial
-  // had no coverage at all, partly because the mock could not answer them.
+  // Serve /bus/replay-frames, /bus/restart-device, /bus/read-address-by-serial.
   async replayFrames(
     deviceAddr: string,
     frames: Buffer[],
@@ -602,10 +601,7 @@ describe('POST /bus/read', () => {
     assert.equal(mockBus.calls[0].method, 'read');
   });
 
-  // 409, not 502: a disconnected bus is a conflict with the current state,
-  // not an upstream gateway failure - /bus/read and /bus/write answered 502
-  // here until busRoute() gave every bus route the same mapping the other
-  // 16 already used.
+  // 409, not 502: disconnected bus is a state conflict, not a gateway failure.
   it('returns 409 when not connected', async () => {
     mockBus.connected = false;
     const r = await req(ts.baseUrl, 'POST', '/bus/read', { ga: '1/0/0' });
@@ -691,15 +687,10 @@ describe('POST /bus/scan', () => {
     assert.deepEqual(mockBus.calls[0].args, [1, 1, 200]);
   });
 
-  // /bus/scan is fire-and-forget by design: it responds {ok:true}
-  // immediately (line 594 in the route) and runs the actual scan
-  // afterward, reporting success/failure only via scan:progress/scan:done/
-  // scan:error WebSocket broadcasts - never via the HTTP response itself.
-  // A disconnected bus at request time is no exception: b.scan() goes
-  // through the same lazy-reconnect path as every other bus operation, so
-  // the request still returns 200 even when not connected - whether the
-  // scan itself then succeeds (via a reconnect) or fails (a scan:error
-  // broadcast) happens after this response, not observable from it.
+  // /bus/scan is fire-and-forget: responds {ok:true} immediately, runs the
+  // scan afterward, reports outcome only via scan:progress/done/error WS
+  // broadcasts. Disconnected-at-request-time still returns 200 - the lazy
+  // reconnect and any subsequent failure happen after the response.
   it('still returns 200 immediately even when not connected (fire-and-forget)', async () => {
     mockBus.connected = false;
     const r = await req(ts.baseUrl, 'POST', '/bus/scan', {});
@@ -865,11 +856,9 @@ describe('GET /bus/usb-devices/all', () => {
 // ── POST /bus/program-device ────────────────────────────────────────────────
 
 describe('POST /bus/program-device', () => {
-  // Same ordering as /bus/verify-device: the device lookup runs before any
-  // bus operation, so with no device seeded for this address that's what
-  // fails first regardless of connection state - real "not connected"
-  // coverage lives in the relmem-fixture describe block below, where a
-  // real device exists to get past this check.
+  // Device lookup runs before any bus operation, so a missing device fails
+  // first regardless of connection state; "not connected" coverage lives in
+  // the relmem-fixture block below where a device exists to pass this check.
   it('returns 404 for a non-existent device even when not connected', async () => {
     mockBus.connected = false;
     const r = await req(ts.baseUrl, 'POST', '/bus/program-device', {
@@ -931,9 +920,8 @@ describe('POST /bus/read-memory', () => {
 
   it('accepts an extended (24-bit) address beyond the old 16-bit cap', async () => {
     mockBus.connected = true;
-    // Extended addressing (see the 16-bit truncation fix) - readMemory()
-    // already picks A_Memory_Read vs A_MemoryExtended_Read per chunk based
-    // on the address, so this route must not reject valid high addresses.
+    // readMemory() picks A_Memory_Read vs A_MemoryExtended_Read per chunk
+    // based on address, so this route must not reject valid high addresses.
     const r = await req(ts.baseUrl, 'POST', '/bus/read-memory', {
       deviceAddress: '1.1.1',
       address: 0xc3000,
@@ -1068,11 +1056,9 @@ describe('POST /bus/write-memory', () => {
 // ── POST /bus/verify-device ─────────────────────────────────────────────────
 
 describe('POST /bus/verify-device', () => {
-  // The device lookup runs before any bus operation - with no device
-  // seeded for this address, that's what fails first regardless of
-  // connection state (real "not connected" coverage for this route lives
-  // in the fixture-backed describe blocks below, where a real device
-  // exists to get past this check).
+  // Device lookup runs before any bus operation, so a missing device fails
+  // first regardless of connection state; "not connected" coverage lives in
+  // the fixture-backed blocks below where a device exists to pass this check.
   it('returns 404 for a non-existent device even when not connected', async () => {
     mockBus.connected = false;
     const r = await req(ts.baseUrl, 'POST', '/bus/verify-device', {
@@ -1097,14 +1083,10 @@ describe('POST /bus/verify-device', () => {
 });
 
 // ── verify-device across ALL device families (read-back byte-diff) ───────────
-// Proves the generalized read-back path: an AbsSegment device and a
-// property-configured device can both be validated purely by reading the
-// device and diffing against the computed bytes — the "program by comparing,
-// never writing" capability. Everything here is FICTIONAL: the two device
-// application models below are invented for the test and written into the
-// app-model directory during setup (removed on teardown); the mock bus serves
-// a canned image. No real project, manufacturer product data, or hardware is
-// involved.
+// Covers the generalized read-back path: an AbsSegment device and a
+// property-configured device both validate purely by reading the device and
+// diffing against computed bytes ("program by comparing, never writing").
+// Both app models below are synthetic fixtures, not real products.
 
 // A fictional AbsSegment device: address table (LSM 1), association table
 // (LSM 2), parameter segment (LSM 3) at 0x4400.
@@ -1143,11 +1125,8 @@ const ABS_MODEL = {
       fromMemoryChild: false,
       isVisible: true,
     },
-    // Declared by the app but never written by a download: no current
-    // value and no default, so buildParamMem() skips it and byte 5 keeps
-    // the segment fill. Its bytes are identical with or without it, so
-    // every existing expectation in this file is unaffected - it exists
-    // to give the `written` flag something to be false about.
+    // No current value or default: buildParamMem() skips it, byte 5 keeps
+    // the segment fill. Exists to give `written` a false case.
     [`${ABS_APP}_P-2_R-1`]: {
       offset: 5,
       bitOffset: 0,
@@ -1158,10 +1137,24 @@ const ABS_MODEL = {
       fromMemoryChild: false,
       isVisible: true,
     },
+    // Access="None": hidden from ETS's UI (e.g. a self-clearing download
+    // flag). Excluded from mismatch reporting even when its byte differs -
+    // see "hidden parameter differs" below.
+    [`${ABS_APP}_P-3_R-1`]: {
+      offset: 6,
+      bitOffset: 0,
+      bitSize: 8,
+      defaultValue: '85',
+      isText: false,
+      isFloat: false,
+      fromMemoryChild: false,
+      isVisible: false,
+    },
   },
   params: {
     [`${ABS_APP}_P-1_R-1`]: { defaultValue: '170' },
     [`${ABS_APP}_P-2_R-1`]: { defaultValue: null },
+    [`${ABS_APP}_P-3_R-1`]: { defaultValue: '85' },
   },
   dynTree: { main: { items: [] } },
 };
@@ -1199,7 +1192,23 @@ const writtenModels: string[] = [];
 function writeModel(appRef: string, model: unknown): void {
   fs.mkdirSync(APPS_DIR, { recursive: true });
   const p = path.join(APPS_DIR, `${appRef}.json`);
-  fs.writeFileSync(p, JSON.stringify(model));
+  // The directory is shared with other test files running in parallel, and on
+  // a synced folder a file can be briefly locked by the sync client: retry a
+  // transient open failure rather than failing the test on it.
+  for (let attempt = 1; ; attempt++) {
+    try {
+      fs.writeFileSync(p, JSON.stringify(model));
+      break;
+    } catch (e) {
+      if (attempt >= 6) throw e;
+      Atomics.wait(
+        new Int32Array(new SharedArrayBuffer(4)),
+        0,
+        0,
+        25 * attempt,
+      );
+    }
+  }
   writtenModels.push(p);
 }
 
@@ -1218,11 +1227,9 @@ function seedDevice(
   coRows: { object_number: number; ga_address: string }[],
 ): number {
   dbmod.run(
-    // serial_number matches MockBus.readDeviceInfo()'s own default - see
-    // that method's doc comment - so /bus/program-device's pre-flight
-    // address-confirmation check (added 2026-08-31) passes immediately
-    // for every test using this helper, without needing its own
-    // programming-mode simulation.
+    // serial_number matches MockBus.readDeviceInfo()'s default, so
+    // /bus/program-device's pre-flight address-confirmation check passes
+    // immediately without a programming-mode simulation.
     `INSERT INTO devices (project_id, individual_address, name, app_ref, param_values, serial_number) VALUES (?,?,?,?,?,?)`,
     [projectId, addr, `dev-${addr}`, appRef, '{}', 'aabbccddeeff'],
   );
@@ -1348,13 +1355,38 @@ describe('POST /bus/verify-device — AbsSegment read-back diff', () => {
     assert.ok(body.totalDiffering >= 1);
   });
 
-  // Until 2026-09-11 decoding was gated on the relmem family, so an
-  // absmem device's comparison was a byte count and nothing else - the UI
-  // showed "N/M bytes match" over "No decodable parameters or properties
-  // were returned for this device", with no way to see which parameters
-  // the differing bytes belonged to. Nothing about absmem prevented it:
-  // one of its segments is the parameter image, identified by sitting at
-  // paramBase.
+  // Access="None" parameters (P-3) are excluded from Verify's mismatch
+  // reporting (self-clearing device sentinel, not a genuine diff).
+  // `totalDiffering` still counts the byte; `match`/row `match` don't.
+  it('reports match=true when only a hidden (Access="None") parameter differs, but totalDiffering still counts the byte', async () => {
+    mockBus.connected = true;
+    const map = expectedMemMap();
+    const hiddenAddr = 17408 + 6; // P-3's offset within the AbsSegment
+    map.set(hiddenAddr, (map.get(hiddenAddr)! ^ 0xff) & 0xff);
+    mockBus.memImage = map;
+    const r = await req(ts.baseUrl, 'POST', '/bus/verify-device', {
+      deviceAddress: deviceAddr,
+      projectId,
+    });
+    mockBus.memImage = null;
+    assert.equal(r.status, 200);
+    const body = r.data as any;
+    assert.equal(body.match, true);
+    assert.ok(body.totalDiffering >= 1);
+    const hiddenRow = (body.decoded ?? []).find(
+      (d: any) => d.key === `${ABS_APP}_P-3_R-1`,
+    );
+    assert.ok(
+      hiddenRow,
+      'hidden param row should still be present in the decoded output',
+    );
+    assert.equal(hiddenRow.isVisible, false);
+    assert.equal(hiddenRow.match, false);
+  });
+
+  // Decoding is not gated on the relmem family: an absmem device's
+  // parameter segment is identified by sitting at paramBase, so its bytes
+  // decode into named rows the same as relmem's.
   it('decodes the parameter segment into named rows', async () => {
     mockBus.connected = true;
     mockBus.memImage = expectedMemMap();
@@ -1398,11 +1430,8 @@ describe('POST /bus/verify-device — AbsSegment read-back diff', () => {
     assert.notEqual(row.actualValue, row.expectedValue);
   });
 
-  // Diagnostic for a real device, 2026-09-12: 139 differing parameters on
-  // a device that could not have drifted from its project, many named
-  // "Dummy, nicht sichtbar ..." - the shape of a parameter the download
-  // never writes, whose Project side is a decode of the segment's fill.
-  // Reported, not acted on: the rows keep the match they had.
+  // A parameter the download never writes decodes its Project side from
+  // the segment fill - reported via `written`, not acted on (match unchanged).
   it('says which decoded parameters the download actually writes', async () => {
     mockBus.connected = true;
     mockBus.memImage = expectedMemMap();
@@ -1430,10 +1459,9 @@ describe('POST /bus/verify-device — AbsSegment read-back diff', () => {
   it('leaves the verdict of an unwritten parameter alone', async () => {
     mockBus.connected = true;
     const map = expectedMemMap();
-    // Byte 5 of the segment at 0x4400 is the unwritten parameter's. The
-    // computed image left it at the fill; give the device something else,
-    // which is exactly the situation that produced a meaningless
-    // mismatch on the real device.
+    // Byte 5 of the segment at 0x4400 belongs to the unwritten parameter;
+    // the computed image leaves it at the fill, so give the device a
+    // different value - a mismatch with no real meaning.
     map.set(0x4400 + 5, 0x42);
     mockBus.memImage = map;
     const r = await req(ts.baseUrl, 'POST', '/bus/verify-device', {
@@ -1549,18 +1577,12 @@ describe('POST /bus/program-device — no longer gates on PID 7 upfront', () => 
     assert.equal(r.status, 409);
   });
 
-  // Real bug, fixed 2026-08-30: this route used to pre-resolve PID 7
-  // (PID_TABLE_REFERENCE) and reject the whole request with 409
-  // "segment_unallocated" before ever attempting a download - correct for
-  // re-programming an already-provisioned device, but wrong for a
-  // device's very first-ever download, where PID 7 legitimately starts
-  // unallocated and only becomes valid once downloadDevice()'s own
-  // Unload/StartLoading/LoadData cycle actually runs (confirmed against a
-  // real ETS Full Download capture against a freshly-reset device).
-  // downloadDevice() itself (see knx-connection.test.ts) now resolves and
-  // handles this per-object internally - this route no longer pre-checks
-  // it at all, so even PID 7 reporting unallocated here proceeds straight
-  // through to a real downloadDevice() call.
+  // This route no longer pre-resolves PID 7 (PID_TABLE_REFERENCE) and
+  // rejecting with 409 "segment_unallocated" before downloading - PID 7
+  // legitimately starts unallocated on a device's first-ever download and
+  // only becomes valid once downloadDevice()'s Unload/StartLoading/LoadData
+  // cycle runs. downloadDevice() (see knx-connection.test.ts) now resolves
+  // it per-object internally.
   it('proceeds to downloadDevice() even when PID 7 currently reports unallocated', async () => {
     mockBus.connected = true;
     mockBus.propImage = new Map([['4/7', Buffer.from('00000000', 'hex')]]);
@@ -1577,13 +1599,157 @@ describe('POST /bus/program-device — no longer gates on PID 7 upfront', () => 
   });
 });
 
-// ── program-device: pendingWriteRanges wiring (2026-09-01) ─────────────────
-// Real redesign, replacing partial mode's original device-read-and-diff
-// mechanism - see DownloadExtra.pendingWriteRanges' own doc comment
-// (knx-connection.ts) for the full reasoning. This confirms the actual
-// wiring: a real device_pending_changes row resolves through
-// resolvePendingWriteRanges() and reaches downloadDevice()'s `extra`
-// unchanged, and gets cleared once the download completes.
+// ── program-device: GA/Association table MaxEntries capacity check ─────────
+// `<AddressTable MaxEntries="...">`/`<AssociationTable MaxEntries="...">`:
+// a connection-free pre-flight refusal when the device's real table content
+// would exceed the app's declared capacity, checked before any bus operation.
+const CAP_APP = 'M-00FC_A-0003-01-CC01';
+const CAP_GA_LINKS = [
+  { address: '0/0/1', main_g: 0, middle_g: 0, sub_g: 1 },
+  { address: '0/0/2', main_g: 0, middle_g: 0, sub_g: 2 },
+  { address: '0/0/3', main_g: 0, middle_g: 0, sub_g: 3 },
+];
+const CAP_CO_ROWS = [
+  { object_number: 1, ga_address: '0/0/1' },
+  { object_number: 2, ga_address: '0/0/2' },
+  { object_number: 3, ga_address: '0/0/3' },
+];
+function capModel(
+  gaTableMaxEntries?: number,
+  assocTableMaxEntries?: number,
+): Record<string, unknown> {
+  return {
+    appId: CAP_APP,
+    loadProcedures: [
+      { type: 'RelSegment', lsmIdx: 4, size: 4 },
+      { type: 'WriteRelMem', objIdx: 4, offset: 0, size: 4 },
+    ],
+    relSegData: { '4': '00000000' },
+    paramMemLayout: {},
+    params: {},
+    dynTree: { main: { items: [] } },
+    ...(gaTableMaxEntries !== undefined ? { gaTableMaxEntries } : {}),
+    ...(assocTableMaxEntries !== undefined ? { assocTableMaxEntries } : {}),
+  };
+}
+
+describe('POST /bus/program-device — GA/Association table MaxEntries capacity check', () => {
+  let projectId: number;
+
+  before(() => {
+    ts.db.run(`INSERT INTO projects (name) VALUES ('program-capacity')`);
+    projectId = ts.db.get<{ id: number }>(
+      `SELECT id FROM projects WHERE name='program-capacity'`,
+    )!.id;
+    // mockBus.connected must be set inside each `it()`, not here: the
+    // file-level beforeEach() resets it to false before every test, so a
+    // describe-level assignment gets overwritten before any test body runs.
+  });
+
+  it('refuses (409) when the real Association table needs more entries than the app declares', async () => {
+    mockBus.connected = true;
+    writeModel(CAP_APP, capModel(undefined, 2)); // real device below needs 3 entries
+    const deviceAddr = '1.1.60';
+    seedDevice(
+      ts.db,
+      projectId,
+      deviceAddr,
+      CAP_APP,
+      CAP_GA_LINKS,
+      CAP_CO_ROWS,
+    );
+    mockBus.calls.length = 0;
+    const r = await req(ts.baseUrl, 'POST', '/bus/program-device', {
+      deviceAddress: deviceAddr,
+      projectId,
+    });
+    assert.equal(r.status, 409);
+    assert.equal((r.data as any).error, 'assoc_table_capacity_exceeded');
+    assert.equal(
+      mockBus.calls.some((c) => c.method === 'downloadDevice'),
+      false,
+      'must refuse before any downloadDevice() call, not after',
+    );
+  });
+
+  it('refuses (409) when the real GA table needs more entries than the app declares', async () => {
+    mockBus.connected = true;
+    writeModel(CAP_APP, capModel(2, undefined)); // real device below needs 3 GA entries
+    const deviceAddr = '1.1.61';
+    seedDevice(
+      ts.db,
+      projectId,
+      deviceAddr,
+      CAP_APP,
+      CAP_GA_LINKS,
+      CAP_CO_ROWS,
+    );
+    mockBus.calls.length = 0;
+    const r = await req(ts.baseUrl, 'POST', '/bus/program-device', {
+      deviceAddress: deviceAddr,
+      projectId,
+    });
+    assert.equal(r.status, 409);
+    assert.equal((r.data as any).error, 'ga_table_capacity_exceeded');
+    assert.equal(
+      mockBus.calls.some((c) => c.method === 'downloadDevice'),
+      false,
+    );
+  });
+
+  it('proceeds normally when the real entry counts are within both declared MaxEntries', async () => {
+    mockBus.connected = true;
+    writeModel(CAP_APP, capModel(1600, 1600));
+    const deviceAddr = '1.1.62';
+    seedDevice(
+      ts.db,
+      projectId,
+      deviceAddr,
+      CAP_APP,
+      CAP_GA_LINKS,
+      CAP_CO_ROWS,
+    );
+    mockBus.calls.length = 0;
+    const r = await req(ts.baseUrl, 'POST', '/bus/program-device', {
+      deviceAddress: deviceAddr,
+      projectId,
+    });
+    assert.equal(r.status, 200);
+    assert.equal(
+      mockBus.calls.some((c) => c.method === 'downloadDevice'),
+      true,
+    );
+  });
+
+  it('proceeds normally when the app model declares no MaxEntries at all (undefined is not treated as a limit)', async () => {
+    mockBus.connected = true;
+    writeModel(CAP_APP, capModel(undefined, undefined));
+    const deviceAddr = '1.1.63';
+    seedDevice(
+      ts.db,
+      projectId,
+      deviceAddr,
+      CAP_APP,
+      CAP_GA_LINKS,
+      CAP_CO_ROWS,
+    );
+    mockBus.calls.length = 0;
+    const r = await req(ts.baseUrl, 'POST', '/bus/program-device', {
+      deviceAddress: deviceAddr,
+      projectId,
+    });
+    assert.equal(r.status, 200);
+    assert.equal(
+      mockBus.calls.some((c) => c.method === 'downloadDevice'),
+      true,
+    );
+  });
+});
+
+// ── program-device: pendingWriteRanges wiring ───────────────────────────────
+// See DownloadExtra.pendingWriteRanges' doc comment (knx-connection.ts).
+// A device_pending_changes row resolves through resolvePendingWriteRanges()
+// into downloadDevice()'s `extra`, and clears once the download completes.
 describe('POST /bus/program-device — pendingWriteRanges wiring', () => {
   let projectId: number;
   const deviceAddr = '1.1.36';
@@ -1627,10 +1793,9 @@ describe('POST /bus/program-device — pendingWriteRanges wiring', () => {
         Array<{ offset: number; length: number }>
       >;
     };
-    // RELMEM_MODEL's param object is 4 bytes (WriteRelMem size:4) - real
-    // ETS trailer-byte behavior (see resolvePendingWriteRanges()'s own doc
-    // comment) means the object's own final byte (offset 3) is expected
-    // alongside the real edit (offset 0), not just the edit alone.
+    // RELMEM_MODEL's param object is 4 bytes (WriteRelMem size:4). Per ETS
+    // trailer-byte behavior (see resolvePendingWriteRanges()), the object's
+    // final byte (offset 3) is expected alongside the edit (offset 0).
     assert.deepEqual(extra.pendingWriteRanges, {
       4: [
         { offset: 0, length: 1 },
@@ -1690,15 +1855,12 @@ describe('POST /bus/program-device — pendingWriteRanges wiring', () => {
   });
 });
 
-// ── program-device: address-by-serial choice, real request 2026-09-01 ──────
-// A serial on record was previously only ever used for the fast-path check
-// (readDeviceInfo at deviceAddress) - if that failed (e.g. a factory-reset
-// device no longer sitting at its assigned address), the route went
-// straight into a forced button-press wait with no alternative, even
-// though the same serial can locate/readdress the device with no button
-// press at all (real-hardware confirmed, docs/knx-device-write-protocol.md
-// §9.2). Real ETS offers this as an operator choice; so does this route
-// now, gated on the 'auto_address_by_serial' setting.
+// ── program-device: address-by-serial choice ────────────────────────────────
+// A serial on record can locate/readdress a device with no button press
+// (docs/knx-device-write-protocol.md §9.2) as an alternative to the
+// forced button-press wait used when the fast-path readDeviceInfo check
+// fails. Gated on the 'auto_address_by_serial' setting, as an operator
+// choice mirroring real ETS.
 describe('POST /bus/program-device — address-by-serial choice', () => {
   let projectId: number;
   const deviceAddr = '1.1.32';
@@ -1716,28 +1878,21 @@ describe('POST /bus/program-device — address-by-serial choice', () => {
   });
 
   after(() => {
-    // This setting is a single global row (server/routes/settings.ts), not
-    // scoped per-project - reset it so later describe blocks in this file
-    // that also call /bus/program-device aren't silently affected by
-    // whatever this block last left it as.
+    // Single global settings row, not per-project - reset for later blocks.
     ts.db.run(
       "UPDATE settings SET value='' WHERE key='auto_address_by_serial'",
     );
-    // mockBus is a single shared, file-scoped instance (see `before()`
-    // above) - the global beforeEach() only resets calls/connected/host/
-    // port/type/projectId, not these two fields, so leaving them set
-    // would silently affect every /bus/program-device test elsewhere in
-    // this file that runs after this block.
+    // beforeEach() doesn't reset these two fields on the shared mock - clear
+    // them so they don't leak into later /bus/program-device tests.
     mockBus.deviceInfoSerialOverride = undefined;
     mockBus.assignBySerialVerified = true;
   });
 
   beforeEach(() => {
     mockBus.connected = true;
-    // seedDevice() always sets serial_number to match readDeviceInfo()'s
-    // own default ('aabbccddeeff') - override it here so the fast-path
-    // check genuinely fails and the choice logic actually runs, matching
-    // a real factory-reset device no longer answering at deviceAddress.
+    // seedDevice() sets serial_number to match readDeviceInfo()'s default
+    // ('aabbccddeeff') - override so the fast-path check fails and the
+    // choice logic runs, as with a factory-reset device.
     mockBus.deviceInfoSerialOverride = null;
     mockBus.assignBySerialVerified = true;
     ts.db.run(
@@ -1789,6 +1944,44 @@ describe('POST /bus/program-device — address-by-serial choice', () => {
     );
   });
 
+  it('retries a locate-by-serial that hits a transient connectivity error, then succeeds', async () => {
+    mockBus.assignBySerialFailures = { times: 1, message: 'Connect timeout' };
+    const r = await req(ts.baseUrl, 'POST', '/bus/program-device', {
+      deviceAddress: deviceAddr,
+      projectId,
+      addressMethod: 'serial',
+    });
+    mockBus.assignBySerialFailures = null;
+    assert.equal(r.status, 200);
+    assert.equal(
+      mockBus.calls.filter(
+        (c) => c.method === 'assignIndividualAddressBySerial',
+      ).length,
+      2,
+      'one failed attempt, one successful retry',
+    );
+  });
+
+  it('does NOT retry a locate-by-serial that fails for any other reason', async () => {
+    mockBus.assignBySerialFailures = {
+      times: 5,
+      message: 'device rejected the request',
+    };
+    const r = await req(ts.baseUrl, 'POST', '/bus/program-device', {
+      deviceAddress: deviceAddr,
+      projectId,
+      addressMethod: 'serial',
+    });
+    mockBus.assignBySerialFailures = null;
+    assert.equal(r.status, 502);
+    assert.equal(
+      mockBus.calls.filter(
+        (c) => c.method === 'assignIndividualAddressBySerial',
+      ).length,
+      1,
+    );
+  });
+
   it('uses serial-based addressing when the client explicitly chooses it (addressMethod:"serial")', async () => {
     const r = await req(ts.baseUrl, 'POST', '/bus/program-device', {
       deviceAddress: deviceAddr,
@@ -1804,16 +1997,11 @@ describe('POST /bus/program-device — address-by-serial choice', () => {
       mockBus.calls.some((c) => c.method === 'downloadDevice'),
       true,
     );
-    // Real bug, found live 2026-09-01: this branch used to declare the
-    // address confirmed immediately after a verified serial write, with
-    // no wait for the device to actually finish restarting -
-    // assignIndividualAddressBySerial()'s own ~3.3s internal settle wait
-    // alone wasn't always enough on real hardware, and downloadDevice()
-    // connecting immediately afterward genuinely failed. Fixed by reusing
-    // the same waitForDeviceBackUp() step the button-press path already
-    // had - assert the real call ORDER proves it's actually in the
-    // sequence now, not just present somewhere: a readDeviceInfo call
-    // AFTER assignIndividualAddressBySerial, still BEFORE downloadDevice.
+    // assignIndividualAddressBySerial()'s ~3.3s internal settle wait alone
+    // isn't always enough before downloadDevice() connects - this branch
+    // reuses the same waitForDeviceBackUp() step the button-press path
+    // uses. Assert call ORDER: readDeviceInfo AFTER
+    // assignIndividualAddressBySerial, still BEFORE downloadDevice.
     const order = mockBus.calls.map((c) => c.method);
     const assignIdx = order.indexOf('assignIndividualAddressBySerial');
     const downloadIdx = order.indexOf('downloadDevice');
@@ -1875,8 +2063,7 @@ describe('POST /bus/program-device — address-by-serial choice', () => {
 });
 
 // ── verify-device: GA table / Association table fallback (RELMEM_APP declares
-// only objIdx 4, matching 1.1.9's real shape - see docs/knx-device-write-
-// protocol.md Part 6 in the koolenex repo) ─────────────────────────────────
+// only objIdx 4 - see docs/knx-device-write-protocol.md Part 6) ────────────
 describe('POST /bus/verify-device — GA/Association table fallback for an app that only declares objIdx 4', () => {
   let projectId: number;
   const deviceAddr = '1.1.33';
@@ -1895,10 +2082,8 @@ describe('POST /bus/verify-device — GA/Association table fallback for an app t
     seedDevice(ts.db, projectId, deviceAddr, RELMEM_APP, GA_LINKS, CO_ROWS);
   });
 
-  // Recompute the exact GA/Association table bytes verify-device will
-  // expect, from the same GA_LINKS/CO_ROWS fixtures used elsewhere in this
-  // file, matching buildGATable()/buildAssocTable()'s real (corrected)
-  // wire format.
+  // Expected GA/Association table bytes, from the same GA_LINKS/CO_ROWS
+  // fixtures used elsewhere in this file.
   const gaTable = buildGATable(GA_LINKS);
   const assocTable = buildAssocTable(CO_ROWS, GA_LINKS);
   // 4-byte param segment (RELMEM_MODEL declares size:4) - content doesn't
@@ -1945,10 +2130,8 @@ describe('POST /bus/verify-device — GA/Association table fallback for an app t
     assert.equal(co0.actualValue, '2/1/2');
     assert.equal(co0.match, true);
     const co12 = byCO.get('co-12-ga') as any;
-    // buildAssocTable() preserves the real declared entry order (fixed
-    // 2026-08-30 - it used to sort by gaIndex ascending, discarding the
-    // order in CO_ROWS's own ga_address string; see its own doc comment).
-    // '2/1/3 2/1/2' is CO_ROWS's own declared order for object 12.
+    // buildAssocTable() preserves declared entry order, not gaIndex-sorted -
+    // '2/1/3 2/1/2' is CO_ROWS's declared order for object 12.
     assert.equal(co12.expectedValue, '2/1/3 2/1/2');
     assert.equal(co12.actualValue, '2/1/3 2/1/2');
     assert.equal(co12.match, true);
@@ -1995,21 +2178,14 @@ describe('POST /bus/verify-device — GA/Association table fallback for an app t
     assert.equal((byCO.get('co-48-ga') as any).match, false);
   });
 
-  // Regression test for a real bug found on real hardware (2026-08-29):
-  // sizing the actual-bytes read off the PROJECT's currently-computed
-  // "expected" buffer, rather than the device's own real on-device table
-  // size - if the project's GA/Association tables happen to be SMALLER
-  // than what's genuinely on the device (e.g. a GA link was just removed
-  // in the project, or the device was programmed with more entries than
-  // the project currently declares), the read silently truncates and
-  // decodes the device's real, larger table as if the entries past the
-  // truncation point don't exist - reporting them as missing/null instead
-  // of what's really there.
+  // Actual-bytes read must size off the device's own on-device table size,
+  // not the project's currently-computed "expected" buffer - a project
+  // table smaller than the device's (e.g. after a GA link removal) must
+  // not truncate the read and report the missing entries as null.
   it("reads the device's real table size, not the project's currently-smaller expected size", async () => {
     mockBus.connected = true;
-    // Project currently only expects object 0's link (as if object 12's
-    // and 48's GA links were just removed, matching what actually happened
-    // live) - a SHORTER table than what's really on the device.
+    // Project now only expects object 0's link (as if 12/48 were removed) -
+    // a SHORTER table than what's really on the device.
     ts.db.run(
       `UPDATE com_objects SET ga_address='' WHERE device_id=(SELECT id FROM devices WHERE project_id=? AND individual_address=?) AND object_number IN (12,48)`,
       [projectId, deviceAddr],
@@ -2046,9 +2222,7 @@ describe('POST /bus/verify-device — GA/Association table fallback for an app t
     // dropped to null by a truncated read.
     const co12 = byCO.get('co-12-ga') as any;
     assert.equal(co12.expectedValue, '(none)');
-    // '2/1/3 2/1/2' - the real declared order (see buildAssocTable()'s own
-    // fix, 2026-08-30): `assocTable` above is built from CO_ROWS's own
-    // declared ga_address order, not re-sorted by gaIndex.
+    // Declared order, not gaIndex-sorted - see buildAssocTable().
     assert.equal(co12.actualValue, '2/1/3 2/1/2');
     assert.equal(co12.match, false);
     const co48 = byCO.get('co-48-ga') as any;
@@ -2059,10 +2233,8 @@ describe('POST /bus/verify-device — GA/Association table fallback for an app t
 });
 
 // ── verify-device/recompute: local (no-bus) re-diff against cached device
-// data — real user feedback, 2026-08-31: "If we have previously verified
-// the device and have its data in cache, why make it stale when DB items
-// are modified? ... Better we just re-run the comparison of our modified
-// DB values against the previously cached device values." ─────────────────
+// data — re-runs the comparison against previously-cached device values
+// instead of invalidating the cache on every DB edit ────────────────────
 describe('POST /bus/verify-device/recompute', () => {
   let projectId: number;
   let deviceId: number;
@@ -2089,10 +2261,9 @@ describe('POST /bus/verify-device/recompute', () => {
     );
   });
 
-  // Gets a genuine cached VerifyDeviceResult by running a real (mocked)
-  // /bus/verify-device against a device that currently matches exactly -
-  // the recompute tests below then edit the DB and recompute LOCALLY
-  // against this same cached result, with no further bus access.
+  // Runs a real (mocked) /bus/verify-device against a matching device to
+  // get a cached VerifyDeviceResult; recompute tests then edit the DB and
+  // recompute locally against it, with no further bus access.
   async function realVerify(): Promise<any> {
     mockBus.connected = true;
     mockBus.propImage = new Map([
@@ -2203,8 +2374,7 @@ describe('POST /bus/verify-device/recompute', () => {
 });
 
 // ── program-device: buildDeviceProgramming() constructs a real Object 3
-// (Group Object Table) and passes it through to downloadDevice() (2026-08-29)
-// ─────────────────────────────────────────────────────────────────────────
+// (Group Object Table) and passes it through to downloadDevice() ──────────
 const OBJ3_APP = 'M-00FB_A-0002-01-AB01';
 const OBJ3_MODEL = {
   appId: OBJ3_APP,
@@ -2216,9 +2386,7 @@ const OBJ3_MODEL = {
   paramMemLayout: {},
   params: {},
   dynTree: { main: { items: [] } },
-  // The value under test - see ParamModel.groupObjectTableSize's doc
-  // comment (ets-app.ts) for the real-hardware-verified formula this
-  // mirrors (2 x maxComObjectNumber + 2).
+  // See ParamModel.groupObjectTableSize (ets-app.ts): 2 x maxComObjectNumber + 2.
   groupObjectTableSize: 20,
 };
 
@@ -2237,8 +2405,7 @@ describe('POST /bus/program-device — builds and passes a real Object 3 (Group 
       `SELECT id FROM projects WHERE name='program-obj3'`,
     )!.id;
     ts.db.run(
-      // serial_number matches MockBus.readDeviceInfo()'s own default - see
-      // seedDevice()'s identical comment above.
+      // serial_number matches MockBus.readDeviceInfo()'s default.
       `INSERT INTO devices (project_id, individual_address, name, app_ref, param_values, serial_number) VALUES (?,?,?,?,?,?)`,
       [
         projectId,
@@ -2357,12 +2524,10 @@ describe('POST /bus/program-device — builds and passes a real Object 3 (Group 
   });
 });
 
-// ── verify-device: Object 3 (Group Object Table) fallback, added 2026-08-29
-// alongside the real-hardware write confirmation (docs/knx-device-write-
-// protocol.md Part 18) and the buildUndeclaredTableMem() LoadImageProp bug
-// fix (knx-download-plan.ts). Reuses OBJ3_APP/OBJ3_MODEL from the
-// program-device Object 3 tests above - same "fake" MockBus device, this
-// time serving reads (propImage/memImage) instead of recording a write. ──
+// ── verify-device: Object 3 (Group Object Table) fallback - see
+// docs/knx-device-write-protocol.md Part 18 and buildUndeclaredTableMem()'s
+// LoadImageProp handling (knx-download-plan.ts). Reuses OBJ3_APP/OBJ3_MODEL
+// from the program-device Object 3 tests above, serving reads this time. ──
 describe('POST /bus/verify-device — Object 3 (Group Object Table) fallback', () => {
   let projectId: number;
   const deviceAddr = '1.1.36';
@@ -2417,8 +2582,7 @@ describe('POST /bus/verify-device — Object 3 (Group Object Table) fallback', (
       `SELECT id FROM projects WHERE name='verify-obj3'`,
     )!.id;
     ts.db.run(
-      // serial_number matches MockBus.readDeviceInfo()'s own default - see
-      // seedDevice()'s identical comment above.
+      // serial_number matches MockBus.readDeviceInfo()'s default.
       `INSERT INTO devices (project_id, individual_address, name, app_ref, param_values, serial_number) VALUES (?,?,?,?,?,?)`,
       [
         projectId,
@@ -2493,8 +2657,8 @@ describe('POST /bus/verify-device — Object 3 (Group Object Table) fallback', (
     assert.match(co5.expectedValue, /Comm\+Linked=Yes/);
     assert.match(co5.expectedValue, /Priority=Alarm/);
     assert.match(co5.expectedValue, /Size=1 Bit/);
-    // Structured flags for the per-flag chip display (2026-08-29) - real
-    // booleans, not a string to re-parse, mirroring the same expectations.
+    // Structured flags for the per-flag chip display - real booleans, not
+    // a string to re-parse, mirroring the same expectations.
     assert.deepEqual(co5.obj3Expected, {
       update: false,
       transmit: false,
@@ -2541,14 +2705,9 @@ describe('POST /bus/verify-device — Object 3 (Group Object Table) fallback', (
     const byKey = new Map(obj3Rows.map((r: any) => [r.key, r]));
     assert.equal((byKey.get('co-5-obj3') as any).match, true);
     assert.equal((byKey.get('co-7-obj3') as any).match, false);
-    // Regression test for a real bug found live, 2026-08-29: the top-level
-    // `match` flag was computed purely from `totalDiffering === 0` (raw
-    // parameter memory bytes only - Object 3 is deliberately kept OUT of
-    // that scope), so a genuine Object 3 mismatch here previously left
-    // `body.match` reporting `true` ("matches computed image") even while a
-    // real row showed `match: false` - visibly inconsistent between the
-    // top-level summary/log line and the per-row table. `match` must now
-    // reflect every decoded row too, not just the raw byte total.
+    // Top-level `match` must reflect every decoded row, not just
+    // `totalDiffering === 0` (raw parameter bytes only - Object 3 is kept
+    // out of that scope), or a genuine Object 3 mismatch reports match:true.
     assert.equal(
       body.match,
       false,
@@ -2559,15 +2718,10 @@ describe('POST /bus/verify-device — Object 3 (Group Object Table) fallback', (
 
 // ── Uniform not-connected mapping ───────────────────────────────────────────
 
-// Every bus operation answers 409 on a disconnected bus, and the same 409
-// whichever route you came through. Until busRoute() (server/routes/bus.ts)
-// this was written out per route and four different answers had drifted in:
-// 16 routes returned 409, /bus/read, /bus/write, /bus/connect, /bus/connect-usb
-// and /bus/replay-frames returned 502, /bus/device-info returned 500, and the
-// USB enumeration routes returned 500 - so a client could not tell "reconnect
-// and retry" from "the gateway failed" by status alone. This is table-driven
-// on purpose: a route added without going through busRoute() has to be added
-// here too, or it is simply not covered.
+// Every bus operation answers 409 on a disconnected bus, uniformly, via
+// busRoute() (server/routes/bus.ts) - so a client can tell "reconnect and
+// retry" from a gateway failure by status alone. Table-driven: a route
+// added without going through busRoute() must be added here too.
 describe('bus routes: not connected', () => {
   const CASES: Array<[string, Record<string, unknown>]> = [
     ['/bus/read', { ga: '1/0/0' }],
@@ -2723,9 +2877,8 @@ describe('runVerifyDevice / loadProgrammableDevice without HTTP', () => {
 
 // ── Routes that had no coverage at all ──────────────────────────────────────
 
-// These four were reachable from nowhere in the suite until 2026-09-10.
-// Three of them needed MockBus methods that did not exist, which is most of
-// why they had been skipped.
+// Needed MockBus methods added for these four (replayFrames, restartDevice,
+// readIndividualAddressBySerial, readSerialNumbersInProgrammingMode).
 describe('POST /bus/replay-frames', () => {
   it('replays the frames it is given, decoded from hex', async () => {
     mockBus.connected = true;
@@ -2892,10 +3045,9 @@ describe('POST /bus/read-serials-in-programming-mode', () => {
 
 // ── Error codes that nothing asserted ───────────────────────────────────────
 
-// Four codes the API can return had no test at all. Two are reachable
-// without simulating hardware and are covered here; the other two
-// (address_write_unconfirmed, segment_unallocated) need a device image and
-// a PID 7 read to be driven, and are recorded in the plan instead.
+// Two error codes reachable without simulating hardware, covered here;
+// address_write_unconfirmed and segment_unallocated need a device image
+// and a PID 7 read, covered in the next describe block.
 describe('bus error codes', () => {
   it('no_ldctrl when the app model has no load procedures', async () => {
     const app = 'M-00FA_A-0001-01-NOLD';
@@ -2965,10 +3117,7 @@ describe('bus error codes', () => {
   });
 });
 
-// The remaining two of the four codes nothing asserted. Both sit behind
-// real-hardware behaviour - a device that has to answer after its address
-// is written, and a PID 7 read - so they are driven through the mock
-// rather than over HTTP where the wait would be 35 seconds.
+// Driven through the mock rather than over HTTP, where the wait would be 35s.
 describe('bus error codes: the hardware-shaped two', () => {
   it('segment_unallocated when verifying a device whose PID 7 reads zero', async () => {
     writeModel(RELMEM_APP, RELMEM_MODEL);
@@ -3055,5 +3204,204 @@ describe('bus error codes: the hardware-shaped two', () => {
       false,
       'must not download after an unconfirmed address write',
     );
+  });
+});
+
+describe('/bus/program-device: PeiType refusal and prior-download history', () => {
+  async function program(
+    app: string,
+    model: Record<string, unknown>,
+    tweak?: (deviceId: number) => void,
+  ) {
+    writeModel(app, {
+      appId: app,
+      loadProcedures: [{ type: 'Connect' }],
+      params: {},
+      ...model,
+    });
+    ts.db.run("INSERT INTO projects (name) VALUES ('pei-history')");
+    const pid = ts.db.get<{ id: number }>(
+      'SELECT last_insert_rowid() AS id',
+    )!.id;
+    const did = seedDevice(ts.db, pid, '1.1.43', app, [], []);
+    tweak?.(did);
+    const dev = ts.db.get<any>('SELECT * FROM devices WHERE id=?', [did])!;
+    mockBus.connected = true;
+    mockBus.calls.length = 0;
+    const result = await runProgramDevice(
+      mockBus as any,
+      dev,
+      { deviceAddress: '1.1.43', projectId: pid, deviceId: did, mode: 'full' },
+      () => false,
+    );
+    return { result, did };
+  }
+  const downloadExtra = () =>
+    mockBus.calls.find((c) => c.method === 'downloadDevice')!.args[6] as {
+      hasPriorDownloadHistory: boolean;
+      peiType: string;
+    };
+
+  it('refuses an app declaring PEI program content before any bus call is made', async () => {
+    const { result } = await program('M-00FA_A-0001-01-PEI1', { peiType: '1' });
+    assert.ok(result);
+    assert.equal(result.status, 409);
+    assert.equal((result.body as { error: string }).error, 'untested_pei_type');
+    assert.equal(
+      mockBus.calls.some((c) => c.method === 'downloadDevice'),
+      false,
+    );
+  });
+
+  it('a device with no download on record is treated as never downloaded to', async () => {
+    const { result } = await program('M-00FA_A-0001-01-PEI2', { peiType: '0' });
+    assert.equal(result!.status, 200);
+    assert.equal(downloadExtra().hasPriorDownloadHistory, false);
+    assert.equal(downloadExtra().peiType, '0');
+  });
+
+  it('counts as previously downloaded to when a download is on record for the same serial', async () => {
+    const { result } = await program('M-00FA_A-0001-01-PEI3', {}, (did) =>
+      ts.db.run(
+        "UPDATE devices SET last_download='2026-01-01', last_download_serial='AABBCCDDEEFF' WHERE id=?",
+        [did],
+      ),
+    );
+    assert.equal(result!.status, 200);
+    assert.equal(downloadExtra().hasPriorDownloadHistory, true);
+  });
+
+  it('a different unit at the same address (other serial) counts as never downloaded to', async () => {
+    const { result } = await program('M-00FA_A-0001-01-PEI4', {}, (did) =>
+      ts.db.run(
+        "UPDATE devices SET last_download='2026-01-01', last_download_serial='112233445566' WHERE id=?",
+        [did],
+      ),
+    );
+    assert.equal(result!.status, 200);
+    assert.equal(downloadExtra().hasPriorDownloadHistory, false);
+  });
+
+  it('records the serial the download went to', async () => {
+    const { did } = await program('M-00FA_A-0001-01-PEI5', {});
+    const row = ts.db.get<any>(
+      'SELECT last_download_serial FROM devices WHERE id=?',
+      [did],
+    )!;
+    assert.equal(row.last_download_serial, 'aabbccddeeff');
+  });
+});
+
+describe('/bus/program-device: a cancel during the write is not recorded as a download', () => {
+  it('returns no response and leaves status and pending changes alone', async () => {
+    const app = 'M-00FA_A-0001-01-CNCL';
+    writeModel(app, {
+      appId: app,
+      loadProcedures: [{ type: 'Connect' }],
+      params: {},
+    });
+    ts.db.run("INSERT INTO projects (name) VALUES ('cancelled')");
+    const pid = ts.db.get<{ id: number }>(
+      'SELECT last_insert_rowid() AS id',
+    )!.id;
+    const did = seedDevice(ts.db, pid, '1.1.45', app, [], []);
+    ts.db.run("UPDATE devices SET status='modified' WHERE id=?", [did]);
+    ts.db.run(
+      "INSERT INTO device_pending_changes (device_id, kind, key, baseline_value, current_value) VALUES (?, 'param', 'p1', '0', '1')",
+      [did],
+    );
+    const dev = ts.db.get<any>('SELECT * FROM devices WHERE id=?', [did])!;
+    mockBus.connected = true;
+    mockBus.downloadResultOverride = { aborted: true };
+    const result = await runProgramDevice(
+      mockBus as any,
+      dev,
+      { deviceAddress: '1.1.45', projectId: pid, deviceId: did, mode: 'full' },
+      () => false,
+    );
+    mockBus.downloadResultOverride = null;
+    assert.equal(result, null);
+    const after = ts.db.get<any>('SELECT status FROM devices WHERE id=?', [
+      did,
+    ])!;
+    assert.equal(after.status, 'modified');
+    assert.equal(
+      ts.db.get<{ n: number }>(
+        'SELECT COUNT(*) AS n FROM device_pending_changes WHERE device_id=?',
+        [did],
+      )!.n,
+      1,
+    );
+  });
+});
+
+describe('program-device and verify-device: reconnect only when there is no live connection', () => {
+  async function program(app: string, addr: string) {
+    writeModel(app, {
+      appId: app,
+      loadProcedures: [{ type: 'Connect' }],
+      params: {},
+    });
+    ts.db.run("INSERT INTO projects (name) VALUES ('reconnect')");
+    const pid = ts.db.get<{ id: number }>(
+      'SELECT last_insert_rowid() AS id',
+    )!.id;
+    const did = seedDevice(ts.db, pid, addr, app, [], []);
+    const dev = ts.db.get<any>('SELECT * FROM devices WHERE id=?', [did])!;
+    mockBus.calls.length = 0;
+    await runProgramDevice(
+      mockBus as any,
+      dev,
+      { deviceAddress: addr, projectId: pid, deviceId: did, mode: 'full' },
+      () => false,
+    );
+  }
+  const reconnects = () =>
+    mockBus.calls.filter((c) => c.method === 'forceReconnect').length;
+
+  it('program-device reuses a live connection instead of reconnecting before each device', async () => {
+    mockBus.connected = true;
+    await program('M-00FA_A-0001-01-RCN1', '1.1.46');
+    await program('M-00FA_A-0001-01-RCN2', '1.1.47');
+    assert.equal(reconnects(), 0);
+  });
+
+  it('program-device reconnects when the bus is not connected', async () => {
+    mockBus.connected = false;
+    mockBus.host = '10.0.0.1';
+    await program('M-00FA_A-0001-01-RCN3', '1.1.48');
+    assert.equal(reconnects(), 1);
+    mockBus.connected = true;
+  });
+
+  it('verify-device reuses a live connection, and reconnects when there is none', async () => {
+    const app = 'M-00FA_A-0001-01-RCN4';
+    writeModel(
+      app,
+      RELMEM_MODEL
+        ? { ...RELMEM_MODEL, appId: app }
+        : { appId: app, loadProcedures: [], params: {} },
+    );
+    ts.db.run("INSERT INTO projects (name) VALUES ('reconnect-verify')");
+    const pid = ts.db.get<{ id: number }>(
+      'SELECT last_insert_rowid() AS id',
+    )!.id;
+    seedDevice(ts.db, pid, '1.1.49', app, [], []);
+    mockBus.connected = true;
+    mockBus.calls.length = 0;
+    await req(ts.baseUrl, 'POST', '/bus/verify-device', {
+      deviceAddress: '1.1.49',
+      projectId: pid,
+    });
+    assert.equal(reconnects(), 0);
+    mockBus.connected = false;
+    mockBus.host = '10.0.0.1';
+    mockBus.calls.length = 0;
+    await req(ts.baseUrl, 'POST', '/bus/verify-device', {
+      deviceAddress: '1.1.49',
+      projectId: pid,
+    });
+    assert.equal(reconnects(), 1);
+    mockBus.connected = true;
   });
 });

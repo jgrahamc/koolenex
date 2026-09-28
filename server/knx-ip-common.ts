@@ -1,15 +1,11 @@
 /**
- * Shared low-level KNXnet/IP wire-format helpers - the 6-byte header, HPAI
- * (Host Protocol Address Information) structure, and service-type codes -
- * used by every KNXnet/IP transport variant this codebase implements
- * (UDP/TCP Tunneling in knx-protocol.ts, Routing/multicast in
- * knx-protocol-routing.ts). Extracted 2026-08-30 so the three transports
- * share one source of truth for these structures instead of drifting.
+ * Shared low-level KNXnet/IP wire-format helpers: the 6-byte header, HPAI
+ * (Host Protocol Address Information) structure, and service-type codes,
+ * used by every transport variant (UDP/TCP Tunneling in knx-protocol.ts,
+ * Routing/multicast in knx-protocol-routing.ts).
  *
- * Real spec facts here are cross-checked against Calimero's real
- * open-source implementation (calimero-project/calimero-core), same
- * methodology used for the serial-number addressing research - see
- * docs/knx-device-write-protocol.md §9 for the full evidence trail.
+ * Spec facts cross-checked against Calimero (calimero-project/calimero-core)
+ * - see docs/knx-device-write-protocol.md §9.
  */
 
 import os from 'os';
@@ -27,23 +23,32 @@ export const SVC = {
   DISCONNECT_RES: 0x020a,
   TUNNELING_REQ: 0x0420,
   TUNNELING_ACK: 0x0421,
-  // Routing (connectionless) - real values confirmed against Calimero's
-  // KNXnetIPHeader.java (ROUTING_IND/ROUTING_LOST_MSG/ROUTING_BUSY), not
-  // guessed. See knx-protocol-routing.ts.
+  // KNXnet/IP Tunnelling v2 "Feature" services - ETS sends
+  // TUNNELING_FEATURE_GET/SET on every Tunnel connect (BusStatus /
+  // InfoServiceEnable). Codes match Qt KNX's documented
+  // TunnelingFeatureGet/Response/Set values.
+  TUNNELING_FEATURE_GET: 0x0422,
+  TUNNELING_FEATURE_RESPONSE: 0x0423,
+  TUNNELING_FEATURE_SET: 0x0424,
+  // Server-initiated, unprompted - sent only when InfoServiceEnable is on
+  // and a negotiated feature's value changes.
+  TUNNELING_FEATURE_INFO: 0x0425,
+  // Routing (connectionless) - matches Calimero's KNXnetIPHeader.java
+  // (ROUTING_IND/ROUTING_LOST_MSG/ROUTING_BUSY). See knx-protocol-routing.ts.
   ROUTING_IND: 0x0530,
   ROUTING_LOST_MSG: 0x0531,
   ROUTING_BUSY: 0x0532,
 } as const;
 
 // HPAI "Host Protocol Code" byte - which transport an endpoint describes.
-// Confirmed against Calimero's HPAI.java (IPV4_UDP/IPV4_TCP constants).
+// Matches Calimero's HPAI.java (IPV4_UDP/IPV4_TCP constants).
 export const HOST_PROTOCOL = {
   UDP: 0x01,
   TCP: 0x02,
 } as const;
 
-// Real KNXnet/IP Routing default multicast group - confirmed against
-// Calimero's KNXnetIPRouting.DEFAULT_MULTICAST and matches Falcon SDK's
+// KNXnet/IP Routing default multicast group - matches Calimero's
+// KNXnetIPRouting.DEFAULT_MULTICAST and Falcon SDK's
 // IpRoutingConnectorParameters.MulticastAddress default.
 export const ROUTING_MULTICAST_ADDRESS = '224.0.23.12';
 export const ROUTING_MULTICAST_PORT = 3671;
@@ -60,12 +65,10 @@ export function hdr(svc: number, totalLen: number): Buffer {
 }
 
 /**
- * Build an 8-byte HPAI. `hostProtocol` defaults to UDP (0x01), matching
- * every existing call site. For TCP, real KNXnet/IP connections use a
- * placeholder HPAI - protocol code TCP, address 0.0.0.0, port 0 (Calimero's
- * `HPAI.Tcp` constant) - since the TCP socket itself already defines the
- * real endpoint; pass ip='0.0.0.0', port=0, hostProtocol=HOST_PROTOCOL.TCP
- * for that case rather than the real local IP/port.
+ * Build an 8-byte HPAI. `hostProtocol` defaults to UDP (0x01). For TCP, use
+ * the spec placeholder HPAI - protocol code TCP, address 0.0.0.0, port 0
+ * (Calimero's `HPAI.Tcp`) - since the TCP socket itself is the real
+ * endpoint; pass ip='0.0.0.0', port=0, hostProtocol=HOST_PROTOCOL.TCP.
  */
 export function hpai(
   ip: string,
@@ -82,6 +85,41 @@ export function hpai(
   return b;
 }
 
+// Tunnelling v2 Feature identifiers: `FeatureId 0x03` = BusStatus,
+// `FeatureId 0x08` = InfoServiceEnable. Matches Qt KNX's documented
+// `QKnx::InterfaceFeature` enum (`BusConnectionStatus`,
+// `InterfaceFeatureInfoServiceEnable`).
+export const TUNNELING_FEATURE = {
+  BUS_STATUS: 0x03,
+  INFO_SERVICE_ENABLE: 0x08,
+} as const;
+
+/**
+ * Build a TunnelFeatureGet or TunnelFeatureSet body.
+ *
+ * SeqCounter is a two-byte field (a 1-byte SeqCounter shifts every
+ * following field and the gateway rejects it with a TunnelFeatureResp
+ * error). Wire shape: `[StructLength=4][ChannelId:1][SeqCounter:2]
+ * [FeatureId:1][Reserved=0:1][Value...]` (Value omitted for Get). `value`,
+ * when given, is a single byte - every feature covered here (BusStatus's
+ * response, InfoServiceEnable's set value) is 1 byte.
+ */
+export function pktTunnelFeature(
+  svc: number,
+  channelId: number,
+  seq: number,
+  featureId: number,
+  value?: number,
+): Buffer {
+  const seqBytes = [(seq >> 8) & 0xff, seq & 0xff];
+  const body = Buffer.from(
+    value === undefined
+      ? [0x04, channelId, ...seqBytes, featureId, 0x00]
+      : [0x04, channelId, ...seqBytes, featureId, 0x00, value],
+  );
+  return Buffer.concat([hdr(svc, 6 + body.length), body]);
+}
+
 export function decodePhysicalRaw(buf: Buffer, off: number): string {
   const b0 = buf[off]!;
   const b1 = buf[off + 1]!;
@@ -91,8 +129,8 @@ export function decodePhysicalRaw(buf: Buffer, off: number): string {
 // ── Local IP detection ─────────────────────────────────────────────────────────
 
 export function getLocalIp(): string {
-  // Override for NAT/VPN: set KNX_LOCAL_IP=0.0.0.0 so the gateway replies to the
-  // UDP source address instead of an auto-detected (and possibly wrong) interface.
+  // Override for NAT/VPN: set KNX_LOCAL_IP=0.0.0.0 so the gateway replies to
+  // the UDP source address instead of an auto-detected interface.
   if (process.env.KNX_LOCAL_IP) return process.env.KNX_LOCAL_IP;
   const ifaces = os.networkInterfaces();
   for (const name of Object.keys(ifaces)) {

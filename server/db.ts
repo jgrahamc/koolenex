@@ -180,9 +180,8 @@ export async function init(
   db.run(`INSERT OR IGNORE INTO settings VALUES ('active_project_id', '')`);
   // When a device doesn't answer at its assigned address (e.g. after a
   // factory reset) and a serial is on record, /bus/program-device can
-  // locate/readdress it by serial (A_IndividualAddressSerialNumber_Write,
-  // real-hardware confirmed - see docs/knx-device-write-protocol.md §9.2)
-  // instead of always requiring a physical programming-button press.
+  // locate/readdress it by serial (A_IndividualAddressSerialNumber_Write)
+  // instead of requiring a physical programming-button press.
   // 'true' skips the choice prompt and does this automatically; '' (the
   // default) offers the choice each time.
   db.run(
@@ -210,6 +209,11 @@ export async function init(
   migrate('devices', 'serial_number', "TEXT DEFAULT ''");
   migrate('devices', 'last_modified', "TEXT DEFAULT ''");
   migrate('devices', 'last_download', "TEXT DEFAULT ''");
+  // Serial of the physical device the last download went to. With
+  // last_download this says whether THIS unit was downloaded to before
+  // (see downloadDevice()'s Object 5 decision) - a replacement unit at the
+  // same address has a different serial and counts as never downloaded to.
+  migrate('devices', 'last_download_serial', "TEXT DEFAULT ''");
   migrate('devices', 'area_name', "TEXT DEFAULT ''");
   migrate('devices', 'line_name', "TEXT DEFAULT ''");
   migrate('devices', 'medium', "TEXT DEFAULT 'TP'");
@@ -218,29 +222,25 @@ export async function init(
   migrate('group_addresses', 'middle_group_name', "TEXT DEFAULT ''");
   migrate('com_objects', 'channel', "TEXT DEFAULT ''");
   migrate('com_objects', 'object_size', "TEXT DEFAULT ''");
-  // Read-On-Init and Priority - added 2026-08-29 for Object 3 (Group Object
-  // Table) support (docs/knx-device-write-protocol.md §10.1, knx-tables.ts's
-  // GroupObjectFlags). read_on_init mirrors the other flag columns' boolean-
-  // as-INTEGER convention; priority mirrors bus_telegrams.priority's
-  // lowercase-string convention ('low'/'alarm'/'high'/'system').
+  // Read-On-Init and Priority, for Object 3 (Group Object Table) support
+  // (knx-tables.ts's GroupObjectFlags). read_on_init mirrors the other flag
+  // columns' boolean-as-INTEGER convention; priority mirrors
+  // bus_telegrams.priority's lowercase-string convention
+  // ('low'/'alarm'/'high'/'system').
   migrate('com_objects', 'read_on_init', 'INTEGER DEFAULT 0');
   migrate('com_objects', 'priority', "TEXT DEFAULT 'low'");
-  // Raw Read/Write/Communication/Transmit booleans - added same day
-  // alongside read_on_init/priority above. `flags` is a composite DISPLAY
-  // string only (buildFlags()) and has a lossy all-false fallback ('CW') -
-  // not safe to parse back into individual booleans for a real download.
+  // Raw Read/Write/Communication/Transmit booleans, alongside
+  // read_on_init/priority above. `flags` is a composite DISPLAY string only
+  // (buildFlags()) with a lossy all-false fallback ('CW') - not safe to
+  // parse back into individual booleans for a real download.
   migrate('com_objects', 'read', 'INTEGER DEFAULT 0');
   migrate('com_objects', 'write', 'INTEGER DEFAULT 0');
   migrate('com_objects', 'comm', 'INTEGER DEFAULT 0');
   migrate('com_objects', 'tx', 'INTEGER DEFAULT 0');
-  // Update - added 2026-08-29, as its own real fix (a real bug: this flag
-  // was never given a dedicated raw column when read/write/comm/tx were,
-  // and separately was resolved wrong - see the comment on CoDef.update in
-  // ets-app.ts). Named `upd`, not `update` - `UPDATE` is a SQL keyword and
-  // an unquoted column literally named that risks breaking any raw SQL
-  // written against this table later; every other layer (ParsedComObject,
-  // ComObject, GroupObjectFlags) still calls it `update`, this is a
-  // DB-column-only rename.
+  // Update flag: dedicated raw column like read/write/comm/tx above - see
+  // CoDef.update in ets-app.ts. Named `upd`, not `update`, since UPDATE is a
+  // SQL keyword; every other layer (ParsedComObject, ComObject,
+  // GroupObjectFlags) still calls it `update`.
   migrate('com_objects', 'upd', 'INTEGER DEFAULT 0');
   migrate('devices', 'space_id', 'INTEGER');
   migrate('devices', 'parameters', "TEXT DEFAULT '[]'");
@@ -259,16 +259,13 @@ export async function init(
   migrate('group_addresses', 'description', "TEXT DEFAULT ''");
   migrate('devices', 'floor_x', 'REAL DEFAULT -1');
   migrate('devices', 'floor_y', 'REAL DEFAULT -1');
-  // has_address - added 2026-08-30, real bug fix: a <DeviceInstance> with no
-  // Address attribute (never placed on a line in ETS) was defaulting to
-  // device number 0, which both collides with the real ETS convention of
-  // addressing a line's first/router device as 0 (confirmed against the
-  // live Test Bed project) and, since individual_address is UNIQUE per
-  // project, silently dropped every subsequent unaddressed device via
-  // INSERT OR REPLACE - it never appeared in the Devices or Programming
-  // views, with no error anywhere. Existing rows default to 1 (real
-  // address) since they were only ever inserted from devices that DID have
-  // one; only newly-imported unaddressed devices get 0.
+  // has_address: a <DeviceInstance> with no Address attribute (never placed
+  // on a line in ETS) previously defaulted to device number 0, colliding
+  // with the ETS convention of addressing a line's router as 0 and, since
+  // individual_address is UNIQUE per project, silently dropping every
+  // subsequent unaddressed device via INSERT OR REPLACE. Existing rows
+  // default to 1 (real address); only newly-imported unaddressed devices
+  // get 0.
   migrate('devices', 'has_address', 'INTEGER DEFAULT 1');
   migrate('catalog_items', 'model', "TEXT DEFAULT ''");
   migrate('catalog_items', 'bus_current', 'INTEGER DEFAULT 0');
@@ -276,40 +273,28 @@ export async function init(
   migrate('catalog_items', 'is_power_supply', 'INTEGER DEFAULT 0');
   migrate('catalog_items', 'is_coupler', 'INTEGER DEFAULT 0');
   migrate('catalog_items', 'is_rail_mounted', 'INTEGER DEFAULT 0');
-  // Real request, 2026-08-31: `LastUsedAPDULength` was already being
-  // parsed off each real `<DeviceInstance>` (ets-parser.ts) but silently
-  // dropped before reaching the DB - never persisted, never used. Found
-  // while investigating real per-device chunk-size limits
-  // (`PID_MAX_APDULENGTH`, see knx-connection.ts's own doc comment on
-  // `_resolveMaxApduLength()`): the project file already caches this
-  // value from ETS's own last real session with the device (confirmed
-  // exact match against a live property-56 read for one real device,
-  // 55==55), so it's a real, free, no-bus-round-trip source - preferred
-  // over the live read when present, which now only serves as a fallback
-  // for a device never downloaded to from this project.
+  // `LastUsedAPDULength` off each `<DeviceInstance>` (ets-parser.ts),
+  // persisted here. Caches ETS's last-used write chunk size for the device
+  // (matches a live `PID_MAX_APDULENGTH`/property 56 read - see
+  // knx-connection.ts's `_resolveMaxApduLength()`), used as a free,
+  // no-bus-round-trip source, with a live read as fallback for a device
+  // never downloaded to yet.
   migrate('devices', 'apdu_length', "TEXT DEFAULT ''");
   // Count/detail of writes whose response never arrived during this
-  // device's last download - see knx-connection.ts's DownloadResult doc
-  // comment. Persisted so the "verify recommended" indicator survives a
-  // reload; cleared (set back to 0/'[]') on the next download or a
-  // successful verify.
+  // device's last download - see knx-connection.ts's DownloadResult.
+  // Persisted so the "verify recommended" indicator survives a reload;
+  // cleared (0/'[]') on the next download or a successful verify.
   migrate('devices', 'unconfirmed_writes_count', 'INTEGER DEFAULT 0');
   migrate('devices', 'unconfirmed_writes_detail', "TEXT DEFAULT '[]'");
-  // Persisted last-verify outcome, added 2026-09-01 - real request: "we
-  // should consider an indicator for both successful verify and failed"
-  // (mirrors the existing status/last_download persistence pattern for
-  // downloads, immediately above). NULL means "never verified" (distinct
-  // from a real 0/false failed verify) - a plain boolean column can't
-  // represent that third state, hence nullable INTEGER, not
-  // "DEFAULT 0"/BOOLEAN. Written by runVerifyDevice() (server/routes/
-  // bus.ts) after a real live bus verify only - the cache-only recompute
-  // path deliberately does not touch this column (see its own doc
-  // comment: it never re-reads the device, so persisting a "verified"
-  // result from it would be misleading). Cleared back to NULL on the next
-  // download (/bus/program-device) and on any edit to data feeding a real
-  // device write while a prior verify result exists
-  // (markDeviceModifiedIfProgrammed, server/routes/shared.ts) - a verify
-  // result only means something until the thing it verified changes.
+  // Persisted last-verify outcome, indicating both successful and failed
+  // verifies. NULL means "never verified" (distinct from a failed verify),
+  // hence nullable INTEGER rather than a plain boolean. Written by
+  // runVerifyDevice() (server/routes/bus.ts) after a real bus verify only -
+  // the cache-only recompute path never re-reads the device, so it must not
+  // touch this column. Cleared to NULL on the next download
+  // (/bus/program-device) and on any edit to data feeding a real device
+  // write while a prior verify result exists (markDeviceModifiedIfProgrammed,
+  // server/routes/shared.ts).
   migrate('devices', 'last_verify_match', 'INTEGER');
   migrate('devices', 'last_verify_at', 'TEXT');
   db.run(`INSERT OR IGNORE INTO settings VALUES ('demo_mode', '')`);
@@ -486,30 +471,17 @@ export async function init(
     `CREATE INDEX IF NOT EXISTS idx_audit_project ON audit_log(project_id, timestamp)`,
   );
 
-  // Real change-log, added 2026-09-01, replacing an earlier (same-day,
-  // never-shipped-to-real-hardware) design that read the device's current
-  // memory content and diffed it against the computed target - real user
-  // correction: "I don't want to store a device memory cache. I want to
-  // log changes in our DB (e.g. by edits)." This table IS that log: one row
-  // per (device, kind, key) currently mid-edit, holding only the value from
-  // BEFORE any of the edits pending against it (`baseline_value`, set once,
-  // never overwritten while the row exists) and the latest edited value
-  // (`current_value`, overwritten on every further edit to the same key).
-  // No device bytes, no offsets, no "what we think is on the device" -
-  // purely "what we've changed since the last successful download",
-  // exactly the data model requested. `kind` is one of 'param_value' /
-  // 'ga_link' / 'group_object_flag' (see resolvePendingWriteRanges() in
-  // routes/bus.ts for how each maps to a specific relmem object/offset at
-  // download time - deliberately NOT resolved or stored here, so a layout
-  // fix never requires a data migration). Rows are upserted by
-  // trackPendingChange() (routes/shared.ts): editing a key back to its own
-  // baseline_value deletes the row outright (real request: "if user
-  // re-edits a previous change back to original value, we clear the
-  // tracking/undo modified status") rather than leaving a stale no-op row
-  // around. Cleared entirely for a device once a download actually
-  // completes ('until we have programmed successfully', per the same
-  // request) - see clearPendingChanges(), called from /bus/program-device's
-  // completion block alongside its existing status/verify resets.
+  // Change-log design: rather than diffing device memory against a
+  // computed target, changes are tracked purely in the database. One row
+  // per (device, kind, key) currently mid-edit: `baseline_value` (set once,
+  // pre-edit) and `current_value` (overwritten on every further edit).
+  // `kind` is 'param_value' / 'ga_link' / 'group_object_flag'
+  // (resolvePendingWriteRanges() in routes/bus.ts maps each to a relmem
+  // object/offset at download time - not resolved or stored here, so a
+  // layout fix never needs a data migration). Rows are upserted by
+  // trackPendingChange() (routes/shared.ts); editing a key back to its
+  // baseline deletes the row. Cleared for a device once a download
+  // completes - see clearPendingChanges().
   db.run(`
     CREATE TABLE IF NOT EXISTS device_pending_changes (
       id             INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -626,18 +598,13 @@ export function transaction<T>(fn: (helpers: TransactionHelpers) => T): T {
 // ── Higher-level helpers ──────────────────────────────────────────────────────
 
 /**
- * A project's devices, in the order every device list shows them: by area,
- * then line, then the device number parsed out of the individual address
- * (so 1.1.2 sorts before 1.1.10, which a plain string sort would not).
+ * A project's devices, ordered by area, then line, then the device number
+ * parsed out of the individual address (so 1.1.2 sorts before 1.1.10, unlike
+ * a plain string sort).
  *
- * SELECT *, deliberately. Real bug, found live 2026-09-01: getProjectFull
- * had a hand-maintained column list that had silently fallen five columns
- * behind the Device interface (`apdu_length`, `unconfirmed_writes_count`,
- * `unconfirmed_writes_detail`, `last_verify_match`, `last_verify_at`), so a
- * genuine live verify result was persisted and then vanished from the UI on
- * the next refresh - because this is the query a refresh calls. An explicit
- * list needs a matching edit every time a column is added anywhere else,
- * with nothing to enforce it (all<Device>() is a cast, not a check).
+ * SELECT * deliberately: an explicit column list drifts out of sync with
+ * the Device interface with nothing to enforce it (all<Device>() is a cast,
+ * not a check).
  */
 export function getDevices(projectId: number): Device[] {
   return all<Device>(

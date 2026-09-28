@@ -26,7 +26,12 @@ import {
   writtenParamKeys,
   diffMemory,
   decodeParamMem,
+  type ParamDef,
 } from './knx-tables.ts';
+import {
+  expandParamMemLayoutForActiveModules,
+  type ModuleAwareParamMemLayoutEntry,
+} from '../resolveModuleParamMemLayout.ts';
 import type {
   GroupObjectFlags,
   GroupObjectEntryFlags,
@@ -42,7 +47,7 @@ import type {
 } from '../../shared/types.ts';
 import type KnxBusManager from '../knx-bus.ts';
 import type { DownloadStep, DownloadProgress } from '../knx-connection.ts';
-import { delay } from '../knx-connection.ts';
+import { delay, scaledMs } from '../knx-connection.ts';
 import { planVerify } from '../knx-download-plan.ts';
 import type { PlanStep } from '../knx-download-plan.ts';
 
@@ -88,30 +93,18 @@ type BusHandler<T> = (
 ) => unknown | Promise<unknown>;
 
 /**
- * Wraps the prologue and epilogue every bus route repeats: require the bus,
- * validate the body, run the operation, and map a failure onto a status
- * code and a safe error string.
+ * Shared prologue/epilogue for bus routes: requires the bus, validates the
+ * body, runs the handler, and maps failures to a status code + safe error.
  *
- * Return a value from the handler to send it as JSON; a handler that has
- * already written to `res` itself returns undefined instead.
+ * A handler's return value is sent as JSON; returning undefined means the
+ * handler already wrote to `res` itself.
  *
- * The status mapping is the reason this exists. A disconnected bus is by
- * far the most common real failure here, and the file had four different
- * answers for it: 16 routes returned 409, while /bus/read, /bus/write,
- * /bus/connect, /bus/connect-usb and /bus/replay-frames returned a flat
- * 502, /bus/device-info a 409-or-500, and the two USB enumeration routes a
- * flat 500 - so the same disconnected bus answered 409 through
- * /bus/read-property and 502 through /bus/read. safeErrorOrConnection's own
- * doc comment in log.ts asserts that "every route in server/routes/bus.ts
- * already special-cases this exact condition for its HTTP status code",
- * which is the intent this makes true. Not-connected is now always 409;
- * `failStatus` covers everything else and stays 502 (bad gateway) except
- * for the USB enumeration routes, where the failure is local libusb/HID
- * rather than anything upstream.
+ * Not-connected always maps to 409; `failStatus` (default 502) covers
+ * everything else, except the USB enumeration routes where failure is
+ * local libusb/HID, not an upstream bus failure.
  *
- * Validation runs outside the try, so a ValidationError still reaches the
- * app's error middleware as a 400 rather than being reported as a bus
- * failure.
+ * Validation runs outside the try, so a ValidationError reaches the app's
+ * error middleware as a 400 rather than being reported as a bus failure.
  */
 function busRoute<S extends z.ZodTypeAny>(
   schema: S,
@@ -442,11 +435,8 @@ router.post(
       host: z.string().min(1),
       port: z.coerce.number().int().positive().optional(),
       projectId: z.number().int().optional(),
-      // Which KNXnet/IP transport to use for Tunneling. 'auto' (default)
-      // tries TCP first, falling back to UDP - see knx-protocol.ts and
-      // docs/knx-device-write-protocol.md §9 for why TCP matters here (real
-      // ETS uses it against this project's own testbed router; this app
-      // only ever spoke UDP before 2026-08-30).
+      // KNXnet/IP transport for Tunneling. 'auto' (default) tries TCP first,
+      // falls back to UDP - see knx-protocol.ts.
       protocol: z.enum(['udp', 'tcp', 'auto']).optional(),
     }),
     'Bus connection failed',
@@ -677,20 +667,13 @@ router.post(
     z
       .object({
         deviceAddress: z.string().min(1),
-        // Up to 24-bit: readMemory()/readRegionInSession() already picks
-        // A_Memory_Read vs A_MemoryExtended_Read per chunk based on the
-        // address (see the 16-bit truncation fix) - this route's own cap
-        // just needs to stop rejecting addresses the underlying read path
-        // already handles correctly.
+        // 24-bit address space; readMemory() picks A_Memory_Read vs
+        // A_MemoryExtended_Read per chunk based on the address.
         address: z.number().int().min(0).max(0xffffff),
         length: z.number().int().min(1).max(4096),
-        // Debug-only knob, added 2026-08-30 to bisect the real max safe
-        // MemoryExtended_Read chunk size on real hardware directly (a
-        // guessed value of 228, by analogy to the confirmed-safe write
-        // chunk size, was rejected by a real device with rc=252 - see
-        // readMemory()'s own comment in knx-connection.ts) - not exposed
-        // in the normal read path (readMemory()'s own default, 12,
-        // covers that).
+        // Debug-only: override MemoryExtended_Read chunk size for
+        // bisecting a device's real safe read chunk size. Normal path uses
+        // readMemory()'s default (12).
         chunkSize: z.number().int().min(1).max(255).optional(),
       })
       // Reads must not run past the top of the 24-bit extended address
@@ -719,23 +702,15 @@ router.post(
 );
 
 // Write an exact byte sequence to an absolute memory address. Debug-only
-// helper (unlike everything else in this file, this ONE writes to real
-// hardware) - built to manually pin down a write-path question without
-// going through buildDeviceProgramming()'s full computed image, e.g. when
-// that image itself is suspected of being wrong for unrelated bits packed
-// into the same byte as the parameter under test. Reuses the real
-// downloadDevice()/WriteRelMem code path (same address-selection logic as
-// program-device, including the 16-bit truncation fix) - not a separate
-// write implementation - by passing `address` as objIdx 0's own
-// "resolved base" with offset 0, so addr = base + offset = address exactly.
+// helper for pinning down write-path issues at the byte level, bypassing
+// buildDeviceProgramming()'s computed image. Reuses downloadDevice()'s
+// WriteRelMem path by passing `address` as objIdx 0's resolved base with
+// offset 0, so addr = base + offset = address exactly.
 //
-// Optional `relSegment` opts into the real Unload/StartLoading/LoadData/
-// LoadCompleted sequence (see docs/follow-ups/2026-08-28-write-path-
-// missing-load-sequence.md and the fix in downloadDevice()) around this
-// write, declaring the REAL full segment size/fill (matching what ETS
-// itself declares for this object - not the size of `hex`, which can be a
-// small, fast, targeted slice) so the device accepts the write exactly
-// like a real ETS load, without needing to blind-write the entire segment.
+// Optional `relSegment` wraps the write in a full Unload/StartLoading/
+// LoadData/LoadCompleted sequence, declaring the segment's real full
+// size/fill (as ETS itself declares it, not the size of `hex`) so the
+// device accepts a small targeted write without a full blind rewrite.
 router.post(
   '/bus/write-memory',
   busRoute(
@@ -825,14 +800,10 @@ router.post(
   ),
 );
 
-// Replay a literal sequence of raw CEMI frames, verbatim - no APDU
+// Replay a literal sequence of raw cEMI frames verbatim - no APDU
 // reconstruction, no automatic Connect/Disconnect. Debug-only, writes to
-// real hardware - built to test whether a real captured ETS session's exact
-// bytes actually persist a write, bypassing koolenex's own step/APDU
-// reconstruction entirely (see docs/follow-ups/2026-08-28-write-path-
-// missing-load-sequence.md). Caller supplies the real captured frames
-// (including any Connect/Disconnect control frames) as an ordered array of
-// hex strings, extracted straight from a real capture.
+// real hardware. Caller supplies frames (including any Connect/Disconnect
+// control frames) as an ordered array of hex strings.
 router.post(
   '/bus/replay-frames',
   busRoute(
@@ -854,11 +825,10 @@ router.post(
   ),
 );
 
-// Read an arbitrary interface-object property. Read-only debug helper - built
-// to check whether other interface objects (e.g. the Address/Association
-// tables, objIdx 1/2) resolve their own PID 7 (PID_TABLE_REFERENCE) base to a
-// specific address, the same way resolveRelmemBases() does for WriteRelMem's
-// own objIdx. Not used by the download/verify pipeline itself.
+// Read an arbitrary interface-object property. Read-only debug helper for
+// checking PID_TABLE_REFERENCE (PID 7) base resolution on any objIdx, the
+// same way resolveRelmemBases() does for WriteRelMem. Not used by the
+// download/verify pipeline itself.
 router.post(
   '/bus/read-property',
   busRoute(
@@ -899,11 +869,8 @@ router.post(
   ),
 );
 
-// Direct A_Restart trigger against an already-addressed device - no
-// address write involved. Added 2026-08-31 as a real diagnostic tool
-// (docs/knx-device-write-protocol.md §9.5): lets Restart be tested in
-// isolation from the write path, to check whether a given device visibly
-// reboots on A_Restart at all, independent of anything else in flight.
+// Direct A_Restart against an already-addressed device, no write involved -
+// diagnostic tool for testing Restart in isolation from the write path.
 router.post(
   '/bus/restart-device',
   busRoute(
@@ -924,10 +891,10 @@ router.post(
   ),
 );
 
-// Detect a device currently in physical programming mode (button held
-// down) - broadcasts A_IndividualAddress_Read and reports whether/what
-// answered. Read-side counterpart to /bus/program-ia above; independent of
-// (not the same mechanism as) /bus/assign-address-by-serial below.
+// Detect a device in physical programming mode (button held down) -
+// broadcasts A_IndividualAddress_Read and reports whether/what answered.
+// Read-side counterpart to /bus/program-ia; a different mechanism from
+// /bus/assign-address-by-serial below.
 router.post(
   '/bus/check-programming-mode',
   busRoute(
@@ -940,15 +907,11 @@ router.post(
   ),
 );
 
-// Real KNX network-management procedure NM_Read_SerialNumber_By_
-// ProgrammingMode: query the serial number of whichever device(s) are
-// currently in physical programming mode - no prior knowledge of the
-// device needed. Unlike /bus/check-programming-mode above, collects every
-// reply within the timeout window rather than stopping at the first -
-// real-hardware confirmed (2026-08-30) that multiple devices reply cleanly
-// with no collision, which matters specifically for genuinely blank
-// devices, whose *addresses* would be indistinguishable (same factory
-// default) but whose serials are always unique.
+// NM_Read_SerialNumber_By_ProgrammingMode: query the serial number of
+// whichever device(s) are in physical programming mode, no prior address
+// needed. Unlike /bus/check-programming-mode, collects every reply within
+// the timeout window instead of stopping at the first - matters for blank
+// devices, whose factory-default addresses collide but whose serials don't.
 router.post(
   '/bus/read-serials-in-programming-mode',
   busRoute(
@@ -963,12 +926,10 @@ router.post(
   ),
 );
 
-// Assign an individual address via the device's own serial number
+// Assign an individual address via the device's serial number
 // (A_IndividualAddressSerialNumber_Write/_Read, spec 3/5/2 §2.5/§2.4) -
-// unlike /bus/program-ia above, this needs no physical programming-button
-// press and no programming-mode precondition. Real-hardware confirmed
-// (a device moved from its factory-default address to a real target
-// address) - see docs/knx-device-write-protocol.md §9.2.
+// unlike /bus/program-ia, needs no programming-button press or
+// programming-mode precondition.
 router.post(
   '/bus/assign-address-by-serial',
   busRoute(
@@ -990,12 +951,9 @@ router.post(
   ),
 );
 
-// Real-only-read counterpart to /bus/assign-address-by-serial above - ask
-// by serial "whatever address you're at, report it", no address guess and
-// no programming-mode button-press needed. Real request, 2026-08-31:
-// verifying a real ETS Factory Reset actually took effect, the same
-// mechanism ETS's own Factory Reset uses for its own final verify step
-// (docs/knx-device-write-protocol.md §9.3).
+// Read-only counterpart to /bus/assign-address-by-serial - ask by serial
+// for the device's current address, no guess or programming-mode button
+// press needed. Same mechanism ETS's own Factory Reset uses to verify.
 router.post(
   '/bus/read-address-by-serial',
   async (req: Request, res: Response) => {
@@ -1037,26 +995,36 @@ interface DeviceModel {
   paramMemLayout?: Record<string, unknown>;
   dynTree?: unknown;
   params?: Record<string, unknown>;
+  // Per-instance module-argument values ("{appId}_MD-x_M-y" ->
+  // {argName: value}) and Argument id -> name map. See
+  // resolveModuleParamMemLayout.ts. Optional: absent on older cached app
+  // models, in which case expandParamMemLayoutForActiveModules() no-ops.
+  modArgs?: Record<string, Record<string, string | number>>;
+  argDefs?: Record<string, string>;
+  // ParamModel.baseValueArgIds (ets-app.ts).
+  baseValueArgIds?: Record<string, string>;
   /**
-   * ParamModel.paramRefValues - the declared value of every ParameterRef,
-   * needed to evaluate <choose> elements controlled by a parameter that
-   * has no memory and no UI presence. Optional: app models cached before
-   * 2026-09-12 don't carry it.
+   * ParamModel.paramRefValues - declared value of every ParameterRef,
+   * needed to evaluate <choose> elements controlled by a parameter with
+   * no memory/UI presence.
    */
   paramRefValues?: Record<string, string>;
   absSegData?: Record<number, { size: number; hex?: string | null }>;
-  // Object 3 (Group Object Table) real buffer size - see ets-app.ts's
-  // ParamModel.groupObjectTableSize's doc comment for the formula/rationale.
+  // Object 3 (Group Object Table) buffer size - see ParamModel.groupObjectTableSize (ets-app.ts).
   groupObjectTableSize?: number;
-  // 🔴 SPECULATIVE - see ets-app.ts's ParamModel.isSecureEnabled's own doc
-  // comment for the full real-hardware evidence and status before
-  // trusting this for anything real.
+  // 🔴 SPECULATIVE - see ParamModel.isSecureEnabled (ets-app.ts).
   isSecureEnabled?: boolean;
-  // 🟡 See ets-app.ts's ParamModel.supportsExtendedMemoryServices's own
-  // doc comment.
+  // See ParamModel.peiType (ets-app.ts).
+  peiType?: string;
+  lineCoupler0912NewProgrammingStyle?: boolean;
+  // 🟡 See ParamModel.supportsExtendedMemoryServices (ets-app.ts).
   supportsExtendedMemoryServices?: boolean;
-  // See ets-app.ts's ParamModel.parameterByteOrder's own doc comment.
   parameterByteOrder?: 'LittleEndian' | 'BigEndian';
+  // Connection-free pre-flight capacity check; the Association table also
+  // gets an authoritative live-device check (knx-connection.ts,
+  // PropertyDescription_Read ObjIdx=2 PropId=23).
+  gaTableMaxEntries?: number;
+  assocTableMaxEntries?: number;
 }
 
 type DeviceProgramming =
@@ -1088,15 +1056,17 @@ type DeviceProgramming =
        */
       writtenParamKeys: Set<string> | null;
       isSecureEnabled?: boolean;
+      peiType?: string;
+      lineCoupler0912NewProgrammingStyle?: boolean;
       supportsExtendedMemoryServices?: boolean;
-      // See ets-app.ts's ParamModel.parameterByteOrder's own doc comment.
       parameterByteOrder?: 'LittleEndian' | 'BigEndian';
-      // Real request, 2026-08-31: this device's own cached
-      // `LastUsedAPDULength` (from `Device.apdu_length`) - see that
-      // field's own doc comment (shared/types.ts) for the real evidence.
-      // `null` when this device has never been downloaded to from this
-      // project (no cached value parsed as a valid number yet).
+      // Device's cached `LastUsedAPDULength` (`Device.apdu_length`); null
+      // if never downloaded to from this project.
       cachedMaxApduLength: number | null;
+      // Project this device belongs to; knx-mask-procedures.ts uses it to
+      // find the project's saved knx_master.xml for mask-Procedure
+      // ordering. Same value as `dev.project_id`.
+      projectId: number | null;
     }
   | { ok: false; status: number; body: Record<string, unknown> };
 
@@ -1114,14 +1084,12 @@ type ProgrammableDevice =
 
 /**
  * Look up the device a programming request names, and refuse the ones that
- * must never be written to. /bus/program-device and /bus/verify-device took
- * the same body and carried a verbatim copy of this each - same query, same
- * 404, same device_unaddressed 409 down to the wording.
+ * must never be written to. Shared by /bus/program-device and
+ * /bus/verify-device.
  *
- * The `deviceId` lookup is scoped by `projectId` when the request carries
- * one (the client always sends both), so a device id belonging to another
- * project reads as not found rather than being programmed against the named
- * project - the same scoping the project-owned routes got in 1be98b6.
+ * The `deviceId` lookup is scoped by `projectId` when present, so a device
+ * id belonging to another project reads as not found rather than being
+ * programmed against the named project.
  */
 export function loadProgrammableDevice(body: {
   deviceAddress: string;
@@ -1210,6 +1178,39 @@ function buildDeviceProgramming(dev: Device): DeviceProgramming {
       },
     };
 
+  // Parsed here, before expanding paramMemLayout, since that expansion needs
+  // it to resolve which module instances are active on this device - see
+  // resolveModuleParamMemLayout.ts.
+  let currentValues: Record<string, unknown> = {};
+  try {
+    currentValues = JSON.parse(dev.param_values || '{}') as Record<
+      string,
+      unknown
+    >;
+  } catch (_) {}
+  // Expands module-architecture parameters into one correctly-offset entry
+  // per active module instance - a no-op for non-module-architecture apps
+  // and for app models cached before this existed.
+  const expandedParamMemLayout = model.paramMemLayout
+    ? expandParamMemLayoutForActiveModules(
+        model.paramMemLayout as Record<string, ModuleAwareParamMemLayoutEntry>,
+        model.baseValueArgIds ?? {},
+        model.argDefs ?? {},
+        model.modArgs ?? {},
+        model.dynTree as Parameters<
+          typeof expandParamMemLayoutForActiveModules
+        >[4],
+        (model.params ?? {}) as Record<string, ParamDef>,
+        currentValues,
+      )
+    : model.paramMemLayout;
+  // Everything below reads paramMemLayout via this expanded view; every
+  // other field is still read from `model` itself.
+  const modelForParams: DeviceModel = {
+    ...model,
+    paramMemLayout: expandedParamMemLayout,
+  };
+
   // Build GA table from project data
   const coRows = db.all<ComObject>(
     'SELECT * FROM com_objects WHERE device_id=? ORDER BY object_number',
@@ -1230,35 +1231,61 @@ function buildDeviceProgramming(dev: Device): DeviceProgramming {
   const gaTable = buildGATable(gaLinks);
   const assocTable = buildAssocTable(coRows, gaLinks);
 
-  // Object 3 (Group Object Table) - added 2026-08-29. `size` comes from the
-  // app model, not from coRows (see ParamModel.groupObjectTableSize's doc
-  // comment: it's the app's total static declaration range, not this
-  // device's linked/active subset - real ETS pre-allocates space for every
-  // com object the app could ever expose). null (not an empty Buffer) when
-  // the app model has no groupObjectTableSize at all (e.g. a prop-only or
-  // AbsSegment-family app never captured one) - downloadDevice() already
-  // treats a falsy/empty groupObjectTable as "nothing to write" the same
-  // way it does for gaTable/assocTable being empty.
-  // 🟡 Not yet independently proven against real hardware for Object 3
-  // itself (see docs/knx-device-write-protocol.md Part 12) - the
-  // computation itself is golden-image tested (tests/group-object-table.
-  // test.ts), but no real device has been written to via this exact path.
+  // Capacity check against the app program's declared
+  // `<AddressTable MaxEntries="...">`/`<AssociationTable MaxEntries="...">`.
+  // Entry counts read from each table's own leading 2-byte count field, so
+  // this can't drift from what's actually written. `undefined` means not
+  // declared - skipped, never treated as "no limit".
+  //
+  // Connection-free first pass only: the Association table also gets a
+  // live, device-reported check inside `downloadDevice()`
+  // (`PropertyDescription_Read(ObjIdx=2, PropId=23)`), which wins on
+  // disagreement. No equivalent live check exists for the GA table.
+  if (model.gaTableMaxEntries != null && gaTable.length >= 2) {
+    const realGaEntries = gaTable.readUInt16BE(0);
+    if (realGaEntries > model.gaTableMaxEntries) {
+      return {
+        ok: false,
+        status: 409,
+        body: {
+          error: 'ga_table_capacity_exceeded',
+          message:
+            `This device's real GA table would need ${realGaEntries} entries, but its own application ` +
+            `program declares a maximum of ${model.gaTableMaxEntries}. Refusing to write beyond the ` +
+            `device's own declared capacity.`,
+        },
+      };
+    }
+  }
+  if (model.assocTableMaxEntries != null && assocTable.length >= 2) {
+    const realAssocEntries = assocTable.readUInt16BE(0);
+    if (realAssocEntries > model.assocTableMaxEntries) {
+      return {
+        ok: false,
+        status: 409,
+        body: {
+          error: 'assoc_table_capacity_exceeded',
+          message:
+            `This device's real Association table would need ${realAssocEntries} entries, but its own ` +
+            `application program declares a maximum of ${model.assocTableMaxEntries}. Refusing to write ` +
+            `beyond the device's own declared capacity.`,
+        },
+      };
+    }
+  }
+
+  // Object 3 (Group Object Table). `size` comes from the app model, not
+  // coRows - it's the app's total static declaration range (ETS
+  // pre-allocates space for every com object the app could ever expose),
+  // not this device's linked/active subset. null when the app model has no
+  // groupObjectTableSize - downloadDevice() treats that as nothing to write.
   let groupObjectTable: Buffer | null = null;
   if (model.groupObjectTableSize && model.groupObjectTableSize > 0) {
     const groupObjects: GroupObjectFlags[] = coRows.map((co) => ({
       object_number: co.object_number,
-      // Real bug, fixed 2026-08-29: this used to read `co.flags.includes('U')`
-      // on the reasoning that Update was always safely recoverable from the
-      // composite `flags` string (its only lossy case, the ALL-false
-      // fallback 'CW', never contains 'U'). That reasoning was correct
-      // GIVEN an accurate `flags` string - but `flags` itself was built from
-      // a value that was wrong at the source: ets-parser.ts read Update
-      // directly off the ComObjectRef's own UpdateFlag attribute with no
-      // fallback to the base ComObject's declared value (unlike every other
-      // flag, which already went through the proper base+override merge) -
-      // confirmed live on 1.1.10, where every project-side Update flag was
-      // wrongly off. Now uses the same dedicated raw column (`upd`) the
-      // other four flags already have.
+      // Uses the dedicated raw `upd` column (like the other flags), not
+      // the composite `flags` string - the latter has a lossy all-false
+      // fallback ('CW') that can't be parsed back reliably.
       update: !!co.upd,
       transmit: !!co.tx,
       readOnInit: !!co.read_on_init,
@@ -1269,8 +1296,7 @@ function buildDeviceProgramming(dev: Device): DeviceProgramming {
       priority: (['low', 'alarm', 'high', 'system'].includes(co.priority)
         ? co.priority
         : 'low') as GroupObjectFlags['priority'],
-      // Companion size-code byte - see groupObjectSizeCode()'s doc comment
-      // (knx-tables.ts) for the real-hardware confirmation (2026-08-29).
+      // Companion size-code byte - see groupObjectSizeCode() (knx-tables.ts).
       objectSize: co.object_size,
     }));
     groupObjectTable = buildGroupObjectTable(
@@ -1279,57 +1305,48 @@ function buildDeviceProgramming(dev: Device): DeviceProgramming {
     );
   }
 
-  // Parameter memory: build from param layout + current values
+  // Parameter memory: build from param layout + current values, using
+  // `modelForParams` (paramMemLayout expanded for active module instances)
+  // wherever `model.paramMemLayout` would otherwise be read directly.
   const { paramSize, paramFill, relSegHex, paramBase } = resolveParamSegment(
-    model as Parameters<typeof resolveParamSegment>[0],
+    modelForParams as Parameters<typeof resolveParamSegment>[0],
   );
   let paramMem: Buffer | null = null;
   let paramMemBySegment: Map<number, Buffer> | null = null;
   let writtenParams: Set<string> | null = null;
-  if (paramSize > 0 && model.paramMemLayout) {
-    let currentValues: Record<string, unknown> = {};
-    try {
-      currentValues = JSON.parse(dev.param_values || '{}') as Record<
-        string,
-        unknown
-      >;
-    } catch (_) {}
+  if (paramSize > 0 && modelForParams.paramMemLayout) {
     const bySegment = buildParamMemBySegment(
-      model as Parameters<typeof buildParamMemBySegment>[0],
+      modelForParams as Parameters<typeof buildParamMemBySegment>[0],
       currentValues,
-      model.dynTree as Parameters<typeof buildParamMemBySegment>[2],
-      model.params as Parameters<typeof buildParamMemBySegment>[3],
-      model.paramRefValues,
+      modelForParams.dynTree as Parameters<typeof buildParamMemBySegment>[2],
+      modelForParams.params as Parameters<typeof buildParamMemBySegment>[3],
+      modelForParams.paramRefValues,
     );
-    // `paramMem` is the single buffer everything that predates segment
-    // tracking still works in: the RelSegment write path, planVerify's
-    // relmem branch, pickSourceBuffer's paramBase fallback. When the app
-    // does declare segments it must be one OF them, not a flattening of
-    // all of them - building it from the whole layout writes every other
-    // segment's parameters into this one's bytes, which is the very fault
-    // the segment binding exists to remove, and reports it as a Union
-    // contradiction it is not.
+    // `paramMem` is the single buffer the RelSegment write path,
+    // planVerify's relmem branch, and pickSourceBuffer's paramBase
+    // fallback use. When the app declares segments, it must be one of
+    // them, not a flattening of all of them.
     const forBase = paramBase != null ? bySegment.get(paramBase) : undefined;
     if (bySegment.size) paramMemBySegment = bySegment;
     paramMem =
       forBase ??
       buildParamMem(
         paramSize,
-        model.paramMemLayout as Parameters<typeof buildParamMem>[1],
+        modelForParams.paramMemLayout as Parameters<typeof buildParamMem>[1],
         currentValues,
         paramFill,
         relSegHex,
-        model.dynTree as Parameters<typeof buildParamMem>[5],
-        model.params as Parameters<typeof buildParamMem>[6],
-        model.paramRefValues as Parameters<typeof buildParamMem>[7],
-        model.parameterByteOrder,
+        modelForParams.dynTree as Parameters<typeof buildParamMem>[5],
+        modelForParams.params as Parameters<typeof buildParamMem>[6],
+        modelForParams.paramRefValues as Parameters<typeof buildParamMem>[7],
+        modelForParams.parameterByteOrder,
       );
     writtenParams = writtenParamKeys(
-      model.paramMemLayout as Parameters<typeof writtenParamKeys>[0],
+      modelForParams.paramMemLayout as Parameters<typeof writtenParamKeys>[0],
       currentValues,
-      model.dynTree as Parameters<typeof writtenParamKeys>[2],
-      model.params as Parameters<typeof writtenParamKeys>[3],
-      model.paramRefValues as Parameters<typeof writtenParamKeys>[4],
+      modelForParams.dynTree as Parameters<typeof writtenParamKeys>[2],
+      modelForParams.params as Parameters<typeof writtenParamKeys>[3],
+      modelForParams.paramRefValues as Parameters<typeof writtenParamKeys>[4],
     );
   } else if (paramSize > 0) {
     paramMem = Buffer.alloc(paramSize, 0xff);
@@ -1352,63 +1369,49 @@ function buildDeviceProgramming(dev: Device): DeviceProgramming {
     paramMemBySegment,
     absSegData: model.absSegData ?? {},
     appId: model.appId ?? dev.app_ref,
-    paramMemLayout: model.paramMemLayout ?? {},
+    paramMemLayout: modelForParams.paramMemLayout ?? {},
     params: model.params ?? null,
     writtenParamKeys: writtenParams,
     isSecureEnabled: model.isSecureEnabled,
+    peiType: model.peiType,
+    lineCoupler0912NewProgrammingStyle:
+      model.lineCoupler0912NewProgrammingStyle,
     supportsExtendedMemoryServices: model.supportsExtendedMemoryServices,
     parameterByteOrder: model.parameterByteOrder,
-    // Real request, 2026-08-31: parses `dev.apdu_length` (the project's
-    // own cached `LastUsedAPDULength`, see shared/types.ts's own doc
-    // comment) - empty string / non-numeric / non-positive all correctly
-    // fall through to `null` (never downloaded from this project yet, or
-    // a genuinely malformed cached value - either way, the real fallback
-    // is the live property-56 read, not a guessed number here).
+    // Parses `dev.apdu_length` (cached `LastUsedAPDULength`); empty,
+    // non-numeric, or non-positive all fall through to `null`, deferring
+    // to the live property-56 read rather than guessing a number.
     cachedMaxApduLength:
       dev.apdu_length && /^\d+$/.test(dev.apdu_length)
         ? parseInt(dev.apdu_length, 10) || null
         : null,
+    projectId: dev.project_id ?? null,
   };
 }
 
-// Test-only export alias (matches the existing convention elsewhere in this
-// project, e.g. knx-cemi.ts's `_apduPropertyValueWrite`) - lets a script
-// compute a device's real download artifacts (including Object 3) directly
-// against a real imported project, without needing a live bus connection or
-// going through the write-triggering /bus/program-device route at all.
+// Test-only export alias (matches _apduPropertyValueWrite in knx-cemi.ts) -
+// lets a script compute a device's download artifacts (including Object 3)
+// against a real imported project without a live bus connection or the
+// /bus/program-device route.
 export const _buildDeviceProgramming = buildDeviceProgramming;
 
 // Resolves a device's device_pending_changes rows (routes/shared.ts) into
-// the byte ranges DownloadExtra.pendingWriteRanges expects (see that
-// field's own doc comment in knx-connection.ts for the full redesign this
-// is part of, 2026-09-01). Deliberately does NOT read the device or diff
-// anything - each key is mapped to an offset using the SAME layout logic
-// that already builds the target image, from data koolenex already has.
+// the byte ranges DownloadExtra.pendingWriteRanges expects. Does not read
+// the device or diff anything - each key is mapped to an offset using the
+// same layout logic that builds the target image.
 //
 // - 'param_value': resolved via paramMemLayout, the same map buildParamMem()
-//   itself uses. A key absent from the map, or with `offset: null` (a real,
-//   separate, already-tracked gap - see koolenex_checkbox_param_no_memory_offset
-//   memory), simply contributes nothing here - there's no byte to write for
-//   it, same as buildParamMem() itself would produce.
-// - 'ga_link': GA/Association table (objIdx 1/2) entry positions can shift
-//   entirely when one link changes (not a fixed per-key offset the way the
-//   other two kinds are) - marks both tables' FULL length dirty rather than
-//   guessing a sub-range. A comm object's Object 3 byte (bit 2: Communication
-//   AND has-a-GA-link) can also change alongside a link edit, so this ALSO
-//   marks that object's own 2-byte entry dirty, same as 'group_object_flag'.
+//   uses. A key absent from the map, or with `offset: null`, is a no-op.
+// - 'ga_link': entry positions in the GA/Association tables (objIdx 1/2)
+//   can shift entirely when one link changes, so this marks both tables'
+//   full length dirty. Also marks the affected object's Object 3 byte
+//   dirty (bit 2 depends on link presence), same as 'group_object_flag'.
 // - 'group_object_flag': resolved via the same `object_number * 2` formula
-//   computeGroupObjectByte()/buildGroupObjectTable() already use.
+//   computeGroupObjectByte()/buildGroupObjectTable() use.
 //
-// Real ETS behavior, confirmed via a byte-for-byte capture of a real
-// Partial Download that changed one parameter value: ETS wrote two bytes,
-// not one - the edited byte itself, and a second, unconditional write to
-// the parameter object's own final byte (offset paramSize-1), regardless
-// of what was actually edited. See docs/knx-device-write-protocol.md §6.1
-// for the full evidence. `paramSize` is optional so a caller/test that
-// doesn't have it (or doesn't touch objIdx 4 at all) sees no behavior
-// change - the trailer byte is only added when objIdx 4 already has at
-// least one real write pending, matching ETS's own "alongside whatever
-// else it writes" behavior, not a write on its own.
+// ETS always includes the parameter object's own final byte in any partial
+// write to that object, so this adds it too whenever objIdx 4 already has
+// a pending write. `paramSize` is optional.
 function resolvePendingWriteRanges(
   deviceId: number,
   paramMemLayout: Record<string, unknown>,
@@ -1453,9 +1456,6 @@ function resolvePendingWriteRanges(
   for (const n of touchedComObjNums) {
     add(3, n * 2, 2);
   }
-  // See this function's own doc comment above for the real-capture evidence
-  // behind this - real ETS always includes the parameter object's own
-  // final byte in any partial write to that object.
   if (ranges[4] && ranges[4].length && paramSize && paramSize > 0) {
     const lastByteOffset = paramSize - 1;
     const alreadyCovered = ranges[4].some(
@@ -1469,22 +1469,19 @@ function resolvePendingWriteRanges(
 // Test-only export alias (same convention as _buildDeviceProgramming above).
 export const _resolvePendingWriteRanges = resolvePendingWriteRanges;
 
-// Full (or, since 2026-08-29, partial) application download for a device.
-// mode defaults to 'full' - the original, only-ever-tested behavior, kept
-// as the default so existing callers/tests see zero change. mode='partial'
-// is a new, best-effort code path (see DownloadExtra.mode's doc comment in
-// knx-connection.ts) - only exercised so far against 1.1.9's RelSegment-
-// style app (mask 07B0).
+// Full (or partial) application download for a device. mode defaults to
+// 'full'; mode='partial' is best-effort (see DownloadExtra.mode in
+// knx-connection.ts).
 /**
- * The real body of `/bus/program-device` - the address pre-flight, the
- * download itself, and the DB/broadcast bookkeeping around them. Extracted
- * from the route so the operation can be called and asserted on directly:
- * it returns the status and body to send, or null when the client
- * disconnected mid-operation (Cancel) and there is nobody left to answer.
+ * The real body of `/bus/program-device` - address pre-flight, the
+ * download, and DB/broadcast bookkeeping. Extracted from the route so the
+ * operation can be called and asserted on directly: returns the status and
+ * body to send, or null when the client disconnected mid-operation
+ * (Cancel).
  *
  * `isAborted` is checked at each point the operation could return early;
- * the route feeds it from res.on('close') - see the route's own comment on
- * why that, and not req.on('close'), is the reliable signal.
+ * the route feeds it from res.on('close'), not req.on('close') (see the
+ * route's own comment on why).
  */
 export async function runProgramDevice(
   b: KnxBusManager,
@@ -1499,9 +1496,8 @@ export async function runProgramDevice(
   isAborted: () => boolean,
   /**
    * How long to keep asking a device to answer after its address was
-   * written, before giving up with address_write_unconfirmed. 35s is the
-   * real figure (a device reboots after an address write); a test passes
-   * something small so it can reach that branch without waiting.
+   * written, before giving up with address_write_unconfirmed. 35s covers a
+   * device's post-address-write reboot; tests pass a smaller value.
    */
   opts: { confirmDeadlineMs?: number } = {},
 ): Promise<RouteResult | null> {
@@ -1520,15 +1516,36 @@ export async function runProgramDevice(
     absSegData,
     appId,
     isSecureEnabled,
+    peiType,
+    lineCoupler0912NewProgrammingStyle,
     supportsExtendedMemoryServices,
     cachedMaxApduLength,
+    projectId,
   } = built;
 
-  // Real edit log -> write ranges, 2026-09-01 - only meaningful in
-  // 'partial' mode (full mode always writes everything regardless of what
-  // changed). The `-1` sentinel length from resolvePendingWriteRanges()
-  // (GA/Association tables have no stable per-key offset) gets expanded
-  // here to each table's real, already-built length.
+  // An app declaring real PEI program content (PeiType != "0") is
+  // unsupported - refuse before touching the bus. downloadDevice() repeats
+  // this check for other callers. An app with no declared PeiType is
+  // treated as "0".
+  const effectivePeiType = peiType ?? '0';
+  if (effectivePeiType !== '0') {
+    return {
+      status: 409,
+      body: {
+        error: 'untested_pei_type',
+        message:
+          `This device's application declares PEI program content (PeiType=${effectivePeiType}). ` +
+          `Only applications with PeiType="0" have been validated, so the download was refused.`,
+        peiType: effectivePeiType,
+      },
+    };
+  }
+
+  // Edit log -> write ranges - only meaningful in 'partial' mode (full
+  // mode always writes everything regardless of what changed). The `-1`
+  // sentinel length from resolvePendingWriteRanges() (GA/Association
+  // tables have no stable per-key offset) gets expanded here to each
+  // table's already-built length.
   let pendingWriteRanges:
     | Record<number, Array<{ offset: number; length: number }>>
     | undefined;
@@ -1554,37 +1571,28 @@ export async function runProgramDevice(
     pendingWriteRanges = resolved;
   }
 
-  // Real device-resident relmem bases (PID 7) are no longer pre-resolved
-  // (and no longer gate the download with a 409) here - downloadDevice()
-  // itself now resolves each relevant interface object's base AFTER that
-  // object's own Unload/StartLoading/LoadData cycle, matching real ETS's
-  // actual behavior. Real bug, found live 2026-08-30: this upfront check
-  // used to reject the whole request outright ("segment_unallocated")
-  // whenever the parameter object's PID 7 hadn't been allocated yet -
-  // correct for re-programming an already-provisioned device (its base
-  // genuinely doesn't change across a reload), but wrong for a device's
-  // very first-ever download, where PID 7 legitimately starts at 0 and
-  // only becomes valid once Unload/StartLoading/LoadData actually runs -
-  // exactly the scenario a genuinely blank/factory-reset device is in.
-  // Confirmed against a real ETS Full Download capture (2026-08-30): ETS
-  // never pre-checks PID 7 before attempting a device's first load either.
+  // Device-resident relmem bases (PID 7) aren't pre-resolved here -
+  // downloadDevice() resolves each interface object's base AFTER that
+  // object's own Unload/StartLoading/LoadData cycle, matching ETS. An
+  // upfront PID-7 check would wrongly reject a device's first-ever
+  // download, where PID 7 legitimately starts at 0 and only becomes valid
+  // once the load cycle runs; ETS itself never pre-checks it either.
 
   // Stream progress via WebSocket
   const onProgress = (p: DownloadProgress): void =>
     b.broadcast('program:progress', { deviceAddress, ...p });
   onProgress({ msg: `Starting download to ${deviceAddress}`, pct: 0 });
 
-  // Real request 2026-08-31, after a real live failure: forces a fresh
-  // connection before starting rather than reusing whatever's left of the
-  // current one, so a download always gets the full gateway idle-timeout
-  // budget from a clean baseline - see KnxBusManager.forceReconnect()'s
-  // own doc comment for the live failure that prompted this. Explicitly
-  // try/caught here (not left to throw into the handler) - this route has
-  // no surrounding try/catch until the keep-alive ref below, and Express
-  // does not catch an async handler's rejection on its own; an uncaught
-  // one here would hang the response instead of returning a real error.
+  // One connection held across a whole multi-device session, opened fresh
+  // only when none exists (matches ETS) - forcing a reconnect per device
+  // would repeat the handshake and routers react badly to rapid reconnects.
+  // Explicit try/catch since Express doesn't catch an async handler's
+  // rejection on its own.
   try {
-    await b.forceReconnect();
+    if (!b.connected) {
+      await b.forceReconnect();
+      await delay(500);
+    }
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     return {
@@ -1599,49 +1607,26 @@ export async function runProgramDevice(
     };
   }
 
-  // A download can run long enough for the gateway's own idle timeout to
-  // never actually apply mid-write (real traffic is flowing throughout),
-  // but hold a keep-alive ref regardless for the duration - protects any
-  // real pause between steps against an unexpected drop interrupting the
-  // download partway through. See KnxBusManager.addKeepAliveRef(). Now
-  // also covers the address pre-flight below (moved up here from just
-  // before downloadDevice()) - that phase can itself run for up to 30s
-  // waiting on a real programming-button press, and deserves the same
-  // protection.
+  // Hold a keep-alive ref for the duration, protecting any pause between
+  // steps against an unexpected drop. See KnxBusManager.addKeepAliveRef().
+  // Also covers the address pre-flight below, which can run up to 30s
+  // waiting on a programming-button press.
   const releaseKeepAlive = b.addKeepAliveRef();
   try {
-    // Real root-cause fix, 2026-08-31 - the user's own exact diagnosis,
-    // verbatim: "Our Write is assuming that the device [...] already has
-    // an address - it does not. That address is only in our DB... ETS
-    // when it does a full download ALWAYS writes the address first,
-    // reboots and then the params etc. We just go straight into the
-    // params, without bothering to verify whether the address exists or
-    // not." Confirmed the hard way: a genuinely factory-
-    // reset device (independently verified via a real bus query to be at
-    // 15.15.255) was given a project address purely as a DB record, with
-    // no write ever sent to the physical device - the subsequent Full
-    // Download still reported "successful", because the per-chunk
-    // WriteRelMem loop is deliberately fault-tolerant (a missing response
-    // is logged and continued, not a hard failure - see that loop's own
-    // comment) - it had been writing into the void the whole time, and
-    // koolenex's own "successful" claim was never independently confirmed
-    // by anything the device itself said.
-    //
-    // Mirrors real ETS's own Full Download procedure exactly: if a serial
-    // is on record, confirm a REAL device
-    // answering at deviceAddress actually carries that same serial before
-    // touching anything else. If it doesn't (no answer, a different
-    // serial, or no serial on record at all), there is no way around a
-    // real physical programming-button press to identify and (re)address
-    // the device first - exactly what ETS itself requires, and exactly
-    // the same detect-before-write safety gate already proven in the
-    // client's own addressing flow (AddressDeviceModal.tsx), reused here
-    // server-side: both broadcast mechanisms (serial scan +
-    // legacy address broadcast - a non-Albrecht-Jung device may only
-    // answer one of the two, see docs/knx-device-write-protocol.md §9.5),
-    // and a hard refusal if zero or more than one device answers - this
-    // is a real write, the same ambiguity hazard applies here as there.
+    // `deviceAddress` may only exist as a project/DB record with no write
+    // ever sent to the physical device. Mirrors ETS's own Full Download
+    // procedure: if a serial is on record, confirm the device actually
+    // answering at deviceAddress carries it before doing anything else. If
+    // not, a physical programming-button press is needed to (re)address the
+    // device first - the same detect-before-write gate as
+    // AddressDeviceModal.tsx client-side. Uses both broadcast mechanisms
+    // (serial scan + legacy address broadcast) and refuses if zero or more
+    // than one device answers.
     let addressConfirmed = false;
+    // The serial of the device this session actually found at the address
+    // (confirmed by a read, or captured while addressing it). Used to decide
+    // whether this physical unit has been downloaded to before.
+    let sessionSerial: string | undefined;
     if (dev.serial_number) {
       try {
         const info = await b.readDeviceInfo(deviceAddress);
@@ -1650,6 +1635,7 @@ export async function runProgramDevice(
           info.serialNumber.toLowerCase() === dev.serial_number.toLowerCase()
         ) {
           addressConfirmed = true;
+          sessionSerial = info.serialNumber;
           onProgress({
             msg: `Confirmed device at ${deviceAddress} (serial ${info.serialNumber})`,
           });
@@ -1671,36 +1657,17 @@ export async function runProgramDevice(
       });
     }
 
-    // Shared by both re-addressing paths below (button-press and serial) -
-    // real request, 2026-08-31: "I have seen ETS wait between 9 seconds
-    // and 19 seconds at times" for a device to come back up and answer
-    // again after an address write. programIA()/assignIndividualAddress
-    // BySerial() each already restart the device internally (KnxConnection
-    // .restartDevice(), including its own real-capture-confirmed ~3s
-    // post-Restart settle wait) - this retry is on TOP of that built-in
-    // wait, not instead of it: even after a full settle wait, a first
-    // confirmation attempt can still genuinely fail ("did not respond"),
-    // so this doesn't rely on a single attempt succeeding. Deadline-based
-    // (not a fixed attempt count) so the spacing stays 2s regardless of
-    // how long the budget ends up needing to be - same pattern as the
-    // programming-mode detection loop below.
-    //
-    // Real bug, found live 2026-09-01: the serial-based branch below
-    // originally set addressConfirmed=true immediately after a verified
-    // write, with no equivalent wait at all - assignIndividualAddress
-    // BySerial()'s own ~3.3s internal settle wait alone wasn't always
-    // enough, and downloadDevice() connecting immediately afterward
-    // genuinely failed on a real device that hadn't finished rebooting
-    // yet (confirmed live: the first Program attempt failed right after
-    // the address update/reboot, the second succeeded once the device had
-    // had more wall-clock time to come back up on its own). This helper -
-    // previously inline, button-press-only - is now shared by both paths.
+    // Shared by both re-addressing paths: a device can take up to ~20s to
+    // come back up after an address write, even after
+    // programIA()/assignIndividualAddressBySerial()'s own post-Restart
+    // settle wait. Deadline-based, not a fixed attempt count, so retry
+    // spacing stays 2s regardless of budget.
     const waitForDeviceBackUp = async (): Promise<{
       serialNumber?: string;
     } | null> => {
       onProgress({ msg: `Confirming device at ${deviceAddress}…` });
       const confirmStart = Date.now();
-      const confirmDeadlineMs = opts.confirmDeadlineMs ?? 35000;
+      const confirmDeadlineMs = scaledMs(opts.confirmDeadlineMs ?? 35000);
       let confirmedInfo: { serialNumber?: string } | null = null;
       let attempt = 0;
       let lastHeartbeatMs = 0;
@@ -1712,9 +1679,7 @@ export async function runProgramDevice(
         attempt++;
         if (attempt > 1) await delay(Math.min(2000, confirmDeadlineMs));
         const elapsedMs = Date.now() - confirmStart;
-        // Heartbeat every ~5s so a long real wait doesn't read as "stuck"
-        // in the log panel - a genuinely-still-working wait with no
-        // visible sign of life looks indistinguishable from a hang.
+        // Heartbeat every ~5s so a long wait doesn't read as stuck.
         if (elapsedMs - lastHeartbeatMs >= 5000) {
           lastHeartbeatMs = elapsedMs;
           onProgress({
@@ -1736,23 +1701,16 @@ export async function runProgramDevice(
     };
 
     if (!addressConfirmed) {
-      // Real gap, found live 2026-09-01: a serial on record was only ever
-      // used for the fast-path check above - if that failed (e.g. a
-      // factory-reset device, no longer sitting at deviceAddress), this
-      // route went straight into the button-press flow below with no
-      // alternative offered, even though the same serial can locate and
-      // readdress the device directly - A_IndividualAddressSerialNumber_
-      // Write/_Read, no button press needed, real-hardware confirmed (see
-      // docs/knx-device-write-protocol.md §9.2). Real ETS offers this as
-      // an operator choice; so does this route now, unless
-      // 'auto_address_by_serial' (server/routes/settings.ts) says to just
-      // do it automatically. `addressMethod` carries the choice once
-      // made (the client's follow-up request after the prompt below).
+      // A serial on record can also relocate/readdress the device directly
+      // via A_IndividualAddressSerialNumber_Write/_Read, no button press
+      // needed. Real ETS offers this as an operator choice; so does this
+      // route, unless 'auto_address_by_serial' (server/routes/settings.ts)
+      // says to do it automatically. `addressMethod` carries the choice
+      // once made (the client's follow-up request after the prompt below).
       const canUseSerial = !!dev.serial_number;
-      // Guards a client sending addressMethod:'serial' for a device with
-      // no serial on record (shouldn't happen - the client only offers
-      // this choice when canUseSerial is true - but falls through to the
-      // button-press flow below rather than crashing on a null serial).
+      // Guards a client sending addressMethod:'serial' with no serial on
+      // record; falls through to the button-press flow instead of
+      // crashing on a null serial.
       let useSerial = addressMethod === 'serial' && canUseSerial;
       if (addressMethod === undefined && canUseSerial) {
         const autoSetting = db.get<{ value: string }>(
@@ -1778,9 +1736,13 @@ export async function runProgramDevice(
         });
         let bySerial;
         try {
-          bySerial = await b.assignIndividualAddressBySerial(
-            Buffer.from(dev.serial_number!, 'hex'),
-            deviceAddress,
+          bySerial = await retryOnConnectivityIssue(
+            () =>
+              b.assignIndividualAddressBySerial(
+                Buffer.from(dev.serial_number!, 'hex'),
+                deviceAddress,
+              ),
+            { deviceAddress, label: 'Locate device by serial', onProgress },
           );
         } catch (e) {
           const msg = e instanceof Error ? e.message : String(e);
@@ -1804,11 +1766,9 @@ export async function runProgramDevice(
             },
           };
         }
-        // The write itself is verified (assignIndividualAddressBySerial's
-        // own read-back), but the device still restarts after this -
-        // same "wait for it to actually come back up" step the button-
-        // press path already has, see waitForDeviceBackUp's own doc
-        // comment for the real live failure this fixes.
+        // The write is verified (assignIndividualAddressBySerial's own
+        // read-back), but the device still restarts, so wait for it to
+        // come back up, same as the button-press path.
         const confirmedInfo = await waitForDeviceBackUp();
         if (isAborted()) return null;
         if (!confirmedInfo) {
@@ -1824,21 +1784,19 @@ export async function runProgramDevice(
           msg: `Confirmed device at ${deviceAddress} via serial - continuing with the rest of the download`,
         });
         addressConfirmed = true;
+        sessionSerial = confirmedInfo.serialNumber ?? dev.serial_number;
       }
     }
     if (!addressConfirmed) {
       // `awaitingButton: true` is the client's cue to show a dedicated
       // modal (Cancel-only, auto-dismisses once the wait resolves either
-      // way) rather than just updating the button's own inline text -
-      // real request, 2026-08-31: "somewhere to display the press prog
-      // button. Maybe a modal pop-up with just a cancel button, which
-      // automatically disappears once the device is found."
+      // way) rather than just updating the button's own inline text.
       onProgress({
         msg: 'Press the programming button on the device now…',
         awaitingButton: true,
       });
       const roundMs = 3000;
-      const deadline = Date.now() + 30000;
+      const deadline = Date.now() + scaledMs(30000);
       const bySrc = new Map<string, string>(); // src -> serial ('' if unknown)
       while (bySrc.size === 0 && Date.now() < deadline && !isAborted()) {
         const thisRound = Math.min(
@@ -1887,11 +1845,8 @@ export async function runProgramDevice(
         msg: `Identified device ${foundSerial || foundAddr} in programming mode - writing address ${deviceAddress}…`,
       });
       // programIA() already restarts the device internally
-      // (KnxConnection.restartDevice(), including its own real-capture-
-      // confirmed ~3s post-Restart settle wait) - real request, 2026-08-31:
-      // "Don't forget the device reboot that ETS does once address is
-      // written, waiting till the device is back up". waitForDeviceBackUp()
-      // (above) is on TOP of that built-in wait, not instead of it.
+      // (KnxConnection.restartDevice(), with its own ~3s post-Restart
+      // settle wait); waitForDeviceBackUp() above is on top of that.
       await b.programIA(deviceAddress);
       const confirmedInfo = await waitForDeviceBackUp();
       if (isAborted()) return null;
@@ -1905,6 +1860,7 @@ export async function runProgramDevice(
         };
       }
       if (confirmedInfo.serialNumber) {
+        sessionSerial = confirmedInfo.serialNumber;
         db.run('UPDATE devices SET serial_number=?, has_address=1 WHERE id=?', [
           confirmedInfo.serialNumber,
           dev.id,
@@ -1938,34 +1894,32 @@ export async function runProgramDevice(
         supportsExtendedMemoryServices,
         cachedMaxApduLength,
         pendingWriteRanges,
+        projectId,
+        lineCoupler0912NewProgrammingStyle,
+        shouldAbort: isAborted,
+        peiType: effectivePeiType,
+        // This unit counts as previously downloaded to only when a download
+        // is on record AND it went to the very unit found at the address this
+        // session (a replacement unit has a different serial).
+        hasPriorDownloadHistory:
+          !!dev.last_download &&
+          !!dev.last_download_serial &&
+          !!sessionSerial &&
+          dev.last_download_serial.toLowerCase() ===
+            sessionSerial.toLowerCase(),
       },
     );
-    // Real bug, found live 2026-08-31: this only ever updated `status` -
-    // `last_download` was never touched by a live koolenex download at
-    // all, so it silently kept whatever value the device last had from
-    // its original .knxproj import (a real ETS-reported download
-    // timestamp), even after a genuine, confirmed-on-hardware koolenex
-    // write. Set it here too, to the moment this write actually completed.
-    //
-    // Real gap, found live 2026-08-31: a plain Program/Full-Download never
-    // captured the device's serial at all (only the addressing flow's own
-    // read-back did - AddressDeviceModal), so the Verify button's real,
-    // deliberate gate on serial_number (a physically-confirmed serial is
-    // the genuine "this exact unit was actually commissioned" signal -
-    // real user confirmation, same day: "we should have both address and
-    // serial number for a device before we enable verify") stayed
-    // permanently unsatisfiable for a device programmed this way. Best-
-    // effort read-back here, same mechanism/spirit as the addressing
-    // flow's own busDeviceInfo() call - failure is logged but does not
-    // fail the overall (already-succeeded) download.
-    // Real live-test finding, 2026-08-31: a first attempt right after a
-    // real Full Download (much more content to process than a plain
-    // address write) genuinely failed - "Device 1.1.20 did not respond" -
-    // the device plausibly not yet ready to accept a fresh point-to-point
-    // connection the instant its own download session closes. Same
-    // pattern already established elsewhere (restartDevice()'s own
-    // settleMs) - a brief settle delay plus one retry, rather than giving
-    // up on a single fleeting failure right when this data is most wanted.
+    // Cancelled mid-write: the device keeps whatever objects had fully
+    // loaded and is otherwise untouched - neither "matches the project" nor
+    // a failure, so status is left alone for a fresh Download/Verify to
+    // resolve. The client has already disconnected.
+    if (downloadResult.aborted) return null;
+    // Verify requires both address and serial on record; a plain
+    // Program/Full-Download never captured the serial (only the addressing
+    // flow's read-back did), so read it back here best-effort - failure is
+    // logged but doesn't fail the already-succeeded download. One retry
+    // with a settle delay, since the device may not yet accept a fresh
+    // connection right after its own download session closes.
     let serialNumber: string | undefined;
     for (let attempt = 1; attempt <= 2; attempt++) {
       await delay(attempt === 1 ? 500 : 1500);
@@ -1990,17 +1944,17 @@ export async function runProgramDevice(
     const unconfirmedWritesDetail = JSON.stringify(
       downloadResult.unconfirmedDetails,
     );
-    // last_verify_match/last_verify_at cleared back to NULL here too -
-    // real request, 2026-09-01: "clear last verify on each download" - a
+    // last_verify_match/last_verify_at cleared back to NULL here too - a
     // verify result describes content that this download just replaced,
-    // so it can't still be trusted regardless of whether this specific
+    // so verify status can't be trusted regardless of whether this
     // download's own writes were all confirmed.
     if (serialNumber) {
       db.run(
-        'UPDATE devices SET status=?, last_download=?, serial_number=?, unconfirmed_writes_count=?, unconfirmed_writes_detail=?, last_verify_match=NULL, last_verify_at=NULL WHERE id=?',
+        'UPDATE devices SET status=?, last_download=?, last_download_serial=?, serial_number=?, unconfirmed_writes_count=?, unconfirmed_writes_detail=?, last_verify_match=NULL, last_verify_at=NULL WHERE id=?',
         [
           'programmed',
           new Date().toISOString(),
+          serialNumber,
           serialNumber,
           unconfirmedWritesCount,
           unconfirmedWritesDetail,
@@ -2009,39 +1963,26 @@ export async function runProgramDevice(
       );
     } else {
       db.run(
-        'UPDATE devices SET status=?, last_download=?, unconfirmed_writes_count=?, unconfirmed_writes_detail=?, last_verify_match=NULL, last_verify_at=NULL WHERE id=?',
+        'UPDATE devices SET status=?, last_download=?, last_download_serial=?, unconfirmed_writes_count=?, unconfirmed_writes_detail=?, last_verify_match=NULL, last_verify_at=NULL WHERE id=?',
         [
           'programmed',
           new Date().toISOString(),
+          sessionSerial ?? '',
           unconfirmedWritesCount,
           unconfirmedWritesDetail,
           dev.id,
         ],
       );
     }
-    // Real request, 2026-09-01: "track changes we have made, until we have
-    // programmed successfully" - reaching here means downloadDevice()
-    // completed without throwing, so whatever was pending (full or
-    // partial) has now genuinely been written. A device now matches its
-    // own DB state either way: full mode always writes everything
-    // regardless of what was tracked, partial mode just wrote exactly the
-    // tracked deltas - so the log is cleared unconditionally here, not
-    // gated on mode.
+    // downloadDevice() completed without throwing, so whatever was pending
+    // has now been written - cleared unconditionally, not gated on mode.
     clearPendingChanges(dev.id);
-    // Real request, 2026-08-31: "the log doesn't say that the download was
-    // successful. We should show this in the logs, including serial
-    // number of the device, and the number of bytes written." - the
-    // client's own success log line (ProgrammingView.tsx's programDevice())
-    // reads straight from this response.
     db.scheduleSave();
-    // downloadDevice() completing without throwing means the protocol
-    // sequence ran to completion, not that every write was confirmed - a
-    // device may not answer an individual write, previously only ever
-    // logged server-side with no way for the client to know. `status` is
-    // still set to 'programmed' above regardless (the device did receive
-    // the download attempt), but the client can use `unconfirmedWrites` to
-    // show a "completed with N unconfirmed writes - verify recommended"
-    // state instead of an unconditional success.
+    // Completing without throwing means the protocol sequence ran to
+    // completion, not that every write was confirmed - a device may not
+    // answer an individual write. `status` is still 'programmed' (the
+    // device did receive the attempt); the client uses `unconfirmedWrites`
+    // to show "completed with N unconfirmed writes" instead of plain success.
     return {
       status: 200,
       body: {
@@ -2076,25 +2017,16 @@ export async function runProgramDevice(
 router.post('/bus/program-device', async (req: Request, res: Response) => {
   const b = requireBus(res);
   if (!b) return;
-  // Real request, 2026-08-31: a modal "press the button" prompt (client-
-  // side) needs a real Cancel action, and runProgramDevice's address
-  // pre-flight can wait up to 30s for a physical button press - checked at each
-  // polling round rather than only at the very start, so cancelling
-  // actually stops the wait promptly.
+  // runProgramDevice's address pre-flight can wait up to 30s for a
+  // physical button press, checked at each polling round so Cancel stops
+  // the wait promptly.
   //
-  // Real bug, caught before ever reaching real hardware: req.on('close')
-  // is NOT a reliable "the client disconnected" signal in Express - it
-  // can fire once the REQUEST body has been fully read, which can happen
-  // well before a response is sent, even while the client is still very
-  // much there waiting. Using it made every test suddenly think it had
-  // been cancelled instantly, hitting the `isAborted()` guards with no
-  // response ever sent - hanging every test client indefinitely
-  // (confirmed live: the whole test file, previously a ~3.4s run,
-  // exceeded a 45s timeout with zero output). res.on('close'), gated on
-  // res.writableEnded, is the standard, correct pattern - it fires when
-  // the underlying connection actually closes, and writableEnded
-  // distinguishes "closed because we already finished responding
-  // normally" from a genuine client-side disconnect.
+  // req.on('close') is NOT a reliable disconnect signal in Express - it
+  // can fire once the request body is fully read, well before a response
+  // is sent, while the client is still waiting. res.on('close'), gated on
+  // res.writableEnded, is correct: it fires when the connection actually
+  // closes, and writableEnded distinguishes a normal response finish from
+  // a genuine client disconnect.
   let aborted = false;
   res.on('close', () => {
     if (!res.writableEnded) aborted = true;
@@ -2106,12 +2038,11 @@ router.post('/bus/program-device', async (req: Request, res: Response) => {
       projectId: z.number().int().optional(),
       deviceId: z.number().int().optional(),
       mode: z.enum(['full', 'partial']).optional().default('full'),
-      // How to locate/(re)address the device when it doesn't currently
-      // answer at `deviceAddress` and a serial is on record - see the
-      // 'address_needs_confirmation' response in runProgramDevice. Omitted on a fresh
-      // request (the client hasn't chosen yet); set on the client's
-      // follow-up call once the user (or the 'auto_address_by_serial'
-      // setting) has decided.
+      // How to locate/(re)address the device when it doesn't answer at
+      // `deviceAddress` and a serial is on record - see the
+      // 'address_needs_confirmation' response in runProgramDevice.
+      // Omitted on a fresh request; set on the client's follow-up call once
+      // the user (or 'auto_address_by_serial') has decided.
       addressMethod: z.enum(['button', 'serial']).optional(),
     }),
   );
@@ -2125,25 +2056,60 @@ router.post('/bus/program-device', async (req: Request, res: Response) => {
 });
 
 // Read-only verification: compute the parameter-memory image for a device and
-// compare it against what the device actually has, reading over the bus. Writes
-// nothing — safe to run against a live installation.
-// A device is genuinely, transiently unresponsive for a few seconds right
-// after a real hardware Restart - confirmed on real hardware (Part 18/§5,
-// docs/knx-device-write-protocol.md): a Tunneling ACK timeout right after a
-// Program action, followed by a clean reconnect ~10s later with no other
-// intervention. Found live (2026-08-29): clicking Verify right after a
-// Program finished hit exactly this window and surfaced as a raw, unhelpful
-// "Tunneling ACK timeout" 500 - the route's error handling below already
-// returns a clean 502 for genuine failures, but a real transient timeout
-// deserves a retry, not an immediate failure. Scoped to this one, specific,
-// well-evidenced error message - NOT a general "retry on any bus error"
-// policy (a real ACK *error* response, e.g. `Tunneling ACK error 0x..`, is a
-// genuine protocol-level negative acknowledgement, not a timeout, and isn't
-// retried here).
+// compare it against what the device actually has, reading over the bus.
+// Writes nothing — safe to run against a live installation.
+// A device is transiently unresponsive for a few seconds right after a
+// hardware Restart, surfacing as "Tunneling ACK timeout". Retry once rather
+// than fail immediately. Scoped to this one specific error message - not a
+// general retry-on-any-bus-error policy (a real ACK *error* response is a
+// genuine protocol-level NAK, not a timeout, and isn't retried here).
 const VERIFY_TRANSIENT_RETRY_DELAY_MS = 4000;
+
+// An error message that looks like a transient connectivity blip (router
+// dropped the tunnel, reconnect timed out) rather than a real protocol or
+// device failure.
+const CONNECTIVITY_ERROR_PATTERN =
+  /not connected|connect timeout|econnreset|econnrefused|etimedout|epipe/i;
+
+/** Retries `op` (default 3 attempts, 2s apart) but ONLY for an error that
+ *  looks like a transient connectivity blip; any other error is thrown at
+ *  once, unchanged. Every retry is logged and reported through `onProgress`. */
+async function retryOnConnectivityIssue<T>(
+  op: () => Promise<T>,
+  opts: {
+    deviceAddress: string;
+    label: string;
+    onProgress: (p: DownloadProgress) => void;
+    maxAttempts?: number;
+  },
+): Promise<T> {
+  const maxAttempts = opts.maxAttempts ?? 3;
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await op();
+    } catch (e) {
+      const err = e instanceof Error ? e : new Error(String(e));
+      if (
+        !CONNECTIVITY_ERROR_PATTERN.test(err.message) ||
+        attempt >= maxAttempts
+      )
+        throw err;
+      logger.warn('knx', `${opts.label}: connectivity issue, retrying`, {
+        deviceAddr: opts.deviceAddress,
+        attempt,
+        maxAttempts,
+        error: err.message,
+      });
+      opts.onProgress({
+        msg: `Router connection dropped - retrying ${opts.label.toLowerCase()} (attempt ${attempt + 1} of ${maxAttempts})…`,
+      });
+      await delay(2000);
+    }
+  }
+}
 const VERIFY_TRANSIENT_MAX_ATTEMPTS = 3;
 const sleep = (ms: number): Promise<void> =>
-  new Promise((resolve) => setTimeout(resolve, ms));
+  new Promise((resolve) => setTimeout(resolve, scaledMs(ms)));
 const isTransientBusTimeout = (e: unknown): boolean =>
   e instanceof Error && e.message === 'Tunneling ACK timeout';
 
@@ -2164,12 +2130,13 @@ router.post('/bus/verify-device', async (req: Request, res: Response) => {
   if (!loaded.ok) return res.status(loaded.status).json(loaded.body);
   const dev = loaded.dev;
 
-  // See the matching comment in /bus/program-device above - forces a
-  // fresh connection before starting rather than reusing whatever's left
-  // of the current one. Also explicitly try/caught for the same reason
-  // (no surrounding try/catch this early in the handler).
+  // See /bus/program-device above - connect only when there is no live
+  // connection, as per ETS.
   try {
-    await b.forceReconnect();
+    if (!b.connected) {
+      await b.forceReconnect();
+      await delay(500);
+    }
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     return res.status(msg.includes('Not connected') ? 409 : 502).json({
@@ -2181,10 +2148,8 @@ router.post('/bus/verify-device', async (req: Request, res: Response) => {
     });
   }
 
-  // See the matching comment in /bus/program-device above -
-  // KnxBusManager.addKeepAliveRef() protects the whole retry loop
-  // (including the real multi-second waits between transient-timeout
-  // retries) against an idle-timeout drop interrupting verification.
+  // See /bus/program-device above - protects the retry loop (including
+  // waits between transient-timeout retries) against an idle-timeout drop.
   const releaseKeepAlive = b.addKeepAliveRef();
   try {
     for (let attempt = 1; attempt <= VERIFY_TRANSIENT_MAX_ATTEMPTS; attempt++) {
@@ -2217,13 +2182,10 @@ router.post('/bus/verify-device', async (req: Request, res: Response) => {
 });
 
 /** The real body of `/bus/verify-device` - extracted so the route above can
- * retry it whole on a transient timeout (§ above) without duplicating this
- * logic. Returns the status and body to send, whether that is the successful
- * comparison or an "expected" 4xx; throws for anything the caller's retry
- * loop should catch (a real bus-communication failure).
- *
- * It used to take `res` and write the response itself, which meant every
- * test of a verify comparison had to go through HTTP to see its result. */
+ * retry it whole on a transient timeout without duplicating this logic.
+ * Returns the status and body to send for a successful comparison or an
+ * "expected" 4xx; throws for a real bus-communication failure the caller's
+ * retry loop should catch. */
 export async function runVerifyDevice(
   b: KnxBusManager,
   dev: Device,
@@ -2244,49 +2206,34 @@ export async function runVerifyDevice(
     params: paramDefs,
     cachedMaxApduLength,
     paramMemBySegment,
-    // Renamed on the way in: the imported writtenParamKeys() helper that
-    // produced it is in scope here too.
     writtenParamKeys: writtenParams,
     parameterByteOrder,
   } = built;
 
-  // Derive the read-back plan from the SAME artifacts the download would use.
-  // planVerify covers every device family we own:
+  // Derive the read-back plan from the same artifacts the download would use.
+  // planVerify covers every device family:
   //   absmem — each AbsSegment memory transfer becomes a memory read/diff;
   //   relmem — each WriteRelMem segment becomes a paramMem read/diff;
   //   prop   — property-configured devices (no image) become property reads.
   //
-  // System B relmem segments live at a device-resident base (PID 7), not at
-  // the step's relative offset. Resolve it over the bus and refuse to verify
-  // an unallocated segment (a zero base would read the wrong low-memory region
-  // and report a bogus all-zeros mismatch).
+  // System B relmem segments live at a device-resident base (PID 7), not the
+  // step's relative offset - resolve it over the bus and refuse to verify an
+  // unallocated segment (a zero base would read the wrong low-memory region).
   //
-  // Also resolve the GA table (objIdx 1) / Association table (objIdx 2) /
-  // Group Object Table (objIdx 3, added 2026-08-29) base whenever the app's
-  // own model doesn't already declare a step for it but a table exists to
-  // compare - real ETS verifies/writes these via the same RelSegment
-  // mechanism even without an explicit declaration (see knx-download-plan.ts's
-  // `buildUndeclaredTableMem` and knx-connection.ts's writeUndeclaredTable()
-  // for the write-side twin of this same gap).
-  // Only for genuinely RelSegment-family apps (at least one real WriteRelMem
-  // step somewhere) - real ETS's GA/Association/Object-3-via-RelSegment
-  // behavior has only ever been confirmed on this family (System B masks).
-  // AbsSegment (MDT-style) and prop-only devices have no such mechanism
-  // confirmed at all, and forcing a PID 7 resolve for objIdx 1/2/3 on those
-  // would 409 the whole verify on a genuinely unrelated/unallocated
-  // interface object.
+  // Also resolve the GA/Association/Group Object Table base (objIdx 1/2/3)
+  // whenever the app model doesn't declare a step for it but a table exists
+  // to compare - ETS verifies/writes these via the same RelSegment mechanism
+  // without an explicit declaration (see knx-download-plan.ts's
+  // buildUndeclaredTableMem and knx-connection.ts's writeUndeclaredTable()).
+  // RelSegment-family apps only (System B masks); AbsSegment and prop-only
+  // devices have no such mechanism.
   const isRelSegmentApp = (
     steps as Array<{ type: string; objIdx?: number }>
   ).some((s) => s.type === 'WriteRelMem');
-  // Only a genuine WriteRelMem step (a real content write) counts as
-  // "already handled" here - LoadImageProp is confirmed read-only for every
-  // objIdx (docs/knx-device-write-protocol.md Part 7), so a model
-  // declaring it never actually reads/writes the GA/Association table
-  // content itself. Same fix as knx-connection.ts's downloadDevice()
-  // (2026-08-29, koolenex 9eaed85) - this verify-side copy had the
-  // identical bug: for 1.1.10's app (which declares LoadImageProp for
-  // objIdx 1/2/3), verify silently skipped comparing the real GA/
-  // Association table content against the device at all.
+  // Only a genuine WriteRelMem step counts as "already handled" -
+  // LoadImageProp is read-only for every objIdx, so a model declaring it
+  // never actually writes the GA/Association table content (same fix as
+  // downloadDevice() in knx-connection.ts).
   const declaredTableObjIdxs = new Set(
     (steps as Array<{ type: string; objIdx?: number }>)
       .filter((s) => s.type === 'WriteRelMem')
@@ -2358,19 +2305,15 @@ export async function runVerifyDevice(
   const props = [];
   let totalBytes = 0;
   let totalDiffering = 0;
-  // Object 3's own raw byte-level totals, set only when this app declares
-  // a Group Object Table region to verify - see the assignment further
-  // down for why this is tracked as a separate pair rather than folded
-  // into totalBytes/totalDiffering above.
+  // Object 3's own raw byte-level totals; set only when this app declares a
+  // Group Object Table region to verify, kept separate from
+  // totalBytes/totalDiffering above.
   let flagsTotalBytes: number | undefined;
   let flagsDifferingBytes: number | undefined;
 
-  // Read every region/property for this device inside ONE management session
-  // (one Connect/Disconnect for the whole verify), instead of churning a
-  // fresh connection-oriented session per read. The total byte count is
-  // known upfront (it's the same computed-image size "expected" is built
-  // from), so real progress can be broadcast as chunks come in rather than
-  // only reporting done/not-done - the UI no longer has to guess.
+  // Read every region/property for this device inside one management
+  // session, not a fresh connection per read. Total byte count is known
+  // upfront, so real progress can be broadcast as chunks come in.
   const progressTotal = plan.mem.reduce((sum, r) => sum + r.expected.length, 0);
   const memActuals = plan.mem.length
     ? await b.readMemoryMany(
@@ -2436,14 +2379,8 @@ export async function runVerifyDevice(
   }
 
   // Decode the raw relmem bytes just read/compared into human-readable
-  // parameter values, purely as an additional view on data already
-  // fetched above — no extra bus reads. Reuses the exact same
-  // paramMemLayout/params definitions used to build the download image and
-  // to compute "expected", so decoded expected/actual values are directly
-  // comparable to (and should explain) the byte-level diff in `segments`.
-  // relmem-family only for now (single contiguous buffer to decode
-  // against one paramMemLayout); prop-family devices have no equivalent
-  // memory image to decode.
+  // parameter values - a view on data already fetched, no extra bus reads.
+  // relmem-family only; prop-family devices have no memory image to decode.
   type DecodedComparison = Omit<
     ReturnType<typeof decodeParamMem>[number],
     'value'
@@ -2451,67 +2388,35 @@ export async function runVerifyDevice(
     expectedValue: string;
     actualValue: string | null;
     match: boolean | null;
-    // Object 3 rows only - structured (not string) flag data for the
-    // compact per-flag chip display, added 2026-08-29 alongside the
-    // chip redesign. `expectedValue`/`actualValue` (the full sentence
-    // from describeGroupObjectEntry()) stay the hover-tooltip content;
+    // Object 3 rows only - structured flag data for the per-flag chip
+    // display. `expectedValue`/`actualValue` (full sentence from
+    // describeGroupObjectEntry()) stay the hover-tooltip content;
     // undefined for every other row kind (params, GA links).
     obj3Expected?: GroupObjectEntryFlags;
     obj3Actual?: GroupObjectEntryFlags | null;
     /**
-     * Whether the download actually writes this parameter's bytes.
-     *
-     * paramMemLayout carries every ParamRef the app declares, but
-     * buildParamMem() writes only some of them - an inactive alternative
-     * for a channel, or a parameter with no value and no default, keeps
-     * the segment's fill instead (see paramMemWritesParam()). Decoding
-     * runs over the whole layout on both sides regardless, so for one of
-     * those the "expected" value is a decode of filler and comparing it
-     * to the device means nothing.
-     *
-     * Deliberately a diagnostic and not a verdict. It was briefly used to
-     * mark such rows "not applicable" (2026-09-12), and that was reverted
-     * the same day: the rule behind it is buildParamMem()'s own
-     * activation gate, and that gate is known to select the wrong member
-     * of a <Union>. On the device this came from, koolenex computed the
-     * 16-bit members UP-430 "Debounce time" (bytes 1-2) and UP-44 "Long
-     * operation after" (bytes 3-4) while the device, programmed by ETS,
-     * holds the 8-bit members P-3, UP-429, UP-33 and UP-34 that occupy
-     * those same four bytes - all six values being the parameters' own
-     * declared defaults. Until union-member selection is derived from the
-     * product data, a row this flag excludes may be excluded for the
-     * wrong reason, so it stays visible and stays counted.
-     *
-     * Undefined on GA-link and Object 3 rows, which aren't parameters.
+     * Whether the download actually writes this parameter's bytes. Some
+     * paramMemLayout entries (an inactive channel alternative, a parameter
+     * with no value or default) keep the segment's fill instead - see
+     * paramMemWritesParam(); comparing their decode to the device means
+     * nothing. Diagnostic only, not a verdict - stays visible and counted.
+     * Undefined on GA-link and Object 3 rows.
      */
     written?: boolean;
   };
   let decoded: DecodedComparison[] | undefined;
   // Which of the compared segments is the parameter image.
   //
-  // relmem devices read one region and that region IS the parameter
-  // image. absmem (MDT-style) devices read several - the address table,
-  // the association table, the group-object table and the parameters -
-  // and only one of them is decodable. planDownload picks `paramMem` as a
-  // segment's source exactly when the segment's address equals
-  // `paramBase` (pickSourceBuffer, knx-download-plan.ts) and emits it as a
-  // single unchunked memWrite, so the region at that address carries
-  // precisely the buffer `paramMemLayout`'s offsets are relative to.
-  //
-  // Until 2026-09-11 this was gated on relmem alone, so every absmem
-  // device got a raw byte count and nothing else: "2366/8213 bytes match"
-  // over "No decodable parameters or properties were returned for this
-  // device", with no way to see which parameters the 5,847 differing
-  // bytes belonged to. There was never a reason for it beyond relmem
-  // being the family that happened to have one segment.
+  // relmem devices read one region and that region IS the parameter image.
+  // absmem (MDT-style) devices read several (address table, association
+  // table, group-object table, parameters) and only one is decodable;
+  // planDownload picks `paramMem` as a segment's source when the segment's
+  // address equals `paramBase` (pickSourceBuffer, knx-download-plan.ts).
   //
   // An absmem application may declare more than one parameter-carrying
-  // segment, each numbering its offsets from zero, so "the parameter
-  // image" is a list: each compared region paired with the parameters
-  // that name its address. Decoding the whole layout against one buffer
-  // reads a parameter at another segment's byte - on the device this came
-  // from, the five parameters of an 8-byte General block at 0x6F00 were
-  // decoded against Channel A's bytes in the 160-byte segment at 0x6D00.
+  // segment, each numbering its offsets from zero, so "the parameter image"
+  // is a list: each compared region paired with the parameters that name
+  // its address.
   const fullLayout = (paramMemLayout ?? {}) as Parameters<
     typeof decodeParamMem
   >[1];
@@ -2583,35 +2488,21 @@ export async function runVerifyDevice(
     }
     if (rows.length) decoded = rows;
   }
-
   // Verify the GA table / Association table too, when the model didn't
-  // already declare (and get read/decoded as) an ordinary WriteRelMem
-  // step - see the `undeclaredTableMem` field comment in
-  // knx-download-plan.ts. Surfaced as one comparison row per
-  // communication object (its expected vs. actual linked GA), not raw
-  // bytes - deliberately kept out of `segments`/`totalBytes` so the
-  // existing "raw memory bytes match" scope (named-parameter segment
-  // only) is unaffected; folded into `decoded` instead, so it shows up
-  // in the same named-comparison table the frontend already renders.
-  // Scoped to just gatable@/assoctable@ here - Object 3 (object3@) is
-  // handled separately below, since its real size is already known
-  // (groupObjectTableSize) rather than needing GA/Assoc's own dynamic
-  // "read the real count field first" probe.
+  // already declare (and get read/decoded as) an ordinary WriteRelMem step
+  // - see `undeclaredTableMem` in knx-download-plan.ts. Surfaced as one
+  // comparison row per communication object, folded into `decoded` rather
+  // than `segments`/`totalBytes`. Scoped to gatable@/assoctable@ - Object 3
+  // is handled separately below since its size is already known
+  // (groupObjectTableSize), unlike GA/Assoc's dynamic count-probe.
   const gaAssocMem = plan.undeclaredTableMem.filter(
     (r) => r.label.startsWith('gatable@') || r.label.startsWith('assoctable@'),
   );
   if (gaAssocMem.length) {
-    // The device's own real table can be a DIFFERENT size than the
-    // project's currently-computed `expected` buffer (e.g. a GA link was
-    // just removed/added in the project but never re-downloaded, or the
-    // device simply has more/fewer entries than the project currently
-    // declares) - reading `expected.length` bytes would silently truncate
-    // a real table that's larger than expected, decoding it as if entries
-    // past the truncation point don't exist. Read each table's real
-    // 2-byte count field first, then read the real full length it
-    // implies - not the project's assumed length. Capped defensively
-    // (2000 bytes ~ 500 GA entries / 250 association entries) against a
-    // corrupt/garbage count field driving an unbounded read.
+    // The device's real table can be a different size than the project's
+    // computed `expected` buffer, so read each table's real 2-byte count
+    // field first, then its real full length. Capped at 2000 bytes against
+    // a corrupt count field driving an unbounded read.
     const countActuals = await b.readMemoryMany(
       deviceAddress,
       gaAssocMem.map((r) => ({ address: r.addr, length: 2 })),
@@ -2659,9 +2550,8 @@ export async function runVerifyDevice(
           )
         : [];
     // A com object can have more than one GA link (see buildAssocTable) -
-    // aggregate every link per com object rather than keeping only the
-    // last one, then join for display/comparison the same way
-    // co.ga_address is already stored (space-separated).
+    // aggregate every link per com object, then join space-separated like
+    // co.ga_address is already stored.
     const groupByCO = (
       entries: Array<{ coNumber: number; ga: string | null }>,
     ): Map<number, string> => {
@@ -2676,8 +2566,7 @@ export async function runVerifyDevice(
     const actualByCO = groupByCO(actualAssoc);
 
     // One row per com object that has (or should have) a GA link on
-    // either side - matches the existing "only named parameters" scope
-    // convention (nothing to compare = not shown).
+    // either side - nothing to compare = not shown.
     const gaRows: DecodedComparison[] = [];
     for (const co of coRows) {
       const expectedGA = expectedByCO.get(co.object_number) ?? null;
@@ -2696,21 +2585,19 @@ export async function runVerifyDevice(
         expectedValue: expectedGA ?? '(none)',
         actualValue: actualGA,
         match: expectedGA === actualGA,
+        // Not a parameter - the Access="None" concept doesn't apply, and
+        // this GA-link row should count normally either way.
+        isVisible: true,
       });
     }
     if (gaRows.length) decoded = [...(decoded ?? []), ...gaRows];
   }
 
-  // Verify Object 3 (Group Object Table) too, when the model didn't
-  // already declare it - added 2026-08-29 alongside the real-hardware
-  // write confirmation (docs/knx-device-write-protocol.md Part 18).
-  // Unlike GA/Association, Object 3's real size is already known
-  // (`groupObjectTable.length`, computed from `maxComObjectNumber` -
-  // ets-app.ts) rather than needing a dynamic count-probe read first -
-  // it isn't a variable-length, user-editable-link-count table the way
-  // GA/Association are. One comparison row per communication object
-  // (its expected vs. actual raw flag+size-code byte pair), matching the
-  // GA rows' "named comparison, not raw bytes" convention.
+  // Verify Object 3 (Group Object Table) too, when the model didn't already
+  // declare it. Unlike GA/Association, its size is already known
+  // (`groupObjectTable.length`, from `maxComObjectNumber` in ets-app.ts),
+  // so no count-probe read is needed first. One comparison row per
+  // communication object, matching the GA rows' convention.
   const object3Region = plan.undeclaredTableMem.find((r) =>
     r.label.startsWith('object3@'),
   );
@@ -2728,14 +2615,9 @@ export async function runVerifyDevice(
       cachedMaxApduLength,
     );
     const actual = actualObject3 ?? Buffer.alloc(0);
-    // Object 3's own raw byte-level diff count, mirroring `totalBytes`/
-    // `totalDiffering` for the named-parameter segment - surfaced
-    // separately (`flagsTotalBytes`/`flagsDifferingBytes`) so the log line
-    // can quote a real "N/M bytes match" figure for this region too,
-    // rather than only ever reporting it as a count of differing named
-    // rows. Genuinely a different number from the per-communication-object
-    // row mismatch count below: one flag bit differing inside one row's
-    // byte still counts as the whole byte differing here.
+    // Object 3's own raw byte-level diff count (`flagsTotalBytes`/
+    // `flagsDifferingBytes`), separate from the per-com-object row mismatch
+    // count below - one differing flag bit still counts as a whole byte here.
     flagsTotalBytes = object3Region.expected.length;
     flagsDifferingBytes = 0;
     for (let i = 0; i < object3Region.expected.length; i++) {
@@ -2748,9 +2630,8 @@ export async function runVerifyDevice(
     const obj3Rows: DecodedComparison[] = [];
     // Human-readable, not a raw hex byte pair - every flag bit
     // computeGroupObjectByte() writes (Update/Transmit/Read-On-Init/
-    // Write/Read/Comm+Linked), Priority, and the real Object Size, not
-    // just the GA link already shown in its own row above. See
-    // describeGroupObjectEntry()'s own doc comment (knx-tables.ts).
+    // Write/Read/Comm+Linked), Priority, and Object Size. See
+    // describeGroupObjectEntry() (knx-tables.ts).
     const fmtEntry = (
       e: { flagByte: number; sizeCodeByte: number } | null,
     ): string => (e ? describeGroupObjectEntry(e) : '(out of range)');
@@ -2760,8 +2641,7 @@ export async function runVerifyDevice(
         co.object_number,
       );
       const actualEntry = decodeGroupObjectEntry(actual, co.object_number);
-      // Nothing to show for an object with no real entry on either side
-      // (matches the GA rows' "nothing to compare = not shown" convention).
+      // Nothing to show for an object with no real entry on either side.
       if (!expectedEntry && !actualEntry) continue;
       const expectedStr = fmtEntry(expectedEntry);
       const actualStr = fmtEntry(actualEntry);
@@ -2779,55 +2659,57 @@ export async function runVerifyDevice(
         actualValue: actualStr,
         match: expectedStr === actualStr,
         // Structured flags for the compact per-flag chip display -
-        // expectedEntry is only null when the object falls outside the
-        // buffer, which can't happen here (coRows only ever holds real
-        // com objects, and buildGroupObjectTable() sizes the buffer to
-        // cover every one of them) - the fallback is defensive, not a
-        // real expected case.
+        // expectedEntry is only null if the object falls outside the
+        // buffer, which can't happen here; the fallback is defensive.
         obj3Expected: expectedEntry
           ? decodeGroupObjectEntryFlags(expectedEntry)
           : undefined,
         obj3Actual: actualEntry
           ? decodeGroupObjectEntryFlags(actualEntry)
           : null,
+        // Not a parameter - the Access="None" concept doesn't apply, and
+        // this Object 3 row should count normally either way.
+        isVisible: true,
       });
     }
     if (obj3Rows.length) decoded = [...(decoded ?? []), ...obj3Rows];
   }
 
-  // `totalDiffering`/`totalBytes` are deliberately scoped to raw memory
-  // only (segments) - GA table, Association table, and Object 3 rows are
-  // kept OUT of that scope on purpose (see `undeclaredTableMem`'s own doc
-  // comment in knx-download-plan.ts), so a real mismatch in any of those
-  // would previously leave `totalDiffering === 0` true and this top-level
-  // `match` flag reporting a false "everything matches" - inconsistent
-  // with the real per-row mismatches shown in `decoded` (found live,
-  // 2026-08-29: a real Object 3 mismatch on 1.1.9 showed up correctly as
-  // a row and a summary badge, but the overall match flag - and the
-  // ProgrammingView log line derived from it - still said "matches
-  // computed image"). `match` now requires every decoded row to match
-  // too, not just the raw byte scope.
-  const allDecodedMatch = !decoded || decoded.every((d) => d.match !== false);
-  const match = totalDiffering === 0 && allDecodedMatch;
-  // A clean verify is real, positive confirmation the device's actual
-  // content matches the project - clears any "verify recommended"
-  // indicator left over from a download with unconfirmed writes (see
-  // /bus/program-device's own unconfirmed_writes_count/detail write).
+  // `totalDiffering`/`totalBytes` are scoped to raw memory only (segments) -
+  // GA table, Association table, and Object 3 rows are kept out of that
+  // scope (see `undeclaredTableMem`'s doc comment in knx-download-plan.ts).
+  // `match` therefore requires every decoded row to match too, not just the
+  // raw byte scope, or a mismatch there would report a false "everything
+  // matches".
+  // An Access="None" (isVisible: false) parameter is a download-only value
+  // ETS never shows in its own UI, sometimes a device-firmware sentinel
+  // that legitimately changes after a Download - see DecodedParam.isVisible.
+  // Doesn't count as a real mismatch here.
+  const allDecodedMatch =
+    !decoded ||
+    decoded.every((d) => d.match !== false || d.isVisible === false);
+  // `totalDiffering` is a raw byte-level count computed independently of
+  // `decoded`, so a hidden parameter's differing byte(s) still show up
+  // there even once `allDecodedMatch` excludes it. Subtract that byte
+  // length back out before gating `match`, so it doesn't count twice.
+  // Whole-byte-aligned only - a sub-byte hidden parameter isn't handled.
+  const hiddenMismatchBytes = (decoded ?? [])
+    .filter((d) => d.isVisible === false && d.match === false)
+    .reduce((sum, d) => sum + Math.ceil(d.bitSize / 8), 0);
+  const match =
+    Math.max(0, totalDiffering - hiddenMismatchBytes) === 0 && allDecodedMatch;
+  // A clean verify clears any "verify recommended" indicator left over
+  // from a download with unconfirmed writes.
   if (match) {
     db.run(
       'UPDATE devices SET unconfirmed_writes_count=0, unconfirmed_writes_detail=? WHERE id=?',
       ['[]', dev.id],
     );
   }
-  // Persisted verify indicator, added 2026-09-01 - real request: "we
-  // should consider an indicator for both successful verify and
-  // failed". Written unconditionally (both match and mismatch), unlike
-  // the unconfirmed_writes reset above which only applies on a clean
-  // match - a real, live bus verify just happened either way, and the
-  // whole point is to surface a failed one just as visibly as a clean
-  // one. See last_verify_match's own migration comment (db.ts) for why
-  // this only ever happens here (a real live bus read), never from the
-  // cache-only recompute path below.
+  // Persisted verify indicator, written unconditionally (match or
+  // mismatch) - a live bus verify just happened either way. Only ever
+  // written here (a live bus read), never from the cache-only recompute
+  // path below.
   db.run(
     'UPDATE devices SET last_verify_match=?, last_verify_at=? WHERE id=?',
     [match ? 1 : 0, new Date().toISOString(), dev.id],
@@ -2852,46 +2734,17 @@ export async function runVerifyDevice(
 }
 
 // Recomputes a verify comparison's PROJECT/expected side fresh from current
-// DB state, reusing whatever DEVICE/actual side is already cached client-
-// side from the last real bus read - deliberately NO bus access at all.
-// Real user feedback, 2026-08-31: "If we have previously verified the
-// device and have its data in cache, why make it stale when DB items are
-// modified? ... no real gain in forcing a re-read of device memory. Better
-// we just re-run the comparison of our modified DB values against the
-// previously cached device values." Correct: nothing about editing a com
-// object's flags, a GA link, or a parameter value changes what's actually
-// sitting in the device's memory - only what we now expect to find there -
-// so there's no reason a local edit should force the user back through a
-// live bus round trip just to see an accurate comparison again.
+// DB state, reusing the DEVICE/actual side already cached client-side from
+// the last real bus read - no bus access at all. A local DB edit only
+// changes what's now expected, not what's actually in device memory.
 //
-// buildDeviceProgramming(dev) and every decode helper this reuses
-// (decodeParamMem/decodeGATable/decodeAssocTable/decodeGroupObjectEntry)
-// are pure DB/model functions - none of them touch the bus, confirmed by
-// inspection: runVerifyDevice() above already calls buildDeviceProgramming
-// BEFORE resolving any live device addressing. The one thing genuinely
-// impossible without a live read is a FRESH actual/device-side reading -
-// this route never attempts that, it only re-diffs the caller's existing
-// actual bytes/values against a newly-computed expected side.
-//
-// Scope, honestly limited rather than silently wrong: the raw byte-level
-// `segments` comparison (and its derived param `decoded` rows) is only
-// recomputed for the common relmem/single-segment case this project has
-// real hardware confirmation for (see paramMemLayout gate below) - other
-// shapes (absmem/MDT-style, multi-segment) pass the cached segment through
-// unchanged rather than risk a wrong recompute for a family this project
-// has never proven the technique against. GA-link and Object 3 flag rows,
-// by contrast, are always recomputed when the device's app model supports
-// them at all - both are pure function-of-(com_objects, fresh table)
-// lookups with no family-specific memory-layout assumptions, so there's no
-// analogous gap to guard against there.
-// .passthrough() on both - the client's real segment/decoded-row shapes
-// (VerifyDeviceResult in client/src/api.ts) carry extra fields this route
-// doesn't need to touch (matching/differing/chunks on a segment; unit/
-// bitOffset/bitSize/rawValue/section/group on a decoded row) - stripping
-// them here would silently corrupt any row this route DOESN'T recompute
-// (the "can't safely recompute this shape, pass it through unchanged"
-// fallback paths below) by handing back an incomplete object in place of
-// the real one.
+// Scope: the raw byte-level `segments` comparison (and derived param
+// `decoded` rows) is only recomputed for the relmem/single-segment case -
+// other shapes pass the cached segment through unchanged. GA-link and
+// Object 3 flag rows are always recomputed when the app model supports them.
+// .passthrough() on both schemas: the client's shapes carry extra fields
+// this route doesn't touch; stripping them would corrupt rows it doesn't
+// recompute.
 const RecomputeSegmentSchema = z
   .object({
     label: z.string(),
@@ -2962,9 +2815,8 @@ router.post(
     let totalDiffering = 0;
     let paramRows: RecomputeDecoded[] | null = null;
 
-    // Only the exact shape runVerifyDevice()'s own decode gate covers
-    // (single relmem segment, a real paramMemLayout) - see this function's
-    // own doc comment above for why other shapes are left untouched.
+    // Only the exact shape runVerifyDevice()'s decode gate covers (single
+    // relmem segment, a real paramMemLayout) - other shapes left untouched.
     const cachedSeg = cached.segments.length === 1 ? cached.segments[0] : null;
     const cachedActualBuf = cachedSeg
       ? Buffer.from(cachedSeg.actualHex, 'hex')
@@ -3042,10 +2894,9 @@ router.post(
       [dev.id],
     );
 
-    // GA-link rows - always recomputed when the app model has a GA table at
-    // all, regardless of device family (pure com_objects + fresh gaTable/
-    // assocTable lookup, no raw-byte/addressing dependency - see this
-    // function's doc comment above).
+    // GA-link rows - always recomputed when the app model has a GA table,
+    // regardless of device family (pure com_objects + fresh gaTable/
+    // assocTable lookup, no raw-byte/addressing dependency).
     const gaRows: RecomputeDecoded[] = [];
     if (gaTable && assocTable) {
       const expectedGAs = decodeGATable(gaTable);
@@ -3127,13 +2978,25 @@ router.post(
       ...(gaTable && assocTable ? gaRows : [...priorGaRows.values()]),
       ...(groupObjectTable ? obj3Rows : [...priorObj3Rows.values()]),
     ];
+    // An Access="None" (isVisible: false) parameter doesn't count as a
+    // mismatch here - see DecodedParam.isVisible.
     const allDecodedMatch =
-      !decoded.length || decoded.every((d) => d.match !== false);
+      !decoded.length ||
+      decoded.every((d) => d.match !== false || d.isVisible === false);
+    // `totalDiffering` is a raw byte count independent of `decoded`, so a
+    // hidden parameter's differing byte(s) must be subtracted back out
+    // before gating `match` on it, or the mismatch counts twice.
+    // `totalDiffering` itself stays the honest raw count for display.
+    const hiddenMismatchBytes = decoded
+      .filter((d) => d.isVisible === false && d.match === false)
+      .reduce((sum, d) => sum + Math.ceil(Number(d.bitSize ?? 0) / 8), 0);
 
     res.json({
       deviceAddress: cached.deviceAddress,
       family: cached.family,
-      match: totalDiffering === 0 && allDecodedMatch,
+      match:
+        Math.max(0, totalDiffering - hiddenMismatchBytes) === 0 &&
+        allDecodedMatch,
       totalBytes,
       totalDiffering,
       segments,
@@ -3145,11 +3008,8 @@ router.post(
             flagsDifferingBytes: cached.flagsDifferingBytes,
           }
         : {}),
-      // Marks this as a LOCAL recompute, not a fresh device read - the
-      // client keeps its original `fetchedAt` (the last real bus read
-      // time) and layers this on top, so the UI can be honest about what
-      // actually happened ("recomputed just now, device last read 5m
-      // ago") instead of implying a new bus round trip occurred.
+      // Marks this as a local recompute, not a fresh device read - the
+      // client keeps its original `fetchedAt` and layers this on top.
       recomputedAt: Date.now(),
     });
   },

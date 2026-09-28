@@ -64,3 +64,4 @@ spec/
 # docs/follow-ups/2026-09-12-zennio-memory-read-refusal.md
 *.pcap
 *.pcapng
+scratch/

@@ -1,21 +1,16 @@
 /**
- * Protocol-level regression test for the missing Unload/StartLoading/
- * LoadData/LoadCompleted sequence around WriteRelMem - see
- * docs/follow-ups/2026-08-28-write-path-missing-load-sequence.md for the
- * full root-cause writeup. Real device firmware silently ignores memory
- * writes to an interface object outside "Loading" state; koolenex used to
- * send WriteRelMem completely raw, so every such write was a silent no-op
- * on real hardware regardless of address correctness.
+ * Regression test for the Unload/StartLoading/LoadData/LoadCompleted
+ * sequence around WriteRelMem. Device firmware silently ignores memory
+ * writes to an interface object outside "Loading" state, so WriteRelMem
+ * sent raw is a silent no-op regardless of address correctness.
  *
  * Unlike relmem-write-protocol.test.ts's FakeWritableMemoryDevice (which
  * accepts any Memory_Write unconditionally - fine for proving address
- * SELECTION is correct, but blind to this class of bug entirely), this
- * fake device models Load State gating: it only actually applies a memory
- * write to its backing buffer while the target object is in "Loading"
- * state, exactly like real hardware. Proves this fix is both necessary
- * (a version without the load-sequence emits writes the gated fake device
- * would reject) and sufficient (the real sequence, byte-verified against
- * four independent real captures, actually unlocks the write).
+ * SELECTION, but blind to this class of bug), this fake device models Load
+ * State gating: a memory write only lands while the target object is in
+ * "Loading" state. Proves the load sequence is both necessary (without it,
+ * the gated fake device rejects the write) and sufficient (the sequence
+ * unlocks the write).
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -57,13 +52,10 @@ class LoadGatedFakeDevice extends KnxConnection {
     const frame = parseCEMI(cemi);
     if (!frame) return Promise.resolve();
 
-    // downloadDevice() now reads the device's mask version via
+    // downloadDevice() reads the device's mask version via
     // A_DeviceDescriptor_Read at the start of every RelSegment-driven
-    // session, to gate legacy-vs-extended memory writes on the real device
-    // family instead of a blanket rule - see the 2026-08-28 "gate on real
-    // mask version" fix in knx-connection.ts's WriteRelMem case. Respond
-    // with 0x07B0 (System B), matching the real device (1.1.9) this test's
-    // scenario is modeled on.
+    // session, to gate legacy-vs-extended memory writes on the device
+    // family. Respond with 0x07B0 (System B).
     if (frame.apciName === 'DeviceDescriptor_Read') {
       const maskBuf = Buffer.from([0x07, 0xb0]);
       const respApdu = apduGroup('DeviceDescriptor_Response', 0, maskBuf);
@@ -99,14 +91,12 @@ class LoadGatedFakeDevice extends KnxConnection {
       const objIdx = frame.apduData[0]!;
       const propId = frame.apduData[1]!;
       const data = frame.apduData.subarray(4);
-      // propWrite() now waits for a response before proceeding for EVERY
-      // property write (not just LSM ones - see the 2026-08-28
-      // "PID_PROGRAM_VERSION write-back" fix, which writes propId 13, not
-      // 5) - respond to all of them like real hardware does, or any
-      // non-LSM propWrite() call would time out after 3s. `state` below
-      // only has real meaning for propId 5 (LSM); echoed back verbatim
-      // otherwise (matching real ETS's own PID_PROGRAM_VERSION write-back,
-      // which gets its own value echoed back in the response).
+      // propWrite() waits for a response before proceeding for EVERY
+      // property write, not just LSM ones (PID_PROGRAM_VERSION write-back
+      // uses propId 13) - respond to all of them or a non-LSM propWrite()
+      // call times out after 3s. `state` only has real meaning for propId 5
+      // (LSM); echoed back verbatim otherwise, matching real ETS's own
+      // PID_PROGRAM_VERSION write-back.
       let state = 0x00;
       if (propId === 5 && data.length > 0) {
         const event = data[0]!;
@@ -142,20 +132,17 @@ class LoadGatedFakeDevice extends KnxConnection {
       )!;
       setImmediate(() => this._onCEMI(resp));
     } else if (fullApci === 0x3d5 /* PropertyValue_Read */) {
-      // downloadDevice() now reads PID_PROGRAM_VERSION (objIdx 4, propId
-      // 13) and writes it straight back before LoadCompleted (see the
-      // 2026-08-28 "PID_PROGRAM_VERSION write-back" fix) - respond with a
-      // fixed dummy value (shape matches the real captured
-      // 0004002510: manufacturer(2)+appNumber(2)+version(1)) so that
-      // round-trip actually completes instead of timing out.
+      // downloadDevice() reads PID_PROGRAM_VERSION (objIdx 4, propId 13) and
+      // writes it straight back before LoadCompleted - respond with a fixed
+      // dummy value (shape matches manufacturer(2)+appNumber(2)+version(1))
+      // so the round-trip completes instead of timing out.
       //
-      // PID_MAX_APDULENGTH (property 56, objIdx 0) - real request,
-      // 2026-08-31: needs its OWN case, not the generic fallback below -
-      // the generic 5-byte dummy value would parse as a real but tiny
-      // (4) max-APDU value, capping every chunk in this file's tests down
-      // to ~1 byte and silently breaking their existing chunk-count
-      // assumptions (built around the real 228-byte default). A generous
-      // value here keeps every existing test's chunking unaffected.
+      // PID_MAX_APDULENGTH (property 56, objIdx 0) needs its own case, not
+      // the generic fallback below - the generic 5-byte dummy value would
+      // parse as a real but tiny (4) max-APDU value, capping every chunk in
+      // this file's tests down to ~1 byte. A generous value keeps this
+      // file's chunking assumptions (built around the 228-byte default)
+      // unaffected.
       const objIdx = frame.apduData[0]!;
       const propId = frame.apduData[1]!;
       const value =
@@ -177,11 +164,9 @@ class LoadGatedFakeDevice extends KnxConnection {
       const data = frame.apduData.subarray(3, 3 + count);
       if (this.loadingObjIdx !== null) data.copy(this.memory, address);
       else this.rejectedWrites.push({ address, extended: false });
-      // downloadDevice()'s memory-write loop now waits for each chunk's
-      // real response before sending the next (2026-08-30 fix - a real
-      // device was found genuinely backlogged under the old fire-and-
-      // forget pacing) - respond like real hardware does, or every write
-      // would stall on the 3s timeout.
+      // downloadDevice()'s memory-write loop waits for each chunk's response
+      // before sending the next - respond like real hardware does, or every
+      // write would stall on the 3s timeout.
       const respApdu = apduGroup('Memory_Response', 0, frame.apduData);
       const resp = parseCEMI(
         buildCEMI(this.deviceAddr, this.localAddr, respApdu, false),
@@ -214,11 +199,10 @@ class LoadGatedFakeDevice extends KnxConnection {
   }
 }
 
-describe('WriteRelMem load-sequence fix — real device gating simulation', () => {
-  const RESOLVED_BASE = 0x5f0e; // 1.1.9's real resolved base for objIdx 4
-  // A trimmed version of 1.1.9's real model.loadProcedures shape: two
-  // RelSegment declarations (full+par, same lsmIdx) followed by WriteRelMem
-  // - exactly what buildDeviceProgramming() produces for this real app.
+describe('WriteRelMem load sequence — device gating simulation', () => {
+  const RESOLVED_BASE = 0x5f0e; // resolved base for objIdx 4
+  // Two RelSegment declarations (full+par, same lsmIdx) followed by
+  // WriteRelMem - what buildDeviceProgramming() produces for this app shape.
   const steps: DownloadStep[] = [
     {
       type: 'RelSegment',
@@ -242,7 +226,7 @@ describe('WriteRelMem load-sequence fix — real device gating simulation', () =
   ];
   const payload = Buffer.from(Array.from({ length: 20 }, (_, i) => i + 1));
 
-  it('with the fix: the write actually lands, because the object is put into Loading state first', async () => {
+  it('the write lands, because the object is put into Loading state first', async () => {
     const backing = Buffer.alloc(0x10000);
     const dev = new LoadGatedFakeDevice('1.1.9', backing);
     await dev.downloadDevice('1.1.9', steps, null, null, payload, undefined, {
@@ -261,7 +245,7 @@ describe('WriteRelMem load-sequence fix — real device gating simulation', () =
     );
   });
 
-  it('sends the exact real LSM event sequence, byte-verified against 4 independent real captures', async () => {
+  it('sends the exact real LSM event sequence', async () => {
     const backing = Buffer.alloc(0x10000);
     const dev = new LoadGatedFakeDevice('1.1.9', backing);
     await dev.downloadDevice('1.1.9', steps, null, null, payload, undefined, {
@@ -273,6 +257,11 @@ describe('WriteRelMem load-sequence fix — real device gating simulation', () =
       full: e.data.toString('hex'), // e.data already includes the leading event byte
     }));
     assert.deepEqual(hexEvents, [
+      // ETS unloads a distinct interface object 5 (PEI Program)
+      // unconditionally, before anything else, on every Full Download for a
+      // System-B-mask device (see hasPeiProgramObject's doc comment,
+      // knx-connection.ts).
+      { objIdx: 5, full: '04000000000000000000' }, // Unload (PEI Program)
       { objIdx: 4, full: '04000000000000000000' }, // Unload
       { objIdx: 4, full: '01000000000000000000' }, // StartLoading
       // LoadData: size=20 (0x0014), combined=1 (two RelSegment entries), fill=255
@@ -281,12 +270,10 @@ describe('WriteRelMem load-sequence fix — real device gating simulation', () =
     ]);
   });
 
-  it('WITHOUT the fix (no RelSegment steps in the model): the write is correctly rejected by the gated fake device', async () => {
-    // Simulates exactly what koolenex sent before this fix, for an app
-    // whose loadProcedures model doesn't declare a RelSegment for the
-    // object being written (matches every app tested so far, pre-fix) -
-    // proves the fake device's gating is real (would have caught the
-    // original bug), not just a tautology that always passes.
+  it('with no RelSegment steps in the model, the write is correctly rejected by the gated fake device', async () => {
+    // An app whose loadProcedures model doesn't declare a RelSegment for the
+    // object being written - proves the fake device's gating is real (would
+    // catch the missing-load-sequence bug), not just a tautology.
     const bareSteps: DownloadStep[] = [
       { type: 'WriteRelMem', objIdx: 4, propId: 0, size: 20, offset: 0 },
     ];
@@ -304,10 +291,15 @@ describe('WriteRelMem load-sequence fix — real device gating simulation', () =
       },
     );
 
+    // Object 4 (the param object being written) never gets a load-state
+    // transition at all, RelSegment-less as it is. Object 5 (PEI Program)
+    // gets a separate, unconditional Unload regardless of what's actually
+    // being written, so it's expected here too and excluded from this
+    // assertion rather than loosening the whole check.
     assert.equal(
-      dev.lsmEvents.length,
+      dev.lsmEvents.filter((e) => e.objIdx !== 5).length,
       0,
-      'no load-state transition should have been sent at all',
+      'no load-state transition for the param object should have been sent at all',
     );
     assert.ok(
       dev.rejectedWrites.length > 0,
@@ -317,7 +309,7 @@ describe('WriteRelMem load-sequence fix — real device gating simulation', () =
       dev.memory
         .subarray(RESOLVED_BASE, RESOLVED_BASE + 20)
         .every((b) => b === 0),
-      'memory should be unchanged - exactly what was observed on real hardware',
+      'memory should be unchanged',
     );
   });
 });

@@ -133,15 +133,7 @@ export const orderedXmlParser = new XMLParser({
 export const toArr = (v: unknown): XmlNode[] =>
   v == null ? [] : Array.isArray(v) ? (v as XmlNode[]) : [v as XmlNode];
 
-/**
- * Treat a value pulled out of a parsed XML tree as a node, so a walk can
- * continue into it: `toArr(el(md.Dynamic).Module)`.
- *
- * A child's own shape is only known by walking it, so XmlNode indexes to
- * `unknown` - which is right, but stops `a.B?.C` chains. This is where that
- * assertion is written down, instead of every walk in the parser being
- * typed `any` and losing the checking on everything else it touches.
- */
+/** Casts a value pulled from a parsed XML tree to XmlNode so a walk can continue into it. */
 export const el = (v: unknown): XmlNode => (v as XmlNode | undefined) ?? {};
 
 /**
@@ -286,18 +278,13 @@ interface ParsedComObject {
   ga_address: string;
   ga_send?: string;
   ga_receive?: string;
-  // Added 2026-08-29 for Object 3 (Group Object Table) support - see
+  // For Object 3 (Group Object Table) support - see
   // ets-app.ts's CoDef/CorDef and docs/knx-device-write-protocol.md §10.1.
   read_on_init?: boolean;
   priority?: string;
-  // Raw Read/Write/Communication/Transmit/Update booleans - added alongside
-  // read_on_init/priority above, same day (`update` added later the same
-  // day, once its resolution turned out to be a real bug - see the comment
-  // at its assignment above). `flags` (buildFlags()) is a composite DISPLAY
-  // string only, and has a lossy fallback ('CW' when comm/read/write/tx/u
-  // are ALL false - see buildFlags()'s own comment) - not safe to parse
-  // back into individual booleans for a real download. Object 3's
-  // computeGroupObjectByte() needs the real booleans directly.
+  // Raw Read/Write/Communication/Transmit/Update booleans. `flags` (buildFlags())
+  // is a composite display string with a lossy 'CW' fallback when all are false -
+  // not safe to parse back into booleans. computeGroupObjectByte() needs these directly.
   read?: boolean;
   write?: boolean;
   comm?: boolean;
@@ -517,20 +504,14 @@ export function parseKnxproj(
   // ── Application program indexes ────────────────────────────────────────────
   // Keyed by "M-00FA_A-2504-10-C071" (appId without path/extension).
   //
-  // Loaded on demand, not up front. A .knxproj carries every application
-  // program its manufacturers ship, not just the ones this installation uses
-  // - on a real 33 MB project that is hundreds of programs and ~540 MB of
-  // XML, where the 275 devices actually reference a handful. Indexing them
-  // all extracted every one into a Buffer the entry list then held for the
-  // whole parse, turned each into a UTF-16 string, and built two object
-  // trees from it, which is enough to exhaust memory before 0.xml is even
-  // read (reported symptom: the import dies silently right after the zip
-  // messages). xknxproject avoids this the same way - read the installation
-  // first, load only what it references.
+  // Loaded on demand, not up front. A .knxproj carries every application program
+  // its manufacturers ship, not just the ones the installation uses - eagerly
+  // indexing all of them can exhaust memory on a large project before 0.xml is
+  // even read. xknxproject uses the same approach: read the installation first,
+  // load only what it references.
   //
-  // The entry for an appId is found by filename, so nothing is extracted
-  // until a device asks for it; the parsed index is then keyed by the appId
-  // the XML itself declares as well, in case the two ever disagree.
+  // The entry for an appId is found by filename; the parsed index is then also
+  // keyed by the appId the XML itself declares, in case the two disagree.
   const appEntries = entries.filter((e) =>
     /M-[^/]+\/M-[^/]+_A-[^/]+\.xml$/i.test(e.entryName),
   );
@@ -758,22 +739,12 @@ export function parseKnxproj(
 
     const devInstById: Record<string, string> = {}; // DeviceInstance @Id → individual_address
 
-    // Devices dropped into a project but never placed on any Area/Line at
-    // all live in their own <UnassignedDevices> container, a direct
-    // sibling of <Area> under <Topology> - real evidence, live Test Bed
-    // project 2026-08-30 (`P-02CB-0_DI-4`, an HDL device added to the
-    // project with no topology placement whatsoever). The normal
-    // Area→Line→DeviceInstance traversal below never visits this
-    // container, so such a device was silently invisible to the parser
-    // entirely - not merely mis-addressed (see the missing-Address-
-    // attribute handling inside the loop below, a related but different
-    // real case: a device that WAS placed on a line but had its address
-    // cleared). Fixed by folding <UnassignedDevices> in as one extra
-    // synthetic "area/line" for the same traversal to process, so every
-    // other per-device rule (missing-Address handling, parameters, com
-    // objects) applies unchanged. Area/line 99 is used deliberately - real
-    // KNX area/line numbers are 4-bit (0-15), so 99 can never collide with
-    // a genuine topology entry.
+    // A device dropped into the project but never placed on any Area/Line lives in
+    // its own <UnassignedDevices> container, a sibling of <Area> under <Topology> -
+    // the normal Area→Line→DeviceInstance traversal never visits it. Folded in here
+    // as one extra synthetic area/line so the rest of the per-device logic (missing-
+    // Address handling, parameters, com objects) applies unchanged. Area/line 99 is
+    // safe because real KNX area/line numbers are 4-bit (0-15).
     const unassignedDevs = toArr(topology.UnassignedDevices?.DeviceInstance);
     const areasToProcess = unassignedDevs.length
       ? [
@@ -831,23 +802,13 @@ export function parseKnxproj(
           ),
         ];
 
-        // A <DeviceInstance> can genuinely have no Address attribute at all
-        // - real evidence, live Test Bed project 2026-08-30: a device newly
-        // added to the project but never placed on a line yet
-        // (`P-02CB-0_DI-4`) has none. The old logic (`parseInt(...) || 0`)
-        // silently treated a missing address exactly like a real address of
-        // 0 - which, per this same project's real convention, IS a valid,
-        // already-used address (the line's router/first device is
-        // genuinely addressed 0). Every unaddressed device collided on the
-        // same "area.line.0" individual_address, and since that column is
-        // UNIQUE per project, INSERT OR REPLACE (routes/projects.ts) meant
-        // only the last one survived - the rest never appeared anywhere,
-        // with no error. Fixed: a missing Address attribute gets a
-        // synthetic device number starting at 256 (one past the real 0-255
-        // KNX device-number range, so it can never collide with a real
-        // address), incrementing per unaddressed device on this line;
-        // has_address records which case applies so routes and the UI can
-        // tell a placeholder from a real, writable address.
+        // A <DeviceInstance> can genuinely have no Address attribute (device added
+        // but not yet placed on a line). Treating that as device number 0 would
+        // collide with a real device 0 (e.g. the line's router) and, since
+        // individual_address is unique per project, silently drop every such
+        // device but the last. Missing addresses get a synthetic number starting
+        // at 256 (past the real 0-255 KNX range) instead; `has_address` lets
+        // callers tell a placeholder from a real, writable address.
         let nextUnassignedDevNum = 256;
         for (const dev of allDevs) {
           const rawAddr = attr(dev, 'Address');
@@ -924,8 +885,17 @@ export function parseKnxproj(
               { corId: string; channel: string }[]
             > | null = null;
           if (appIdx?.evalDynamic) {
+            // evalDynamic() recurses into a module instance's own Dynamic tree
+            // (see ets-app.ts's evalDynamic/walkItems 'module' branch), and a
+            // <choose> there can be keyed on a fully-qualified per-instance
+            // ParameterInstanceRef id (e.g. "..._MD-1_M-254_MI-1_P-2_R-2").
+            // strippedValues can't answer this - it's keyed by the stripped
+            // id, first-instance-wins. Check the unstripped instanceValues map
+            // first; falls through to strippedValues/getDefault otherwise.
             const getVal = (prKey: string) =>
-              strippedValues.get(prKey) ?? appIdx.getDefault(prKey);
+              instanceValues.get(prKey) ??
+              strippedValues.get(prKey) ??
+              appIdx.getDefault(prKey);
             ({ activeParams, activeCorefsByObjNum } =
               appIdx.evalDynamic(getVal));
           }
@@ -1075,22 +1045,11 @@ export function parseKnxproj(
               }
             }
 
-            // Real bug, found live 2026-08-30 via a byte-for-byte replay of
-            // koolenex's own Object 3 write against a real ETS capture of
-            // the same device: `cor` here is the DEVICE-INSTANCE-level
-            // `ComObjectInstanceRef` (from `dev.ComObjectInstanceRefs`),
-            // which can carry its own `ReadOnInitFlag`/`Priority`
-            // attributes overriding whatever the app-level `ComObjectRef`
-            // declares - the same per-instance override mechanism `Text`/
-            // `DatapointType` already get above (`attr(cor, 'Text') || ...`
-            // falls back to the instance value). `readOnInit`/`priority`
-            // were never checked against `cor` at all, only ever resolved
-            // from the app level - a real device's own instance data
-            // (`<ComObjectInstanceRef ... ReadOnInitFlag="Enabled" />`)
-            // silently never took effect. Confirmed: 1.1.9's real
-            // instance-level ReadOnInitFlag="Enabled" was computed as
-            // "No" by koolenex, verified via a real ETS capture of the
-            // same device showing the correct flag bit set.
+            // `cor` (device-instance-level ComObjectInstanceRef) can carry its own
+            // ReadOnInitFlag/Priority overriding the app-level ComObjectRef, the
+            // same per-instance override mechanism Text/DatapointType already use
+            // above. Must be checked here or an instance-level override never
+            // takes effect.
             const instanceReadOnInit = attr(cor, 'ReadOnInitFlag');
             if (instanceReadOnInit)
               readOnInit = instanceReadOnInit === 'Enabled';
@@ -1106,17 +1065,27 @@ export function parseKnxproj(
                 priority = p;
             }
 
-            // `update` above is now resolved the same way as read/write/
-            // comm/tx (base ComObject + ComObjectRef-override merge, via
-            // resolveCoRef()/resolveCoRefById() - see ets-app.ts's CoDef/
-            // CorDef) - it used to be read directly off the ComObjectRef's
-            // own UpdateFlag attribute with no fallback to the base object's
-            // declared value, which silently defaulted Update to OFF for
-            // every ComObjectRef that didn't explicitly override it (most of
-            // them don't - they inherit the app's base default). Confirmed
-            // as a real bug live: every project-side Update flag on 1.1.10
-            // read off while the real device (correctly programmed by real
-            // ETS) had it on for the same objects.
+            // `update` is resolved the same way as read/write/comm/tx: base
+            // ComObject + ComObjectRef-override merge via resolveCoRef()/
+            // resolveCoRefById() (see ets-app.ts's CoDef/CorDef), not read
+            // directly off ComObjectRef's UpdateFlag - that has no fallback to
+            // the base object's declared value and defaults Update to off for
+            // every ComObjectRef that doesn't explicitly override it.
+            // Each comm-object flag can also be overridden per device instance;
+            // only an explicit instance-level value changes anything, otherwise
+            // the app-resolved value stands. Ignoring an override writes the
+            // wrong bit into Object 3's flag byte.
+            const instanceRead = attr(cor, 'ReadFlag');
+            if (instanceRead) read = instanceRead === 'Enabled';
+            const instanceWrite = attr(cor, 'WriteFlag');
+            if (instanceWrite) write = instanceWrite === 'Enabled';
+            const instanceComm = attr(cor, 'CommunicationFlag');
+            if (instanceComm) comm = instanceComm === 'Enabled';
+            const instanceTx = attr(cor, 'TransmitFlag');
+            if (instanceTx) tx = instanceTx === 'Enabled';
+            const instanceUpdate = attr(cor, 'UpdateFlag');
+            if (instanceUpdate) update = instanceUpdate === 'Enabled';
+
             const flags = buildFlags({ read, write, comm, tx, u: update });
             const coObj: ParsedComObject = {
               device_address: ia,
@@ -1248,21 +1217,22 @@ export function parseKnxproj(
                   continue;
                 comObjects.push({
                   device_address: ia,
-                  object_number: merged.objectNumber,
+                  // Use `objNum` (this loop's map key, resolved by evalDynamic()
+                  // from the comref's real per-instance moduleCtx.args), not
+                  // `merged.objectNumber`. resolveCoRefById(corId) re-derives the
+                  // object number from `corId` alone via regex
+                  // (/_(MD-\d+)_(M-\d+)_/), but for a comref found by recursing
+                  // into a ModuleDef's own Dynamic template, `corId` is module-
+                  // def-relative with no instance segment - merged.objectNumber
+                  // would silently fall back to the bare template number.
+                  object_number: objNum,
                   channel: mergedChannel || merged.channel,
                   name: merged.name,
                   function_text: merged.function_text,
                   dpt: merged.dpt,
                   object_size: merged.objectSize,
-                  // buildFlags() destructures a `u` key, not `update` -
-                  // `merged` never had a `u` property under any name (a
-                  // separate, pre-existing instance of the same category of
-                  // bug fixed at the other ParsedComObject construction site
-                  // above: Update was silently never included in `flags`
-                  // here at all, structurally, regardless of the real
-                  // resolved value) - pass it through explicitly rather than
-                  // relying on the object happening to already have the
-                  // right key name.
+                  // buildFlags() destructures a `u` key, not `update` - `merged`
+                  // has no `u` property, so pass it through explicitly.
                   flags: buildFlags({ ...merged, u: merged.update }),
                   direction:
                     merged.tx && !merged.write
@@ -1310,11 +1280,10 @@ export function parseKnxproj(
     return seen.has(k) ? false : (seen.add(k), true);
   });
 
-  // A .knxprod is a product catalogue, not an installation: it has no devices,
-  // so nothing references an application program, and the programs ARE the
-  // payload of the import. Load them all in that case - the by-reference rule
-  // above exists to skip the hundreds of unused programs a real .knxproj
-  // carries, and an archive with no installation has none to skip.
+  // A .knxprod is a product catalogue, not an installation: it has no devices, so
+  // nothing references an application program, and the programs are themselves
+  // the payload. Load them all in that case - the by-reference rule above exists
+  // only to skip unused programs in a real .knxproj.
   if (!installEntries.length) {
     logger.info('ets', 'no installation - loading every app program', {
       count: appEntries.length,
@@ -1351,11 +1320,25 @@ export function parseKnxproj(
         // 🔴 SPECULATIVE - see ParamModel.isSecureEnabled's own doc
         // comment (ets-app.ts) before trusting this for anything real.
         m.isSecureEnabled = idx.isSecureEnabled;
+        // See ParamModel.peiType's own doc comment (ets-app.ts).
+        if (idx.peiType !== undefined) m.peiType = idx.peiType;
+        if (idx.lineCoupler0912NewProgrammingStyle !== undefined)
+          m.lineCoupler0912NewProgrammingStyle =
+            idx.lineCoupler0912NewProgrammingStyle;
         // 🟡 See ParamModel.supportsExtendedMemoryServices's own doc
         // comment (ets-app.ts).
         m.supportsExtendedMemoryServices = idx.supportsExtendedMemoryServices;
         // See ParamModel.parameterByteOrder's own doc comment (ets-app.ts).
         m.parameterByteOrder = idx.parameterByteOrder;
+        // See ParamModel.gaTableMaxEntries/assocTableMaxEntries's own doc
+        // comments (ets-app.ts). `NaN` (no `<AddressTable>`/
+        // `<AssociationTable>` element declared) is dropped here rather
+        // than stored, so a consumer's `!= null` check reads it the same
+        // way as a model cached before this field existed.
+        if (!isNaN(idx.gaTableMaxEntries))
+          m.gaTableMaxEntries = idx.gaTableMaxEntries;
+        if (!isNaN(idx.assocTableMaxEntries))
+          m.assocTableMaxEntries = idx.assocTableMaxEntries;
         paramModels[aid] = m;
       }
     } catch (e) {
@@ -1402,26 +1385,15 @@ export function parseKnxproj(
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 /**
- * A device's initial status, straight from the ETS project file itself -
- * real evidence, 2026-08-29 (Test Bed.knxproj, live project): a
- * `<DeviceInstance>` carries both `LastModified` and `LastDownload`
- * timestamps, and a real device was found where `LastModified` is AFTER
- * `LastDownload` - i.e. genuinely edited in ETS since its last download,
- * exactly the state real ETS itself flags as needing a re-download. The
- * previous logic (`status: LastDownload ? 'programmed' : 'unassigned'`)
- * only checked whether a download had EVER happened, never comparing the
- * two timestamps, so this real device was silently misclassified as
- * 'programmed'. Both raw fields were already parsed/stored
- * (`last_modified`/`last_download`) - just never compared until now.
+ * A device's initial status, from the project file's own `LastModified`/
+ * `LastDownload` timestamps on `<DeviceInstance>`.
  *
- * No LastDownload at all -> never downloaded -> 'unassigned'.
- * LastDownload present, LastModified after it (or unparsable) -> 'modified'.
- * LastDownload present and same or after LastModified -> 'programmed'.
+ * No LastDownload -> 'unassigned'. LastDownload present, LastModified after it
+ * (or unparsable) -> 'modified'. LastDownload same or after LastModified ->
+ * 'programmed'.
  *
- * This is the INITIAL status only - a later Verify (see koolenex's
- * ProgrammingView.tsx) overwrites it with live read-back state (does the
- * device's actual content match what's expected right now), which is a
- * different, more current signal than what the project file alone can say.
+ * Initial status only - a later Verify (ProgrammingView.tsx) overwrites it with
+ * live read-back state.
  */
 export function deriveDeviceStatus(
   lastModified: string,

@@ -233,6 +233,15 @@ describe('MDT Rain Sensor: exhaustive param check', () => {
 
 // ── Load procedures (AbsoluteSegment device) ────────────────────────────────
 
+// The steps as the application declares them, in true document order. (The
+// regular XML parser groups children by tag name, so it cannot give this.)
+const declaredStepOrder = ((): string[] => {
+  const section = /<LoadProcedures>([\s\S]*?)<\/LoadProcedures>/.exec(
+    appXml,
+  )![1]!;
+  return [...section.matchAll(/<LdCtrl(\w+)/g)].map((m) => m[1]!);
+})();
+
 describe('MDT Rain Sensor: load procedures', () => {
   it('has 21 load procedures (full ProductProcedure sequence)', () => {
     assert.equal(model.loadProcedures.length, 21);
@@ -242,29 +251,13 @@ describe('MDT Rain Sensor: load procedures', () => {
     const types = model.loadProcedures.map(
       (lp: Record<string, unknown>) => lp.type,
     );
-    assert.deepEqual(types, [
-      'Connect',
-      'CompareProp',
-      'Unload',
-      'Unload',
-      'Unload',
-      'Load',
-      'Load',
-      'Load',
-      'AbsSegment',
-      'AbsSegment',
-      'AbsSegment',
-      'AbsSegment',
-      'AbsSegment',
-      'TaskSegment',
-      'TaskSegment',
-      'TaskSegment',
-      'LoadCompleted',
-      'LoadCompleted',
-      'LoadCompleted',
-      'Restart',
-      'Disconnect',
-    ]);
+    // In document order: the segment steps are interleaved with the Load
+    // and LoadCompleted steps they belong to, not grouped by kind.
+    assert.deepEqual(types, declaredStepOrder);
+    assert.equal(types[0], 'Connect');
+    assert.equal(types[types.length - 1], 'Disconnect');
+    assert.equal(types.filter((t) => t === 'AbsSegment').length, 5);
+    assert.equal(types.filter((t) => t === 'Unload').length, 3);
   });
 
   it('does NOT use RelSegment or WriteRelMem', () => {
@@ -277,15 +270,7 @@ describe('MDT Rain Sensor: load procedures', () => {
 
   it('all steps match raw XML in document order', () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const lps = (st.LoadProcedures?.LoadProcedure || []) as any[];
-    const rawSteps: string[] = [];
-    for (const lp of lps) {
-      for (const key of Object.keys(lp)) {
-        if (!key.startsWith('LdCtrl')) continue;
-        const items = Array.isArray(lp[key]) ? lp[key] : [lp[key]];
-        for (const _item of items) rawSteps.push(key.replace('LdCtrl', ''));
-      }
-    }
+    const rawSteps = declaredStepOrder;
     assert.equal(model.loadProcedures.length, rawSteps.length);
     for (let i = 0; i < rawSteps.length; i++) {
       assert(

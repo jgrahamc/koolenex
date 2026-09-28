@@ -22,13 +22,10 @@ interface BusStatusResponse {
   type?: string;
   port?: number;
   path?: string;
-  // Real bug, found live 2026-08-31: previously only ever arrived via a
-  // live 'knx:reconnect-failed' WebSocket event - a plain status refresh
-  // (page reload, or the client's own WebSocket reconnecting mid-session)
-  // had no way to learn a standing reconnect failure was real, and
-  // silently read back to a calm "Idle" instead of "Disconnected". Now
-  // tracked server-side (server/knx-bus.ts's _needsAttention) and included
-  // in every /bus/status response.
+  // True when a reconnect failure is standing, not just signaled once via
+  // the 'knx:reconnect-failed' WS event - lets a plain status refresh (page
+  // reload, WS reconnect) show "Disconnected" instead of falling back to
+  // "Idle". Tracked server-side in server/knx-bus.ts's _needsAttention.
   needsAttention?: boolean;
 }
 
@@ -59,17 +56,23 @@ export interface VerifyDecodedParam {
   expectedValue: string;
   actualValue: string | null;
   match: boolean | null;
+  /**
+   * False for a parameter declared `Access="None"` - download-only, never
+   * shown in ETS's own UI, and sometimes a device-firmware sentinel that
+   * changes on its own after a Download. Excluded from mismatch counts/
+   * status shown to the user (see DeviceCompareResults.tsx/
+   * ProgrammingView.tsx). Undefined on GA-link/Object 3 rows; treat as
+   * visible (true) when absent.
+   */
+  isVisible?: boolean;
   /** Object 3 rows only - undefined for every other row kind (params, GA links). */
   obj3Expected?: GroupObjectEntryFlags;
   obj3Actual?: GroupObjectEntryFlags | null;
   /**
    * Whether the download actually writes this parameter's bytes. False for
-   * a ParamRef the app declares but buildParamMem() skips - an inactive
-   * alternative for a channel, or one with no value and no default - whose
-   * bytes therefore keep the segment's fill. The comparison still decodes
-   * it on both sides, so its "expected" is a decode of filler and the
-   * mismatch it reports means nothing. Undefined on GA-link and Object 3
-   * rows, which aren't parameters.
+   * a ParamRef buildParamMem() skips (inactive channel alternative, or no
+   * value and no default) - its bytes keep the segment's fill, so a
+   * mismatch here is meaningless. Undefined on GA-link/Object 3 rows.
    */
   written?: boolean;
 }
@@ -99,10 +102,8 @@ export interface VerifyDeviceResult {
   }>;
   decoded?: VerifyDecodedParam[];
   /** Object 3 (Group Object Table / "Communication Flags")'s own raw
-   * byte-level totals, present only when this app declares that region -
-   * mirrors totalBytes/totalDiffering but for that separate memory region,
-   * so a log line can quote a real "N/M bytes match" figure for flags too,
-   * not just a count of differing named rows. */
+   * byte totals, present only when the app declares that region - mirrors
+   * totalBytes/totalDiffering but for that separate memory region. */
   flagsTotalBytes?: number;
   flagsDifferingBytes?: number;
 }
@@ -141,10 +142,8 @@ const BASE = '/api';
 
 export class ApiError extends Error {
   code?: string;
-  // Raw parsed error body, for routes that attach extra fields beyond
-  // error/message/code (e.g. /bus/program-device's canUseSerial) - see
-  // req()'s own handling below for why code/message are split the way
-  // they are.
+  // Raw parsed error body, for routes attaching extra fields beyond
+  // error/message/code (e.g. /bus/program-device's canUseSerial).
   data?: Record<string, unknown>;
 }
 
@@ -182,11 +181,10 @@ async function req<T = unknown>(
   try {
     res = await fetch(BASE + path, opts);
   } catch (e) {
-    // fetch() rejects with TypeError on network failure, abort, or browser
-    // socket timeout - and with a DOMException named AbortError when a
-    // passed-in `signal` was aborted (e.g. the user cancelling a real-
-    // hardware wait, 2026-08-31 - see busReadSerialsInProgrammingMode).
-    // Surface that distinctly rather than the generic network-error text.
+    // fetch() rejects with TypeError on network failure/abort/socket
+    // timeout, and a DOMException named AbortError when `signal` was
+    // aborted (e.g. cancelling a real-hardware wait - see
+    // busReadSerialsInProgrammingMode). Surface that distinctly.
     if ((e as { name?: string }).name === 'AbortError') {
       const abortErr = new ApiError('Cancelled');
       abortErr.code = 'aborted';
@@ -198,13 +196,11 @@ async function req<T = unknown>(
   }
   const data = await res.json();
   if (!res.ok) {
-    // Two conventions exist server-side: some routes (project import)
-    // put the friendly text directly in `error` and a distinct `code`;
-    // most bus routes put a short identifying string in `error` and the
-    // friendly text in `message`. Prefer `message` when present (so the
-    // log shows real prose, not a raw code like
-    // "no_device_in_programming_mode"), and fall back to `error` as the
-    // code for callers that need to branch on which error this was.
+    // Two server-side conventions: project-import routes put friendly text
+    // in `error` plus a distinct `code`; most bus routes put a short code
+    // in `error` and friendly text in `message`. Prefer `message` when
+    // present, falling back to `error` as the code for callers that branch
+    // on which error this was.
     const e = new ApiError(data.message || data.error || res.statusText);
     if (data.code) e.code = data.code;
     else if (data.message) e.code = data.error;
@@ -450,12 +446,11 @@ export const api = {
       '/bus/program-ia',
       { newAddr },
     ),
-  // Read-side counterpart to busProgramIA - detects a device currently held
-  // in physical programming mode by its address (A_IndividualAddress_Read/
-  // _Response), without needing to know its serial or address ahead of time.
-  // Only safe to write against (busProgramIA) when exactly one device is in
-  // programming mode - see busReadSerialsInProgrammingMode below for the
-  // multi-device-safe alternative.
+  // Read-side counterpart to busProgramIA - detects a device currently in
+  // physical programming mode by address (A_IndividualAddress_Read/
+  // _Response). Only safe to write against (busProgramIA) when exactly one
+  // device is in programming mode - see busReadSerialsInProgrammingMode for
+  // the multi-device-safe alternative.
   busCheckProgrammingMode: (timeoutMs?: number, signal?: AbortSignal) =>
     req<{ address: string | null }>(
       'POST',
@@ -465,17 +460,13 @@ export const api = {
       signal,
     ),
   // Collects every device currently in programming mode by serial number
-  // (not just the first to answer) - server/knx-connection.ts's
-  // readSerialNumbersInProgrammingMode(), real-hardware confirmed
-  // 2026-08-30 to disambiguate multiple simultaneous devices cleanly.
-  // `signal` (2026-08-31): lets a caller give up on a long real-hardware
-  // wait early - a real timing complaint from live testing ("this needs to
-  // be at least 30 seconds or more as it will take time for people to go
-  // to the device to set prog mode... We should have a cancel write option
-  // to stop the search"). Aborting only stops the CLIENT from waiting on
-  // this response; the server-side scan still runs to its own timeout
-  // server-side (nothing physically dangerous keeps happening - it's a
-  // passive read), the result is just discarded.
+  // (not just the first to answer) - disambiguates multiple simultaneous
+  // devices; see server/knx-connection.ts's
+  // readSerialNumbersInProgrammingMode(). `signal` lets a caller give up
+  // early on this long wait (operators need real time to reach the
+  // device); the server-side scan still runs to its own timeout regardless
+  // (a passive read, nothing physically dangerous), the result is just
+  // discarded.
   busReadSerialsInProgrammingMode: (timeoutMs?: number, signal?: AbortSignal) =>
     req<{ devices: Array<{ serial: string; src: string }> }>(
       'POST',
@@ -485,11 +476,10 @@ export const api = {
       signal,
     ),
   // Address a device purely by its serial number - no programming-button
-  // press needed. See docs/knx-device-write-protocol.md §9 (koolenex repo):
-  // sourced from the Falcon SDK's own docs + Calimero's implementation, but
-  // unlike every other write path this app exposes, has NO real-hardware
-  // confirmation yet - surface that to the user, don't present it as
-  // equally proven to busProgramIA.
+  // press needed. See docs/knx-device-write-protocol.md §9: sourced from
+  // the Falcon SDK's docs + Calimero's implementation, but unlike every
+  // other write path here has NO real-hardware confirmation yet - don't
+  // present it as equally proven to busProgramIA.
   busAssignAddressBySerial: (serial: string, newAddress: string) =>
     req<{
       ok: boolean;
@@ -497,12 +487,10 @@ export const api = {
       address: string | null;
       restarted: boolean;
     }>('POST', '/bus/assign-address-by-serial', { serial, newAddress }),
-  // `signal` (2026-08-31): the route's own address pre-flight can now
-  // genuinely wait up to 30s for a physical programming-button press -
-  // lets a caller give up early (the "press the button" modal's own
-  // Cancel button) rather than being stuck waiting the full window. See
-  // busReadSerialsInProgrammingMode's own doc comment for the identical
-  // pattern used there first.
+  // `signal`: the route's address pre-flight can wait up to 30s for a
+  // physical programming-button press - lets a caller give up early (the
+  // "press the button" modal's Cancel button). Same pattern as
+  // busReadSerialsInProgrammingMode.
   busProgramDevice: (
     deviceAddress: string,
     projectId: number,
@@ -520,17 +508,14 @@ export const api = {
       ok: boolean;
       deviceAddress: string;
       mode: 'full' | 'partial';
-      // Best-effort post-write read-back (server/routes/bus.ts) - real
-      // request, 2026-08-31: capture and surface the same identity/size
-      // info the log should show. serialNumber absent if the device
-      // didn't answer that read; totalBytes is always a real number (the
-      // combined size of whatever tables/parameter memory were actually
-      // part of this download's plan).
+      // Best-effort post-write read-back (server/routes/bus.ts). Absent if
+      // the device didn't answer; totalBytes is always real (combined size
+      // of whatever tables/parameter memory this download actually wrote).
       serialNumber?: string;
       totalBytes: number;
-      // Count/detail of writes whose response never arrived during this
-      // download - see knx-connection.ts's DownloadResult doc comment. 0
-      // means every write was confirmed.
+      // Count/detail of writes whose response never arrived - see
+      // knx-connection.ts's DownloadResult doc comment. 0 means every
+      // write was confirmed.
       unconfirmedWrites?: number;
       unconfirmedDetails?: string[];
     }>(
@@ -554,12 +539,10 @@ export const api = {
     }),
 
   // Re-runs a cached verify comparison's PROJECT/expected side against
-  // fresh DB state, reusing the already-cached DEVICE/actual side - no bus
-  // access at all. See server/routes/bus.ts's route doc comment for the
-  // full reasoning (real user feedback, 2026-08-31: editing a com object's
-  // flags/GA-link/param values doesn't change what's on the device, only
-  // what we now expect, so there's no reason a local edit should force a
-  // live re-read just to see an accurate comparison again).
+  // fresh DB state, reusing the cached DEVICE/actual side - no bus access.
+  // Editing a com object's flags/GA-link/param values doesn't change what's
+  // on the device, only what's expected, so a local edit shouldn't force a
+  // live re-read. See server/routes/bus.ts's route doc comment.
   busRecomputeVerify: (deviceId: number, cached: VerifyDeviceResult) =>
     req<VerifyDeviceResult & { recomputedAt: number }>(
       'POST',
@@ -569,9 +552,7 @@ export const api = {
 
   // Settings
   // GET /settings is Object.fromEntries over the settings table - a
-  // key->value map, never the row array the Setting[] here claimed. Nothing
-  // was broken by it (every caller reads it as a map), but the declared type
-  // said otherwise, so the views had to annotate around it.
+  // key->value map, not a row array.
   getSettings: () => req<Record<string, string>>('GET', '/settings'),
   saveSettings: (body: Record<string, string>) =>
     req<{ ok: boolean }>('PATCH', '/settings', body),
@@ -611,13 +592,9 @@ export function createWS(
 
   function connect() {
     ws = new WebSocket(`${proto}//${host}`);
-    // Real bug, fixed 2026-08-29: this had no onopen handler at all, so a
-    // reconnect (e.g. after the koolenex server restarts) never re-synced
-    // real bus status - if the physical KNX bus connection dropped or
-    // changed while the WebSocket itself was down, the client kept showing
-    // whatever `busStatus` it last had, indefinitely (the top-bar badge
-    // stuck on "connected" even while genuinely disconnected). `onOpen` lets
-    // the caller re-fetch real state on every connect, not just the first.
+    // Without onOpen, a reconnect (e.g. after a server restart) never
+    // re-syncs bus status - the client would keep showing stale
+    // `busStatus` indefinitely. Lets the caller re-fetch on every connect.
     ws.onopen = () => onOpen?.();
     ws.onmessage = (e) => {
       try {
@@ -639,11 +616,10 @@ export function createWS(
       if (retryTimer) clearTimeout(retryTimer);
       ws?.close();
     },
-    // Best-effort: silently dropped if the socket isn't open (e.g. between
+    // Best-effort: dropped silently if the socket isn't open (e.g. between
     // reconnect attempts). Used for lightweight signals like the Monitor
     // view's watch:start/watch:stop (see KnxBusManager.addKeepAliveRef())
-    // - not a queue, and does not currently survive a WS reconnect while
-    // the caller expects the signal to still apply.
+    // - not a queue, and doesn't survive a WS reconnect.
     send(data: Record<string, unknown>) {
       if (ws?.readyState === WebSocket.OPEN) {
         try {

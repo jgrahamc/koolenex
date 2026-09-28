@@ -1,16 +1,12 @@
 /**
- * KNXnet/IP transport — Tunneling (UDP and TCP) to a KNXnet/IP gateway,
- * plus a secondary Routing (multicast) channel (knx-protocol-routing.ts).
- * Extends KnxConnection (shared protocol logic) with IP-specific
- * transport. See docs/knx-device-write-protocol.md §9.
+ * KNXnet/IP transport - Tunneling (UDP and TCP) to a KNXnet/IP gateway, plus
+ * a secondary Routing (multicast) channel (knx-protocol-routing.ts). Extends
+ * KnxConnection (shared protocol logic) with IP-specific transport. See
+ * docs/knx-device-write-protocol.md §9.
  *
- * TCP support: a real capture confirmed ETS uses TCP tunneling against
- * this project's testbed router, while this class had only ever spoken
- * UDP - see docs/follow-ups/2026-08-27-relmem-write-scope-investigation.md
- * and docs/knx-device-write-protocol.md §9. Wire-level facts (HPAI
+ * ETS uses TCP tunneling in addition to UDP. Wire-level facts (HPAI
  * protocol-code byte, the TCP placeholder HPAI, stream frame-reassembly)
- * cross-checked against Calimero's real implementation
- * (StreamConnection.java, HPAI.java).
+ * cross-checked against Calimero (StreamConnection.java, HPAI.java).
  */
 
 import dgram from 'dgram';
@@ -23,6 +19,8 @@ import {
   getLocalIp,
   SVC,
   HOST_PROTOCOL,
+  TUNNELING_FEATURE,
+  pktTunnelFeature,
 } from './knx-ip-common.ts';
 import { KnxRoutingSocket } from './knx-protocol-routing.ts';
 import { logger } from './log.ts';
@@ -30,10 +28,10 @@ import { logger } from './log.ts';
 // ── KNXnet/IP packet builders ──────────────────────────────────────────────────
 
 /**
- * `hostProtocol` selects which HPAI shape to build: UDP embeds the real
- * local IP/port (unchanged from before); TCP uses the spec's placeholder
- * HPAI (protocol code TCP, address 0.0.0.0, port 0 - Calimero's `HPAI.Tcp`)
- * since the TCP socket itself already defines the real endpoint.
+ * `hostProtocol` selects which HPAI shape to build: UDP embeds the local
+ * IP/port; TCP uses the spec's placeholder HPAI (protocol code TCP, address
+ * 0.0.0.0, port 0 - Calimero's `HPAI.Tcp`) since the TCP socket itself
+ * defines the real endpoint.
  */
 function pktConnect(
   localIp: string,
@@ -142,8 +140,18 @@ class KnxIpConnection extends (KnxConnection as new () => InstanceType<
   // knx-protocol-routing.ts.
   _routing: KnxRoutingSocket | null;
   // Resolves when a disconnect() started here has finished releasing the
-  // socket. See whenClosed() below for why anything cares.
+  // socket. See whenClosed() below.
   _teardown: Promise<void> | null;
+  // Individual address the gateway assigned this tunnel channel
+  // (CONNECT_RESPONSE's CRD block) - parsed in _onConnectRes below, but
+  // never adopted as `localAddr` itself (see groupCommAddr's doc comment on
+  // the base class, knx-connection.ts). `null` until a CONNECT_RESPONSE with
+  // a CRD block has been seen.
+  assignedAddr: string | null;
+  // Sequence counter for TunnelFeatureGet/Set requests - separate from
+  // seqOut/seqIn (ordinary Tunneling). See pktTunnelFeature's doc comment
+  // (knx-ip-common.ts) for the wire shape.
+  _featureSeq: number;
 
   constructor() {
     super();
@@ -164,6 +172,16 @@ class KnxIpConnection extends (KnxConnection as new () => InstanceType<
     this._sendQueue = [];
     this._routing = null;
     this._teardown = null;
+    this.assignedAddr = null;
+    this._featureSeq = 0;
+  }
+
+  // Overrides the base class default (`localAddr`) for group communication
+  // frames specifically - prefers the router-assigned tunnel address once
+  // known. Management/point-to-point frames source from `localAddr`
+  // directly (see `_onConnectRes` above).
+  get groupCommAddr(): string {
+    return this.assignedAddr ?? this.localAddr;
   }
 
   // ── Connect ─────────────────────────────────────────────────────────────────
@@ -182,15 +200,11 @@ class KnxIpConnection extends (KnxConnection as new () => InstanceType<
     } else if (protocol === 'tcp') {
       await this._connectTcp(host, port, timeoutMs);
     } else {
-      // 'auto': try TCP first (a real, independently confirmed capture
-      // shows real ETS uses TCP against this project's own testbed router
-      // - see this file's doc comment), falling back to UDP if the TCP
-      // socket itself can't even be established. Deliberately does NOT
-      // fall back to UDP if the TCP *socket* connects but the KNXnet/IP
-      // CONNECT_REQ/RES handshake over it fails/times out - a device that
-      // accepts a TCP connection on 3671 at all is expected to support
-      // Tunnelling v2 properly; that narrower case is a known, accepted
-      // gap, not silently masked by an unconditional fallback.
+      // 'auto': try TCP first, falling back to UDP only if the TCP socket
+      // itself can't be established. Does NOT fall back to UDP if the TCP
+      // socket connects but the KNXnet/IP CONNECT_REQ/RES handshake over it
+      // fails/times out - a device accepting a TCP connection on 3671 is
+      // expected to support Tunnelling v2 properly.
       const tcpProbeMs = Math.min(2000, timeoutMs);
       try {
         await this._connectTcp(host, port, tcpProbeMs);
@@ -199,10 +213,9 @@ class KnxIpConnection extends (KnxConnection as new () => InstanceType<
       }
     }
 
-    // Routing is independent of which Tunneling transport was used, and
-    // its own failure (e.g. no multicast route on this network) must never
-    // fail the overall connect() - System Broadcast services simply won't
-    // work, surfaced only if/when they're actually called.
+    // Routing is independent of which Tunneling transport was used, and its
+    // failure (e.g. no multicast route on this network) must never fail the
+    // overall connect() - System Broadcast services simply won't work.
     try {
       const routing = new KnxRoutingSocket();
       await routing.start(
@@ -312,26 +325,21 @@ class KnxIpConnection extends (KnxConnection as new () => InstanceType<
         clearTimeout(connectTimer);
         this.tcpSocket = socket;
         this.transport = 'tcp';
-        // Node's plain net.Socket does not enable OS-level TCP keepalive by
-        // default; enabling it guards against a network path silently
-        // dropping the connection with no signal on either side. See the
-        // CONNECTIONSTATE_REQUEST heartbeat comment in _onConnectRes below
-        // for the separate, application-level mechanism this does not
-        // substitute for.
+        // Node's plain net.Socket doesn't enable OS-level TCP keepalive by
+        // default; without it a dropped network path gives no signal on
+        // either side. Does not substitute for the application-level
+        // CONNECTIONSTATE_REQUEST heartbeat below.
         socket.setKeepAlive(true, 30000);
-        // Nagle holds a small write back until the previous one is acked,
-        // so two frames sent a millisecond apart - which is exactly what a
-        // T_Ack followed by the next request is - leave here coalesced
-        // into one TCP segment. A real capture, 2026-09-11, has a router
-        // deliver the second of such a pair and not the first: the T_Ack
-        // never reached the device, which then held its next response for
-        // its full 3s retransmission timer. Every frame here is small and
-        // latency-sensitive, which is precisely what Nagle is wrong for.
+        // Nagle can coalesce a T_Ack and the next request (sent a
+        // millisecond apart) into one TCP segment; a router that delivers
+        // only the second drops the T_Ack, and the device then holds its
+        // response for a full 3s retransmission timer. Every frame here is
+        // small and latency-sensitive - exactly what Nagle is wrong for.
         socket.setNoDelay(true);
         // TCP's CONNECT_REQ uses the placeholder HPAI (0.0.0.0:0, protocol
         // TCP) - the socket itself is the real endpoint. localIp/localPort
-        // are kept at their defaults; CONNSTATE/DISCONNECT over TCP reuse
-        // the same placeholder (see their call sites below).
+        // stay at their defaults; CONNSTATE/DISCONNECT over TCP reuse the
+        // same placeholder (see their call sites below).
         this.localIp = '0.0.0.0';
         this.localPort = 0;
 
@@ -357,13 +365,12 @@ class KnxIpConnection extends (KnxConnection as new () => InstanceType<
   }
 
   /**
-   * Real KNXnet/IP-over-TCP messages arrive as an arbitrary byte stream,
-   * not one-message-per-event the way UDP datagrams do - reassemble using
-   * the 6-byte header's own declared total length, exactly matching
-   * Calimero's real StreamConnection.runReceiveLoop() logic (verified
-   * against its source, not guessed): buffer bytes, once >=6 are buffered
-   * read the header, once the full declared length is buffered process one
-   * message and shift any leftover bytes to the front for the next pass.
+   * KNXnet/IP-over-TCP messages arrive as an arbitrary byte stream, not
+   * one-message-per-event the way UDP datagrams do - reassemble using the
+   * 6-byte header's declared total length, matching Calimero's
+   * StreamConnection.runReceiveLoop(): buffer bytes, once >=6 buffered read
+   * the header, once the full declared length is buffered process one
+   * message and shift leftover bytes to the front for the next pass.
    */
   _onTcpData(chunk: Buffer): void {
     this._tcpRecvBuf = Buffer.concat([this._tcpRecvBuf, chunk]);
@@ -408,7 +415,55 @@ class KnxIpConnection extends (KnxConnection as new () => InstanceType<
       case SVC.TUNNELING_ACK:
         this._onTunnelingAck(msg);
         break;
+      case SVC.TUNNELING_FEATURE_RESPONSE:
+        this._onTunnelingFeature(msg, false);
+        break;
+      case SVC.TUNNELING_FEATURE_INFO:
+        // Server-initiated, unprompted - sent only when InfoServiceEnable
+        // is on and a negotiated feature's value changes. The actual signal
+        // this mechanism exists to catch.
+        this._onTunnelingFeature(msg, true);
+        break;
     }
+  }
+
+  /**
+   * Decodes a TunnelFeatureResponse or (unprompted) TunnelFeatureInfo body
+   * and emits it as `_featureInfo` (matches the KNXnet/IP service name, not
+   * `logger.info`). Same
+   * `[StructLength][ChannelId][SeqCounter][FeatureId][ReturnCode/Reserved]
+   * [Value...]` layout as the request. `unprompted=true` for
+   * TUNNELING_FEATURE_INFO, logged at 'warn' so an unprompted bus-status
+   * change is never missed.
+   */
+  _onTunnelingFeature(msg: Buffer, unprompted: boolean): void {
+    // Wire layout (SeqCounter is 2 bytes, not 1 - see pktTunnelFeature's
+    // doc comment, knx-ip-common.ts):
+    // [hdr:6][StructLength:1][ChannelId:1][SeqCounter:2][FeatureId:1]
+    // [ReturnCode/Reserved:1][Value...]
+    if (msg.length < 12) return;
+    const featureId = msg[10]!;
+    const value = msg.subarray(12);
+    const featureName =
+      featureId === TUNNELING_FEATURE.BUS_STATUS
+        ? 'BusStatus'
+        : featureId === TUNNELING_FEATURE.INFO_SERVICE_ENABLE
+          ? 'InfoServiceEnable'
+          : `0x${featureId.toString(16)}`;
+    const payload = {
+      featureId,
+      featureName,
+      valueHex: value.toString('hex'),
+      unprompted,
+    };
+    logger[unprompted ? 'warn' : 'info'](
+      'knx',
+      unprompted
+        ? `Unprompted TunnelingFeatureInfo: ${featureName}=0x${value.toString('hex')} - a negotiated feature's value just changed`
+        : `TunnelFeature ${featureName} = 0x${value.toString('hex')}`,
+      payload,
+    );
+    this.emit('_featureInfo', payload);
   }
 
   _onConnectRes(msg: Buffer): void {
@@ -424,67 +479,56 @@ class KnxIpConnection extends (KnxConnection as new () => InstanceType<
       return;
     }
     this.channelId = msg[6]!;
-    if (msg.length >= 20) this.localAddr = decodePhysicalRaw(msg, 18);
+    // Must NOT be adopted as `localAddr` itself, the address every outgoing
+    // cEMI frame's source field uses - see groupCommAddr's doc comment
+    // (knx-connection.ts) for why that's an avoidable address-collision
+    // risk for device-management traffic. Still parsed and kept: useful
+    // diagnostic data, and the source `groupCommAddr` uses for ordinary
+    // group communication - unlike management traffic.
+    if (msg.length >= 20) this.assignedAddr = decodePhysicalRaw(msg, 18);
 
     this.connected = true;
+
+    // ETS sends both of these immediately after every Tunnel connect.
+    // `InfoServiceEnable` is a subscribe toggle (Qt KNX's documented
+    // `InterfaceFeatureInfoServiceEnable`) - once set, the gateway
+    // proactively pushes an unprompted TunnelingFeatureInfo whenever a
+    // negotiated feature's value changes, e.g. BusStatus flipping to a
+    // fault state. Best-effort: never blocks/fails the connection if the
+    // gateway doesn't support this - `_sendRaw` is fire-and-forget here,
+    // same tolerance the heartbeat below has.
+    this._sendRaw(
+      pktTunnelFeature(
+        SVC.TUNNELING_FEATURE_GET,
+        this.channelId,
+        this._featureSeq++,
+        TUNNELING_FEATURE.BUS_STATUS,
+      ),
+    );
+    this._sendRaw(
+      pktTunnelFeature(
+        SVC.TUNNELING_FEATURE_SET,
+        this.channelId,
+        this._featureSeq++,
+        TUNNELING_FEATURE.INFO_SERVICE_ENABLE,
+        0x01,
+      ),
+    );
     // CONNECTIONSTATE_REQUEST heartbeat over TCP.
     //
-    // Sending this over TCP was previously believed to be unnecessary: TCP's
-    // own connection liveness ('close'/'error' on the socket), plus the
-    // OS-level TCP keepalive enabled in _connectTcp() above, were assumed to
-    // cover what the heartbeat provides over UDP, matching Calimero's client
-    // (ClientConnection.java), which never starts its heartbeat monitor for
-    // a stream/TCP connection. This assumption does not hold: OS-level TCP
-    // keepalive probes are transport-level only and are not counted as
-    // application traffic against a KNXnet/IP gateway's own idle timeout on
-    // a tunneling connection - only this application-level heartbeat is.
-    //
-    // A real KNXnet/IP gateway was observed closing a TCP tunnel after
-    // approximately 120 seconds without this heartbeat, including sessions
-    // with continuous active traffic, not only genuinely idle ones: a
-    // real Full Download longer than roughly 120 seconds was reproducibly
-    // cut off partway through, and byte-for-byte, timing-for-timing raw
-    // replays of a real ETS capture were cut at the same point whenever the
-    // heartbeat was absent. The gateway's tunnel-liveness check on a TCP
-    // connection is evidently satisfied by this specific heartbeat service,
-    // not merely by ordinary TUNNELING_REQUEST/cEMI write traffic.
-    // Reconnect-on-demand does not substitute for it: reconnecting between
-    // operations covers the gap between them, but does nothing for a
-    // single write already in progress past the timeout. A byte-level
-    // parse of a real ETS capture confirmed ETS itself sends a genuine
-    // CONNECTIONSTATE_REQUEST over its own persistent TCP tunnel
-    // approximately every 30.2 seconds throughout a session - including
-    // during active writes - with the gateway answering OK every time and
-    // never disconnecting. Real captured bytes:
-    // `06100207001001000802000000000000` - HPAI = `08 02 00000000 0000`
-    // (protocol byte 0x02 = TCP, address/port = the 0.0.0.0:0 placeholder).
-    //
-    // An earlier attempt to send this over TCP resulted in the gateway
-    // closing the tunnel with a clean FIN shortly after sending - not
-    // evidence that the heartbeat itself is harmful over TCP, but a
-    // call-site bug: `pktConnState(this.channelId, this.localIp,
-    // this.localPort)` was called with no 4th (`hostProtocol`) argument,
-    // silently defaulting to `HOST_PROTOCOL.UDP` - which `hpai()` writes
-    // into byte 1 of the HPAI regardless of the address/port passed in.
-    // Since `this.localIp`/`this.localPort` are already `'0.0.0.0'`/`0` for
-    // a TCP connection (set at connect time, see `_connectTcp()` above),
-    // the actual bytes sent were `08 01 00000000 0000` - protocol byte
-    // 0x01 (UDP) paired with the TCP placeholder address, a
-    // self-contradictory HPAI (claims a UDP endpoint but declares no
-    // reachable UDP address/port) that the gateway rejected by closing the
-    // tunnel. This is a single incorrect byte from an omitted argument, not
-    // a protocol-level restriction on sending heartbeats over TCP. Fixed by
-    // passing `HOST_PROTOCOL.TCP` explicitly for TCP connections, matching
-    // `pktConnect()`/`pktDisconnect()`'s own existing call-site pattern.
-    // Interval corrected to match ETS's own observed cadence (previously
-    // 60000ms, not verified against a real capture).
-    //
-    // Confirmed against real hardware: a TCP tunnel held genuinely idle for
-    // over 540 seconds (more than four times the approximately 120-second
-    // failure point observed without the heartbeat) with repeated clean
-    // CONNECTIONSTATE_REQUEST/OK exchanges and zero disconnects, and
-    // separately across repeated real Full Downloads to multiple devices in
-    // sequence with zero disconnects on any of them.
+    // Required even over TCP: OS-level TCP keepalive probes are
+    // transport-level only and don't count as application traffic against a
+    // KNXnet/IP gateway's own idle timeout on a tunneling connection - only
+    // this application-level heartbeat does. Without it, a gateway closes a
+    // TCP tunnel after ~120s, including mid-transfer during an active Full
+    // Download; reconnect-on-demand doesn't help a write already in
+    // progress past that timeout. ETS itself sends a CONNECTIONSTATE_REQUEST
+    // over its persistent TCP tunnel roughly every 30.2s throughout a
+    // session, including during active writes. HPAI on this request must be
+    // the TCP placeholder (`08 02 00000000 0000` - protocol byte 0x02),
+    // hence explicitly passing `HOST_PROTOCOL.TCP` here rather than letting
+    // it default to UDP (which produces a self-contradictory HPAI the
+    // gateway rejects by closing the tunnel with a clean FIN).
     this._hbTimer = setInterval(() => {
       logger.debug(
         'knx',
@@ -528,24 +572,22 @@ class KnxIpConnection extends (KnxConnection as new () => InstanceType<
     const channelId = msg[7]!;
     const seq = msg[8]!;
 
-    this._sendRaw(pktTunnelingAck(channelId, seq));
+    // ETS never sends a TUNNELING_ACK over TCP - TCP's own ACK already
+    // covers delivery, and a KNXnet/IP-level ack on top is unnecessary
+    // traffic. Mirrors the same transport check on the wait side (see
+    // _sendCEMIOnce: waiting for an ack that never arrives over TCP hangs
+    // every send after the first).
+    if (this.transport !== 'tcp') {
+      this._sendRaw(pktTunnelingAck(channelId, seq));
+    }
 
-    // Dropping a repeated sequence number is a UDP concern, and only a UDP
-    // concern: a datagram can genuinely arrive twice (the gateway resends
-    // when our ack goes missing), and delivering that telegram twice would
-    // put a phantom event in the monitor.
-    //
-    // Over TCP there are no duplicates to suppress - the stream already
+    // Dropping a repeated sequence number is a UDP-only concern: a datagram
+    // can genuinely arrive twice (the gateway resends when our ack goes
+    // missing). Over TCP there are no duplicates to suppress - the stream
     // delivers exactly once, in order - and applying this check there is
-    // actively harmful, because a gateway is free to leave the sequence
-    // number alone when it is not sequencing anything. Every telegram after
-    // the first then matches seqIn and is dropped, which is the bus monitor
-    // going silent a moment after a TCP connection comes up.
-    //
-    // The send side already learned this the hard way, on real hardware:
-    // see _sendCEMIOnce, where waiting for a TUNNELING_ACK that TCP never
-    // sends hung every call after the first. Same conflation, other
-    // direction.
+    // harmful: a gateway is free to leave the sequence number alone when
+    // it's not sequencing anything, so every telegram after the first would
+    // match seqIn and be dropped, silencing the bus monitor.
     if (this.transport !== 'tcp' && seq === this.seqIn) return;
     this.seqIn = seq;
 
@@ -590,10 +632,8 @@ class KnxIpConnection extends (KnxConnection as new () => InstanceType<
   /**
    * Send a cEMI frame via KNXnet/IP Routing (multicast) instead of the
    * Tunneling connection above - see KnxConnection.sendCEMIViaRouting()'s
-   * doc comment for why this exists. No ACK, no sequencing - Routing is
-   * connectionless. Throws if Routing didn't come up during connect()
-   * (e.g. no multicast route on this network - logged there, not fatal to
-   * the overall connection).
+   * doc comment. No ACK, no sequencing - Routing is connectionless. Throws
+   * if Routing didn't come up during connect() (e.g. no multicast route).
    */
   sendCEMIViaRouting(cemi: Buffer): Promise<void> {
     if (!this._routing?.active) {
@@ -645,16 +685,27 @@ class KnxIpConnection extends (KnxConnection as new () => InstanceType<
     this.seqOut = (this.seqOut + 1) & 0xff;
     const pkt = pktTunnelingReq(this.channelId, seq, cemi);
 
-    // Real, confirmed 2026-08-30: over TCP, KNXnet/IP servers don't send a
-    // TUNNELING_ACK at all - TCP's own delivery guarantee makes the ack
-    // redundant, and real ETS traffic against this project's own testbed
-    // router never carries one either. Confirmed against Calimero's real
-    // client (ClientConnection.java): "with tcp, service acks are not
-    // required and just ignored". Waiting for one over TCP (as this
-    // function still does for UDP, where the ack is real and required)
-    // caused every TCP-tunneled call after the first to hang until
-    // timeout - found via real-hardware testing, not by inspection.
+    // Over TCP, KNXnet/IP servers don't send a TUNNELING_ACK at all - TCP's
+    // own delivery guarantee makes it redundant (Calimero's
+    // ClientConnection.java documents TCP service acks as not required and
+    // ignored). Waiting for one over TCP, as this function does for UDP
+    // where the ack is required, hangs every TCP-tunneled call after the
+    // first.
     if (this.transport === 'tcp') {
+      // A mid-session TCP disconnect (e.g. ECONNRESET) leaves `tcpSocket`
+      // non-null - its 'close' handler only flips `this.connected`, never
+      // nulls the reference. `_sendRaw()`'s `write(buf)` is fire-and-forget:
+      // write() on an already-destroyed socket doesn't throw synchronously,
+      // it schedules an async 'error' event later. Without this check every
+      // send after such a disconnect would silently "succeed" - checked
+      // here rather than in the shared `_sendRaw()` helper, whose other
+      // call sites (heartbeat timer, TUNNELING_FEATURE negotiation) invoke
+      // it synchronously with no try/catch.
+      if (!this.connected || !this.tcpSocket || this.tcpSocket.destroyed) {
+        return Promise.reject(
+          new Error('Not connected (TCP socket unavailable) - cannot send'),
+        );
+      }
       this._sendRaw(pkt);
       return Promise.resolve();
     }
@@ -737,27 +788,14 @@ class KnxIpConnection extends (KnxConnection as new () => InstanceType<
   /**
    * Resolves once disconnect() has genuinely released the socket.
    *
-   * This exists because of a real live failure (2026-09-11): a Verify runs
-   * forceReconnect() first, which disconnects the current connection and
-   * immediately opens a new one to the same gateway. The old socket used
-   * to live on for a further 500ms on a timer, so for that half-second two
-   * TCP connections to the same router were open at once - and the router
-   * reacted by dropping the tunnel a moment after the new one came up:
-   *
-   *   18:33:15.725 Connected to 192.168.42.229:3671 (tcp)
-   *   18:33:15.944 DeviceDescriptor mask=0x0701
-   *   18:33:16.206 TCP socket closed
-   *   18:33:19.066 Device verify failed: Management timeout waiting for
-   *                Memory_Response
-   *
-   * The close lands almost exactly 500ms after the reconnect began, which
-   * is the old socket's timer, not a coincidence. This is the same shape
-   * of fault as the overlapping-connect race already documented in
-   * KnxBusManager.connect() ("two Connected log lines under 2 seconds
-   * apart, then the connection closing again half a second later - the
-   * router very plausibly reacting to the leaked/orphaned channel"); that
-   * fix closed the two-connects-at-once path but left this
-   * disconnect-overlapping-the-next-connect one open.
+   * Needed because Verify runs forceReconnect() first, which disconnects
+   * the current connection and immediately opens a new one to the same
+   * gateway. Without waiting, the old socket lives on for a further 500ms
+   * on a timer, so briefly two TCP connections to the same router are open
+   * at once - and the router reacts by dropping the new tunnel a moment
+   * after it comes up. Same fault shape as the overlapping-connect race
+   * documented in KnxBusManager.connect() (two connects too close together,
+   * router closes the leaked/orphaned channel), just on the disconnect side.
    */
   whenClosed(): Promise<void> {
     return this._teardown ?? Promise.resolve();

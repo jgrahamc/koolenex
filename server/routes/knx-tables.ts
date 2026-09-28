@@ -39,8 +39,8 @@ export interface ParamMemEntry {
    * Address of the AbsoluteSegment `offset` is relative to - see
    * ets-app.ts's ParamMemLayoutEntry.segmentAddress. Undefined on
    * RelSegment devices, on parameters naming no segment, and on app
-   * models cached before 2026-09-12; consumers must then behave as they
-   * did before segments were tracked.
+   * models cached before segment tracking was added; consumers must then
+   * behave as they did before segments were tracked.
    */
   segmentAddress?: number;
   // Display metadata for entries `params` (ParamDef, below) doesn't cover -
@@ -54,6 +54,15 @@ export interface ParamMemEntry {
   group?: string;
   unit?: string;
   enums?: Record<string, string>;
+  // See ParamMemLayoutEntry.refValue's own doc comment (ets-app.ts).
+  refValue?: string;
+  // See ParamMemLayoutEntry.isDefaultUnionParam's own doc comment.
+  isDefaultUnionParam?: boolean;
+  // See ParamMemLayoutEntry.baseOffsetArgId's own doc comment - buildParamMem()
+  // uses its presence (post-expansion, carried through the resolver's own
+  // `...info` spread) as the marker for "this module-instanced entry was
+  // already correctly gated per-instance", not just for offset expansion.
+  baseOffsetArgId?: string;
 }
 
 export interface LoadProcedureStep {
@@ -176,19 +185,9 @@ export function diffMemory(
   return { total, matching: total - differing, differing, chunks };
 }
 
-// GA table wire format: [count:2 BE][GA:2 BE]*count. Corrected 2026-08-29 -
-// previously used a 1-byte count field (`buf[0] = count & 0xff`), which
-// doesn't match what real ETS actually writes (confirmed via direct byte
-// decode of a real captured Full Download - see
-// docs/knx-device-write-protocol.md §2.6/§1.1's Stage 3 table: a real
-// captured write of `000249014904` decodes cleanly as
-// `[count=2][GA 9/1/1][GA 9/1/4]` with a 2-byte count, never as a 1-byte
-// count). Found by testing this exact function's real output against real
-// hardware for the first time (2026-08-29, alongside the fix that made
-// koolenex write these tables at all for apps that don't declare their own
-// LoadProcedure step for them - see downloadDevice()'s WriteRelMem case) -
-// the per-GA byte packing itself (`b0`/`b1` below) was already correct, only
-// the count field width was wrong.
+// GA table wire format: [count:2 BE][GA:2 BE]*count (2-byte count, not 1-byte
+// - see docs/knx-device-write-protocol.md §2.6/§1.1). Written even for apps
+// with no own LoadProcedure step for it - see downloadDevice()'s WriteRelMem case.
 export function buildGATable(gaLinks: GaLink[]): Buffer {
   const count = gaLinks.length;
   const buf = Buffer.alloc(2 + count * 2);
@@ -202,45 +201,40 @@ export function buildGATable(gaLinks: GaLink[]): Buffer {
   return buf;
 }
 
-// Association table wire format: [count:2 BE][gaIndex:2 BE][coNumber:2 BE]
-// x count (GA index first, then com-object number - both 2-byte fields).
-// Corrected 2026-08-29 alongside buildGATable() above, same real-hardware
-// evidence and same root cause: this previously used a 1-byte count field
-// and 1-byte [CO_num, GA_idx] entries (CO first) - matches neither the real
-// field widths nor the real field order. Confirmed via direct byte decode
-// of a real captured Full Download (docs/knx-device-write-protocol.md
-// §2.6/§1.1: `00020001000500020008` decodes as
-// `[count=2][gaIndex=1,coNumber=5][gaIndex=2,coNumber=8]`, all 2-byte BE
-// fields, gaIndex before coNumber).
+// Association table wire format: [count:2 BE][gaIndex:2 BE][coNumber:2 BE] x
+// count, gaIndex before coNumber, all 2-byte BE fields (docs/knx-device-
+// write-protocol.md §2.6/§1.1).
 //
-// Entry ORDER is not incidental - it's the only encoding of which link a
-// communication object actively sends on (docs/knx-device-write-protocol.md
-// §6.3: "the first entry in table order... is the one it actively
-// transmits on"). Real bug, found live 2026-08-30 via a byte-for-byte
-// replay of koolenex's own write against a real ETS capture of the same
-// device: this function used to re-sort `entries` by GA index (ascending),
-// discarding the real declared order entirely - a real captured ETS table
-// for 1.1.9 (`0003 0002 0003 0003 0004 0004 0001 0005`, CO order 3,4,5)
-// came back reordered by koolenex as CO order 5,3,4 (GA-index order
-// instead). `coRows` is already fetched `ORDER BY object_number` (see this
-// function's caller in routes/bus.ts), which already matches the real ETS
-// order directly - the extra sort was pure, unnecessary damage. Removed;
-// entries now keep the push order they're built in.
+// Entry order encodes which link a comm object actively transmits on: for a
+// multi-linked object, the first entry in table order is the active-transmit
+// link (§6.3) - never re-sort `entries` by GA index.
+//
+// Real ETS defers every link past an object's first to a separate pass at
+// the end of the table, rather than keeping each object's full GA list
+// together: pass 1 is every comm object's primary GA link in object_number
+// order; pass 2 is every object's remaining links, again in object_number
+// order, each object's own extra links kept consecutive. Single-link objects
+// are unaffected - only multi-linked objects need this split.
 export function buildAssocTable(coRows: CoRow[], gaLinks: GaLink[]): Buffer {
   const gaIndexMap: Record<string, number> = {};
   gaLinks.forEach((ga, i) => {
     if (ga.address) gaIndexMap[ga.address] = i;
   });
 
-  const entries: [number, number][] = [];
+  const primary: [number, number][] = [];
+  const extra: [number, number][] = [];
   for (const co of coRows) {
     const gas = (co.ga_address || '').split(/\s+/).filter(Boolean);
-    for (const gaAddr of gas) {
+    gas.forEach((gaAddr, i) => {
       const gaIdx = gaIndexMap[gaAddr];
+      if (gaIdx == null) return;
       // Real table is 1-based (gaIndex 0 in our own array -> real index 1).
-      if (gaIdx != null) entries.push([gaIdx + 1, co.object_number]);
-    }
+      const entry: [number, number] = [gaIdx + 1, co.object_number];
+      if (i === 0) primary.push(entry);
+      else extra.push(entry);
+    });
   }
+  const entries: [number, number][] = [...primary, ...extra];
 
   const buf = Buffer.alloc(2 + entries.length * 4);
   buf.writeUInt16BE(entries.length & 0xffff, 0);
@@ -251,10 +245,8 @@ export function buildAssocTable(coRows: CoRow[], gaLinks: GaLink[]): Buffer {
   return buf;
 }
 
-// Decode raw GA table bytes (the inverse of buildGATable) back into an
-// ordered list of "main/mid/sub" address strings. Format confirmed via
-// direct byte decode of a real captured Full Download - see
-// docs/knx-device-write-protocol.md §2.6/§1.1 (koolenex repo).
+// Decode raw GA table bytes (inverse of buildGATable) into an ordered list
+// of "main/mid/sub" address strings.
 export function decodeGATable(buf: Buffer): string[] {
   if (buf.length < 2) return [];
   const count = buf.readUInt16BE(0);
@@ -289,31 +281,23 @@ export function decodeAssocTable(
 }
 
 // Object 3 (KNX standard type 9, "Group Object Table") per-communication-object flag byte.
-// Full record layout decoded via a systematic real-hardware bit-mapping session (2026-08-29,
-// System B mask family only) - see docs/knx-device-write-protocol.md §10.1 for the full evidence
-// trail (every bit independently confirmed, reproduced, and cross-checked on a second object, a
-// third object with a different DPT/size, and a second device/app entirely, blind).
+// See docs/knx-device-write-protocol.md §10.1 for the evidence trail. System B mask family only.
 //
-//   byte offset within the table = 2 × communication-object number (confirmed not to reindex
-//   when objects are disabled/unlinked elsewhere in the app - §10.1)
+//   byte offset within the table = 2 × communication-object number (does not reindex when
+//   objects are disabled/unlinked elsewhere in the app)
 //
 //   bit 7 = Update flag
 //   bit 6 = Transmit flag
 //   bit 5 = Read-On-Init flag
 //   bit 4 = Write flag
 //   bit 3 = Read flag
-//   bit 2 = Communication flag AND has at least one real GA link - BOTH required (§10.1; a real
-//           correction during this investigation - Communication alone, on an unlinked object,
-//           produces no visible effect, which is what looked like "zero representation" until
-//           retested on a linked object). Confirmed link-count-independent (1 vs 2 links, same
-//           result) and direction-independent (which link is the Send GA lives in the
-//           Association table's own entry order instead - see buildAssocTable above - not here).
-//   bits 1:0 = Priority: Low=`11`, Alarm=`10`, High=`01`, System=`00` (System not empirically
-//           confirmed - not settable from ETS at all per KNX's own documentation, so unreachable
-//           for any real project; the pattern-inferred bits are the correct value regardless)
+//   bit 2 = Communication flag AND has at least one real GA link - both required. Link-count-
+//           and direction-independent; which link is the Send GA lives in the Association
+//           table's entry order instead (see buildAssocTable above), not here.
+//   bits 1:0 = Priority: Low=`11`, Alarm=`10`, High=`01`, System=`00` (System is unreachable
+//           from ETS per KNX's own spec, so never exercised on a real project)
 //
-// Untested: mask families other than System B (only System B hardware available to this
-// project throughout).
+// Untested on mask families other than System B.
 export interface GroupObjectFlags {
   object_number: number;
   update?: boolean;
@@ -335,19 +319,10 @@ export interface GroupObjectFlags {
   objectSize?: string;
 }
 
-// The companion byte immediately after each object's flag byte (2026-08-29, real-hardware
-// confirmed) is the KNX standard "Group Object Size" 4-bit code - NOT unused padding, as
-// originally assumed when Object 3's format was first decoded (§10.1). Confirmed by a real,
-// independent cross-device/cross-manufacturer test: pulled real ComObject/ComObjectRef
-// `ObjectSize` declarations from both testbed apps' own XML and checked them against the real
-// captured companion byte at that object's offset - 4 for 4 matches, on two completely different
-// devices (1.1.9: DPST-10-1/DPST-11-1, both 3 bytes -> 0x09 on both; DPST-19-1, 8 bytes -> 0x0C.
-// 1.1.10: DPST-3-7, 4 bit -> 0x03; DPST-5-1, 1 byte -> 0x07), plus the 1-bit case confirmed
-// extensively on both devices by every ordinary object showing companion byte 0. This also
-// explains why toggling Read-On-Init (a flag) never moved the mystery byte (docs/knx-device-
-// write-protocol.md Part 16) - it isn't flag-derived at all, it's fixed by the object's DPT.
-// String keys are ETS's own exact `ObjectSize` attribute text (confirmed against real project
-// XML) - singular "Bit"/"Byte" for 1, plural for 2+, matching ETS's own wording.
+// The byte immediately after each object's flag byte is the KNX standard "Group Object Size"
+// 4-bit code, fixed by the object's DPT/ObjectSize - not a flag-derived value, and not padding.
+// String keys are ETS's exact `ObjectSize` attribute text: singular "Bit"/"Byte" for 1, plural
+// for 2+.
 const GROUP_OBJECT_SIZE_CODES: Record<string, number> = {
   '1 Bit': 0,
   '2 Bit': 1,
@@ -368,13 +343,9 @@ const GROUP_OBJECT_SIZE_CODES: Record<string, number> = {
 };
 
 /**
- * Maps a real ETS `ObjectSize` string to Object 3's companion-byte size code (0-15). Only 4 of
- * the 16 codes have been directly confirmed against real captured hardware bytes so far (4 Bit,
- * 1 Byte, 3 Bytes, 8 Bytes - see the doc comment above); the rest follow the same well-known KNX
- * standard size-code sequence but haven't individually been checked against a real device.
- * Unrecognized/missing input defaults to `0` (1 Bit) rather than throwing - matches this
- * project's own convention elsewhere (e.g. `computeGroupObjectByte()`'s priority default) of
- * degrading to the most common real-world case rather than failing the whole table build.
+ * Maps an ETS `ObjectSize` string to Object 3's companion-byte size code (0-15). Unrecognized or
+ * missing input defaults to `0` (1 Bit) rather than throwing, same degrade-to-common-case
+ * convention as `computeGroupObjectByte()`'s priority default.
  */
 export function groupObjectSizeCode(objectSize: string | undefined): number {
   return GROUP_OBJECT_SIZE_CODES[(objectSize ?? '').trim()] ?? 0;
@@ -400,22 +371,14 @@ export function computeGroupObjectByte(co: GroupObjectFlags): number {
 }
 
 /**
- * Builds Object 3 (Group Object Table) content: a zero-filled buffer of the device's real,
- * per-app table size (98 bytes for 1.1.9, 942 for 1.1.10 - resolved via PID_TABLE_REFERENCE, not
- * computed here) with each communication object's flag byte placed at `2 × object_number` and its
- * companion size-code byte at `2 × object_number + 1` (see `groupObjectSizeCode()` above).
- * Communication objects not present in `comObjects` are left at the buffer's zero fill, matching
- * every real device default observed (§10.1 - Object 3's content is almost entirely zero-filled;
- * a zero-filled companion byte correctly means "1 Bit", the size of every such absent/unmodeled
- * object seen so far).
+ * Builds Object 3 (Group Object Table): a zero-filled buffer of the device's real per-app table
+ * size (resolved via PID_TABLE_REFERENCE, not computed here), with each communication object's
+ * flag byte at `2 × object_number` and its size-code byte at `2 × object_number + 1`. Objects not
+ * present in `comObjects` are left zero-filled (size-code 0 = "1 Bit").
  *
- * Bytes 0-1 (the table's first 2 bytes) are a real, confirmed 2-byte big-endian header - NOT a
- * slot for a nonexistent "object 0" as originally assumed - holding the app's total declared
- * communication-object count. Confirmed against real captures on both testbed devices: `0x0030`
- * (48) for 1.1.9, `0x01D6` (470) for 1.1.10 - both exactly matching `maxComObjectNumber`
- * (ets-app.ts), the same value the caller already used to compute `size` itself
- * (`size = 2 × maxComObjectNumber + 2`), so it's derived here from `size` directly rather than
- * requiring a separate parameter (`(size - 2) / 2` recovers the original count exactly).
+ * Bytes 0-1 are a big-endian header holding the app's total declared communication-object count
+ * (`maxComObjectNumber` in ets-app.ts, same value the caller used to compute `size` as
+ * `2 × maxComObjectNumber + 2`) - derived here as `(size - 2) / 2` rather than passed separately.
  */
 export function buildGroupObjectTable(
   size: number,
@@ -433,12 +396,10 @@ export function buildGroupObjectTable(
 }
 
 /**
- * Reads one communication object's raw 2-byte entry back out of a real (or expected) Object 3
- * buffer - the inverse lookup `buildGroupObjectTable()` performs, for verify/compare purposes.
- * Returns `null` when the object's offset falls outside the buffer (never declared/allocated).
- * Deliberately returns the raw bytes, not a re-decoded `GroupObjectFlags` - verify-device only
- * needs to show "does this object's real bytes match what we computed", not re-derive semantic
- * flags from them (that direction, buffer -> flags, hasn't been needed anywhere in this project).
+ * Reads one communication object's raw 2-byte entry out of an Object 3 buffer - the inverse of
+ * `buildGroupObjectTable()`'s placement, for verify/compare. Returns `null` when the object's
+ * offset falls outside the buffer. Returns raw bytes, not a re-decoded `GroupObjectFlags` -
+ * verify only needs a byte comparison, not re-derived semantic flags.
  */
 export function decodeGroupObjectEntry(
   buf: Buffer,
@@ -463,13 +424,10 @@ const GROUP_OBJECT_SIZE_NAMES: Record<number, string> = Object.fromEntries(
 );
 
 /**
- * Formats one Object 3 entry (as returned by `decodeGroupObjectEntry()`) into a single
- * human-readable line for display - added 2026-08-29 for the device-compare page (previously
- * showed only the raw hex byte pair, e.g. "4f 0c"), covering every bit `computeGroupObjectByte()`
- * writes plus the size code, not just the ones already shown elsewhere (GA links).
- * `bit2` is shown as a single `Comm+Linked` value, not split into "Communication" and "Linked"
- * separately - the byte itself can't distinguish them (§10.1: both are required to set the bit,
- * and a real device capture alone can't tell you which one, if either, is false when it's clear).
+ * Formats one Object 3 entry (from `decodeGroupObjectEntry()`) into a human-readable line for
+ * the device-compare page, covering every bit `computeGroupObjectByte()` writes plus the size
+ * code. Bit 2 is shown as a single `Comm+Linked` value since the byte can't distinguish which of
+ * the two conditions is false when the bit is clear.
  */
 export function describeGroupObjectEntry(entry: {
   flagByte: number;
@@ -485,13 +443,9 @@ export function describeGroupObjectEntry(entry: {
 }
 
 /**
- * Structured (not string-formatted) decode of one Object 3 entry - the same six boolean bits
- * `describeGroupObjectEntry()` formats into a sentence, plus Priority/Size, but as real booleans
- * a client can render individually (compact letter chips, ETS-order) or later use as the basis
- * for click-to-edit toggling (2026-08-29 - the device-compare page's flags display was redesigned
- * from one long sentence to per-flag chips, which need real per-flag data, not a string to
- * re-parse). `commLinked` is bit 2 - see `describeGroupObjectEntry()`'s own doc comment for why
- * it's one combined value, not split into "Communication"/"Linked" separately.
+ * Structured decode of one Object 3 entry: the same bits `describeGroupObjectEntry()` formats
+ * into a sentence, plus Priority/Size, as real booleans for per-flag chip rendering. `commLinked`
+ * is bit 2 - see `describeGroupObjectEntry()` for why it's one combined value.
  */
 export interface GroupObjectEntryFlags {
   update: boolean;
@@ -529,6 +483,12 @@ const CONTAINER_TYPES = new Set(['block', 'channel', 'cib']);
 
 // Build the set of paramRefs that are unconditionally reachable from the
 // top-level `items` tree without passing through any `choose` branch.
+//
+// Also walks every ModuleDef's own Dynamic section (`dynTree.moduleDefs[]`),
+// not just the App's top-level tree (`dynTree.main`) - a `<choose>` deciding
+// a module's own behavior can live inside the ModuleDef itself. Safe to walk
+// unconditionally since paramRef ids are globally unique (carry the full
+// MD-x prefix).
 export function buildUnconditionalChannelSet(
   dynTree: DynTree | null | undefined,
 ): Set<string> {
@@ -541,29 +501,55 @@ export function buildUnconditionalChannelSet(
     }
   }
   walk(dynTree?.main?.items);
+  for (const md of dynTree?.moduleDefs ?? []) walk(md.items);
   return s;
 }
 
 // paramRefs reachable through the CURRENTLY-ACTIVE `choose` branches.
+//
+// `qualify` resolves a module-instanced choose selector's per-instance value:
+// its value is stored under an instance-qualified key
+// (`..._MD-8_M-6_MI-1_P-58_R-67`), not the bare template key - without this,
+// resolution silently falls back to the template's static XML default and
+// picks the wrong Union alternative for real instances. Tried before the
+// bare template key, which remains the fallback for an un-instanced selector.
+//
+// `resolveBaseValue`: a choose's selector Parameter can carry `BaseValue=`,
+// whose real per-instance value comes from the module instantiation's own
+// `<NumericArg>`, not any ParameterInstanceRef override (see
+// ParamDef.baseValueArgId). Tried after currentValues checks, before the
+// static XML default.
+//
+// `isExcludedSelector`: a choose's selector Parameter can itself be a Union
+// member (several Parameters sharing one memory address, only one active -
+// see buildParamMem's Union pre-pass). Without this, a losing Union
+// sibling's own choose still evaluates against its stale factory default,
+// wrongly marking its branch's refs as active. When supplied, a choose
+// whose own `paramRefId` is a known-losing Union member is skipped.
 export function evalConditionallyActiveParamRefs(
   dynTree: DynTree | null | undefined,
   params: Record<string, ParamDef>,
   currentValues: Record<string, unknown>,
   /**
-   * ParamModel.paramRefValues - the declared value of every ParameterRef,
-   * including the ones `params` filters out. A <choose> may be controlled
-   * by a parameter with no UI presence, whose value would otherwise read
-   * as the empty string and send the branch to `default`. A narrow gap in
-   * practice - one controller in 1472 in one real product, none in
-   * another - see that field's own comment for the measurements.
-   * Optional because app models cached before 2026-09-12 don't carry it;
-   * those keep the old behaviour until the project is reimported.
+   * ParamModel.paramRefValues - declared value of every ParameterRef,
+   * including ones `params` filters out. A `<choose>` controlled by a
+   * parameter with no UI presence would otherwise read as empty and send
+   * the branch to `default`. Optional: app models cached before this field
+   * was tracked don't carry it.
    */
   paramRefValues?: Record<string, string>,
+  qualify?: (templateKey: string) => string,
+  resolveBaseValue?: (templateKey: string) => string | undefined,
+  isExcludedSelector?: (templateKey: string) => boolean,
 ): Set<string> {
   const conditional = new Set<string>();
   const getVal = (prKey: string): string => {
+    const qualified = qualify?.(prKey);
+    if (qualified && qualified in currentValues)
+      return String(currentValues[qualified]);
     if (prKey in currentValues) return String(currentValues[prKey]);
+    const baseValue = resolveBaseValue?.(prKey);
+    if (baseValue !== undefined) return baseValue;
     // `params` first so a ParameterRef that IS in the editor keeps
     // resolving exactly as before; paramRefValues carries the same
     // declared value for those, and is the only source for the rest.
@@ -584,24 +570,16 @@ export function evalConditionallyActiveParamRefs(
     }
   }
   function evalChoose(ch: DynItem): void {
+    if (ch.paramRefId && isExcludedSelector?.(ch.paramRefId)) return;
     const raw = getVal(ch.paramRefId!);
     const val = String(
       raw !== '' && raw != null ? raw : (ch.defaultValue ?? ''),
     );
-    // Nothing resolved. Two quite different situations produce that, and
-    // they used to be indistinguishable - both silently took the default
-    // branch.
-    //
-    // A <TypeNone/> controller has no value by declaration: a <choose> on
-    // one is how ETS wraps a block it always includes, and its `default`
-    // <when> is the branch it means. Taking it is correct, and 77 of this
-    // one real product's 496 controllers are of that kind.
-    //
-    // A controller with a real type and no resolvable value is the other
-    // case, and there the default branch is a guess - the product declares
-    // a value we failed to find, and the branch we pick decides which
-    // parameters get written. Say so rather than choose in silence; the
-    // same reasoning as buildParamMem()'s collision report.
+    // Empty value: a <TypeNone/> controller has no value by declaration -
+    // a <choose> on one always means its `default` <when>, so taking it is
+    // correct and silent. A controller with a real type but no resolvable
+    // value is different: the default branch is a guess, so warn (same
+    // reasoning as buildParamMem()'s collision report).
     if (val === '' && ch.controllerValueless !== true) {
       logger.warn(
         'ets',
@@ -624,7 +602,95 @@ export function evalConditionallyActiveParamRefs(
     if (!matched && def) walk(def.items, true);
   }
   walk(dynTree?.main?.items, false);
+  for (const md of dynTree?.moduleDefs ?? []) walk(md.items, false);
   return conditional;
+}
+
+// Every `paramRef.refId` appearing anywhere in the Dynamic tree, reachable or
+// not - unlike evalConditionallyActiveParamRefs/buildUnconditionalChannelSet,
+// which only report currently-reachable refs. Distinguishes a selector gated
+// by a hardware-presence condition elsewhere (absent from the reachable set,
+// present here) from one never independently rendered at all (absent from
+// both) - see buildParamMem's isSelectorUnreachableElsewhere.
+export function collectAllParamRefIds(
+  dynTree: DynTree | null | undefined,
+): Set<string> {
+  const all = new Set<string>();
+  function walk(items: DynItem[] | undefined): void {
+    for (const it of items || []) {
+      if (it.type === 'paramRef' && it.refId) all.add(it.refId);
+      else if (CONTAINER_TYPES.has(it.type)) walk(it.items);
+      else if (it.type === 'choose')
+        for (const w of it.whens || []) walk(w.items);
+    }
+  }
+  walk(dynTree?.main?.items);
+  for (const md of dynTree?.moduleDefs ?? []) walk(md.items);
+  return all;
+}
+
+/**
+ * Which Module instances (App-level ids, "{appId}_MD-x_M-y") are genuinely
+ * active for a device - mirrors evalConditionallyActiveParamRefs's
+ * choose/when walk and getVal() fallback logic, collecting `type ===
+ * 'module'` items instead of `type === 'paramRef'`.
+ *
+ * Resolves the App's own `<choose ParamRefId="...">` directly, rather than
+ * inferring activity from ComObjectInstanceRef/ParameterInstanceRef
+ * presence - a module with no comm-objects and an unoverridden parameter can
+ * be genuinely active while both of those signals stay silent.
+ *
+ * Walks both `dynTree.main.items` and every `dynTree.moduleDefs[].items`,
+ * since a Module-selecting `<choose>` can live inside a ModuleDef's own
+ * Dynamic section.
+ */
+export function evalConditionallyActiveModuleInstances(
+  dynTree: DynTree | null | undefined,
+  params: Record<string, ParamDef>,
+  currentValues: Record<string, unknown>,
+  paramRefValues?: Record<string, string>,
+): Set<string> {
+  const active = new Set<string>();
+  const getVal = (prKey: string): string => {
+    if (prKey in currentValues) return String(currentValues[prKey]);
+    const fromParams = params[prKey]?.defaultValue;
+    if (fromParams !== undefined && fromParams !== null && fromParams !== '')
+      return String(fromParams);
+    return String(paramRefValues?.[prKey] ?? '');
+  };
+  function walk(items: DynItem[] | undefined): void {
+    for (const it of items || []) {
+      if (it.type === 'module') {
+        if (it.modId) active.add(it.modId);
+      } else if (CONTAINER_TYPES.has(it.type)) {
+        walk(it.items);
+      } else if (it.type === 'choose') {
+        evalChoose(it);
+      }
+    }
+  }
+  function evalChoose(ch: DynItem): void {
+    const raw = getVal(ch.paramRefId!);
+    const val = String(
+      raw !== '' && raw != null ? raw : (ch.defaultValue ?? ''),
+    );
+    let matched = false;
+    let def: DynWhen | undefined;
+    for (const w of ch.whens || []) {
+      if (w.isDefault) {
+        def = w;
+        continue;
+      }
+      if (etsTestMatch(val, w.test ?? null)) {
+        matched = true;
+        walk(w.items);
+      }
+    }
+    if (!matched && def) walk(def.items);
+  }
+  walk(dynTree?.main?.items);
+  for (const md of dynTree?.moduleDefs ?? []) walk(md.items);
+  return active;
 }
 
 // Encode a value as KNX 2-byte float (DPT 9.x) and write big-endian at byteOffset.
@@ -652,39 +718,11 @@ export function writeKnxFloat16(
 // Write `bitSize` bits of `value` into buf at byte `byteOffset`, starting from bit `bitOffset`.
 //
 // `byteOrder` governs only a byte-aligned multi-byte field (bitOffset===0 &&
-// bitSize%8===0) - see ParamModel.parameterByteOrder's own doc comment
-// (ets-app.ts) for the evidence this is a real, per-app ETS declaration
-// (`<Static><Options ParameterByteOrder="LittleEndian"/"BigEndian">`), not a
-// fixed convention. Checked across every real .knxproj this project has:
-// every app that declares this attribute is consistent with every other app
-// from the same manufacturer, and no manufacturer contradicts itself. When
-// the attribute is absent, this falls back to big-endian - that matches
-// every real-hardware case checked so far, but is an observation, not a
-// confirmed ETS-defined default; no counter-example has been found, but the
-// absence of one isn't proof there isn't one.
-//
-// The little-endian case was confirmed independently of any device, from a
-// product's own declaration: in M-0002_A-A001-13-63C2 (LittleEndian) a
-// <Union> exposes the same two bytes as one 16-bit parameter and as two
-// 8-bit ones -
-//
-//   UP-44 "Long operation after"       16-bit @3  enum 1283 -> "0.5s"
-//   UP-33 "Long operation after: Base"  8-bit @3  enum    3 -> "100ms"
-//   UP-34 "Factor [2...255]"            8-bit @4  default  5
-//
-// 1283 = 0x0503. Little-endian that is [0x03, 0x05]: base 3 = 100ms at
-// offset 3, factor 5 at offset 4, and 100ms x 5 = 0.5s - exactly what
-// the 16-bit enum's own label says. Every other entry in that enum
-// agrees: 0x0303 -> 100ms x 3 = "0.3s", 0x0403 -> "0.4s", 0x0603 ->
-// "0.6s", 0x0A03 -> "1s".
-//
-// A second Union in the same product says the same thing independently:
-// UP-430 "Debounce time" 16-bit @1 enum 5634 -> "50ms debounce time",
-// 0x1602 little-endian = [0x02, 0x16], which is P-3's default 2 at
-// offset 1 and UP-429's enum 22 -> "50ms" at offset 2.
-//
-// Sub-byte fields below are NOT affected by byteOrder: bit numbering inside
-// a byte is MSB-first (bitOffset 0 = bit 7) and stays exactly as it was.
+// bitSize%8===0) - a real, per-app ETS declaration
+// (`<Static><Options ParameterByteOrder="LittleEndian"/"BigEndian">`), see
+// ParamModel.parameterByteOrder (ets-app.ts). Defaults to big-endian when
+// the attribute is absent. Sub-byte fields are unaffected: bit numbering
+// inside a byte is always MSB-first (bitOffset 0 = bit 7).
 export function writeBits(
   buf: Buffer,
   byteOffset: number,
@@ -733,12 +771,8 @@ export function writeBits(
 }
 
 // Read `bitSize` bits from buf at byte `byteOffset`, starting from bit
-// `bitOffset` (KNX convention: bitOffset=0 is bit 7 of the byte, i.e. MSB
-// first). Exact structural mirror of writeBits() above - same recursion for
-// the sub-byte-spanning-two-bytes case, same `byteOrder` handling for
-// byte-aligned multi-byte fields (see writeBits()'s own doc comment for the
-// evidence). Out-of-range bytes read as 0 rather than throwing, matching
-// writeBits()'s silent-clamp behavior.
+// `bitOffset` (bitOffset=0 is bit 7, MSB first). Mirrors writeBits() above.
+// Out-of-range bytes read as 0 rather than throwing.
 export function readBits(
   buf: Buffer,
   byteOffset: number,
@@ -805,16 +839,24 @@ export interface DecodedParam {
   bitSize: number;
   rawValue: number | string;
   value: string;
+  /**
+   * False for a parameter declared `Access="None"` - a download-only value
+   * ETS never shows in its own UI (see ParamMemLayoutEntry.isVisible,
+   * ets-app.ts). Some such parameters are device-firmware sentinels that
+   * legitimately change after a Download (e.g. a load-completion self-check
+   * the device clears once processed) - a mismatch here isn't necessarily a
+   * real problem the way an ordinary parameter mismatch is. Defaults to
+   * `true` when the layout entry says nothing otherwise.
+   */
+  isVisible: boolean;
 }
 
 /**
- * Decode a raw parameter-memory buffer (as read back from a device, e.g. via
- * /bus/verify-device's actualHex) into human-readable parameter values -
- * the inverse of buildParamMem(). Reuses the SAME paramMemLayout/params
- * definitions used to build the download image and to compute verify's
- * "expected" value, so a decoded reading is directly comparable to what
- * that machinery already asserts. Does not re-read the bus - operates
- * purely on a buffer already fetched.
+ * Decode a raw parameter-memory buffer (e.g. /bus/verify-device's actualHex)
+ * into human-readable parameter values - the inverse of buildParamMem().
+ * Reuses the same paramMemLayout/params definitions used to build the
+ * download image, so a decoded reading is directly comparable to verify's
+ * "expected" value. Operates purely on an already-fetched buffer.
  *
  * Every entry with a resolvable byte offset is decoded, regardless of the
  * fromMemoryChild/conditional-activation gating buildParamMem() applies when
@@ -889,6 +931,7 @@ export function decodeParamMem(
       bitSize: info.bitSize,
       rawValue,
       value,
+      isVisible: info.isVisible ?? true,
     });
   }
   return out;
@@ -949,25 +992,17 @@ export function collectActiveAssigns(
   return result;
 }
 
-// Determine parameter segment size and base data for a device model.
 /**
- * Every parameter-carrying segment the application declares, taken from
- * the parameters' own <Memory CodeSegment="..."/> bindings rather than
- * guessed from offsets.
+ * Every parameter-carrying segment the application declares, from the
+ * parameters' own <Memory CodeSegment="..."/> bindings rather than guessed
+ * from offsets. An application may declare more than one, each numbering
+ * its own offsets from zero - flattening them into one buffer would overlap
+ * unrelated segments. See ParamMemLayoutEntry.segmentAddress (ets-app.ts).
  *
- * An application program may declare more than one, and each numbers its
- * offsets from zero. M-0002_A-A001-13-63C2 declares two that carry
- * parameters - AS-6D00 (160 bytes at 0x6D00, holding four channels' worth
- * at offsets 1..135) and AS-6F00 (8 bytes at 0x6F00, the device-level
- * General block at offsets 0..4) - so flattening them into one buffer put
- * General's five bytes on top of Channel A's. See ParamMemLayoutEntry's
- * segmentAddress (ets-app.ts).
- *
- * Returns an empty list when no entry carries a segmentAddress: either a
- * RelSegment/WriteRelMem device, which addresses memory relatively and has
- * no absolute segments at all, or an app model cached before segments were
- * tracked. Callers fall back to resolveParamSegment() for those, which is
- * exactly what they did before this existed.
+ * Returns an empty list when no entry carries a segmentAddress: a
+ * RelSegment/WriteRelMem device (relative addressing, no absolute segments)
+ * or an app model cached before segments were tracked. Callers fall back to
+ * resolveParamSegment() for those.
  */
 export function resolveParamSegments(model: DeviceModel): ParamSegment[] {
   const layout = model.paramMemLayout ?? {};
@@ -990,9 +1025,8 @@ export function resolveParamSegments(model: DeviceModel): ParamSegment[] {
     out.push({
       address,
       size: seg.size,
-      // Matching resolveParamSegment()'s AbsoluteSegment branch: an
-      // absolute segment ships a factory seed, so unwritten bytes come
-      // from that rather than from an 0xFF fill.
+      // Absolute segments ship a factory seed; unwritten bytes come from
+      // that, not an 0xFF fill (matches resolveParamSegment()).
       fill: 0x00,
       seedHex: seg.hex ?? null,
       keys,
@@ -1023,14 +1057,9 @@ export function resolveParamSegment(model: DeviceModel): ParamSegmentResult {
     return { paramSize: 0, paramFill: 0xff, relSegHex: null, paramBase: null };
   }
   const maxOffset = Math.max(...paramOffsets);
-  // Pick the TIGHTEST-fitting segment whose size covers every parameter
-  // offset — not merely the first one larger than maxOffset. On multi-segment
-  // AbsoluteSegment devices (e.g. MDT AKS-0416.03 / 1.1.3) an unrelated,
-  // larger segment (the address table) can also exceed maxOffset by pure
-  // coincidence; the real parameter segment is the smallest segment that
-  // still contains the whole [0, maxOffset] range (confirmed against ETS's
-  // own load-state "segment" (event 3) descriptor, which encodes the true
-  // base/size).
+  // Pick the tightest-fitting segment covering every parameter offset, not
+  // merely the first one larger than maxOffset - an unrelated larger segment
+  // (e.g. an address table) can also exceed maxOffset by coincidence.
   let best: [string, AbsSegData] | null = null;
   for (const entry of Object.entries(absSegs)) {
     const seg = entry[1];
@@ -1064,19 +1093,13 @@ export function resolveParamSegment(model: DeviceModel): ParamSegmentResult {
 
 /**
  * One parameter buffer per declared segment, each built by buildParamMem()
- * from only the parameters that segment actually owns.
+ * from only the parameters that segment owns. Multi-segment form of the
+ * single buffer buildParamMem() produces - each segment numbers its own
+ * offsets from zero, so flattening into one buffer would overlap segments.
  *
- * This is the multi-segment form of the single buffer buildParamMem()
- * produces. Segments are declared by the application and each numbers its
- * offsets from zero, so a parameter's offset only means something together
- * with the segment it belongs to. Building one flat buffer put one
- * segment's parameters on top of another's - on a real device, five bytes
- * of a General block landing on Channel A's.
- *
- * Returns an empty map when the model declares no parameter segments,
- * which is every RelSegment device and every model cached before segments
- * were tracked. Callers fall back to the single-buffer path for those, so
- * their behaviour is unchanged.
+ * Returns an empty map when the model declares no parameter segments
+ * (every RelSegment device, or a model cached before segments were
+ * tracked) - callers fall back to the single-buffer path for those.
  */
 export function buildParamMemBySegment(
   model: DeviceModel,
@@ -1088,10 +1111,9 @@ export function buildParamMemBySegment(
   const out = new Map<number, Buffer>();
   const layout = model.paramMemLayout ?? {};
   for (const seg of resolveParamSegments(model)) {
-    // buildParamMem() is given only this segment's own parameters, so
-    // every offset it sees is relative to the buffer it is filling and the
-    // collision check inside it becomes meaningful: a clash there is two
-    // members of one Union both being live, not two segments overlapping.
+    // Only this segment's own parameters, so a collision inside
+    // buildParamMem() means two Union members are both live, not two
+    // segments overlapping.
     const segLayout: Record<string, ParamMemEntry> = {};
     for (const key of seg.keys) {
       const entry = layout[key];
@@ -1118,21 +1140,13 @@ export function buildParamMemBySegment(
 /**
  * Whether buildParamMem() actually writes a given parameter's bytes.
  *
- * Not every entry in paramMemLayout ends up in the image. A
- * `fromMemoryChild` parameter is written only when it is the genuinely
- * active alternative for its channel, and any parameter with neither a
- * current value nor a default is skipped outright. The bytes of the rest
- * keep whatever `fill` put there (0xFF, or 0 for sub-byte padding).
- *
- * That matters beyond this function: a verify decodes both the computed
- * image and the device and compares them parameter by parameter, and for
- * a parameter nobody wrote, the "expected" side is a decode of filler.
- * Comparing that to the device's real content produces a mismatch that
- * means nothing - real request 2026-09-11, a device that could not have
- * drifted from its project reporting 139 differing parameters.
- *
- * Exported so the verify applies the same rule as the writer rather than
- * a second copy of it that can drift.
+ * Not every entry in paramMemLayout ends up in the image: a
+ * `fromMemoryChild` parameter is written only when it's the active
+ * alternative for its channel, and a parameter with neither a current
+ * value nor a default is skipped. Skipped bytes keep whatever `fill` value
+ * is there - decoding them as "expected" and comparing to a real device
+ * produces meaningless mismatches, so verify must apply this same rule
+ * rather than a second copy that can drift.
  */
 export function paramMemWritesParam(
   prId: string,
@@ -1223,26 +1237,13 @@ export function buildParamMem(
     buf = Buffer.alloc(size, fill);
   }
 
-  // Padding-bit fill fix (2026-08-29, root-caused 2026-08-28, docs/follow-
-  // ups/2026-08-28-write-path-missing-load-sequence.md's "wrong padding-bit
-  // fill" section): a byte that's only PARTLY a named parameter (a sub-byte
-  // field like a 1-bit boolean sharing its byte with unnamed/reserved bits)
-  // real ETS/the real device leaves those OTHER bits at 0, not `fill`.
-  // Confirmed directly: a real 1-bit boolean at offset 69, bitOffset 0,
-  // bitSize 1 - real device value is 0x80 when the flag is on (bit 7 set,
-  // all other bits CLEAR), not 0xFF as this function previously computed
-  // (it correctly toggled bit 7 via writeBits() below, but left the other 7
-  // bits at whatever `fill` was - 0xFF's all-1s by default). `fill` itself
-  // stays correct and unchanged for genuinely UNNAMED bytes (no parameter
-  // touches them at all) - real captures have consistently shown 0xFF for
-  // those (see e.g. docs/knx-device-write-protocol.md §1.1). This only
-  // re-zeroes the specific bytes a sub-byte field's OWN declared layout
-  // says it occupies, before the real per-param writeBits() calls below run
-  // (which then correctly set that field's own bits from its real value,
-  // on top of the now-zeroed padding). Skips any byte relSegBase already
-  // seeded with real captured content (relSegBase IS a real device default
-  // in the one app that uses it - overwriting it with 0 would destroy real,
-  // already-correct padding bits, not fix anything).
+  // A byte only partly occupied by a named parameter (a sub-byte field like
+  // a 1-bit boolean sharing its byte with reserved bits) has those other
+  // bits zeroed on a real device, not left at `fill` (0xFF). `fill` itself
+  // is correct for genuinely unnamed bytes. This re-zeroes only the bytes a
+  // sub-byte field's own layout occupies, before the per-param writeBits()
+  // calls below set that field's real bits. Skips bytes relSegBase already
+  // seeded with real device-default content.
   const relSegCoveredLen = relSegBase ? Math.min(relSegBase.length, size) : 0;
   for (const info of Object.values(paramMemLayout)) {
     if (info.offset === null || info.offset === undefined) continue;
@@ -1259,7 +1260,22 @@ export function buildParamMem(
     }
   }
 
-  const conditionallyActive =
+  const unconditionalChannel = dynTree
+    ? buildUnconditionalChannelSet(dynTree)
+    : null;
+
+  // "Raw" pass - the same evaluation this function has always done, with no
+  // knowledge of Union-member exclusivity. Used ONLY to determine which
+  // Union member genuinely wins below (`skipAsLosingUnionMember`) - a real,
+  // self-consistent computation that predates this fix and stays correct on
+  // its own. NOT used for the actual write decision below - see the
+  // corrected re-pass after `skipAsLosingUnionMember` is known, and
+  // `evalConditionallyActiveParamRefs`'s own `isExcludedSelector` doc
+  // comment for why a second pass is necessary (computing who wins a Union
+  // selection requires the uncorrected reachability first; correcting
+  // reachability requires knowing who won - genuinely sequential, not
+  // simultaneously solvable in one pass).
+  const conditionallyActiveRaw =
     dynTree && params
       ? evalConditionallyActiveParamRefs(
           dynTree,
@@ -1268,23 +1284,135 @@ export function buildParamMem(
           paramRefValues,
         )
       : null;
-  const unconditionalChannel = dynTree
-    ? buildUnconditionalChannelSet(dynTree)
-    : null;
 
-  // Which parameter last claimed each byte. Members of a <Union> share
-  // memory by design - the point of a Union is that exactly one of them is
-  // live - so two of them writing the same byte is not a layout quirk to
-  // absorb, it is a contradiction in which branch of the dynamic tree was
-  // selected. Whichever happens to come later in Object.entries() order
-  // then wins, which is how a real device ended up holding the 16-bit
-  // union members koolenex chose over the 8-bit ones ETS had written.
-  // Recorded and reported rather than thrown: the image is still produced,
-  // but the collision is no longer invisible.
+  // A <Union>'s member <Parameter>s share the exact same (offset, bitOffset,
+  // bitSize) by design - only one is ever genuinely active. Resolved here as
+  // one pre-pass: for every group of memory-mapped siblings sharing an
+  // address, keep whichever has a real currentValues override; failing
+  // that, the one marked `isDefaultUnionParam`; failing that, leave the
+  // group alone rather than guess.
+  const unionGroups = new Map<string, string[]>();
+  for (const [prId, info] of Object.entries(paramMemLayout)) {
+    if (
+      !info.fromMemoryChild ||
+      info.offset === null ||
+      info.offset === undefined
+    )
+      continue;
+    const groupKey = `${info.offset}:${info.bitOffset}:${info.bitSize}`;
+    (
+      unionGroups.get(groupKey) ?? unionGroups.set(groupKey, []).get(groupKey)!
+    ).push(prId);
+  }
+  // A Union sibling's currentValues entry only means "this one is active"
+  // when it also passes the same choose-governed visibility gate the main
+  // loop applies - a Union behind a <choose> can carry a stale currentValues
+  // entry for a currently-inactive member. `templateKeyOf` strips a
+  // module-instanced entry's "_M-y_MI-z" segment before the reachability
+  // lookup, since conditionallyActiveRaw/unconditionalChannel are always
+  // App-level/template-only ids.
+  const templateKeyOf = (prId: string): string =>
+    prId.replace(/_M-\d+_MI-\d+_/, '_');
+  const passesVisibilityGate = (prId: string, info: ParamMemEntry): boolean => {
+    const templateKey = templateKeyOf(prId);
+    if (
+      !info.isVisible &&
+      (prId in currentValues || templateKey in currentValues)
+    )
+      return true;
+    if (
+      unconditionalChannel &&
+      (unconditionalChannel.has(prId) || unconditionalChannel.has(templateKey))
+    )
+      return true;
+    return !!(
+      conditionallyActiveRaw &&
+      (conditionallyActiveRaw.has(prId) ||
+        conditionallyActiveRaw.has(templateKey))
+    );
+  };
+  const skipAsLosingUnionMember = new Set<string>();
+  // A losing Union member can still own an independent, always-reachable
+  // <choose> subtree elsewhere in the app's Dynamic tree. Excluding that
+  // choose needs every non-winning group member, not just the ones that
+  // separately passed their own reachability gate.
+  const unionGroupNonWinners = new Set<string>();
+  for (const members of unionGroups.values()) {
+    if (members.length < 2) continue;
+    const reachable = members.filter((prId) =>
+      passesVisibilityGate(prId, paramMemLayout[prId]!),
+    );
+    // None of this group's members are even reachable via any real
+    // choose/unconditional path - leave the group alone entirely (every
+    // member still gets its own chance to pass the main loop's own gate
+    // below, unchanged from this function's prior behavior).
+    if (!reachable.length) continue;
+    const hasOverride = (prId: string) =>
+      prId in currentValues || templateKeyOf(prId) in currentValues;
+    const overridden = reachable.filter(hasOverride);
+    const markedDefault = reachable.find(
+      (prId) => paramMemLayout[prId]!.isDefaultUnionParam,
+    );
+    // Among the reachable members, no real signal either way (no override,
+    // no isDefaultUnionParam marker) - deliberately leave this group alone
+    // rather than guess a winner among them.
+    if (!overridden.length && !markedDefault) continue;
+    const winner = overridden[0] ?? markedDefault!;
+    for (const prId of reachable)
+      if (prId !== winner) skipAsLosingUnionMember.add(prId);
+    for (const prId of members)
+      if (prId !== winner) unionGroupNonWinners.add(prId);
+  }
+
+  // A choose selector can be genuinely unreachable via its own primary
+  // declaration - not because it lost a Union selection, but because its
+  // only standalone rendering point elsewhere in the tree sits behind an
+  // unrelated condition (e.g. an optional module's presence flag). Trusting
+  // its bare XML default there picks whatever branch the default happens to
+  // match. A selector is unreachable-elsewhere when its ref is known to the
+  // app (present in collectAllParamRefIds, distinguishing "gated elsewhere"
+  // from "never independently rendered") but not currently reachable via
+  // its primary declaration. A genuine per-device override always wins.
+  const allDeclaredRefs = dynTree ? collectAllParamRefIds(dynTree) : null;
+  const isSelectorUnreachableElsewhere = (paramRefId: string): boolean => {
+    if (!allDeclaredRefs || !conditionallyActiveRaw || !unconditionalChannel)
+      return false;
+    if (!allDeclaredRefs.has(paramRefId)) return false;
+    const templateKey = templateKeyOf(paramRefId);
+    if (paramRefId in currentValues || templateKey in currentValues)
+      return false;
+    return (
+      !conditionallyActiveRaw.has(paramRefId) &&
+      !unconditionalChannel.has(paramRefId)
+    );
+  };
+
+  // Corrected pass: now that Union winners are known, re-evaluate
+  // reachability excluding any choose whose selector is a losing Union
+  // member or is unreachable elsewhere in the tree. This is the version the
+  // write decision below uses, not the raw pass above.
+  const conditionallyActive =
+    dynTree && params
+      ? evalConditionallyActiveParamRefs(
+          dynTree,
+          params,
+          currentValues,
+          paramRefValues,
+          undefined,
+          undefined,
+          (paramRefId) =>
+            unionGroupNonWinners.has(paramRefId) ||
+            isSelectorUnreachableElsewhere(paramRefId),
+        )
+      : null;
+
+  // Which parameter last claimed each byte - a defensive diagnostic for
+  // anything the Union pre-pass above didn't resolve.
   const byteOwner = new Map<number, string>();
   const collisions: string[] = [];
 
   for (const [prId, info] of Object.entries(paramMemLayout)) {
+    if (skipAsLosingUnionMember.has(prId)) continue;
     // Repeated from paramMemWritesParam() only to narrow info.offset for
     // the writes below; the predicate is still the authority on whether
     // this parameter is written at all.
@@ -1314,10 +1442,51 @@ export function buildParamMem(
       }
     }
 
+    // A ParameterRef's own literal value (see ParamMemLayoutEntry.refValue)
+    // is written whenever this entry is reached by the dynTree walk, whether
+    // unconditionally or via a matched choose branch. Entries the walk never
+    // reaches fall back to the Parameter's own factory `defaultValue`.
+    let reachedViaTree = false;
+    if (info.fromMemoryChild) {
+      const templateKey = templateKeyOf(prId);
+      if (
+        !info.isVisible &&
+        (prId in currentValues || templateKey in currentValues)
+      ) {
+        // User explicitly set a hidden param — write it
+      } else if (
+        unconditionalChannel &&
+        (unconditionalChannel.has(prId) ||
+          unconditionalChannel.has(templateKey))
+      ) {
+        reachedViaTree = true;
+      } else {
+        const passConditional =
+          conditionallyActive &&
+          (conditionallyActive.has(prId) ||
+            conditionallyActive.has(templateKey));
+        if (passConditional) reachedViaTree = true;
+      }
+    } else if (info.baseOffsetArgId) {
+      // A module-instanced parameter emitted by
+      // expandParamMemLayoutForActiveModules() deliberately carries
+      // `fromMemoryChild: false` so the gate above does NOT re-evaluate it
+      // - that resolver already ran the equivalent, more-correct
+      // per-instance version of this exact gate before emitting the entry
+      // at all. It is therefore already "reached by the tree", just via a
+      // different code path. `baseOffsetArgId` (carried through the
+      // resolver's own `...info` spread, never cleared) is this
+      // codebase's own marker for that - a genuine non-module parameter
+      // never carries it.
+      reachedViaTree = true;
+    }
+
     const rawVal =
       prId in currentValues
         ? (currentValues[prId] as string | number | null)
-        : info.defaultValue;
+        : reachedViaTree && info.refValue !== undefined
+          ? info.refValue
+          : info.defaultValue;
 
     if (info.isText) {
       const byteSize = Math.floor(info.bitSize / 8);
@@ -1326,37 +1495,18 @@ export function buildParamMem(
       strBuf.copy(buf, info.offset, 0, Math.min(strBuf.length, byteSize));
       continue;
     }
-    // TypeRawData-shaped default values ("Characteristic curve value
-    // domain" and similar) - the manufacturer ships a whole pre-baked
-    // lookup table as the parameter's raw DefaultValue, base64-encoded in
-    // the source XML, rather than a single scalar. Real ETS writes the
-    // WHOLE table (confirmed via a real Full Download capture,
-    // byte-for-byte) - this is the root cause of a real, large gap
-    // between this function's computed image and a real device (see
-    // docs/knx-device-write-protocol.md Part 9 and
-    // docs/follow-ups/2026-08-28-full-download-history-and-blob-params.md
-    // for the full real-hardware + real-.knxproj-XML investigation this
-    // fix is based on).
+    // TypeRawData-shaped default values (e.g. "Characteristic curve value
+    // domain"): the manufacturer ships a whole pre-baked lookup table as the
+    // parameter's DefaultValue, base64-encoded, rather than a scalar. Real
+    // ETS writes the whole table.
     //
-    // The real wire format, confirmed against 1.1.10's actual .knxproj
-    // XML and a real device capture, is a 4-byte big-endian LENGTH PREFIX
-    // followed by the payload: `<TypeRawData MaxSize="516" />` for a
-    // 512-byte curve table (516 = 4 + 512), and the real device's own
-    // leading 4 bytes there decode as `0x00000200` = 512 - exactly the
-    // payload length. ets-app.ts now reads MaxSize into `bitSize`
-    // (`sizeInBit = maxSize*8`, previously TypeRawData wasn't handled at
-    // all and silently fell back to bitSize=8/1 byte) - so
-    // `declaredBytes` below is now the REAL total allocation (prefix +
-    // payload) once a project has been re-parsed with that fix. Detect
-    // and frame based on the *value itself* rather than trusting a
-    // specific bitSize number, since data/apps/*.json caches generated
-    // before the ets-app.ts fix still carry the old (wrong) bitSize=8 -
-    // this stays correct either way.
-    //
-    // The existing conditional-activation gate above already selects
-    // only the one genuinely active alternate among a conditional group
-    // (e.g. one of a channel's several curve-type choices) - this branch
-    // only needs to apply whichever value survives that gate.
+    // Wire format: a 4-byte big-endian length prefix followed by the
+    // payload (`<TypeRawData MaxSize="516" />` for a 512-byte table,
+    // 516 = 4 + 512). ets-app.ts reads MaxSize into `bitSize`
+    // (`sizeInBit = maxSize*8`), so `declaredBytes` below is the real total
+    // allocation (prefix + payload) once reparsed; detection is based on
+    // the value itself, not a specific bitSize, so a stale cache with the
+    // old bitSize=8 still works.
     if (
       typeof rawVal === 'string' &&
       /^[A-Za-z0-9+/]+=*$/.test(rawVal) &&
@@ -1370,8 +1520,7 @@ export function buildParamMem(
       }
       const declaredBytes = Math.ceil(info.bitSize / 8);
       if (declaredBytes === blob.length + 4) {
-        // Declared allocation is exactly "4-byte length prefix + this
-        // payload" - the confirmed real shape. Frame it that way.
+        // Declared allocation is "4-byte length prefix + payload" - frame it.
         const framed = Buffer.alloc(4 + blob.length);
         framed.writeUInt32BE(blob.length, 0);
         blob.copy(framed, 4);
@@ -1384,12 +1533,9 @@ export function buildParamMem(
         continue;
       }
       if (blob.length > declaredBytes + 1) {
-        // Declared size doesn't match the confirmed prefix+payload shape
-        // (e.g. an un-re-parsed cache still showing bitSize=8, or a
-        // genuinely different blob shape this hasn't been verified
-        // against) - write the raw payload with no framing as a
-        // best-effort fallback, matching the offset ETS's own writes
-        // used in every capture so far.
+        // Declared size doesn't match the prefix+payload shape (e.g. a
+        // stale cache, or an unverified blob shape) - write the raw
+        // payload with no framing as a best-effort fallback.
         blob.copy(
           buf,
           info.offset,

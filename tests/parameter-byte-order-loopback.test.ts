@@ -1,26 +1,22 @@
 /**
- * Protocol-level "loopback" test for the ParameterByteOrder gating fix
- * (fix/parameter-byte-order): drives the REAL, unmodified downloadDevice()
- * path - buildParamMem() -> WriteRelMem -> the real wire-encoding code in
- * knx-connection.ts - against a fake in-memory device (same technique as
- * relmem-write-protocol.test.ts), then reads the fake device's own backing
- * buffer back to prove which byte actually landed at which address. Zero
- * hardware risk, no bus/testbed/production site needed.
+ * Loopback test for ParameterByteOrder gating: drives the real, unmodified
+ * downloadDevice() path - buildParamMem() -> WriteRelMem -> the wire-encoding
+ * code in knx-connection.ts - against a fake in-memory device (same
+ * technique as relmem-write-protocol.test.ts), then reads the fake device's
+ * backing buffer back to prove which byte landed at which address.
  *
  * dpt.test.ts / knx-tables.test.ts already prove writeBits()/readBits()
- * themselves respect `byteOrder` in isolation. This test instead exercises
- * the full chain a real device download actually goes through - the same
- * wiring (ParamModel.parameterByteOrder -> buildParamMem() -> downloadDevice()
- * -> the real WriteRelMem step) that a unit test calling writeBits() directly
- * cannot catch a threading mistake in.
+ * respect `byteOrder` in isolation; this exercises the full chain
+ * (ParamModel.parameterByteOrder -> buildParamMem() -> downloadDevice() ->
+ * WriteRelMem) that a unit test calling writeBits() directly cannot catch a
+ * threading mistake in.
  *
- * One device per real-world case this project has confirmed:
- *   - LittleEndian: the exact real product evidence writeBits()'s own doc
- *     comment cites (M-0002_A-A001-13-63C2's Union: enum 1283 = "0.5s",
- *     which only holds if the 16-bit value's low byte lands at the lower
- *     offset).
+ * One device per confirmed real-world case:
+ *   - LittleEndian: a real product's Union (enum 1283 = "0.5s"), which only
+ *     holds if the 16-bit value's low byte lands at the lower offset - see
+ *     writeBits()'s own doc comment.
  *   - BigEndian (also the fallback when the attribute is absent): the
- *     opposite order, matching every real-hardware case checked so far (see
+ *     opposite order, matching every other real-hardware case checked (see
  *     docs/knx-device-write-protocol.md §6.1a).
  */
 import { describe, it } from 'node:test';
@@ -83,6 +79,35 @@ class FakeWritableMemoryDevice extends KnxConnection {
         0,
         APCI_EXT.Authorize_Response,
         Buffer.from([0x00]),
+      );
+      const resp = parseCEMI(
+        buildCEMI(this.deviceAddr, this.localAddr, respApdu, false),
+      )!;
+      setImmediate(() => this._onCEMI(resp));
+      return Promise.resolve();
+    }
+
+    if (fullApci === 0x3d7 /* PropertyValue_Write */) {
+      // This file only cares about Memory_Write/MemoryExtended_Write landing
+      // at the right address/byte order - it doesn't model Load State
+      // (objIdx 5's Unload, etc.) the way relmem-load-sequence.test.ts's
+      // LoadGatedFakeDevice does. downloadDevice() waits for a real
+      // PropertyValue_Response to EVERY PropertyValue_Write it sends
+      // (propWrite()'s own wait) - the mask-driven object-5/PEI Program
+      // Unload sends one of these unconditionally for a System-B-mask
+      // device (this test's own DeviceDescriptor_Response above). Ack
+      // generically, matching what a real device does, so that write
+      // doesn't go unconfirmed for reasons this file isn't testing.
+      const objIdx = frame.apduData[0]!;
+      const propId = frame.apduData[1]!;
+      const data = frame.apduData.subarray(4);
+      const respApdu = apduConnectedFull(
+        0,
+        APCI_EXT.PropertyValue_Response,
+        Buffer.concat([
+          Buffer.from([objIdx, propId, 0x10, 0x01]),
+          data.length ? data : Buffer.from([0x00]),
+        ]),
       );
       const resp = parseCEMI(
         buildCEMI(this.deviceAddr, this.localAddr, respApdu, false),

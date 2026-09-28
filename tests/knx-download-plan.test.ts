@@ -211,11 +211,8 @@ describe('planRelmemWrites', () => {
 
 // ── planVerify() - undeclaredTableMem (GA/Association/Object 3) ────────────
 //
-// No dedicated unit tests existed for planVerify() before this - its
-// undeclaredTableMem construction was only ever exercised indirectly through
-// tests/bus-routes.test.ts's HTTP-level verify-device tests. Added alongside
-// Object 3 verify support (2026-08-29) and a real bug fix found while adding
-// it (see below).
+// undeclaredTableMem construction is otherwise only exercised indirectly
+// through tests/bus-routes.test.ts's HTTP-level verify-device tests.
 
 describe('planVerify() - undeclaredTableMem', () => {
   const GA_TABLE = Buffer.from('0002490149020000', 'hex'); // arbitrary, content doesn't matter for these tests
@@ -225,7 +222,7 @@ describe('planVerify() - undeclaredTableMem', () => {
     { type: 'WriteRelMem', objIdx: 4, offset: 0, size: 4 },
   ];
 
-  it("includes GA/Association/Object 3 regions when the model declares nothing for them (1.1.9's real shape)", () => {
+  it('includes GA/Association/Object 3 regions when the model declares nothing for them', () => {
     const plan = planVerify(
       RELMEM_STEPS,
       GA_TABLE,
@@ -243,14 +240,7 @@ describe('planVerify() - undeclaredTableMem', () => {
     assert.ok(labels.some((l) => l.startsWith('object3@0x570c')));
   });
 
-  it('BUG FIX (2026-08-29): a declared LoadImageProp step must NOT suppress the undeclared-table entries - LoadImageProp is read-only (docs/knx-device-write-protocol.md Part 7), so a model declaring it never actually verifies the table content itself', () => {
-    // Before the fix, buildUndeclaredTableMem() (then buildGaAssocMem())
-    // counted LoadImageProp the same as WriteRelMem for "already declared" -
-    // this silently made verify-device skip comparing GA/Association/
-    // Object 3 for an app shaped like 1.1.10's (which declares
-    // LoadImageProp for objIdx 1/2/3), the same latent bug already fixed on
-    // the write side (knx-connection.ts, koolenex 9eaed85) and the route-
-    // level gate (routes/bus.ts) - this was a third, previously-unfixed copy.
+  it('a declared LoadImageProp step must NOT suppress the undeclared-table entries - LoadImageProp is read-only (docs/knx-device-write-protocol.md Part 7)', () => {
     const stepsWithLoadImageProp: PlanStep[] = [
       ...RELMEM_STEPS,
       { type: 'LoadImageProp', objIdx: 1, propId: 27 },
@@ -325,5 +315,48 @@ describe('planVerify() - undeclaredTableMem', () => {
     assert.ok(
       plan.undeclaredTableMem.some((r) => r.label.startsWith('gatable@')),
     );
+  });
+});
+
+describe('planDownload - SegFlags contradicting the address-only descriptor rule', () => {
+  const stepsWith = (address: number, segFlags?: number): PlanStep[] => [
+    { type: 'Connect' },
+    { type: 'Unload', lsmIdx: 1 },
+    { type: 'Load', lsmIdx: 1 },
+    {
+      type: 'AbsSegment',
+      lsmIdx: 1,
+      address,
+      size: 3,
+      ...(segFlags != null ? { segFlags } : {}),
+    },
+    { type: 'TaskSegment', lsmIdx: 1, address },
+    { type: 'LoadCompleted', lsmIdx: 1 },
+    { type: 'Restart' },
+    { type: 'Disconnect' },
+  ];
+  const plan = (steps: PlanStep[]) =>
+    planDownload(
+      steps,
+      Buffer.from([0x01, 0xaa, 0xbb]),
+      Buffer.alloc(0),
+      null,
+      null,
+    );
+
+  it('a RAM segment declaring SegFlags 0 and a flash segment declaring 128 match the rule and plan normally', () => {
+    assert.doesNotThrow(() => plan(stepsWith(0x0700, 0)));
+    assert.doesNotThrow(() => plan(stepsWith(0x4200, 128)));
+  });
+
+  it('a flash-range segment declaring SegFlags 0 is refused (the rule would predict 128)', () => {
+    assert.throws(
+      () => plan(stepsWith(0x4936, 0)),
+      /Refusing AbsSegment download.*SegFlags=0.*predicts 128/,
+    );
+  });
+
+  it('no declared SegFlags leaves the plan unchanged', () => {
+    assert.doesNotThrow(() => plan(stepsWith(0x4936)));
   });
 });

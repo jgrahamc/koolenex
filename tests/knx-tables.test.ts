@@ -625,10 +625,10 @@ describe('resolveParamSegment', () => {
   });
 
   it('picks the tightest-fitting segment, not merely the first larger one', () => {
-    // Reproduces the 1.1.3 (MDT AKS-0416.03) bug: a big, unrelated segment
-    // (the address table at 0x4000, size 513) also happens to be larger than
-    // maxOffset, but the real parameter segment is the smaller one whose
-    // range actually contains the parameter offsets (0x44EC, size 304).
+    // A big unrelated segment (an address table at 0x4000, size 513) can
+    // also be larger than maxOffset; the real parameter segment is the
+    // smaller one whose range actually contains the parameter offsets
+    // (0x44EC, size 304).
     const model: any = {
       loadProcedures: [],
       absSegData: {
@@ -686,10 +686,11 @@ describe('resolveParamSegment', () => {
   });
 
   it('picks the tightest-fitting AbsoluteSegment when several exceed maxOffset', () => {
-    // Two segments both larger than the largest param offset (200): the address
-    // table (0x4000, size 512) and the real parameter segment (0x44EC, size
-    // 304). resolveParamSegment must pick the SMALLEST covering segment, not
-    // the first — otherwise the param image lands at the wrong base.
+    // Two segments both larger than the largest param offset (200): an
+    // address table (0x4000, size 512) and the real parameter segment
+    // (0x44EC, size 304). resolveParamSegment must pick the SMALLEST
+    // covering segment, not the first, or the param image lands at the
+    // wrong base.
     const model = {
       loadProcedures: [
         { type: 'Load', lsmIdx: 1 },
@@ -856,11 +857,10 @@ describe('buildParamMem', () => {
     assert.ok(Math.abs(val - 3.14) < 0.01);
   });
 
-  // Least-significant byte first: a real product's own Union declares the
-  // same two bytes as one 16-bit parameter and as two 8-bit ones, and only
-  // this order makes their enum labels agree. See writeBits() in
-  // routes/knx-tables.ts for the derivation, and tests/dpt.test.ts for the
-  // arithmetic stated as a test.
+  // LSB-first: a Union declaring the same two bytes as one 16-bit param and
+  // as two 8-bit ones only gets matching enum labels in this order. See
+  // writeBits() in routes/knx-tables.ts, and tests/dpt.test.ts for the
+  // arithmetic.
   it('writes a 16-bit integer least-significant byte first (LittleEndian app)', () => {
     const layout: any = {
       pr1: { offset: 0, bitOffset: 0, bitSize: 16, defaultValue: '258' },
@@ -880,9 +880,8 @@ describe('buildParamMem', () => {
     assert.equal(buf[1], 1); // 258 >> 8
   });
 
-  // When the app's ParameterByteOrder is absent (or BigEndian), the same
-  // field writes most-significant byte first - see writeBits()'s own doc
-  // comment for the evidence and status.
+  // When ParameterByteOrder is absent (or BigEndian), the same field writes
+  // MSB first - see writeBits()'s doc comment.
   it('writes a 16-bit integer most-significant byte first when byteOrder is absent', () => {
     const layout: any = {
       pr1: { offset: 0, bitOffset: 0, bitSize: 16, defaultValue: '258' },
@@ -1025,12 +1024,11 @@ describe('buildParamMem', () => {
     assert.equal(buf[1], 88);
   });
 
-  // Patch 2 regression test: ETS writes every resolved-ACTIVE parameter
-  // regardless of the ParameterRef's UI visibility. A param can be
-  // Access="None" (isVisible:false) yet still sit in the currently-active
-  // `choose` branch — e.g. MDT P-5014/P-8 (block offset +0x1c) and P-5030
-  // (offset +0x31) from the real 1.1.3 gold-data investigation. Before the
-  // fix, the gate ANDed in `info.isVisible` and silently dropped these.
+  // ETS writes every resolved-ACTIVE parameter regardless of the
+  // ParameterRef's UI visibility. A param can be Access="None"
+  // (isVisible:false) yet still sit in the currently-active `choose`
+  // branch; the gate must not AND in `info.isVisible` or it silently
+  // drops these.
   it('conditional visibility: ACTIVE param is written even when isVisible is false', () => {
     const layout: any = {
       sel: { offset: 0, bitOffset: 0, bitSize: 8, defaultValue: '1' },
@@ -1142,15 +1140,12 @@ describe('buildParamMem', () => {
     assert.equal(buf[0], 77);
   });
 
-  // TypeRawData-shaped defaults ("Characteristic curve value domain" and
-  // similar) - a manufacturer-shipped, pre-baked binary blob as the whole
-  // parameter value, rather than a scalar. Confirmed 2026-08-28 against a
-  // real device + its real .knxproj XML: the true wire format is a 4-byte
+  // TypeRawData-shaped defaults (e.g. "Characteristic curve value domain")
+  // are a manufacturer-shipped, pre-baked binary blob as the whole
+  // parameter value, rather than a scalar. Wire format is a 4-byte
   // big-endian length prefix followed by the payload (`declaredBytes ===
-  // blob.length + 4`, matching `<TypeRawData MaxSize="...">` in the
-  // source XML once ets-app.ts's TypeRawData handling reads it correctly -
-  // see docs/knx-device-write-protocol.md Part 9 and
-  // docs/follow-ups/2026-08-28-full-download-history-and-blob-params.md).
+  // blob.length + 4`, matching `<TypeRawData MaxSize="...">` in the source
+  // XML) - see docs/knx-device-write-protocol.md Part 9.
   describe('blob-shaped (TypeRawData) default values', () => {
     it('frames a blob with a 4-byte BE length prefix when declaredBytes matches payload+4', () => {
       // Must decode to enough bytes that its base64 form is >=20 chars (the
@@ -1241,15 +1236,10 @@ describe('buildParamMem', () => {
     });
   });
 
-  // Root-caused 2026-08-28 (docs/follow-ups/2026-08-28-write-path-missing-
-  // load-sequence.md's "wrong padding-bit fill" section), fixed 2026-08-29
-  // as part of working through the write-path capability status memory's
-  // open items. Real evidence: a real 1-bit boolean at offset 69 (bitOffset
-  // 0, bitSize 1) - real device/ETS value is 0x80 when the flag is on (bit
-  // 7 set, all other 7 bits CLEAR), not 0xFF as this function previously
-  // computed with the default fill.
-  describe('padding-bit fill for sub-byte params (fixed 2026-08-29)', () => {
-    it('a 1-bit boolean sharing its byte with unnamed bits: real captured case (offset 69-equivalent), flag ON -> 0x80, not 0xFF', () => {
+  // A 1-bit boolean's device/ETS value is 0x80 when the flag is on (bit 7
+  // set, all other bits CLEAR), not 0xFF from the default fill.
+  describe('padding-bit fill for sub-byte params', () => {
+    it('a 1-bit boolean sharing its byte with unnamed bits: flag ON -> 0x80, not 0xFF', () => {
       const layout: any = {
         flag: { offset: 0, bitOffset: 0, bitSize: 1, defaultValue: '1' },
       };
@@ -1329,6 +1319,163 @@ describe('buildParamMem', () => {
         buf[0],
         0x55,
         'relSegHex-seeded byte must survive untouched by the padding-bit pre-pass',
+      );
+    });
+  });
+
+  // A choose selector whose only standalone rendering point sits behind an
+  // unrelated gate elsewhere in the tree (e.g. a Function selector for an
+  // optional extension module, reused as a different choose's selector
+  // without re-checking the module's presence flag). Fixture is generic,
+  // covering that structural shape for any app.
+  describe('a choose selector unreachable via its own primary declaration', () => {
+    const GATE = 'app_gate_R-1'; // "is the extension present"
+    const SELECTOR = 'app_selector_R-2'; // only rendered inside the gated branch
+    const TARGET_OFF = 'app_target_R-off';
+    const TARGET_ON = 'app_target_R-on';
+    const NEVER_RENDERED_SELECTOR = 'app_hidden-selector_R-9'; // safety case
+
+    const paramMemLayout: any = {
+      [TARGET_OFF]: {
+        offset: 3,
+        bitOffset: 0,
+        bitSize: 8,
+        defaultValue: '0',
+        fromMemoryChild: true,
+        isVisible: false,
+      },
+      [TARGET_ON]: {
+        offset: 3,
+        bitOffset: 0,
+        bitSize: 8,
+        defaultValue: '0',
+        fromMemoryChild: true,
+        isVisible: false,
+        refValue: '7',
+      },
+      // A second target byte gated by the never-independently-rendered
+      // selector - must NOT be excluded just because it's never rendered on
+      // its own; the safety check (collectAllParamRefIds) exists precisely
+      // for this.
+      ['app_safety-target_R-1']: {
+        offset: 8,
+        bitOffset: 0,
+        bitSize: 8,
+        defaultValue: '0',
+        fromMemoryChild: true,
+        isVisible: false,
+      },
+    };
+
+    const params: any = {
+      [GATE]: { defaultValue: '0' },
+      [SELECTOR]: { defaultValue: '7' },
+      [NEVER_RENDERED_SELECTOR]: { defaultValue: '9' },
+    };
+
+    // GATE's own choose renders SELECTOR unconditionally ONLY inside its
+    // "extension present" branch (test="1") - SELECTOR has no OTHER
+    // standalone rendering anywhere. A separate, later part of the tree
+    // reuses SELECTOR as ITS OWN choose selector without checking GATE
+    // again.
+    const dynTree: any = {
+      main: {
+        items: [
+          {
+            type: 'choose',
+            paramRefId: GATE,
+            whens: [
+              { test: ['0'], items: [] },
+              { test: ['1'], items: [{ type: 'paramRef', refId: SELECTOR }] },
+            ],
+          },
+          {
+            type: 'choose',
+            paramRefId: SELECTOR,
+            whens: [
+              { test: ['0'], items: [{ type: 'paramRef', refId: TARGET_OFF }] },
+              {
+                test: ['1', '2', '3', '7'],
+                items: [{ type: 'paramRef', refId: TARGET_ON }],
+              },
+            ],
+          },
+          {
+            type: 'choose',
+            paramRefId: NEVER_RENDERED_SELECTOR,
+            whens: [
+              {
+                test: ['9'],
+                items: [{ type: 'paramRef', refId: 'app_safety-target_R-1' }],
+              },
+            ],
+          },
+        ],
+      },
+      moduleDefs: [],
+    };
+
+    it('writes NEITHER target when the gate is at its default (closed) and the selector has no override - the whole choose is skipped, not resolved via the misleading declared default', () => {
+      const buf = buildParamMem(
+        16,
+        paramMemLayout,
+        {},
+        0xff,
+        null,
+        dynTree,
+        params,
+      );
+      assert.equal(
+        buf[3],
+        0xff,
+        "expected the byte untouched (fill) - neither branch of an unreachable selector's choose should be written",
+      );
+    });
+
+    it('writes the ON target correctly once the gate is genuinely open (a real override)', () => {
+      const buf = buildParamMem(
+        16,
+        paramMemLayout,
+        { [GATE]: '1' },
+        0xff,
+        null,
+        dynTree,
+        params,
+      );
+      assert.equal(
+        buf[3],
+        7,
+        "once genuinely reachable, the selector's own resolution should apply normally",
+      );
+    });
+
+    it('writes the ON target when the selector itself has a real per-device override, even with the gate closed', () => {
+      const buf = buildParamMem(
+        16,
+        paramMemLayout,
+        { [SELECTOR]: '2' },
+        0xff,
+        null,
+        dynTree,
+        params,
+      );
+      assert.equal(buf[3], 7);
+    });
+
+    it('does NOT exclude a selector that is never independently rendered anywhere (the safety check)', () => {
+      const buf = buildParamMem(
+        16,
+        paramMemLayout,
+        {},
+        0xff,
+        null,
+        dynTree,
+        params,
+      );
+      assert.equal(
+        buf[8],
+        0,
+        'the never-rendered selector must still resolve via its own bare declared default (9), matching its one when-branch, not be treated as excluded',
       );
     });
   });

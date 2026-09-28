@@ -31,44 +31,30 @@ import {
 
 class TestKnxConnection extends KnxConnection {
   sent: Buffer[] = [];
-  // Separate from `sent` - real KNXnet/IP Routing (multicast) is a genuinely
-  // different channel from Tunneling, used specifically by the KNX "System
-  // Broadcast" services (checkProgrammingMode, serial-number addressing) -
-  // see docs/knx-device-write-protocol.md §9. `_routingAvailable` lets a test
-  // opt into the base class's default-throw behavior instead (simulating a
-  // connection with no Routing capability) by setting it false.
+  // Routing (multicast) is a separate channel from Tunneling, used by the
+  // "System Broadcast" services (checkProgrammingMode, serial-number
+  // addressing) - see docs/knx-device-write-protocol.md §9. Set false to
+  // exercise the base class's default-throw (no Routing capability).
   sentViaRouting: Buffer[] = [];
   _routingAvailable = true;
   disconnected = false;
 
-  // Opt-in only (default false). Tried defaulting this to `true` (fast-
-  // answering DeviceDescriptor_Read/PID_MAX_APDULENGTH) to speed up this
-  // file's downloadDevice() tests - real request, 2026-08-31 - but this
-  // class is shared far more broadly than that: a whole `scan()` describe
-  // block (and others) specifically build their assertions around
-  // "nothing ever responds", and defaulting to answering broke 10 of them
-  // at once. Left opt-in, per-test, rather than chasing every remaining
-  // edge case - correctness over shaving this file's real-but-bounded
-  // test time. See `sendCEMI()`'s own doc comment for what opting in
-  // actually answers.
+  // Opt-in only (default false): auto-answers DeviceDescriptor_Read/
+  // PID_MAX_APDULENGTH for tests that just want a fast downloadDevice()/
+  // readMemory() run. Several tests (scan(), the DeviceDescriptor_Read
+  // timeout/fallback tests) depend on nothing responding by default, so
+  // this must stay opt-in rather than the default. See sendCEMI() below
+  // for what opting in actually answers.
   autoAnswerIdentityReads = false;
 
   sendCEMI(cemi: Buffer): Promise<void> {
     this.sent.push(cemi);
-    // Real request, 2026-08-31: KnxConnection now resolves both a
-    // device's real mask (DeviceDescriptor_Read, for the memory-service
-    // decision) and its real PID_MAX_APDULENGTH (property 56, objIdx 0,
-    // for chunk sizing) once per downloadDevice()/readMemory() session.
-    // This class deliberately never auto-responds to anything by
-    // default - several tests in this file specifically exercise the
-    // "device never answers DeviceDescriptor_Read" fallback/timeout
-    // behavior itself (e.g. "returns null on timeout", "falls back to
-    // legacy Memory_Write... when the device never answers
-    // DeviceDescriptor_Read") and a blanket auto-response here broke
-    // them outright the first time this was tried. Opt in per-test via
-    // `autoAnswerIdentityReads` instead, for tests that just want a fast
-    // downloadDevice()/readMemory() run and aren't testing this fallback
-    // path themselves.
+    // KnxConnection resolves a device's mask (DeviceDescriptor_Read, for
+    // the memory-service decision) and PID_MAX_APDULENGTH (property 56,
+    // objIdx 0, for chunk sizing) once per downloadDevice()/readMemory()
+    // session. No auto-response by default, since some tests exercise the
+    // "device never answers DeviceDescriptor_Read" fallback/timeout path
+    // itself. Opt in via `autoAnswerIdentityReads` otherwise.
     if (this.autoAnswerIdentityReads) {
       const frame = parseCEMI(cemi);
       if (frame?.apciName === 'DeviceDescriptor_Read') {
@@ -101,7 +87,32 @@ class TestKnxConnection extends KnxConnection {
               buildCEMI(frame!.dst, frame!.src, respApdu, false),
             )!;
             setImmediate(() => this._onCEMI(resp));
+          } else {
+            // Any other property (e.g. a load state) reads back as a single
+            // zero byte, so a multi-property-read step isn't mistaken for a
+            // dead connection.
+            const respApdu = apduConnectedFull(
+              0,
+              APCI_EXT.PropertyValue_Response,
+              Buffer.from([objIdx, propId, 0x10, 0x01, 0x00]),
+            );
+            const resp = parseCEMI(
+              buildCEMI(frame!.dst, frame!.src, respApdu, false),
+            )!;
+            setImmediate(() => this._onCEMI(resp));
           }
+        } else if (fullApci === 0x3d7 /* PropertyValue_Write */) {
+          // Acknowledge writes too: 3 unanswered in a row abort a download
+          // as a dead connection.
+          const respApdu = apduConnectedFull(
+            0,
+            APCI_EXT.PropertyValue_Response,
+            frame!.apduData,
+          );
+          const resp = parseCEMI(
+            buildCEMI(frame!.dst, frame!.src, respApdu, false),
+          )!;
+          setImmediate(() => this._onCEMI(resp));
         }
       }
     }
@@ -335,12 +346,10 @@ describe('KnxConnection.managementSession', () => {
       await sendData('Memory_Read', Buffer.from([0x01, 0x00, 0x60]));
     });
 
-    // sendData() now consumes and advances the session's own sequence
-    // counter too (real bug fix, 2026-09-13 - see knx-connection.ts's
-    // sendData doc comment) - every new connection-oriented data frame
-    // needs its own number, sendData's included. So the second nextSeq()
-    // call sees the counter already bumped by the sendData() call before
-    // it: 0, (sendData consumes 1), 2.
+    // sendData() consumes and advances the session's sequence counter too -
+    // every connection-oriented data frame needs its own number. So the
+    // second nextSeq() call sees the counter already bumped by the
+    // preceding sendData(): 0, (sendData consumes 1), 2.
     assert.deepEqual(seqs, [0, 2]);
     // CONNECT + 2 data frames + DISCONNECT = 4 frames minimum
     assert.ok(conn.sent.length >= 4, `sent ${conn.sent.length}, expected >= 4`);
@@ -424,26 +433,20 @@ describe('KnxConnection.programIA', () => {
     conn.localAddr = '1.0.1';
 
     const result = await conn.programIA('1.1.5');
-    // Real user question, 2026-08-31: "ETS restarts the device after
-    // updating its address. I don't think we are as yet." - fixed to
-    // match; see restartDevice()'s own doc comment.
+    // ETS restarts the device after an address write; matches that.
     assert.deepEqual(result, { ok: true, newAddr: '1.1.5', restarted: true });
     // PhysicalAddress_Write, then a full management session for the
     // Restart: T_Connect, DeviceDescriptor_Read, PropertyValue_Read (P=56),
     // PropertyValue_Read (P=11), Restart (data), T_Disconnect. The three
-    // identity reads (added 2026-08-31, mirroring a real ETS capture - see
-    // restartDevice()'s own doc comment) are best-effort here: no response
-    // is simulated for any of them, so each genuinely times out before the
-    // next is sent (this is exactly the "continues anyway" resilience path
-    // the real implementation is designed for) - still 6 real frames sent
-    // regardless of whether anything answers.
+    // identity reads are best-effort: nothing answers here, so each times
+    // out before the next is sent (the "continues anyway" resilience path) -
+    // still 6 frames sent regardless of whether anything answers.
     assert.equal(conn.sent.length, 7);
 
-    // Same confirmed-correct wire format as every other network-management
-    // broadcast service in this family (see checkProgrammingMode() etc.):
-    // GROUP-type frame to 0/0/0 at System priority (ctrl1=0xb0) - not an
-    // individual-type frame to 0.0.0 at ordinary priority, which a real
-    // device silently never accepted (found live, 2026-08-30).
+    // Same wire format as every other network-management broadcast service
+    // in this family (see checkProgrammingMode() etc.): GROUP-type frame to
+    // 0/0/0 at System priority (ctrl1=0xb0), not an individual-type frame to
+    // 0.0.0 at ordinary priority (real devices reject the latter).
     const parsed = parseCEMI(conn.sent[0]!);
     assert.ok(parsed);
     assert.equal(parsed.dst, '0/0/0');
@@ -466,11 +469,10 @@ describe('KnxConnection.programIA', () => {
     });
   });
 
-  // Real reasoning, 2026-08-31: the address write itself has no response to
-  // confirm against (it's a fire-and-forget broadcast service), so from
-  // koolenex's point of view it already succeeded before the restart is
-  // even attempted - a restart failure shouldn't retroactively fail the
-  // whole call, just get surfaced via `restarted: false`.
+  // The address write is a fire-and-forget broadcast with no response to
+  // confirm against, so it's already succeeded before the restart is even
+  // attempted - a restart failure surfaces as `restarted: false`, not a
+  // rejection of the whole call.
   it('reports restarted: false (not a rejection) when the restart itself fails', async () => {
     const conn = new TestKnxConnection();
     conn.connected = true;
@@ -505,9 +507,8 @@ describe('KnxConnection.checkProgrammingMode', () => {
 
     const p = conn.checkProgrammingMode(50);
     await delay(10);
-    // Sent via the normal Tunneling connection, GROUP-type to 0/0/0 -
-    // confirmed byte-for-byte against real ETS traffic (see
-    // docs/knx-device-write-protocol.md §9).
+    // Sent via the normal Tunneling connection, GROUP-type to 0/0/0 - see
+    // docs/knx-device-write-protocol.md §9.
     assert.equal(conn.sent.length, 1);
     const parsed = parseCEMI(conn.sent[0]!);
     assert.ok(parsed);
@@ -566,11 +567,10 @@ describe('KnxConnection.checkProgrammingMode', () => {
 });
 
 // ── KnxConnection.readSerialNumbersInProgrammingMode ──────────────────────────
-// NM_Read_SerialNumber_By_ProgrammingMode - confirmed byte-for-byte against
-// real ETS traffic (tshark capture, 2026-08-30, see
-// docs/knx-device-write-protocol.md §9): A_SystemNetworkParameter_
-// Read/Response for PID_SERIAL_NUMBER (11) on object type 0 (Device),
-// GROUP-type frame to 0/0/0 at System priority, response payload
+// NM_Read_SerialNumber_By_ProgrammingMode - see docs/knx-device-write-
+// protocol.md §9: A_SystemNetworkParameter_Read/Response for
+// PID_SERIAL_NUMBER (11) on object type 0 (Device), GROUP-type frame to
+// 0/0/0 at System priority, response payload
 // [objectType(2)][pidField(2)][echoedOperand(1)][serial(6)].
 
 describe('KnxConnection.readSerialNumbersInProgrammingMode', () => {
@@ -601,7 +601,7 @@ describe('KnxConnection.readSerialNumbersInProgrammingMode', () => {
     conn.localAddr = '1.0.1';
 
     const p = conn.readSerialNumbersInProgrammingMode(50);
-    // Real captured shape: [objType(2)=0000][pidField(2)=00b0][echoedOperand=01][serial(6)]
+    // [objType(2)=0000][pidField(2)=00b0][echoedOperand=01][serial(6)]
     const apduData = Buffer.from([
       0x00, 0x00, 0x00, 0xb0, 0x01, 0x00, 0x0a, 0x57, 0x82, 0x04, 0x19,
     ]);
@@ -622,7 +622,7 @@ describe('KnxConnection.readSerialNumbersInProgrammingMode', () => {
     assert.deepEqual(result, [{ serial: '000a57820419', src: '15.15.255' }]);
   });
 
-  it('collects multiple distinct devices within the window (no collision, per real testing)', async () => {
+  it('collects multiple distinct devices within the window', async () => {
     const conn = new TestKnxConnection();
     conn.connected = true;
     conn.localAddr = '1.0.1';
@@ -713,10 +713,9 @@ describe('KnxConnection.readSerialNumbersInProgrammingMode', () => {
 
 // ── KnxConnection: individual address by serial number ───────────────────────
 // NM_IndividualAddress_SerialNumber_Write/_Read (spec 3/5/2 §2.5/§2.4) - see
-// docs/knx-device-write-protocol.md §9. No real-hardware capture
-// backs this yet - these tests only cover the protocol-level shape (frame
-// addressing, system-broadcast priority bit, response matching by serial,
-// not by source address).
+// docs/knx-device-write-protocol.md §9. Protocol-level shape only (frame
+// addressing, system-broadcast priority bit, response matched by serial,
+// not by source address) - no hardware capture backs this path.
 
 describe('KnxConnection.writeIndividualAddressBySerial', () => {
   it('sends a GROUP-type frame to 0/0/0 at System priority', async () => {
@@ -727,9 +726,8 @@ describe('KnxConnection.writeIndividualAddressBySerial', () => {
 
     const result = await conn.writeIndividualAddressBySerial(serial, '1.1.20');
     assert.deepEqual(result, { ok: true });
-    // Sent via the normal Tunneling connection, GROUP-type to 0/0/0 -
-    // confirmed byte-for-byte against real ETS traffic, 2026-08-30 (see
-    // docs/knx-device-write-protocol.md §9).
+    // Sent via the normal Tunneling connection, GROUP-type to 0/0/0 - see
+    // docs/knx-device-write-protocol.md §9.
     assert.equal(conn.sent.length, 1);
 
     const parsed = parseCEMI(conn.sent[0]!);
@@ -759,11 +757,10 @@ describe('KnxConnection.readIndividualAddressBySerial', () => {
     const serial = Buffer.from([0x00, 0xa6, 0x25, 0x40, 0x1d, 0x94]);
 
     const p = conn.readIndividualAddressBySerial(serial, 500);
-    // Simulate the device's real broadcast reply: [serial(6)][4 reserved
-    // zero bytes] - confirmed real payload shape (no address field at
-    // all), src carries the device's address instead. Matched by serial
-    // rather than by a known source address (unknown ahead of time) -
-    // see docs/knx-device-write-protocol.md §9.
+    // Broadcast reply payload is [serial(6)][4 reserved zero bytes] - no
+    // address field; src carries the device's address instead. Matched by
+    // serial, not by source address (unknown ahead of time) - see
+    // docs/knx-device-write-protocol.md §9.
     const apduData = Buffer.concat([serial, Buffer.alloc(4)]);
     const apdu = Buffer.concat([
       Buffer.from([0x03, 0xdd & 0xff]), // TPCI=DATA_GROUP + full APCI 0x3DD
@@ -835,8 +832,8 @@ describe('KnxConnection.assignIndividualAddressBySerial', () => {
     // Let the Write's sendCEMI (a resolved promise) settle before the Read
     // is issued, then answer the Read.
     await delay(10);
-    // [serial(6)][4 reserved zero bytes] - confirmed real payload shape,
-    // src carries the device's (newly-assigned) address instead - see
+    // [serial(6)][4 reserved zero bytes] - src carries the device's
+    // (newly-assigned) address instead - see
     // docs/knx-device-write-protocol.md §9.
     const apduData = Buffer.concat([serial, Buffer.alloc(4)]);
     const apdu = Buffer.concat([Buffer.from([0x03, 0xdd]), apduData]);
@@ -853,22 +850,18 @@ describe('KnxConnection.assignIndividualAddressBySerial', () => {
     });
 
     const result = await assignP;
-    // Real user question, 2026-08-31: "ETS restarts the device after
-    // updating its address. I don't think we are as yet." - fixed to
-    // match, but only once the read-back confirmed the write actually
-    // landed; see assignIndividualAddressBySerial()'s own doc comment.
+    // Restart only happens once the read-back confirms the write landed.
     assert.deepEqual(result, {
       ok: true,
       verified: true,
       address: '1.1.20',
       restarted: true,
     });
-    // Write, then Read (both via the normal Tunneling connection, GROUP-
-    // type to 0/0/0 - confirmed byte-for-byte against real ETS traffic,
-    // 2026-08-30), then a full management session for the Restart:
+    // Write, then Read (both GROUP-type to 0/0/0 via the normal Tunneling
+    // connection), then a full management session for the Restart:
     // T_Connect, DeviceDescriptor_Read, PropertyValue_Read (P=56),
     // PropertyValue_Read (P=11), Restart (data), T_Disconnect - same three
-    // best-effort identity reads as programIA()'s own test above (see its
+    // best-effort identity reads as programIA()'s test above (see its
     // comment for why the count includes them even though nothing answers).
     assert.equal(conn.sent.length, 8);
     // The Restart's own management session addresses the device at its
@@ -884,18 +877,14 @@ describe('KnxConnection.assignIndividualAddressBySerial', () => {
     conn.localAddr = '1.0.1';
     const serial = Buffer.from([0x00, 0xa6, 0x25, 0x40, 0x1d, 0x94]);
 
-    // No mgmt frame is ever simulated - readIndividualAddressBySerial()
-    // times out with a null result on every retry, so verified stays
-    // false. A real test for the retry itself is below.
+    // No mgmt frame is simulated, so readIndividualAddressBySerial() times
+    // out with a null result on every retry and verified stays false (the
+    // retry itself is tested below).
     //
-    // verifyDeadlineMs is 1, not 50. It used to match timeoutMs so that
-    // the retry loop's `Date.now() - verifyStart < verifyDeadlineMs` check
-    // would exit after exactly one attempt - but that made the number of
-    // attempts a coin flip on a 1 ms boundary: a 50 ms setTimeout measures
-    // as 49 ms by Date.now() about 1% of the time on this hardware (the
-    // timer's own clock and the wall clock are not the same clock), and
-    // then 49 < 50 buys a second attempt. That is the whole story behind an
-    // intermittent `sent.length 3, expected 2` here.
+    // verifyDeadlineMs is 1, not 50: matching timeoutMs made the number of
+    // attempts a coin flip on the 1ms boundary between the timer clock and
+    // Date.now(), occasionally buying an extra attempt and an intermittent
+    // `sent.length 3, expected 2`.
     const result = await conn.assignIndividualAddressBySerial(
       serial,
       '1.1.20',
@@ -908,39 +897,37 @@ describe('KnxConnection.assignIndividualAddressBySerial', () => {
       address: null,
       restarted: false,
     });
-    // What this test is actually about: no management session was opened
-    // for a restart that was correctly never attempted. Asserted by where
-    // the frames are addressed rather than by counting them - the write and
-    // the read-back are broadcasts to 0/0/0, and a restart would have
-    // opened a session against the device's new address (1.1.20), as the
-    // successful-verify test above checks. Counting frames would put the
-    // retry loop's timing back into the assertion.
+    // Asserts by frame addressing rather than count, to avoid coupling to
+    // the retry loop's timing: no restart session was opened against the
+    // new address (1.1.20, checked in the successful-verify test above) -
+    // write and read-back stay broadcasts to 0/0/0.
     assert.ok(conn.sent.length >= 2, 'expected at least the write and a read');
     for (const frame of conn.sent) {
       assert.equal(parseCEMI(frame)?.dst, '0/0/0');
     }
   });
 
-  it('retries the read-back verification when the first attempt times out, real bug fixed 2026-09-01', async () => {
+  it('retries the read-back verification when the first attempt times out', async () => {
     const conn = new TestKnxConnection();
     conn.connected = true;
     conn.localAddr = '1.0.1';
     const serial = Buffer.from([0x00, 0xa6, 0x25, 0x40, 0x1d, 0x94]);
 
-    // First read-back attempt (t=0 to t=500ms) times out - nothing
-    // answers, matching the real device that wasn't ready yet. The loop's
-    // own 2000ms between-attempt delay pushes the second attempt's read to
-    // start at t≈2500ms, with its own 500ms window open until t≈3000ms.
-    // The frame is simulated at t≈2700ms - comfortably inside the SECOND
-    // attempt's own listening window, not the first - proving a real
-    // second attempt actually answers it, not just a longer single wait.
+    // First read-back attempt (t=0 to t=2000ms) times out - nothing
+    // answers. The loop's 2000ms between-attempt delay pushes the second
+    // attempt's read to start at t≈4000ms, with its own window open until
+    // t≈6000ms. The frame is simulated at t≈5000ms - inside the SECOND
+    // attempt's window, not the first - proving a real second attempt
+    // answers it, not just a longer single wait. Windows are wide because
+    // the suite runs on a compressed clock, where a narrow one is shorter
+    // than timer jitter.
     const assignP = conn.assignIndividualAddressBySerial(
       serial,
       '1.1.20',
-      500, // each individual read-back attempt's own timeout
-      3500, // overall retry deadline - comfortably covers a second attempt
+      2000, // each individual read-back attempt's own timeout
+      8000, // overall retry deadline - comfortably covers a second attempt
     );
-    await delay(2700);
+    await delay(5000);
     const apduData = Buffer.concat([serial, Buffer.alloc(4)]);
     const apdu = Buffer.concat([Buffer.from([0x03, 0xdd]), apduData]);
     conn.simulateMgmtFrame({
@@ -959,10 +946,10 @@ describe('KnxConnection.assignIndividualAddressBySerial', () => {
     assert.equal(result.verified, true);
     assert.equal(result.address, '1.1.20');
     assert.equal(result.restarted, true);
-    // Write + two Reads (the first timed out, the second was answered) +
-    // the same 6-frame restart session as the single-attempt success case
-    // above (8 total there) = 9 - confirms a real second read-back attempt
-    // actually went out on the wire, not just a single longer-timeout read.
+    // Write + 2 Reads (first timed out, second answered) + the same
+    // 6-frame restart session as the single-attempt success case above
+    // (8 total there) = 9 - confirms a real second read-back attempt went
+    // out, not just a single longer-timeout read.
     assert.equal(
       conn.sent.length,
       9,
@@ -998,9 +985,8 @@ describe('KnxConnection.scan', () => {
     const conn = new TestKnxConnection();
     conn.connected = true;
     conn.localAddr = '1.0.1';
-    // This test relies on every probed address genuinely finding nothing -
-    // the default auto-answer would make every DeviceDescriptor_Read
-    // "succeed", breaking that assumption outright.
+    // Relies on every probed address finding nothing - auto-answer would
+    // make every DeviceDescriptor_Read "succeed".
     conn.autoAnswerIdentityReads = false;
 
     let progressCount = 0;
@@ -1032,8 +1018,8 @@ describe('KnxConnection._probeSingle', () => {
     const conn = new TestKnxConnection();
     conn.connected = true;
     conn.localAddr = '1.0.1';
-    // This test IS the "device never answers" case - the default
-    // auto-answer would defeat the entire point of it.
+    // This IS the "device never answers" case - auto-answer would defeat
+    // the point of it.
     conn.autoAnswerIdentityReads = false;
 
     const result = await conn._probeSingle('1.1.1', 50);
@@ -1084,9 +1070,8 @@ describe('KnxConnection.downloadDevice', () => {
     const conn = new TestKnxConnection();
     conn.connected = true;
     conn.localAddr = '1.0.1';
-    // Doesn't test the "device never answers identity reads" fallback
-    // itself - opts into the fast path (see TestKnxConnection's own doc
-    // comment) instead of paying a real 3s+ timeout for no reason.
+    // Not testing the identity-read fallback here - opt into the fast path
+    // (see TestKnxConnection's doc comment) to avoid an unnecessary timeout.
     conn.autoAnswerIdentityReads = true;
 
     const steps: DownloadStep[] = [
@@ -1102,22 +1087,13 @@ describe('KnxConnection.downloadDevice', () => {
     assert.ok(progress.includes('Download complete'));
   });
 
-  it('resolves the write service from a declared WriteProp[PropId=27] InlineData byte, tightened to ==0x33 (restored, see knx-connection-write-service.test.ts)', async () => {
-    // History: byte 5 of PID_MCB_TABLE (property 27) was the highest-priority
-    // write-service signal, then disproven by a real device (Weinzierl KNX
-    // IO 534 CV (4D)) that declares/reads a non-0xFF byte 5 on every object
-    // yet requires the legacy service - the opposite of the "!=0xFF" rule.
-    // Removed entirely for a time (this test previously locked in that
-    // removal) - then restored in a tightened "==0x33" form once a real
-    // device (Zennio KLIC-DI v2) falsified `IsSecureEnabled` (the signal
-    // that had taken over as primary) and re-examining its own MCB byte 5
-    // found `0x33`, matching every other known "extended" device, while
-    // the Weinzierl falsifying case is `0x32` - close, but not `0x33`.
-    // See the "Update 2026-09-10" block in docs/knx-device-write-
-    // protocol.md §4.1 for the full evidence trail, and
-    // knx-connection-write-service.test.ts for the dedicated suite covering
-    // every branch of this resolution chain (this test just confirms the
-    // declared-WriteProp path specifically, in situ inside downloadDevice()).
+  it('resolves the write service from a declared WriteProp[PropId=27] InlineData byte ==0x33 (see knx-connection-write-service.test.ts)', async () => {
+    // PID_MCB_TABLE (property 27) byte 5 == 0x33 selects the extended
+    // memory-write service; 0xFF or other values (e.g. 0x32) do not - see
+    // docs/knx-device-write-protocol.md §4.1 for the evidence trail and
+    // knx-connection-write-service.test.ts for the full resolution-chain
+    // suite. This test covers the declared-WriteProp path specifically, in
+    // situ inside downloadDevice().
     const conn = new TestKnxConnection();
     conn.connected = true;
     conn.localAddr = '1.0.1';
@@ -1144,29 +1120,34 @@ describe('KnxConnection.downloadDevice', () => {
       ),
       'a declared WriteProp[PropId=27] byte 5 == 0x33 must resolve extended memory writes via the restored PID_MCB_TABLE signal',
     );
-    // Must NOT fall through to a live mask read - the static declaration
-    // should resolve this on its own, with no bus round-trip at all.
+    // The write-service decision short-circuits on the static declaration
+    // alone - it never re-derives via a live mask read. A separate live
+    // DeviceDescriptor_Read still always happens when the mask is otherwise
+    // unknown (see hasPeiProgramObject's doc comment, knx-connection.ts):
+    // the mask decides whether to Unload interface object 5 (PEI Program),
+    // independent of write-service resolution. This fake device never
+    // answers it (autoAnswerIdentityReads off), so it times out and the
+    // object-5 step is just skipped.
     assert.ok(
-      !progress.some((m) =>
-        m.includes('No DeviceDescriptor_Response received'),
+      progress.some((m) =>
+        m.includes(
+          'No DeviceDescriptor_Response received (object-5/PEI Program step will be skipped)',
+        ),
       ),
-      'a resolved static PID_MCB_TABLE signal must short-circuit the mask-read fallback entirely',
+      'the real mask is still probed once, for the object-5/PEI Program decision',
     );
   });
 
-  it('LoadImageProp is read-only for every objIdx, including 4 (real ETS never writes it there)', async () => {
-    // Confirmed 2026-08-29 against 3 independent real downloads of 1.1.10:
-    // ETS only ever reads this property for objIdx 1/2/3/4 - identical
-    // value before/after, every time, including objIdx4 - it does not
-    // write image/table/checksum bytes via this step for any object. An
-    // earlier fix here special-cased objIdx4 to read-then-write-back a
-    // "checksum recompute" - itself wrong: the real writes to objIdx4/P27
-    // come from a separate WriteProp step this app's own model declares
-    // explicitly (see the WriteProp test below), not from LoadImageProp.
-    // gaTable/assocTable are omitted (null) here so downloadDevice()'s
-    // separate "write undeclared GA/Association table" fallback (see
-    // Part 6 of the reference doc) never fires and confuses this test -
-    // that's a different feature, exercised by its own tests.
+  it('LoadImageProp is read-only for every objIdx, including 4 (ETS never writes it there)', async () => {
+    // ETS only reads this property for objIdx 1/2/3/4 - identical value
+    // before/after - it never writes image/table/checksum bytes via this
+    // step for any object. Writes to objIdx4/P27 come from a separate
+    // WriteProp step the app's model declares explicitly (see the
+    // WriteProp test below), not from LoadImageProp.
+    // gaTable/assocTable are omitted (null) so downloadDevice()'s separate
+    // "write undeclared GA/Association table" fallback (Part 6 of the
+    // reference doc) doesn't also fire here - that's exercised by its own
+    // tests.
     const hasPropWrite = (cemi: Buffer): boolean => {
       const parsed = parseCEMI(cemi);
       return (
@@ -1181,10 +1162,8 @@ describe('KnxConnection.downloadDevice', () => {
       const conn = new TestKnxConnection();
       conn.connected = true;
       conn.localAddr = '1.0.1';
-      // Doesn't test the identity-read fallback itself - opts into the
-      // fast path. Real payoff: this loop previously paid a real 3s+
-      // timeout per objIdx (4 total), the single biggest contributor to
-      // this whole file's runtime (~74s for this one test alone).
+      // Not testing the identity-read fallback here - opt into the fast
+      // path to avoid a timeout per objIdx.
       conn.autoAnswerIdentityReads = true;
 
       const steps: DownloadStep[] = [
@@ -1209,19 +1188,17 @@ describe('KnxConnection.downloadDevice', () => {
       );
     }
 
-    // Separately: prove LoadImageProp itself never fabricates a property-27
-    // content write for a supplied gaTable - it stays genuinely read-only.
-    // (Corrected 2026-08-29: a declared LoadImageProp step no longer
-    // suppresses the separate undeclared-table fallback - see
-    // declaredTableObjIdxs in knx-connection.ts and
-    // ga-assoc-table-write.test.ts - so with a real gaTable supplied here,
-    // that fallback now correctly fires and writes it via its own
-    // Unload/StartLoading/LoadData/Memory_Write/LoadCompleted cycle, which
-    // includes PID_LOAD_STATE_CONTROL (property 5) PropertyValue_Write
-    // frames. Those are a different mechanism from what this test is
-    // checking, so the matcher below is narrowed to property 27
-    // specifically - the only signature a LoadImageProp-driven content
-    // write could plausibly use.)
+    // Separately: LoadImageProp itself never fabricates a property-27
+    // content write for a supplied gaTable - it stays read-only. A declared
+    // LoadImageProp step does not suppress the separate undeclared-table
+    // fallback (see declaredTableObjIdxs in knx-connection.ts and
+    // ga-assoc-table-write.test.ts), so with a gaTable supplied here that
+    // fallback fires and writes it via its own
+    // Unload/StartLoading/LoadData/Memory_Write/LoadCompleted cycle,
+    // including PID_LOAD_STATE_CONTROL (property 5) PropertyValue_Write
+    // frames - a different mechanism, so the matcher below is narrowed to
+    // property 27, the only signature a LoadImageProp-driven content write
+    // could plausibly use.
     const hasProp27Write = (cemi: Buffer): boolean =>
       hasPropWrite(cemi) && parseCEMI(cemi)!.apdu[3] === 27;
     const conn2 = new TestKnxConnection();
@@ -1245,15 +1222,11 @@ describe('KnxConnection.downloadDevice', () => {
   });
 
   it('WriteProp trims propId=27 data to its real 8-byte element size', async () => {
-    // The project file's own declared InlineData for objIdx4/propId27
-    // WriteProp steps is always 2 bytes longer than what real ETS actually
-    // puts on the wire - confirmed 2026-08-29 by comparing a real capture
-    // against the project file, then checked against every app in this
-    // project's data/apps declaring this step (several different
-    // manufacturers) - all consistently 10 bytes, ending in 2 trailing
+    // The project file's declared InlineData for objIdx4/propId27 WriteProp
+    // steps is always 2 bytes longer than what ETS puts on the wire -
+    // consistently 10 bytes across manufacturers, with 2 trailing
     // zero-padding bytes beyond the real 8-byte element. Not observed for
-    // any other property, so the trim in the WriteProp case is scoped to
-    // propId 27 only.
+    // any other property, so the trim is scoped to propId 27 only.
     const conn = new TestKnxConnection();
     conn.connected = true;
     conn.localAddr = '1.0.1';
@@ -1330,9 +1303,9 @@ describe('KnxConnection.downloadDevice', () => {
     conn.autoAnswerIdentityReads = true;
 
     // 25 bytes of param memory - well under MEM_CHUNK (228, see
-    // knx-connection.ts's own comment), so this exercises the single-chunk
-    // path; the dedicated boundary-straddle test in
-    // relmem-write-protocol.test.ts covers the real multi-chunk case.
+    // knx-connection.ts), so this exercises the single-chunk path; the
+    // boundary-straddle test in relmem-write-protocol.test.ts covers the
+    // multi-chunk case.
     const paramMem = Buffer.alloc(25, 0xaa);
     const steps: DownloadStep[] = [
       { type: 'WriteRelMem', objIdx: 0, propId: 0, size: 25, offset: 0x100 },
@@ -1352,27 +1325,22 @@ describe('KnxConnection.downloadDevice', () => {
     const conn = new TestKnxConnection();
     conn.connected = true;
     conn.localAddr = '1.0.1';
-    // This test IS the "device never answers DeviceDescriptor_Read" case -
-    // the default auto-answer would defeat the entire point of it.
+    // This IS the "device never answers DeviceDescriptor_Read" case -
+    // auto-answer would defeat the point of it.
     conn.autoAnswerIdentityReads = false;
 
     const paramMem = Buffer.alloc(8, 0xaa);
     const steps: DownloadStep[] = [
       { type: 'WriteRelMem', objIdx: 0, propId: 0, size: 8, offset: 0x100 },
     ];
-    // No resolvedBases entry → base defaults to 0, so addr = 0x100, well
-    // under 0xFFFF. WriteRelMem now reads the device's real mask version
-    // (A_DeviceDescriptor_Read) and only forces A_MemoryExtended_Write
-    // unconditionally for a confirmed System B device (mask 0x07B0) - a
-    // real captured ETS Partial Download against 1.1.9, address 0x5F53,
-    // also well within 16 bits, still used the extended service exclusively
-    // there (see knx-connection.ts's WriteRelMem case and the dedicated
-    // mask-gating tests in tests/relmem-write-protocol.test.ts). This
-    // `TestKnxConnection` never answers the descriptor read at all, so this
-    // test exercises the fallback path specifically: the original
-    // conservative address-size heuristic (legacy service for an address
-    // that fits in 16 bits) applies when the mask is unknown, rather than
-    // assuming "always extended" generalizes to every device.
+    // No resolvedBases entry -> base defaults to 0, so addr = 0x100, well
+    // under 0xFFFF. WriteRelMem reads the device's mask (A_DeviceDescriptor_
+    // Read) and only forces A_MemoryExtended_Write unconditionally for a
+    // System B device (mask 0x07B0) - see knx-connection.ts's WriteRelMem
+    // case and the mask-gating tests in tests/relmem-write-protocol.test.ts.
+    // This connection never answers the descriptor read, so this test
+    // exercises the fallback: the address-size heuristic (legacy service
+    // for a 16-bit-fitting address) applies when the mask is unknown.
     await conn.downloadDevice('1.1.2', steps, null, null, paramMem, undefined);
 
     const writes = conn.sent
@@ -1389,11 +1357,10 @@ describe('KnxConnection.downloadDevice', () => {
     const conn = new TestKnxConnection();
     conn.connected = true;
     conn.localAddr = '1.0.1';
-    // Safe to opt into the fast path here specifically: an address that
-    // doesn't fit in 16 bits forces the extended service regardless of
-    // mask (a physical wire constraint, not a mask-based choice) - whether
-    // DeviceDescriptor_Read answers or not can't change this test's
-    // outcome, unlike the sibling "falls back to legacy..." test above.
+    // Safe to opt into the fast path here: an address that doesn't fit in
+    // 16 bits forces the extended service regardless of mask (a wire
+    // constraint, not a mask-based choice), unlike the sibling
+    // "falls back to legacy..." test above.
     conn.autoAnswerIdentityReads = true;
 
     const paramMem = Buffer.alloc(8, 0xaa);
@@ -1551,12 +1518,11 @@ describe('KnxConnection.identify', () => {
     conn.connected = true;
     conn.localAddr = '1.0.1';
 
-    // Patch delay to speed up the 3-second wait
     const origDelay = delay;
     const delayModule = await import('../server/knx-connection.ts');
 
-    // identify has a 3s delay — we just verify it runs without error
-    // and sends frames. The test subclass makes sendCEMI instant.
+    // identify has a 3s delay - just verify it completes and sends frames.
+    // The test subclass makes sendCEMI instant.
     await conn.identify('1.1.2');
 
     // Should have sent: CONNECT, memory_write(on), memory_write(off), DISCONNECT

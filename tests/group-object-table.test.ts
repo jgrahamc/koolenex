@@ -1,14 +1,14 @@
 /**
- * Tests for computeGroupObjectByte()/buildGroupObjectTable() (server/routes/knx-tables.ts) -
- * Object 3's per-communication-object flag byte, decoded via a systematic real-hardware
- * bit-mapping session (2026-08-29, System B mask family only). See
- * docs/knx-device-write-protocol.md §10.1 for the full evidence trail.
+ * Tests for computeGroupObjectByte()/buildGroupObjectTable()
+ * (server/routes/knx-tables.ts) - Object 3's per-communication-object flag
+ * byte, decoded on the System B mask family. See
+ * docs/knx-device-write-protocol.md §10.1 for the bit-mapping evidence.
  *
- * Every case below is a real byte captured on the wire during that investigation (device 1.1.9,
- * except where noted) - this is a golden-image validation against real hardware, not synthetic
- * data, following the same pattern as tests/relmem-real-device-fixtures.test.ts and
- * tests/ga-assoc-table-write.test.ts elsewhere in this project. One case (marked explicitly) is
- * NOT independently verified against a real capture - see its own comment.
+ * Every case below is a byte captured on the wire (device 1.1.9 except
+ * where noted) - golden-image validation against real hardware, matching
+ * tests/relmem-real-device-fixtures.test.ts and
+ * tests/ga-assoc-table-write.test.ts elsewhere in this project. One case
+ * (marked explicitly) is not independently verified against a capture.
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -22,8 +22,7 @@ import {
 } from '../server/routes/knx-tables.ts';
 import type { GroupObjectFlags } from '../server/routes/knx-tables.ts';
 
-// Manufacturer defaults for the real communication objects used throughout the investigation
-// (M-0004_A-0025-10-1BA6-O00A6, 1.1.9's app - confirmed against the real app XML).
+// Manufacturer defaults for 1.1.9's app (M-0004_A-0025-10-1BA6-O00A6), per its real app XML.
 const DEF_OBJ67: Omit<GroupObjectFlags, 'object_number' | 'linked'> = {
   update: false,
   transmit: true,
@@ -33,7 +32,7 @@ const DEF_OBJ67: Omit<GroupObjectFlags, 'object_number' | 'linked'> = {
   communication: true,
   priority: 'low',
 };
-// Object 5's real defaults differ (Read=Enabled, Write=Disabled - opposite of 6/7).
+// Object 5's defaults differ (Read=Enabled, Write=Disabled - opposite of 6/7).
 const DEF_OBJ5: Omit<GroupObjectFlags, 'object_number' | 'linked'> = {
   update: false,
   transmit: true,
@@ -99,7 +98,7 @@ describe('computeGroupObjectByte() - real captured bytes, device 1.1.9 unless no
       0x0b,
     );
   });
-  it('object 7: Communication=off while unlinked -> no change (0x0B) - the confound that caused the original wrong "Communication has zero representation" claim', () => {
+  it('object 7: Communication=off while unlinked -> no change (0x0B) - bit 2 is Communication AND linked, so this alone has no effect', () => {
     assert.equal(
       computeGroupObjectByte({
         object_number: 7,
@@ -171,7 +170,7 @@ describe('computeGroupObjectByte() - real captured bytes, device 1.1.9 unless no
       0xd3,
     );
   });
-  it('object 6: Update=on + Read=on (additive, predicted before capture) -> 0xDB', () => {
+  it('object 6: Update=on + Read=on (additive) -> 0xDB', () => {
     assert.equal(
       computeGroupObjectByte({
         object_number: 6,
@@ -184,9 +183,9 @@ describe('computeGroupObjectByte() - real captured bytes, device 1.1.9 unless no
     );
   });
 
-  // ── Object 5 (offset 10), linked throughout (1 or 2 GAs) - different DPT/size (8-byte
-  // DPST-19-1 date/time) than every other object tested, and the object used to isolate bit 2's
-  // real Communication-AND-linked meaning. ──
+  // ── Object 5 (offset 10), linked (1 or 2 GAs) - 8-byte DPST-19-1 date/time, different
+  // DPT/size than every other object here; used to isolate bit 2's Communication-AND-linked
+  // meaning. ──
   it('object 5: manufacturer default, linked -> 0x4F', () => {
     assert.equal(
       computeGroupObjectByte({ object_number: 5, ...DEF_OBJ5, linked: true }),
@@ -204,7 +203,7 @@ describe('computeGroupObjectByte() - real captured bytes, device 1.1.9 unless no
       0x6f,
     );
   });
-  it('object 5: Communication=off, GA link left untouched -> 0x4B (the decisive correction test)', () => {
+  it('object 5: Communication=off, GA link left untouched -> 0x4B', () => {
     assert.equal(
       computeGroupObjectByte({
         object_number: 5,
@@ -242,9 +241,9 @@ describe('computeGroupObjectByte() - real captured bytes, device 1.1.9 unless no
     );
   });
 
-  // ── Object 96, device 1.1.10 (M-0004_A-3030-23-F0EA-O000A) - a completely different
-  // manufacturer app, the blind cross-device confirmation test. ──
-  it('object 96 (1.1.10): manufacturer default, computed - NOT independently verified against a real capture (only the post-change byte below was actually observed on the wire; this one is back-computed from the same app XML the test itself used, so it is internally consistent, not an independent cross-check)', () => {
+  // ── Object 96, device 1.1.10 (M-0004_A-3030-23-F0EA-O000A) - a different manufacturer app,
+  // used for cross-device confirmation. ──
+  it('object 96 (1.1.10): manufacturer default, computed - not independently verified against a capture (back-computed from the app XML this test itself uses; only the post-change byte below was actually observed on the wire)', () => {
     assert.equal(
       computeGroupObjectByte({
         object_number: 96,
@@ -260,7 +259,7 @@ describe('computeGroupObjectByte() - real captured bytes, device 1.1.9 unless no
       0xcb,
     );
   });
-  it('object 96 (1.1.10): Write=on - the real blind test (computed here without knowing the answer, then checked against the capture, which showed 0xDB)', () => {
+  it('object 96 (1.1.10): Write=on -> 0xDB (matches the captured value)', () => {
     assert.equal(
       computeGroupObjectByte({
         object_number: 96,
@@ -278,26 +277,24 @@ describe('computeGroupObjectByte() - real captured bytes, device 1.1.9 unless no
   });
 });
 
-// The companion (size-code) byte - real captured values, confirmed 2026-08-29 by pulling
-// ComObject/ComObjectRef `ObjectSize` declarations from both testbed apps' own real XML and
-// checking them against the real captured companion byte at that object's offset. See
-// groupObjectSizeCode()'s own doc comment (server/routes/knx-tables.ts) and docs/knx-device-
-// write-protocol.md Part 17 for the full evidence trail (4 independent DPT/size matches, plus
-// the header-count finding below).
+// The companion (size-code) byte - captured values, cross-checked against ComObject/
+// ComObjectRef `ObjectSize` declarations from both testbed apps' XML. See
+// groupObjectSizeCode()'s doc comment (server/routes/knx-tables.ts) and
+// docs/knx-device-write-protocol.md Part 17 for the evidence trail.
 describe('groupObjectSizeCode() - real captured companion bytes, cross-device', () => {
-  it('"1 Bit" -> 0 (real, extensively confirmed on every ordinary object on both devices)', () => {
+  it('"1 Bit" -> 0 (confirmed on every ordinary object on both devices)', () => {
     assert.equal(groupObjectSizeCode('1 Bit'), 0);
   });
-  it('"4 Bit" -> 3 (real, 1.1.10 object 34 / DPST-3-7 dimming control)', () => {
+  it('"4 Bit" -> 3 (1.1.10 object 34 / DPST-3-7 dimming control)', () => {
     assert.equal(groupObjectSizeCode('4 Bit'), 3);
   });
-  it('"1 Byte" -> 7 (real, 1.1.10 objects 35/36 / DPST-5-1)', () => {
+  it('"1 Byte" -> 7 (1.1.10 objects 35/36 / DPST-5-1)', () => {
     assert.equal(groupObjectSizeCode('1 Byte'), 7);
   });
-  it('"3 Bytes" -> 9 (real, 1.1.9 objects 3/4 / DPST-10-1 + DPST-11-1 - two different DPTs, same size, same real byte)', () => {
+  it('"3 Bytes" -> 9 (1.1.9 objects 3/4 / DPST-10-1 + DPST-11-1 - two different DPTs, same size, same byte)', () => {
     assert.equal(groupObjectSizeCode('3 Bytes'), 9);
   });
-  it('"8 Bytes" -> 12 (real, 1.1.9 object 5 / DPST-19-1)', () => {
+  it('"8 Bytes" -> 12 (1.1.9 object 5 / DPST-19-1)', () => {
     assert.equal(groupObjectSizeCode('8 Bytes'), 12);
   });
   it('unrecognized/missing input defaults to 0 (1 Bit), not a thrown error', () => {
@@ -305,7 +302,7 @@ describe('groupObjectSizeCode() - real captured companion bytes, cross-device', 
     assert.equal(groupObjectSizeCode(''), 0);
     assert.equal(groupObjectSizeCode('not a real ETS size string'), 0);
   });
-  it('the remaining codes (not yet directly confirmed against real hardware) still follow the well-known KNX size-code sequence', () => {
+  it('the remaining codes (unconfirmed against real hardware) still follow the well-known KNX size-code sequence', () => {
     assert.equal(groupObjectSizeCode('2 Bit'), 1);
     assert.equal(groupObjectSizeCode('3 Bit'), 2);
     assert.equal(groupObjectSizeCode('5 Bit'), 4);
@@ -321,12 +318,12 @@ describe('groupObjectSizeCode() - real captured companion bytes, cross-device', 
 });
 
 describe('buildGroupObjectTable() - full-buffer placement, real device sizes', () => {
-  it('writes the 2-byte header (total declared object count), real captured value for 1.1.9 (0x0030 = 48)', () => {
+  it('writes the 2-byte header (total declared object count), captured value for 1.1.9 (0x0030 = 48)', () => {
     const buf = buildGroupObjectTable(98, []);
     assert.equal(buf.readUInt16BE(0), 48);
   });
 
-  it('writes the 2-byte header, real captured value for 1.1.10 (0x01D6 = 470)', () => {
+  it('writes the 2-byte header, captured value for 1.1.10 (0x01D6 = 470)', () => {
     const buf = buildGroupObjectTable(942, []);
     assert.equal(buf.readUInt16BE(0), 470);
   });
@@ -342,7 +339,7 @@ describe('buildGroupObjectTable() - full-buffer placement, real device sizes', (
     assert.equal(buf[13], 0x00); // object 6 companion (1 Bit -> code 0)
     assert.equal(buf[14], 0x53); // object 7 flag byte
     assert.equal(buf[15], 0x00); // object 7 companion (1 Bit -> code 0)
-    // Everything else stays zero - matches every real device's own mostly-empty Object 3.
+    // Everything else stays zero - matches every device's own mostly-empty Object 3.
     const rest = Buffer.from(buf);
     rest.writeUInt16BE(0, 0);
     rest[12] = 0;
@@ -353,7 +350,7 @@ describe('buildGroupObjectTable() - full-buffer placement, real device sizes', (
     );
   });
 
-  it('reproduces the real 4-object layout observed on the wire (objects 5/6/7/8, 1.1.9), including companion bytes', () => {
+  it('reproduces the 4-object layout observed on the wire (objects 5/6/7/8, 1.1.9), including companion bytes', () => {
     const buf = buildGroupObjectTable(98, [
       { object_number: 5, ...DEF_OBJ5, linked: true, objectSize: '8 Bytes' },
       { object_number: 6, ...DEF_OBJ67, linked: false, objectSize: '1 Bit' },
@@ -368,7 +365,7 @@ describe('buildGroupObjectTable() - full-buffer placement, real device sizes', (
     assert.equal(buf[17], 0x00); // object 8 companion (1 Bit -> code 0)
   });
 
-  it('reproduces the real 1.1.9 object 3/4 case: two different DPTs, same real size, same real companion byte', () => {
+  it('reproduces the 1.1.9 object 3/4 case: two different DPTs, same size, same companion byte', () => {
     const buf = buildGroupObjectTable(98, [
       {
         object_number: 3,
@@ -395,10 +392,10 @@ describe('buildGroupObjectTable() - full-buffer placement, real device sizes', (
         objectSize: '3 Bytes', // DPST-11-1 (DatumGO, Date) - different DPT, same size
       },
     ]);
-    assert.equal(buf[6], 0x4b); // object 3 flag byte, real captured value
-    assert.equal(buf[7], 0x09); // object 3 companion, real captured value
-    assert.equal(buf[8], 0x4b); // object 4 flag byte, real captured value
-    assert.equal(buf[9], 0x09); // object 4 companion, real captured value - same as object 3
+    assert.equal(buf[6], 0x4b); // object 3 flag byte, captured value
+    assert.equal(buf[7], 0x09); // object 3 companion, captured value
+    assert.equal(buf[8], 0x4b); // object 4 flag byte, captured value
+    assert.equal(buf[9], 0x09); // object 4 companion, captured value - same as object 3
   });
 
   it('silently skips (leaves at zero) any object number that would fall outside the real buffer size, rather than throwing', () => {
@@ -413,10 +410,10 @@ describe('buildGroupObjectTable() - full-buffer placement, real device sizes', (
     assert.ok(rest.every((b) => b === 0));
   });
 
-  it('reproduces the ENTIRE real 98-byte 1.1.9 capture byte-for-byte, header included (2026-08-29-ets-full-download-obj3-trigger-test-1.1.9.pcapng)', () => {
-    // The full real com-object set this exact capture's Object 3 reflects - every object 1.1.9's
-    // app actually declares and links for this device (objects 3/4/5 unlinked internal-clock
-    // objects; object 5/8 linked at the time; objects 9-28 the "Mapper object" 1-bit channels).
+  it('reproduces the entire 98-byte 1.1.9 capture byte-for-byte, header included', () => {
+    // The full com-object set this capture's Object 3 reflects - every object 1.1.9's app
+    // declares and links for this device (objects 3/4 unlinked internal-clock objects; objects
+    // 5/8 linked at capture time; objects 9-28 the "Mapper object" 1-bit channels).
     const REAL_HEX =
       '0030000000004b094b094f0c530053004f005b005b005b005b005b005b005b005b005b005b005b005b005b005b005b005b005b005b005b005b0000000000000000000000000000000000000000000000000000000000000000000000000000000000';
     const mapperObj = (n: number): GroupObjectFlags => ({
@@ -472,7 +469,7 @@ describe('buildGroupObjectTable() - full-buffer placement, real device sizes', (
 
 describe('describeGroupObjectEntry() - human-readable formatting for the device-compare page', () => {
   it('formats every flag bit, priority, and size - not just a raw hex byte pair', () => {
-    // 0x6f = object 5 with Read-On-Init=on (0x4F | 0x20) - real captured value.
+    // 0x6f = object 5 with Read-On-Init=on (0x4F | 0x20) - captured value.
     const str = describeGroupObjectEntry({
       flagByte: 0x6f,
       sizeCodeByte: 0x0c,
@@ -484,7 +481,7 @@ describe('describeGroupObjectEntry() - human-readable formatting for the device-
   });
 
   it("Comm+Linked reflects the combined bit 2 - Yes only when both Communication and a real GA link are true (the byte can't distinguish which, if either, is false)", () => {
-    // 0x4B = object 5 default with Communication=off (or unlinked) - bit 2 clear either way.
+    // 0x4B = object 5 with Communication=off (or unlinked) - bit 2 clear either way.
     const str = describeGroupObjectEntry({
       flagByte: 0x4b,
       sizeCodeByte: 0x00,
@@ -518,14 +515,14 @@ describe('describeGroupObjectEntry() - human-readable formatting for the device-
     );
   });
 
-  it('an unrecognized size code (never confirmed against real hardware, but the sequence is well-known) still shows its own real name, not garbage', () => {
+  it('an unrecognized size code (unconfirmed against real hardware, but the sequence is well-known) still shows its own name, not garbage', () => {
     const str = describeGroupObjectEntry({ flagByte: 0, sizeCodeByte: 15 }); // 15 = Variable length
     assert.match(str, /Size=Variable length/);
   });
 });
 
 describe('decodeGroupObjectEntryFlags() - structured (not string) decode, for the per-flag chip display', () => {
-  it('matches describeGroupObjectEntry() bit-for-bit - same real captured value (0x6f object 5, Read-On-Init on)', () => {
+  it('matches describeGroupObjectEntry() bit-for-bit - same captured value (0x6f object 5, Read-On-Init on)', () => {
     const flags = decodeGroupObjectEntryFlags({
       flagByte: 0x6f,
       sizeCodeByte: 0x0c,

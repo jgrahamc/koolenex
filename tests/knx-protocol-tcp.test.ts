@@ -1,14 +1,14 @@
 /**
  * Tests for KnxIpConnection's TCP stream frame-reassembly (_onTcpData) -
- * real KNXnet/IP-over-TCP messages arrive as an arbitrary byte stream, not
- * one-message-per-event the way UDP datagrams do. Logic verified against
- * Calimero's real StreamConnection.runReceiveLoop() - see
- * docs/knx-device-write-protocol.md §9. Isolated from real sockets: constructs
- * a KnxIpConnection directly and feeds _onTcpData() raw bytes, spying on
- * _onMsg() to record what full messages it reassembled.
+ * KNXnet/IP-over-TCP messages arrive as an arbitrary byte stream, not
+ * one-message-per-event the way UDP datagrams do (cf. Calimero's
+ * StreamConnection.runReceiveLoop(), docs/knx-device-write-protocol.md §9).
+ * Constructs a KnxIpConnection directly and feeds _onTcpData() raw bytes,
+ * spying on _onMsg() to record what full messages it reassembled.
  */
 import { describe, it, mock } from 'node:test';
 import assert from 'node:assert/strict';
+import net from 'net';
 
 import { KnxConnection as KnxIpConnection } from '../server/knx-protocol.ts';
 import { buildCEMI, apduGroupWrite } from '../server/knx-cemi.ts';
@@ -94,17 +94,15 @@ describe('KnxIpConnection._onTcpData (TCP stream reassembly)', () => {
 });
 
 // ── KnxIpConnection._sendCEMIOnce: TCP skips the TUNNELING_ACK wait ──────────
-// Real, confirmed 2026-08-30: over TCP, KNXnet/IP servers don't send a
-// TUNNELING_ACK at all - matches Calimero's real client
-// ("with tcp, service acks are not required and just ignored"). Found via
-// real-hardware testing: waiting for one over TCP (as this codebase
-// previously did unconditionally) caused every call after the first in a
-// session to hang until timeout.
+// Over TCP, KNXnet/IP servers don't send a TUNNELING_ACK at all - matches
+// Calimero's client ("with tcp, service acks are not required and just
+// ignored"). Waiting for one over TCP hangs every call after the first.
 
 describe('KnxIpConnection._sendCEMIOnce: TCP ACK skip', () => {
   it('resolves immediately over TCP without waiting for a TUNNELING_ACK', async () => {
     const conn = new (KnxIpConnection as any)();
     conn.transport = 'tcp';
+    conn.connected = true;
     conn.tcpSocket = { write: () => {} };
     const cemi = Buffer.from([0x29, 0x00, 0xbc, 0x60]);
     await conn._sendCEMIOnce(cemi, 1000); // would hang/reject on timeout if this waited for an ack
@@ -124,29 +122,105 @@ describe('KnxIpConnection._sendCEMIOnce: TCP ACK skip', () => {
   });
 });
 
+// ── KnxIpConnection._sendCEMIOnce: dead-socket TCP send must reject ─────────
+// A mid-session TCP disconnect (e.g. ECONNRESET) leaves `tcpSocket` non-null
+// - its 'close' handler only flips `this.connected`, never nulls the
+// reference. `_sendRaw()`'s `write(buf)` is fire-and-forget: Node's
+// net.Socket.write() on an already-destroyed socket does not throw
+// synchronously, it schedules an async 'error' event later.
+// `_sendCEMIOnce()` must check liveness itself, not resolve unconditionally.
+
+describe('KnxIpConnection._sendCEMIOnce: dead TCP socket must reject, not silently resolve', () => {
+  it('rejects once the TCP socket has been destroyed mid-session, against a real net.Socket', async () => {
+    const server = net.createServer((sock) => sock.on('data', () => {}));
+    await new Promise<void>((resolve) =>
+      server.listen(0, '127.0.0.1', resolve),
+    );
+    const port = (server.address() as net.AddressInfo).port;
+
+    const conn = new (KnxIpConnection as unknown as new () => {
+      tcpSocket: net.Socket | null;
+      transport: 'udp' | 'tcp' | null;
+      connected: boolean;
+      channelId: number;
+      seqOut: number;
+      _sendCEMIOnce: (cemi: Buffer, timeoutMs: number) => Promise<void>;
+    })();
+
+    const clientSocket = net.connect(port, '127.0.0.1');
+    await new Promise<void>((resolve, reject) => {
+      clientSocket.once('connect', () => resolve());
+      clientSocket.once('error', reject);
+    });
+    conn.tcpSocket = clientSocket;
+    conn.transport = 'tcp';
+    conn.connected = true;
+    conn.channelId = 1;
+
+    const fakeCemi = Buffer.from([0x11, 0x00, 0x00, 0x00, 0x00, 0x00]);
+
+    // Sanity check: a live, connected socket really does resolve.
+    await conn._sendCEMIOnce(fakeCemi, 1000);
+
+    // Destroy the socket as ECONNRESET would, without wiring up a 'close'
+    // listener - isolates whether _sendCEMIOnce() itself detects a dead
+    // socket independent of any listener flipping `connected`.
+    clientSocket.destroy();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    await assert.rejects(
+      () => conn._sendCEMIOnce(fakeCemi, 1000),
+      /not connected|socket/i,
+      '_sendCEMIOnce() must reject once the TCP socket is destroyed, not silently resolve as if the send succeeded',
+    );
+
+    server.close();
+  });
+
+  it('also rejects when `connected` is already false, even with a live (never-connected) tcpSocket reference', async () => {
+    const conn = new (KnxIpConnection as unknown as new () => {
+      tcpSocket: net.Socket | null;
+      transport: 'udp' | 'tcp' | null;
+      connected: boolean;
+      channelId: number;
+      seqOut: number;
+      _sendCEMIOnce: (cemi: Buffer, timeoutMs: number) => Promise<void>;
+    })();
+    conn.tcpSocket = new net.Socket(); // real object, never connected/destroyed
+    conn.transport = 'tcp';
+    conn.connected = false; // the real post-ECONNRESET state ('close' already fired)
+    conn.channelId = 1;
+
+    await assert.rejects(
+      () =>
+        conn._sendCEMIOnce(
+          Buffer.from([0x11, 0x00, 0x00, 0x00, 0x00, 0x00]),
+          1000,
+        ),
+      /not connected/i,
+    );
+  });
+
+  it('still resolves normally over TCP when genuinely connected (no regression to the ACK-skip behavior above)', async () => {
+    const conn = new (KnxIpConnection as any)();
+    conn.transport = 'tcp';
+    conn.connected = true;
+    conn.tcpSocket = { write: () => {}, destroyed: false };
+    const cemi = Buffer.from([0x29, 0x00, 0xbc, 0x60]);
+    await conn._sendCEMIOnce(cemi, 1000);
+    assert.equal(conn._pendingAck, null);
+  });
+});
+
 // ── KnxIpConnection._onConnectRes: CONNSTATE heartbeat over UDP and TCP ──────
-// Sending the CONNECTIONSTATE_REQUEST heartbeat over TCP was previously
-// believed unnecessary and was disabled for TCP connections, on the
-// assumption that TCP's own connection liveness (close/error events)
-// already covers what the heartbeat provides over UDP - matching
-// Calimero's client, which never starts its heartbeat monitor for a
-// stream/TCP connection.
-//
-// See the matching comment in knx-protocol.ts's `_onConnectRes` for the
-// full evidence: a real KNXnet/IP gateway was observed closing a genuinely
-// idle TCP tunnel after approximately 120 seconds with no heartbeat
-// running, and a byte-level parse of a real ETS capture confirmed ETS
-// itself sends a genuine CONNECTIONSTATE_REQUEST over its own TCP tunnel
-// approximately every 30.2 seconds. An earlier attempt to send this over
-// TCP had closed the tunnel - traced to a call-site bug, not a protocol
-// restriction: the call omitted the `hostProtocol` argument to
-// `pktConnState()`, silently defaulting to `HOST_PROTOCOL.UDP` and
-// producing a self-contradictory HPAI (UDP protocol byte, TCP's
-// placeholder 0.0.0.0:0 address) that the gateway rejected by closing the
-// tunnel. Fixed by passing `HOST_PROTOCOL.TCP` explicitly for TCP
-// connections - confirmed against real hardware: a TCP tunnel held
-// genuinely idle for over 540 seconds with zero disconnects, and
-// separately across repeated real Full Downloads with zero disconnects.
+// The CONNECTIONSTATE_REQUEST heartbeat runs over TCP too, despite
+// Calimero's client never starting one for a stream/TCP connection: an idle
+// TCP tunnel with no heartbeat gets closed by the gateway after ~120s, and
+// ETS itself sends a CONNECTIONSTATE_REQUEST over TCP every ~30.2s. The
+// heartbeat's HPAI must carry `HOST_PROTOCOL.TCP` explicitly - omitting it
+// silently defaults to UDP, producing a self-contradictory HPAI (UDP
+// protocol byte, TCP's placeholder 0.0.0.0:0 address) that gets the tunnel
+// closed by the gateway.
 
 function makeConnectRes(channelId: number): Buffer {
   // header(6) + channelId(1) + reserved(1) + status(1) = 8 bytes minimum
@@ -176,31 +250,32 @@ describe('KnxIpConnection._onConnectRes: heartbeat', () => {
       conn._sendRaw = (buf: Buffer) => sent.push(buf);
       conn._onConnectRes(makeConnectRes(0x01));
       assert.ok(conn._hbTimer !== null);
+      // _onConnectRes also sends a TunnelFeature GET (BUS_STATUS) and SET
+      // (INFO_SERVICE_ENABLE) immediately - both land in `sent` before the
+      // heartbeat interval ever fires.
       assert.equal(
         sent.length,
-        0,
-        'nothing sent yet - the interval has not fired',
+        2,
+        'only the TunnelFeature negotiation sent so far - the interval has not fired',
       );
 
-      // Actually advance the mocked interval rather than hand-constructing
-      // what the callback "should" send - this is the same fake-HPAI-byte
-      // bug (an omitted hostProtocol argument silently defaulting to UDP)
-      // that killed a real router's TCP tunnel, so the test needs to
-      // observe the real call site's output, not a parallel computation of
-      // what it's expected to produce.
+      // Advance the mocked interval rather than hand-constructing the
+      // expected frame, so the test observes the real call site's output
+      // (an omitted hostProtocol argument silently defaults to UDP).
       t.mock.timers.tick(30000);
-      assert.equal(sent.length, 1);
+      assert.equal(sent.length, 3);
+      const heartbeatFrame = sent[2]!;
       // byte 1 of the HPAI (offset 9 in the full CONNECTIONSTATE_REQUEST
       // packet: 6-byte header + 1-byte channel ID + 1-byte reserved + 1-byte
       // HPAI length) must be the TCP protocol code, not the UDP default the
       // original bug sent.
       assert.equal(
-        sent[0]![9],
+        heartbeatFrame[9],
         HOST_PROTOCOL.TCP,
         'HPAI protocol byte must be TCP (0x02), not the UDP default',
       );
       assert.deepEqual(
-        [...sent[0]!],
+        [...heartbeatFrame],
         [
           ...pktConnState(
             conn.channelId,
@@ -317,15 +392,20 @@ describe('KnxIpConnection._onTunnelingReq: sequence de-duplication', () => {
     assert.equal(values.length, 3);
   });
 
-  it('acknowledges every request, on either transport', () => {
-    // Calimero's client says acks "are not required and just ignored" over
-    // TCP, so sending one is harmless - and not sending it is a change to
-    // the wire with no evidence behind it, which this is not the place for.
-    for (const transport of ['tcp', 'udp'] as const) {
-      const { conn, acks } = harness(transport);
+  it('acknowledges over UDP, but not over TCP', () => {
+    // ETS never sends a TUNNELING_ACK over TCP - TCP's own delivery
+    // guarantee already covers this. Matches the send side's TCP-never-acks
+    // behavior (_sendCEMIOnce).
+    {
+      const { conn, acks } = harness('udp');
       conn._onMsg(tunnelReq(1, 0, write(1)));
-      assert.equal(acks.length, 1, transport);
-      assert.equal(acks[0]!.readUInt16BE(2), SVC.TUNNELING_ACK, transport);
+      assert.equal(acks.length, 1, 'udp');
+      assert.equal(acks[0]!.readUInt16BE(2), SVC.TUNNELING_ACK, 'udp');
+    }
+    {
+      const { conn, acks } = harness('tcp');
+      conn._onMsg(tunnelReq(1, 0, write(1)));
+      assert.equal(acks.length, 0, 'tcp');
     }
   });
 });

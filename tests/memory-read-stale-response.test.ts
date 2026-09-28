@@ -2,34 +2,33 @@
  * A retransmitted response must not be mistaken for the answer to the
  * request in flight.
  *
- * From a real capture, 2026-09-11, verifying 1.1.21 (mask 0x0701) over a
- * TCP tunnel. Every read up to 0x4200 worked. Then:
+ * Sequence reproduced (mask 0x0701 over a TCP tunnel, reads up to 0x4200
+ * working normally):
  *
- *   36.684  device -> us   Memory_Response seq 3  (0x4200, 12 bytes)
- *   36.684  us -> device   T_Ack seq 3            (never arrived)
- *   36.685  us -> device   Memory_Read seq 4      (0x420c, 12 bytes)
- *   36.774  device -> us   T_Ack seq 4            (request received)
- *   ...     silence: a transport connection allows one unacknowledged
- *           numbered frame at a time, so the device could not send its
- *           next response until its previous one was acked
- *   39.687  us             3s timeout, retry ladder drops to 1 byte
- *   39.820  device -> us   Memory_Response seq 3 AGAIN (retransmission)
- *   39.821  us             matched that as the answer, and failed with
- *                          "address mismatch: requested 0x420c, device
- *                          answered 0x4200"
- *   39.960  device -> us   Memory_Response seq 4 (0x420c) - the real one,
- *                          140ms after we gave up and disconnected
+ *   device -> us   Memory_Response seq 3  (0x4200, 12 bytes)
+ *   us -> device   T_Ack seq 3            (never arrived)
+ *   us -> device   Memory_Read seq 4      (0x420c, 12 bytes)
+ *   device -> us   T_Ack seq 4            (request received)
+ *   ...            silence: a transport connection allows one unacknowledged
+ *                  numbered frame at a time, so the device cannot send its
+ *                  next response until its previous one is acked
+ *   us             3s timeout, retry ladder drops to 1 byte
+ *   device -> us   Memory_Response seq 3 AGAIN (retransmission)
+ *   us             matched that as the answer: "address mismatch: requested
+ *                  0x420c, device answered 0x4200"
+ *   device -> us   Memory_Response seq 4 (0x420c) - the real one, arriving
+ *                  after the read already gave up and disconnected
  *
- * Two faults, both fixed here: the wait resolved on a frame carrying the
- * wrong address instead of ignoring it and continuing, and the timeout was
- * 3000ms - exactly the peer's own acknowledgement timeout, so koolenex
- * gave up at the precise moment the peer's recovery began.
+ * Two faults: a wait resolving on a frame carrying the wrong address instead
+ * of ignoring it and continuing, and a 3000ms timeout matching the peer's
+ * own acknowledgement timeout, so a real client gives up exactly as the
+ * peer's recovery begins.
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { parseCEMI, buildCEMI, apduGroup } from '../server/knx-cemi.ts';
-import { KnxConnection } from '../server/knx-connection.ts';
+import { KnxConnection, scaledMs } from '../server/knx-connection.ts';
 
 /**
  * Reproduces the capture: for one nominated address the device replays its
@@ -57,7 +56,8 @@ class FakeRetransmittingDevice extends KnxConnection {
     const resp = parseCEMI(
       buildCEMI(this.deviceAddr, this.localAddr, apdu, false),
     )!;
-    if (afterMs) setTimeout(() => this._onCEMI(resp), afterMs).unref();
+    if (afterMs)
+      setTimeout(() => this._onCEMI(resp), scaledMs(afterMs)).unref();
     else setImmediate(() => this._onCEMI(resp));
   }
 

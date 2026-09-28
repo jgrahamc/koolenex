@@ -2,7 +2,7 @@
  * Coverage harness (analysis tool, not shipped in the request path).
  *
  * For every distinct application program in the imported project, builds the
- * full download artifacts exactly the way `buildDeviceProgramming` does, then
+ * download artifacts exactly as `buildDeviceProgramming` does, then
  * classifies which read-back verification mechanism proves the device is
  * theoretically programmable:
  *
@@ -45,8 +45,8 @@ interface Model {
   /**
    * ParamModel.paramRefValues - the declared value of every ParameterRef,
    * needed to evaluate <choose> elements controlled by a parameter that
-   * has no memory and no UI presence. Optional: app models cached before
-   * 2026-09-12 don't carry it.
+   * has no memory and no UI presence. Optional: older cached app models
+   * may not carry it.
    */
   paramRefValues?: Record<string, string>;
   absSegData?: Record<number, { size: number; hex?: string | null }>;

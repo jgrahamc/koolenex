@@ -27,9 +27,8 @@ import {
 } from './ets-parser.ts';
 
 // ─── Internal lookup map value types ─────────────────────────────────────────
-// Matches knx-tables.ts's GroupObjectFlags['priority'] (kept as a separate,
-// local type rather than an import to avoid coupling this parser module to
-// the Object 3 write-path code - same 4-value vocabulary, deliberately).
+// Mirrors knx-tables.ts's GroupObjectFlags['priority'] - kept local rather
+// than imported to avoid coupling this parser to the Object 3 write path.
 type ComObjectPriority = 'low' | 'alarm' | 'high' | 'system';
 
 interface CoDef {
@@ -42,30 +41,23 @@ interface CoDef {
   write: string;
   comm: string;
   tx: string;
-  // Update - added 2026-08-29, alongside the fix for a real bug: this field
-  // didn't exist at all until now, so ets-parser.ts read UpdateFlag directly
-  // off the ComObjectRef with no fallback to the base ComObject's own
-  // declared value (unlike every other flag here, which already goes
-  // through resolveCoRef()'s `cor.X ?? co.X` merge) - most real
-  // ComObjectRefs never override Update at all (they inherit the app's
-  // base default), so this silently defaulted Update to OFF for nearly
-  // every communication object, confirmed live on 1.1.10 where every
-  // project-side Update flag read off while the real device (correctly
-  // programmed by real ETS) had it on for the same objects. See
-  // docs/knx-device-write-protocol.md for the write-path implication -
-  // this wasn't just a display bug, `buildGroupObjectTable()` would have
-  // written the same wrong value to a real device.
+  // Off the ComObjectRef, falling back to the base ComObject's declared
+  // value (resolveCoRef()'s `cor.X ?? co.X` merge, like every other flag
+  // here) - most refs don't override Update and inherit the app default.
+  // `buildGroupObjectTable()` writes this value to the device, not just UI.
   update: string;
-  // Read-On-Init and Priority - added 2026-08-29 (koolenex knx-tables.ts's
-  // Object 3 Group Object Table needs both; neither was captured before).
-  // Real attribute names confirmed against the project's own real app XML
-  // (M-0004_A-0025-10-1BA6-O00A6.xml / M-0004_A-3030-23-F0EA-O000A.xml):
-  // ReadOnInitFlag="Enabled"/"Disabled" (same Enabled/Disabled vocabulary as
-  // the other flags), Priority="Low"/"Alarm"/"High"/"System" (System is
-  // confirmed unreachable from ETS's own UI - see docs/knx-device-write-
-  // protocol.md Part 10.1 - so real projects only ever show Low/Alarm/High).
+  // Object 3 (Group Object Table) needs both. Attribute vocabulary:
+  // ReadOnInitFlag="Enabled"/"Disabled", Priority="Low"/"Alarm"/"High"/
+  // "System" (System is unreachable from ETS's own UI, so real projects only
+  // ever show Low/Alarm/High).
   readOnInit: string;
   priority: string;
+  // Mirrors ParamDef's `baseOffsetArgId`, but for comm-object NUMBERS. A
+  // module-instanced `<ComObject Number="0" BaseNumber="..._MD-13_A-2">`
+  // declares only its small, module-template-relative `Number` - the real
+  // absolute object number is `Number` plus the instance's resolved
+  // `BaseNumber` Argument value (same mechanism as `BaseOffset`).
+  baseNumberArgId?: string;
 }
 
 interface CorDef {
@@ -109,15 +101,28 @@ interface ParamDef {
    * <Memory CodeSegment="..." Offset="..."/> - its own, or its <Union>'s.
    * Null when the parameter has no <Memory> element at all.
    *
-   * An application program may declare several segments, and each one
-   * numbers its own offsets from zero. M-0002_A-A001-13-63C2 declares two
-   * that carry parameters: AS-6D00 (160 bytes at 0x6D00, the four
-   * channels) and AS-6F00 (8 bytes at 0x6F00, the device-level General
-   * block). Both start at offset 0, so dropping this attribute - which
-   * koolenex did until 2026-09-12 - makes the General block's five bytes
-   * land on Channel A's.
+   * An application program may declare several segments, each numbering
+   * its own offsets from zero (e.g. a per-channel segment and a separate
+   * device-level General segment both starting at offset 0) - without this,
+   * two parameters in different segments collide on the same byte.
    */
   codeSegment: string | null;
+  // A module-instanced Parameter's <Memory> element can carry a THIRD
+  // attribute, `BaseOffset`, alongside `Offset`/`BitOffset` - an <Argument>
+  // Id whose real value differs per module instance. `offset` above is only
+  // the module-template-relative value; the true absolute address is
+  // offset + the instance's resolved argument value. Stored as the raw
+  // Argument Id (resolution needs a specific instance, not known at parse
+  // time) so a per-device resolver can expand this into one entry per
+  // instance. `undefined` for non-module-instanced parameters.
+  baseOffsetArgId?: string;
+  // A module-instanced Parameter can carry a `BaseValue` attribute
+  // (reference to an <Argument> Id, same shape as `baseOffsetArgId`) whose
+  // per-instance value selects which Union alternative is active for that
+  // instance (e.g. a relative vs. absolute range). Only takes effect once a
+  // consumer resolves it per instance (`resolveModuleParamMemLayout.ts`'s
+  // `conditionallyActiveFor`).
+  baseValueArgId?: string;
 }
 
 interface ParamRefDef {
@@ -219,6 +224,17 @@ interface DynItemCib {
   type: 'cib';
   items: DynItem[];
 }
+// A <Module> instantiation element nested inside a <choose>/<Channel>
+// branch - carried into dynTree so evalConditionallyActiveModuleInstances()
+// (routes/knx-tables.ts) can resolve which module instances are active for
+// a given device, the same way it resolves active parameters.
+interface DynItemModule {
+  type: 'module';
+  // App-level module-instance id, "{appId}_MD-x_M-y" - matches modArgs' key
+  // shape exactly (never includes a device-assigned MI-z, which is only
+  // known once a specific device's data is in hand).
+  modId: string;
+}
 export type DynItem =
   | DynItemParamRef
   | DynItemSeparator
@@ -228,80 +244,106 @@ export type DynItem =
   | DynItemAssign
   | DynItemComRef
   | DynItemChannel
-  | DynItemCib;
+  | DynItemCib
+  | DynItemModule;
 
 // ─── Load procedure step types ───────────────────────────────────────────────
-interface LpRelSegment {
+// `mergeId` carries the enclosing `<LoadProcedure MergeId="N">` attribute -
+// the splice point a mask version's `<Procedures>` template
+// (knx-mask-procedures.ts) marks with a matching `<LdCtrlMerge MergeId="N">`.
+// Absent when the `<LoadProcedure>` block has no `MergeId`.
+interface LpBase {
+  mergeId?: number;
+}
+interface LpRelSegment extends LpBase {
   type: 'RelSegment';
   lsmIdx: number;
   size: number;
   mode: string;
   fill: number;
 }
-interface LpWriteProp {
+interface LpWriteProp extends LpBase {
   type: 'WriteProp';
   objIdx: number;
   propId: number;
   data: string;
+  // `Verify` of the load-control step, when the XML declares it explicitly:
+  // false = device sends no application-layer confirmation (don't wait for
+  // one), true = it does. Absent = step waits, as always.
+  verifyResponse?: boolean;
 }
-interface LpCompareProp {
+interface LpCompareProp extends LpBase {
   type: 'CompareProp';
   objIdx: number;
   propId: number;
   data: string;
 }
-interface LpWriteRelMem {
+interface LpWriteRelMem extends LpBase {
   type: 'WriteRelMem';
   objIdx: number;
   offset: number;
   size: number;
   mode: string;
-  // Real `Verify="true"` attribute off `<LdCtrlWriteRelMem>` - parsed
-  // below and carried on the step (knx-connection.ts's own `verify?:
-  // boolean`), but silently dropped from this type until now: nothing
-  // type-checked server/ until 2026-09-09, so the object literal that
-  // sets it never reported the excess property. Kept rather than
-  // deleted - it records a real, once-seen hardware observation; see
-  // downloadDevice()'s comment for why the download path no longer
-  // branches on it.
+  // `Verify="true"` off `<LdCtrlWriteRelMem>`. See downloadDevice() for why
+  // the download path no longer branches on this.
   verify?: boolean;
+  // `Verify` of the load-control step, when declared explicitly: false =
+  // device sends no application-layer confirmation (don't wait), true = it
+  // does. Absent = step waits, as always.
+  verifyResponse?: boolean;
 }
-interface LpLoadImageProp {
+interface LpLoadImageProp extends LpBase {
   type: 'LoadImageProp';
   objIdx: number;
   propId: number;
 }
-interface LpAbsSegment {
+interface LpAbsSegment extends LpBase {
   type: 'AbsSegment';
   lsmIdx: number;
   address: number;
   size: number;
+  // `Access`/`MemType`/`SegType`/`SegFlags` of `<LdCtrlAbsSegment>`. The
+  // segment descriptor sent to the device is derived from address and size
+  // alone; SegFlags lets planDownload() detect an app whose declared flags
+  // disagree with that heuristic and refuse rather than send an unvalidated
+  // descriptor.
+  access?: number;
+  memType?: number;
+  segType?: number;
+  segFlags?: number;
 }
-interface LpConnect {
+interface LpConnect extends LpBase {
   type: 'Connect';
 }
-interface LpDisconnect {
+interface LpDisconnect extends LpBase {
   type: 'Disconnect';
 }
-interface LpRestart {
+interface LpRestart extends LpBase {
   type: 'Restart';
 }
-interface LpUnload {
+interface LpUnload extends LpBase {
   type: 'Unload';
   lsmIdx: number;
 }
-interface LpLoad {
+interface LpLoad extends LpBase {
   type: 'Load';
   lsmIdx: number;
 }
-interface LpTaskSegment {
+interface LpTaskSegment extends LpBase {
   type: 'TaskSegment';
   lsmIdx: number;
   address: number;
 }
-interface LpLoadCompleted {
+interface LpLoadCompleted extends LpBase {
   type: 'LoadCompleted';
   lsmIdx: number;
+}
+// An LdCtrl* element this parser does not recognise. Kept (not dropped) so
+// downloadDevice() can refuse an application that mandates a step it cannot
+// perform.
+interface LpUnhandled extends LpBase {
+  type: 'Unhandled';
+  tag: string;
 }
 export type LoadProcedureStep =
   | LpRelSegment
@@ -316,7 +358,8 @@ export type LoadProcedureStep =
   | LpUnload
   | LpLoad
   | LpTaskSegment
-  | LpLoadCompleted;
+  | LpLoadCompleted
+  | LpUnhandled;
 
 // ─── Parameter model types ───────────────────────────────────────────────────
 export interface ParamModelEntry {
@@ -349,33 +392,40 @@ export interface ParamMemLayoutEntry {
   isVisible: boolean;
   /**
    * Address of the AbsoluteSegment this entry's `offset` is relative to,
-   * from the parameter's <Memory CodeSegment="..."/> and that segment's
-   * own <AbsoluteSegment Address="..."/> declaration.
+   * from the parameter's <Memory CodeSegment="..."/> and that segment's own
+   * <AbsoluteSegment Address="..."/> declaration.
    *
-   * Undefined when the parameter names no segment, or names a
-   * RelativeSegment (those are keyed by LoadStateMachine, not an address,
-   * and go through relSegData), or when the model predates 2026-09-12.
-   * A consumer seeing undefined must behave as it did before segments
-   * were tracked - one flat parameter buffer.
-   *
-   * An application program may declare several parameter-carrying
-   * segments, each numbering its offsets from zero, so without this two
-   * parameters in different segments look like they share a byte. See
-   * ParamDef.codeSegment for the real example this came from.
+   * Undefined when the parameter names no segment, names a RelativeSegment
+   * (keyed by LoadStateMachine via relSegData instead), or the model
+   * predates segment tracking - treat undefined as one flat parameter
+   * buffer. See ParamDef.codeSegment: without this, two parameters in
+   * different segments can collide on the same byte.
    */
   segmentAddress?: number;
   coefficient?: number;
   // Display metadata, derived the same way as `params` (pr.text || pd.text,
-  // the section/group maps, ti.enums/unit) but WITHOUT the Access="None"
-  // and typeKind==='none' skips `params` applies for its own (UI-editing)
-  // purposes. Present here so a decoder (e.g. decodeParamMem) can label
-  // download-only/hidden params too, straight from the same ETS product
-  // data - not a hardcoded per-param lookup.
+  // section/group maps, ti.enums/unit) but without the Access="None"/
+  // typeKind==='none' filtering `params` applies. Lets a decoder (e.g.
+  // decodeParamMem) label download-only/hidden params too.
   label?: string;
   section?: string;
   group?: string;
   unit?: string;
   enums?: Record<string, string>;
+  // Mirrors ParamDef.baseOffsetArgId - carried through so a per-device
+  // resolver (expandParamMemLayoutForActiveModules(), routes/knx-tables.ts)
+  // can find entries needing per-module-instance offset expansion.
+  baseOffsetArgId?: string;
+  // The ParameterRef's own literal Value, separate from `defaultValue`
+  // (always the Parameter's factory value). Real ETS writes this value only
+  // when the entry is genuinely reached through the dynamic tree (directly
+  // or via a matched <choose> branch); an unreached entry falls back to
+  // `defaultValue` instead. `fromMemoryChild` gates which case applies.
+  refValue?: string;
+  // Mirrors ParamDef.isDefaultUnionParam - consulted by buildParamMem()'s
+  // Union-conflict resolution (routes/knx-tables.ts) so the right sibling
+  // wins instead of whichever reaches the write loop last.
+  isDefaultUnionParam?: boolean;
 }
 
 export interface ParamModel {
@@ -387,97 +437,84 @@ export interface ParamModel {
   };
   modArgs: Record<string, Record<string, string | number>>;
   paramMemLayout: Record<string, ParamMemLayoutEntry>;
+  // Argument id -> Argument NAME (the same map ParamDef.baseOffsetArgId/
+  // CoDef.baseNumberArgId's own Id needs to be resolved through to find the
+  // matching key in a real instance's own modArgs entry). Exposed so a
+  // per-device resolver (expandParamMemLayoutForActiveModules(),
+  // routes/knx-tables.ts) can do that resolution without its own separate
+  // parse pass.
+  argDefs: Record<string, string>;
+  // paramId (e.g. "{appId}_MD-22_P-4" - a ParameterRef key with its
+  // trailing "_R-<n>" stripped) -> that Parameter's own `BaseValue`
+  // Argument id, for the module-instanced params that have one. See
+  // ParamDef.baseValueArgId's own doc comment for what it means; exposed
+  // narrowly (not the whole paramDefs map) so resolveModuleParamMemLayout.ts
+  // can resolve a choose selector's real per-instance value without its own
+  // separate parse pass, same convention as `argDefs` above.
+  baseValueArgIds: Record<string, string>;
   /**
-   * The declared value of EVERY ParameterRef, keyed by ParameterRef id -
+   * The declared value of every ParameterRef, keyed by ParameterRef id -
    * ParameterRef@Value where present, otherwise Parameter@Value.
    *
-   * `params` and `paramMemLayout` are both filtered: the first drops
-   * Access="None", TypeNone and unlabelled refs because it drives the
-   * parameter editor, the second drops anything with no memory offset
-   * because it builds the download image. A <choose> can name a
-   * ParameterRef that neither keeps, and its value then reads as the
-   * empty string, matches no <when test>, and sends the branch to
-   * `default`.
+   * `params` and `paramMemLayout` are both filtered (the first drops
+   * Access="None"/TypeNone/unlabelled refs for the parameter editor, the
+   * second drops anything with no memory offset for the download image), so
+   * a <choose> can name a ParameterRef neither keeps - this map is the
+   * fallback for resolving that controller's value.
    *
-   * Measured rather than assumed, because the first version of this
-   * comment overstated it badly. A parameter having no MEMORY is not the
-   * same as having no VALUE, and most memory-less parameters are ordinary
-   * labelled ones that `params` keeps: of M-0004_A-5017-51-218F's 1472
-   * <choose> controllers exactly ONE resolves only through this map
-   * (P-370_R-370 = "1"), and of M-0002_A-A001-13-63C2's 496, none do.
-   * This closes a real gap, but a narrow one - it is not what makes a
-   * dynamic tree pick a wrong branch, and looking here for that is a
-   * dead end.
-   *
-   * A controller that resolves to nothing after all of this is either
-   * declared <TypeNone/>, where the default branch is correct and
-   * intended, or a real gap worth reporting - see
+   * A controller that resolves to nothing here is either declared
+   * <TypeNone/> (default branch is correct) or a real gap - see
    * DynItemChoose.controllerValueless.
    *
-   * Absent from app models cached before 2026-09-12; a project has to be
-   * reimported for this to be populated.
+   * Absent from app models cached before this field existed; requires
+   * reimport to populate.
    */
   paramRefValues: Record<string, string>;
   relSegData: Record<number, string>;
   absSegData: Record<number, { size: number; hex: string }>;
   loadProcedures?: LoadProcedureStep[];
-  // Object 3 (Group Object Table) real buffer size - added 2026-08-29.
-  // Confirmed against both real testbed apps' actual on-wire table sizes:
-  // `2 x maxComObjectNumber + 2` matches exactly (1.1.9: max object# 48 ->
-  // 98 bytes; 1.1.10: max object# 470 -> 942 bytes - see docs/knx-device-
-  // write-protocol.md §10 for the real captured sizes this was checked
-  // against). Deliberately the APP's total declared object-number range
-  // (every ComObject the app statically defines), not the per-device
-  // instantiated/linked subset in com_objects - real ETS pre-allocates
-  // Object 3 space for every com object the app could ever expose, not
-  // just the ones a given device instance currently links.
+  // Object 3 (Group Object Table) buffer size: `2 x maxComObjectNumber + 2`.
+  // Deliberately the app's total declared object-number range (every
+  // ComObject the app statically defines), not the per-device
+  // instantiated/linked subset in com_objects - ETS pre-allocates Object 3
+  // space for every com object the app could ever expose.
   groupObjectTableSize?: number;
-  // 🔴 SPECULATIVE - a real, unproven hypothesis for which memory-write
-  // service (legacy A_Memory_Write vs A_MemoryExtended_Write) a device's
-  // app actually requires, from the app's own real `IsSecureEnabled`
-  // attribute (`<ApplicationProgram>` root element - real request,
-  // 2026-08-31). NEEDS REAL-HARDWARE TESTING before being trusted -
-  // added because it's consistent with every real data point available
-  // right now, not because it's been independently confirmed causal.
-  //
-  // Real background: mask `0x07B0` ("System B") alone does NOT reliably
-  // predict this - real ETS uses extended for two real mask-0x07B0
-  // devices (1.1.9, 1.1.10, both Albrecht Jung) even at addresses that
-  // fit in 16 bits, confirmed by a verbatim-replay experiment
-  // (2026-08-28) and reconfirmed via a fresh live capture (2026-08-31) -
-  // but uses LEGACY for a third mask-0x07B0 device (HDL `M/AG40B.1`,
-  // this project's own testbed) at an address that also fits in 16 bits
-  // (confirmed live, 2026-08-31). The one clean, binary distinction
-  // found across all four real apps in this project's own testbed
-  // `.knxproj`: `IsSecureEnabled="true"` is present on all three Jung
-  // apps (the two confirmed-extended ones, plus the router's own base
-  // app, untested) and completely ABSENT (not `false` - never written)
-  // from the HDL app (confirmed-legacy). A segment-SIZE-based theory
-  // (152 vs 8178/10433 bytes) was considered too - also consistent with
-  // the same data - but rejected in favor of this one specifically
-  // because it's a real declared boolean, not a threshold guessed
-  // across the wide, unconfirmed gap between the two known segment
-  // sizes.
-  //
-  // What would actually confirm or kill this: a device/app with
-  // IsSecureEnabled=false (or absent) and a LARGE parameter segment, or
-  // one with IsSecureEnabled=true and a SMALL segment - neither
-  // combination has ever been tested. Until then, treat this as the
-  // best available guess, not a settled rule. See CLAUDE.md's (koolenex
-  // repo) standing-gaps list and docs/knx-device-write-protocol.md's
-  // "Genuinely open questions" section - both should carry this same
-  // caveat; update both if this gets confirmed OR disproven later.
+  // SPECULATIVE, needs wider hardware confirmation: candidate signal for
+  // which memory-write service (legacy A_Memory_Write vs
+  // A_MemoryExtended_Write) a device's app requires, from the app's
+  // `IsSecureEnabled` attribute (`<ApplicationProgram>` root element).
+  // Mask `0x07B0` ("System B") alone does NOT reliably predict this - it
+  // is shared by devices needing extended and devices needing legacy.
+  // See docs/knx-device-write-protocol.md §4.1 for the evidence and the
+  // `supportsExtendedMemoryServices`/PID_MCB_TABLE signals checked ahead of
+  // this one in the resolution chain.
   isSecureEnabled?: boolean;
-  // See AppIndex.supportsExtendedMemoryServices's own doc comment for the
-  // full evidence. Checked before `isSecureEnabled` above (and before the
-  // PID_MCB_TABLE check in knx-connection.ts's resolution chain) because it
-  // is a literal, KNX-Association-documented boolean ("Gets a value
-  // indicating whether extended memory services are supported" - ETS6 SDK,
-  // `Knx.Ets.Sdk.Product.ApplicationOptions.SupportsExtendedMemoryServices`),
-  // not an inferred correlate like `isSecureEnabled`.
+  // `<Static><Options LineCoupler0912NewProgrammingStyle="true"|"false">`:
+  // which of a line-coupler mask's duplicate Load procedures applies. Only an
+  // explicit false selects the legacy one. Undefined when not declared.
+  lineCoupler0912NewProgrammingStyle?: boolean;
+  // `<ApplicationProgram PeiType="...">`: "0" means the app carries no PEI
+  // (Physical External Interface) program content. downloadDevice() refuses
+  // any other declared value (see peiType there) - untested.
+  peiType?: string;
+  // See AppIndex.supportsExtendedMemoryServices's doc comment. Checked
+  // before `isSecureEnabled` and the PID_MCB_TABLE check
+  // (knx-connection.ts) because it is a literal, KNX-Association-documented
+  // boolean (`Knx.Ets.Sdk.Product.ApplicationOptions.
+  // SupportsExtendedMemoryServices`), not an inferred correlate.
   supportsExtendedMemoryServices?: boolean;
-  // See AppIndex.parameterByteOrder's own doc comment for the full evidence.
+  // See AppIndex.parameterByteOrder's doc comment.
   parameterByteOrder?: 'LittleEndian' | 'BigEndian';
+  // `<AddressTable MaxEntries="...">`, a sibling of `<AssociationTable>`/
+  // `<ComObjectRefs>` under the app's `<Static>` - the app's declared GA
+  // table capacity ceiling. `undefined` means "nothing declared", never "no
+  // limit". A cheap, connection-free pre-flight check only - the device's
+  // live-reported Association-table capacity
+  // (`A_PropertyDescription_Read(ObjIdx=2, PropId=23)`, knx-connection.ts)
+  // is authoritative and can diverge from this static value.
+  gaTableMaxEntries?: number;
+  // Same, for `<AssociationTable MaxEntries="...">`.
+  assocTableMaxEntries?: number;
 }
 
 // ─── AppIndex return type ───────────────────────────────────────────────────
@@ -527,58 +564,38 @@ export interface AppIndex {
   buildParamModel: () => ParamModel;
   appId: string;
   // Highest `Number` across every ComObject this app statically declares
-  // (all Static sections, including module Static) - see ParamModel.
-  // groupObjectTableSize's doc comment for why this, not the per-device
-  // linked/active subset, is the right basis for Object 3's real size. 0 if
-  // the app declares no ComObjects at all.
+  // (all Static sections, including module Static) - the basis for Object
+  // 3's size, not the per-device linked/active subset. 0 if the app
+  // declares no ComObjects.
   maxComObjectNumber: number;
-  // 🔴 SPECULATIVE, not yet confirmed - real request, 2026-08-31. See
-  // ParamModel.isSecureEnabled's own doc comment (same file) for the full
-  // real-hardware evidence this is based on and what still needs testing
-  // before this can be trusted as a real rule.
+  // SPECULATIVE. See ParamModel.isSecureEnabled's doc comment for the
+  // evidence and what's needed before trusting this as a settled rule.
   isSecureEnabled: boolean;
-  // 🟡 Memory-write-service signal, well-supported but not yet exhaustively
-  // confirmed - a literal `<Options
-  // SupportsExtendedMemoryServices="true">` attribute on the app's own
-  // `<Static>` element (`xmlns="http://knx.org/xml/project/23"`), identified
-  // by a systematic review of element/attribute pairs across a sample of
-  // real application-program XML files. Across the devices reviewed
-  // (8 application programs from 4 manufacturers - 3 confirmed to require
-  // the extended memory-write service, 5 confirmed to require the legacy
-  // service), the attribute is present and `"true"` on every device
-  // requiring extended and absent on every device requiring legacy,
-  // including the two devices that separately falsified the previous
-  // candidate signals: a device requiring extended but declaring
-  // `IsSecureEnabled=false` (see `isSecureEnabled` above), and a device
-  // declaring a non-`0xFF` `PID_MCB_TABLE` byte 5 but requiring legacy (see
-  // the matching comment on the restored `PID_MCB_TABLE` check in
-  // knx-connection.ts). Unlike either of those, this is a literal,
-  // KNX-Association-documented property, not an inferred correlate: the
-  // ETS6 SDK's own documentation defines
-  // `Knx.Ets.Sdk.Product.ApplicationOptions.SupportsExtendedMemoryServices`
-  // as "Gets a value indicating whether extended memory services are
-  // supported". Always statically declared when present, requiring no live
-  // bus read, unlike the `PID_MCB_TABLE` fallback this takes priority over.
-  // Sample size is still small (8 apps, 3 devices requiring extended) and
-  // no device has been found where this signal disagrees with the
-  // `PID_MCB_TABLE` rule - kept as an additional check ahead of that rule
-  // rather than a replacement for it, so an incorrect resolution here
-  // cannot regress a device that already resolves correctly via the
-  // fallback chain underneath it. Further testing against a wider sample
-  // of devices/manufacturers would strengthen confidence in this signal.
+  // See ParamModel.lineCoupler0912NewProgrammingStyle's doc comment.
+  lineCoupler0912NewProgrammingStyle?: boolean;
+  // See ParamModel.peiType's doc comment.
+  peiType?: string;
+  // Memory-write-service signal: literal `<Options
+  // SupportsExtendedMemoryServices="true">` on the app's `<Static>` element.
+  // Checked before `isSecureEnabled` and before the PID_MCB_TABLE fallback
+  // (knx-connection.ts) since it's a documented ETS6 SDK property
+  // (`ApplicationOptions.SupportsExtendedMemoryServices`), not an inferred
+  // correlate, and needs no live bus read. See docs/knx-device-write-
+  // protocol.md §4.1 for sample size and confidence.
   supportsExtendedMemoryServices: boolean;
-  // Real, literal ETS App schema attribute (`<Static><Options
-  // ParameterByteOrder="LittleEndian"/"BigEndian">`), read the same way as
-  // `supportsExtendedMemoryServices` above - not inferred, a genuine
-  // per-app declaration. `writeBits`/`readBits` (routes/knx-tables.ts) read
-  // this to decide how to pack/unpack a byte-aligned multi-byte value.
-  // Checked across every real .knxproj this project has: every app that
-  // declares this attribute is consistent with every other app from the
-  // same manufacturer, no manufacturer contradicts itself. Where absent, no
-  // confirmed ETS-defined default is documented - `writeBits`/`readBits`
-  // fall back to big-endian, matching every real-hardware case tested so
-  // far (see docs/knx-device-write-protocol.md §6.1a), not a settled rule.
+  // `<Static><Options ParameterByteOrder="LittleEndian"/"BigEndian">` - a
+  // genuine per-app declaration, read the same way as
+  // `supportsExtendedMemoryServices`. `writeBits`/`readBits`
+  // (routes/knx-tables.ts) use it to pack/unpack byte-aligned multi-byte
+  // values. No documented ETS default when absent; falls back to
+  // big-endian (docs/knx-device-write-protocol.md §6.1a).
   parameterByteOrder?: 'LittleEndian' | 'BigEndian';
+  // See ParamModel.gaTableMaxEntries/assocTableMaxEntries's doc comments
+  // and the live-check counterpart. `NaN` means the app XML has no
+  // `<AddressTable>`/`<AssociationTable>` element - treat the same as "not
+  // declared", never 0 or "no limit".
+  gaTableMaxEntries: number;
+  assocTableMaxEntries: number;
   paramRefKeys: string[];
   moduleKeys: string[];
   getDefault: (prKey: string) => string | null;
@@ -586,11 +603,10 @@ export interface AppIndex {
   loadProcedures: LoadProcedureStep[];
 }
 
-// Normalizes a real ComObject/ComObjectRef `Priority` attribute value
+// Normalizes a ComObject/ComObjectRef `Priority` attribute
 // ("Low"/"Alarm"/"High"/"System", or absent) to the lowercase vocabulary
-// used by koolenex's own Object 3 code (knx-tables.ts's GroupObjectFlags).
-// Absent/unrecognized defaults to 'low' - the real default seen throughout
-// this project's own app XML (docs/knx-device-write-protocol.md Part 10.1).
+// used by Object 3 code (knx-tables.ts's GroupObjectFlags). Absent/
+// unrecognized defaults to 'low'.
 function normalizePriority(raw: string | undefined | null): ComObjectPriority {
   switch (raw) {
     case 'Alarm':
@@ -627,6 +643,59 @@ function dynamicOnly(rawXml: string): string | null {
 }
 
 // ─── Build per-application-program index ─────────────────────────────────────
+/**
+ * The document position of every element inside an application program's
+ * <LoadProcedures>, keyed `<procedure index>|<tag>|<index among that tag>`.
+ *
+ * The regular XML parser groups a <LoadProcedure>'s children by tag name, so
+ * two steps of different kinds keep no relative order (a WriteProp declared
+ * before a LoadImageProp can come out after it). The order-preserving parser
+ * keeps it; this returns those positions so the steps can be put back in the
+ * order the application declares them. Empty when the structure is not found.
+ */
+function loadProcedureDocumentOrder(rawXml: string): Map<string, number> {
+  const order = new Map<string, number>();
+  let ordered: OrdXmlNode[];
+  try {
+    ordered = orderedXmlParser.parse(rawXml) as OrdXmlNode[];
+  } catch {
+    return order;
+  }
+  const findChild = (nodes: OrdXmlNode[], tag: string): OrdXmlNode | null => {
+    for (const n of nodes) if (ordTagName(n) === tag) return n;
+    return null;
+  };
+  let nodes: OrdXmlNode[] = ordered;
+  for (const tag of [
+    'KNX',
+    'ManufacturerData',
+    'Manufacturer',
+    'ApplicationPrograms',
+    'ApplicationProgram',
+    'Static',
+    'LoadProcedures',
+  ]) {
+    const next = findChild(nodes, tag);
+    if (!next) return order;
+    nodes = ordChildNodes(next);
+  }
+  let position = 0;
+  let procedureIndex = -1;
+  for (const lp of nodes) {
+    if (ordTagName(lp) !== 'LoadProcedure') continue;
+    procedureIndex++;
+    const perTag = new Map<string, number>();
+    for (const child of ordChildNodes(lp)) {
+      const tag = ordTagName(child);
+      if (!tag || !tag.startsWith('LdCtrl')) continue;
+      const n = perTag.get(tag) ?? 0;
+      perTag.set(tag, n + 1);
+      order.set(`${procedureIndex}|${tag}|${n}`, position++);
+    }
+  }
+  return order;
+}
+
 export function buildAppIndex(buf: Buffer): AppIndex | null {
   const rawXml = buf.toString('utf8');
   let xml: XmlNode;
@@ -646,19 +715,28 @@ export function buildAppIndex(buf: Buffer): AppIndex | null {
   if (!ap) return null;
 
   const appId = attr(ap, 'Id');
-  // 🔴 SPECULATIVE input for the memory-write-service guess - see
-  // AppIndex.isSecureEnabled's own doc comment for the full real-hardware
-  // evidence and what's still needed to actually confirm this.
+  // SPECULATIVE input for the memory-write-service guess - see
+  // AppIndex.isSecureEnabled's doc comment.
   const isSecureEnabled = attr(ap, 'IsSecureEnabled') === 'true';
-  // See AppIndex.supportsExtendedMemoryServices's own doc comment for the
-  // full evidence. Real XML shape: `<Static>...
-  // <Options SupportsExtendedMemoryServices="true" .../></Static>` - a
-  // single `<Options>` element directly under the app's root `<Static>`
+  // Absent (empty) is left undefined rather than guessed as "0".
+  const peiType = attr(ap, 'PeiType') || undefined;
+  const lineCouplerRaw = attr(
+    el(ap.Static).Options,
+    'LineCoupler0912NewProgrammingStyle',
+  );
+  const lineCoupler0912NewProgrammingStyle =
+    lineCouplerRaw === 'true'
+      ? true
+      : lineCouplerRaw === 'false'
+        ? false
+        : undefined;
+  // See AppIndex.supportsExtendedMemoryServices's doc comment. XML shape:
+  // `<Static><Options SupportsExtendedMemoryServices="true" .../></Static>`
+  // - a single `<Options>` element directly under the app's root `<Static>`
   // (not per-module, not per-ComObject).
   const supportsExtendedMemoryServices =
     attr(el(ap.Static).Options, 'SupportsExtendedMemoryServices') === 'true';
-  // See AppIndex.parameterByteOrder's own doc comment for the full
-  // evidence. Same element as SupportsExtendedMemoryServices above -
+  // See AppIndex.parameterByteOrder's doc comment. Same element as above -
   // `<Static><Options ParameterByteOrder="LittleEndian"/"BigEndian">`.
   const parameterByteOrderRaw = attr(
     el(ap.Static).Options,
@@ -669,26 +747,30 @@ export function buildAppIndex(buf: Buffer): AppIndex | null {
     parameterByteOrderRaw === 'BigEndian'
       ? parameterByteOrderRaw
       : undefined;
+  // `<AddressTable MaxEntries="...">`/`<AssociationTable MaxEntries="...">`,
+  // siblings of `<ComObjectRefs>` under the app's `<Static>`. See
+  // AppIndex.gaTableMaxEntries/assocTableMaxEntries's doc comments.
+  const gaTableMaxEntries = parseInt(
+    attr(el(ap.Static).AddressTable, 'MaxEntries'),
+    10,
+  );
+  const assocTableMaxEntries = parseInt(
+    attr(el(ap.Static).AssociationTable, 'MaxEntries'),
+    10,
+  );
 
-  // Parse the app XML a second time with the order-preserving parser, which
-  // exists for two things the main parse cannot carry: document order across
-  // heterogeneous siblings (what the stored Dynamic tree is built from) and
-  // untrimmed attribute text (ETS encodes ParameterBlock hierarchy as leading
-  // spaces, which the main parser strips).
+  // Parse the app XML a second time with the order-preserving parser, needed
+  // for two things the main parse can't carry: document order across
+  // heterogeneous siblings (the Dynamic tree) and untrimmed attribute text
+  // (ETS encodes ParameterBlock hierarchy as leading spaces, which the main
+  // parser strips).
   //
-  // Both live entirely inside <Dynamic>, so when the program has exactly one
-  // Dynamic section and no ModuleDefs - every program in every fixture, and
-  // the common shape - only that slice is parsed. It is a single balanced
-  // element, so it stands alone as a document, and the walks below are
-  // unchanged: findDynamic() already returns the children of a root Dynamic.
-  // On the 6.3 MB program in the smoke project the ordered parse costs about
-  // as much as the main one (913 ms vs 880 ms), and Dynamic is roughly a
-  // quarter of the file.
-  //
-  // A program with ModuleDefs falls back to parsing the whole document.
-  // ModuleDef Dynamic sections are found by findModDefs() below, which needs
-  // the enclosing <ModuleDef Id="..."> that a slice would cut away, and no
-  // fixture here has one to check a smarter rule against.
+  // Both live entirely inside <Dynamic>, so a program with exactly one
+  // Dynamic section and no ModuleDefs only needs that slice parsed - it's a
+  // single balanced element, so findDynamic() still works unchanged on it.
+  // A program with ModuleDefs falls back to parsing the whole document,
+  // since findModDefs() needs the enclosing <ModuleDef Id="..."> a slice
+  // would cut away.
   let orderedDynamic: OrdXmlNode[] | null = null;
   const orderedModDynamics: Record<string, OrdXmlNode[]> = {};
   const pbIndentMap: Record<string, number> = {};
@@ -833,6 +915,9 @@ export function buildAppIndex(buf: Buffer): AppIndex | null {
         update: attr(co, 'UpdateFlag'),
         readOnInit: attr(co, 'ReadOnInitFlag'),
         priority: attr(co, 'Priority'),
+        ...(attr(co, 'BaseNumber')
+          ? { baseNumberArgId: attr(co, 'BaseNumber') }
+          : {}),
       };
     }
   }
@@ -886,6 +971,56 @@ export function buildAppIndex(buf: Buffer): AppIndex | null {
   collectMods(toArr(ap.Dynamic?.Module));
   for (const md of toArr(ap.ModuleDefs?.ModuleDef))
     collectMods(toArr(el(md.Dynamic).Module));
+  // <Module> instantiation elements aren't always direct children of
+  // <Dynamic> - they can nest inside <Channel>/<ChannelIndependentBlock>/
+  // <choose>/<when> blocks several levels deep. collectMods() above only
+  // matches direct children, so walk the order-preserving tree
+  // (orderedDynamic/orderedModDynamics) recursing unconditionally into every
+  // child rather than an allowlist of container tags. Additive on top of
+  // collectMods() (a strict superset), so a rare ordered-parse failure
+  // degrades to the narrower direct-child behavior instead of losing module
+  // data entirely.
+  const collectModsOrdered = (items: OrdXmlNode[] | null) => {
+    if (!items) return;
+    for (const el of items) {
+      if (ordTagName(el) === 'Module') {
+        const mid = ordAttr(el, 'Id');
+        if (mid) {
+          const args: Record<string, string | number> = {};
+          for (const child of ordChildNodes(el)) {
+            if (ordTagName(child) !== 'NumericArg') continue;
+            const name = argDefs[ordAttr(child, 'RefId')];
+            if (name) args[name] = ordAttr(child, 'Value');
+          }
+          const count = parseInt(ordAttr(el, 'Count'), 10) || 1;
+          args._count = count;
+          modArgs[mid] = args;
+        }
+      }
+      collectModsOrdered(ordChildNodes(el));
+    }
+  };
+  collectModsOrdered(orderedDynamic);
+  for (const ordDyn of Object.values(orderedModDynamics))
+    collectModsOrdered(ordDyn);
+
+  // See CoDef.baseNumberArgId's doc comment. Resolves a ComObject's absolute
+  // object number for one module instance: `co.num` (module-relative
+  // `Number`) plus the instance's `BaseNumber` Argument value (looked up by
+  // name in `args`, same shape `modArgs` uses elsewhere). Falls back to the
+  // bare template number when there's nothing to resolve.
+  function resolveObjectNumber(
+    co: CoDef,
+    args: Record<string, string | number>,
+  ): number {
+    if (!co.baseNumberArgId) return co.num;
+    const argName = argDefs[co.baseNumberArgId];
+    if (!argName) return co.num;
+    const raw = args[argName];
+    if (raw === undefined) return co.num;
+    const n = Number(raw);
+    return Number.isFinite(n) ? co.num + n : co.num;
+  }
 
   // 6. Channel definitions: fullChanId → text template
   const chanDefs: Record<string, string> = {};
@@ -927,7 +1062,7 @@ export function buildAppIndex(buf: Buffer): AppIndex | null {
       args: Record<string, string | number>,
       channel: string,
     ) => ({
-      objectNumber: co.num,
+      objectNumber: resolveObjectNumber(co, args),
       name: interpolate(cor.text || co.text, args),
       function_text: interpolate(cor.ft || co.ft, args),
       channel,
@@ -1037,6 +1172,20 @@ export function buildAppIndex(buf: Buffer): AppIndex | null {
       if (pt.TypeFloat) {
         const tf = Array.isArray(pt.TypeFloat) ? pt.TypeFloat[0] : pt.TypeFloat;
         const coeff = attr(tf, 'Coefficient');
+        // <TypeFloat> isn't always the 2-byte KNX DPT9 float - its Encoding
+        // attribute picks the wire format: "DPT 9" (2 bytes) or "IEEE-754
+        // Single" (a full 4-byte float, no DPT9 mantissa/exponent packing).
+        // Neither encoding declares its own SizeInBit, so size must come
+        // from Encoding. knx-tables.ts's decode/encode already branches on
+        // bitSize 16/32/64 (KNX float16/IEEE754 single/double); this just
+        // needs to stop defaulting an unspecified size to 16 for Single.
+        const encoding = attr(tf, 'Encoding');
+        const defaultSizeInBit =
+          encoding === 'IEEE-754 Single'
+            ? 32
+            : encoding === 'IEEE-754 Double'
+              ? 64
+              : 16; // "DPT 9" and anything unrecognized
         paramTypes[tid] = {
           kind: 'float',
           enums: {},
@@ -1053,7 +1202,7 @@ export function buildAppIndex(buf: Buffer): AppIndex | null {
                 ? Number(attr(tf, 'Maximum'))
                 : null,
           step: null,
-          sizeInBit: parseInt(attr(tf, 'SizeInBit'), 10) || 16,
+          sizeInBit: parseInt(attr(tf, 'SizeInBit'), 10) || defaultSizeInBit,
           ...(coeff ? { coefficient: parseFloat(coeff) } : {}),
         };
         continue;
@@ -1089,29 +1238,17 @@ export function buildAppIndex(buf: Buffer): AppIndex | null {
         continue;
       }
       if (pt.TypeRawData) {
-        // Whole pre-baked binary blobs shipped inline as a Parameter's own
-        // Value (e.g. "Characteristic curve value domain" parameters -
-        // confirmed 2026-08-28 against 1.1.10's real .knxproj: manufacturer
-        // ID 0004, ParameterType "_DA_Kennlinie_Raw Data"). Before this fix
-        // TypeRawData fell all the way through to the generic
-        // TypeRestriction-based branch below, which only reads
-        // TypeRestriction's own SizeInBit - absent here, so every such
-        // parameter silently got the `|| 8` fallback (1 byte) regardless of
-        // its real size. That's the root cause of a real, large gap between
-        // koolenex's computed parameter image and a real device - see
-        // docs/knx-device-write-protocol.md Part 9 and
-        // docs/follow-ups/2026-08-28-full-download-history-and-blob-params.md.
+        // Pre-baked binary blobs shipped inline as a Parameter's own Value
+        // (e.g. characteristic-curve tables). Falling through to the
+        // generic TypeRestriction branch below would default size to 1 byte
+        // (`|| 8`), since TypeRestriction has no SizeInBit here.
         //
-        // MaxSize is in bytes, not bits (confirmed against the real XML:
-        // `<TypeRawData MaxSize="516" />` for a 512-byte curve table -
-        // real wire format is a 4-byte big-endian length prefix followed by
-        // up to MaxSize-4 bytes of data, decoding that same real curve's
-        // leading 4 bytes as `0x00000200` = 512, exactly the real payload
-        // length - so MaxSize itself already accounts for the prefix).
-        // buildParamMem() (server/routes/knx-tables.ts) is what actually
-        // emits the length prefix + payload for entries whose real value
-        // exceeds a plain scalar's size; this only needs to report the real
-        // byte size so that code can recognise them.
+        // MaxSize is in bytes, not bits. Wire format is a 4-byte big-endian
+        // length prefix followed by up to MaxSize-4 bytes of data - MaxSize
+        // already accounts for the prefix. buildParamMem()
+        // (server/routes/knx-tables.ts) emits the prefix + payload for
+        // entries whose value exceeds a plain scalar's size; this only
+        // needs to report the real byte size so that code recognizes them.
         const trd = Array.isArray(pt.TypeRawData)
           ? pt.TypeRawData[0]
           : pt.TypeRawData;
@@ -1153,6 +1290,7 @@ export function buildAppIndex(buf: Buffer): AppIndex | null {
     baseFromMem = false,
     baseBitOffset = 0,
     baseCodeSegment: string | null = null,
+    baseBaseOffsetArgId: string | null = null,
   ) => {
     const id = attr(p, 'Id');
     if (!id) return;
@@ -1166,6 +1304,11 @@ export function buildAppIndex(buf: Buffer): AppIndex | null {
     // A Union's children inherit their parent's segment along with its
     // offset; a standalone parameter names its own.
     let codeSegment = baseCodeSegment;
+    // See ParamDef.baseOffsetArgId's doc comment. A Union member's own
+    // <Memory> doesn't carry `BaseOffset` in practice - the base lives on
+    // the enclosing <Union>'s <Memory>, propagated via
+    // `baseBaseOffsetArgId` - but own takes priority if both are present.
+    let baseOffsetArgId = baseBaseOffsetArgId;
     {
       const mem = Array.isArray(p.Memory) ? p.Memory[0] : p.Memory;
       if (mem) {
@@ -1176,6 +1319,8 @@ export function buildAppIndex(buf: Buffer): AppIndex | null {
           rawBitOff = attr(mem, 'BitOffset');
           if (rawOff !== '') fromMemoryChild = true;
         }
+        const bo = attr(mem, 'BaseOffset');
+        if (bo !== '') baseOffsetArgId = bo;
       }
     }
     paramDefs[id] = {
@@ -1201,6 +1346,9 @@ export function buildAppIndex(buf: Buffer): AppIndex | null {
       // its default value should be written even when not in currentValues.
       isDefaultUnionParam: attr(p, 'DefaultUnionParameter') === '0',
       codeSegment,
+      ...(baseOffsetArgId ? { baseOffsetArgId } : {}),
+      // See ParamDef.baseValueArgId's own doc comment.
+      ...(attr(p, 'BaseValue') ? { baseValueArgId: attr(p, 'BaseValue') } : {}),
     };
   };
   for (const st of allStaticSections) {
@@ -1214,6 +1362,12 @@ export function buildAppIndex(buf: Buffer): AppIndex | null {
       let uBitOffset = parseInt(attr(u, 'BitOffset'), 10) || 0;
       let uFromMem = false;
       let uCodeSegment: string | null = null;
+      // Real convention, confirmed against real module-architecture app
+      // XML: a Union MEMBER's own <Memory> never carries `BaseOffset` - the
+      // real base lives on the enclosing <Union>'s own <Memory> instead,
+      // propagated down to every member the same way offset/bitOffset/
+      // codeSegment already are.
+      let uBaseOffsetArgId: string | null = null;
       // The Union's <Memory> child can supply the byte offset, the bit offset,
       // or both. Read it whenever present so a Union that carries its BitOffset
       // in <Memory> is not dropped just because its byte Offset happens to be a
@@ -1231,10 +1385,19 @@ export function buildAppIndex(buf: Buffer): AppIndex | null {
             uFromMem = true;
           }
         }
+        const uBo = attr(uMem, 'BaseOffset');
+        if (uBo !== '') uBaseOffsetArgId = uBo;
       }
       if (isNaN(uOffset)) uOffset = 0;
       for (const p of toArr(u.Parameter))
-        addParam(p, uOffset, uFromMem, uBitOffset, uCodeSegment);
+        addParam(
+          p,
+          uOffset,
+          uFromMem,
+          uBitOffset,
+          uCodeSegment,
+          uBaseOffsetArgId,
+        );
     }
   }
 
@@ -1549,6 +1712,12 @@ export function buildAppIndex(buf: Buffer): AppIndex | null {
         });
       } else if (tag === 'ChannelIndependentBlock') {
         result.push({ type: 'cib', items: serOrderedItems(ordChildNodes(el)) });
+      } else if (tag === 'Module') {
+        // See DynItemModule's own doc comment - a real <Module>
+        // instantiation nested inside a <choose>/<Channel> branch,
+        // previously silently dropped here entirely.
+        const mid = ordAttr(el, 'Id');
+        if (mid) result.push({ type: 'module', modId: mid });
       }
     }
     return result;
@@ -1576,7 +1745,22 @@ export function buildAppIndex(buf: Buffer): AppIndex | null {
       return ti?.kind === 'none';
     }
 
-    function walkItems(items: DynItem[] | null, channelLabel: string) {
+    // A genuinely-active module instance's Dynamic tree must be walked with
+    // its own resolved args threaded through: a comref or <choose> inside a
+    // ModuleDef's Dynamic section is written module-def-relative (e.g.
+    // "MD-1_O-2-1_R-4", no "_M-<n>_" instance segment), which the regex
+    // fallback below can never resolve. See the 'module' branch below.
+    interface ModuleCtx {
+      mdId: string; // ModuleDef id, e.g. "{appId}_MD-1" - the un-instanced template
+      instanceModId: string; // real instance id, e.g. "{appId}_MD-1_M-254"
+      args: Record<string, string | number>; // this instance's real resolved NumericArgs, keyed by arg NAME
+    }
+
+    function walkItems(
+      items: DynItem[] | null,
+      channelLabel: string,
+      moduleCtx: ModuleCtx | null = null,
+    ) {
       if (!items) return;
       for (const item of items) {
         if (item.type === 'paramRef') {
@@ -1587,28 +1771,47 @@ export function buildAppIndex(buf: Buffer): AppIndex | null {
             const cor = corDefs[item.refId];
             const co = cor ? coDefs[cor.refId] : null;
             if (co) {
-              if (!activeCorefsByObjNum.has(co.num))
-                activeCorefsByObjNum.set(co.num, []);
+              // `args` must be resolved unconditionally so
+              // `resolveObjectNumber()` below keys this map by the same
+              // absolute object number `resolveCoRef()`/`resolveCoRefById()`
+              // return, not the bare template `co.num`.
+              //
+              // When this comRef was reached via a module instance's own
+              // Dynamic tree (`moduleCtx` set), use that instance's resolved
+              // args directly - a comref inside a ModuleDef's <Dynamic> is
+              // module-def-relative, so regex-extracting "_M-<n>_" from
+              // `item.refId` can't match here.
+              let args: Record<string, string | number>;
+              if (moduleCtx) {
+                args = moduleCtx.args;
+              } else {
+                const mdMatch = item.refId.match(/_(MD-\w+)_(M-\d+)_/);
+                args = mdMatch
+                  ? modArgs[`${appId}_${mdMatch[1]}_${mdMatch[2]}`] || {}
+                  : {};
+              }
+              // A module-scoped comm object (co.baseNumberArgId set) reached
+              // with no per-instance args (no "_M-<n>_" refId segment or
+              // moduleCtx) has no real grounding - skip it rather than let
+              // resolveObjectNumber() fall back to the bare template
+              // Number, which produces collision-prone ghost entries.
+              if (co.baseNumberArgId && Object.keys(args).length === 0)
+                continue;
+              const realObjNum = resolveObjectNumber(co, args);
+              if (!activeCorefsByObjNum.has(realObjNum))
+                activeCorefsByObjNum.set(realObjNum, []);
               // Interpolate channel label templates (e.g. {{0: Shutter Actuator A+B}})
               let ch = channelLabel || '';
-              if (ch && ch.includes('{{')) {
-                const mdMatch = item.refId.match(/_(MD-\w+)_(M-\d+)_/);
-                ch = interpolate(
-                  ch,
-                  mdMatch
-                    ? modArgs[`${appId}_${mdMatch[1]}_${mdMatch[2]}`] || {}
-                    : {},
-                );
-              }
+              if (ch && ch.includes('{{')) ch = interpolate(ch, args);
               activeCorefsByObjNum
-                .get(co.num)!
+                .get(realObjNum)!
                 .push({ corId: item.refId, channel: ch });
             }
           }
         } else if (item.type === 'channel') {
-          walkItems(item.items, item.label || channelLabel);
+          walkItems(item.items, item.label || channelLabel, moduleCtx);
         } else if (item.type === 'block' || item.type === 'cib') {
-          walkItems(item.items, channelLabel);
+          walkItems(item.items, channelLabel, moduleCtx);
         } else if (item.type === 'choose') {
           // Skip if controlling param is known visible but not active (prevents phantom COs)
           if (
@@ -1618,7 +1821,20 @@ export function buildAppIndex(buf: Buffer): AppIndex | null {
             !activeParams.has(item.paramRefId)
           )
             continue;
-          const raw = getVal(item.paramRefId);
+          // A <choose> inside a ModuleDef's Dynamic section (reached via
+          // moduleCtx) selects on a paramRefId that is module-def-relative
+          // (e.g. "{appId}_MD-1_P-2_R-2") - the same literal id for every
+          // instance. Per-instance overrides live under the fully-qualified
+          // ParameterInstanceRef key ("{appId}_MD-1_M-254_MI-1_P-2_R-2").
+          // Only rewrite the lookup key when the choose's paramRefId
+          // belongs to THIS module (starts with `moduleCtx.mdId + '_'`) - a
+          // choose can also reference a plain device-global parameter,
+          // which must resolve unqualified.
+          const qualifiedKey =
+            moduleCtx && item.paramRefId.startsWith(`${moduleCtx.mdId}_`)
+              ? `${moduleCtx.instanceModId}_MI-1_${item.paramRefId.slice(moduleCtx.mdId.length + 1)}`
+              : item.paramRefId;
+          const raw = getVal(qualifiedKey);
           const val = String(
             raw !== '' && raw != null ? raw : (item.defaultValue ?? ''),
           );
@@ -1631,18 +1847,46 @@ export function buildAppIndex(buf: Buffer): AppIndex | null {
             }
             if (etsTestMatch(val, w.test)) {
               matched = true;
-              walkItems(w.items, channelLabel);
+              walkItems(w.items, channelLabel, moduleCtx);
             }
           }
-          if (!matched && defItems) walkItems(defItems, channelLabel);
+          if (!matched && defItems)
+            walkItems(defItems, channelLabel, moduleCtx);
+        } else if (item.type === 'module') {
+          // Recurse into this module instance's own Dynamic tree using its
+          // resolved per-instance args, so comrefs/nested chooses declared
+          // only inside the owning ModuleDef's <Dynamic> (never in the
+          // device's own ComObjectInstanceRefs XML) are found and gated.
+          const instArgs = modArgs[item.modId];
+          if (!instArgs) continue; // never actually instantiated - nothing to recurse into
+          const mdMatch = item.modId.match(/^(.+)_M-\d+$/);
+          if (!mdMatch) continue;
+          const mdId = mdMatch[1]!;
+          const modItems = modItemsById[mdId];
+          if (modItems)
+            walkItems(modItems, channelLabel, {
+              mdId,
+              instanceModId: item.modId,
+              args: instArgs,
+            });
         }
       }
     }
 
     const mainItems = orderedDynamic ? serOrderedItems(orderedDynamic) : null;
-    const modItemsList = Object.entries(orderedModDynamics)
-      .map(([_id, od]) => (od ? serOrderedItems(od) : null))
-      .filter(Boolean) as DynItem[][];
+    // Index each ModuleDef's serialized item list by its ModuleDef id
+    // (orderedModDynamics' key, "{appId}_MD-x") so the 'module' recursion in
+    // walkItems can look one up by id. `modItemsList` (the flat form) still
+    // feeds the pass1/pass2 walks below.
+    const modItemsById: Record<string, DynItem[]> = {};
+    const modItemsList: DynItem[][] = [];
+    for (const [mdId, od] of Object.entries(orderedModDynamics)) {
+      const its = od ? serOrderedItems(od) : null;
+      if (its) {
+        modItemsById[mdId] = its;
+        modItemsList.push(its);
+      }
+    }
     // Pass 1: evaluate conditions to collect active params, but don't collect corefs yet
     function walkPass1(items: DynItem[] | null) {
       if (!items) return;
@@ -1700,7 +1944,7 @@ export function buildAppIndex(buf: Buffer): AppIndex | null {
       ? modArgs[`${appId}_${mdMatch[1]}_${mdMatch[2]}`] || {}
       : {};
     return {
-      objectNumber: co.num,
+      objectNumber: resolveObjectNumber(co, args),
       name: interpolate(cor.text || co.text, args),
       function_text: interpolate(cor.ft || co.ft, args),
       dpt: cor.dpt || co.dpt || '',
@@ -1762,14 +2006,11 @@ export function buildAppIndex(buf: Buffer): AppIndex | null {
     };
 
     // chooseOwnerOf: paramRefId → the paramRefId of the nearest enclosing
-    // <Choose> in the dynamic tree. Some paramRefs genuinely have no Text of
-    // their own (they're a companion value ETS writes based on a visible
-    // enum/checkbox's selected branch, not something ETS itself ever shows a
-    // distinct label for) - for those, the enclosing choose's own label is
-    // the most meaningful generic thing derivable from the ETS product data,
-    // since that choose IS the user-visible control this companion value
-    // belongs to. Built once from the same dynTree already computed above -
-    // not a per-parameter/per-device lookup.
+    // <Choose> in the dynamic tree. Some paramRefs have no Text of their own
+    // (a companion value ETS writes based on a visible enum/checkbox's
+    // selected branch) - for those, the enclosing choose's label is the
+    // most meaningful one available, since that choose is the user-visible
+    // control the companion value belongs to.
     const chooseOwnerOf: Record<string, string> = {};
     function walkForChooseOwners(
       items: DynItem[] | null | undefined,
@@ -1859,11 +2100,18 @@ export function buildAppIndex(buf: Buffer): AppIndex | null {
         bitOffset: pd.bitOffset || 0,
         ...(segmentAddress !== undefined ? { segmentAddress } : {}),
         bitSize: ti.sizeInBit || 8,
-        defaultValue: pr.prDefault ?? pd.value ?? '',
+        // See ParamMemLayoutEntry.refValue's doc comment: `defaultValue` is
+        // always the Parameter's factory value; `refValue` below carries
+        // the ParameterRef's own value separately, for buildParamMem() to
+        // prefer only when this entry is genuinely reached by the tree walk.
+        defaultValue: pd.value ?? '',
         isText: ti.kind === 'text',
         isFloat: ti.kind === 'float',
         fromMemoryChild: pd.fromMemoryChild || false,
         isVisible,
+        ...(pr.prDefault !== null ? { refValue: pr.prDefault } : {}),
+        ...(pd.isDefaultUnionParam ? { isDefaultUnionParam: true } : {}),
+        ...(pd.baseOffsetArgId ? { baseOffsetArgId: pd.baseOffsetArgId } : {}),
         ...(ti.coefficient ? { coefficient: ti.coefficient } : {}),
         ...(ownLabel && {
           label: ownLabel,
@@ -1931,12 +2179,21 @@ export function buildAppIndex(buf: Buffer): AppIndex | null {
       if (value !== '') paramRefValues[prId] = String(value);
     }
 
+    // paramId -> baseValueArgId, for module-instanced params that have one -
+    // see ParamModel.baseValueArgIds' own doc comment.
+    const baseValueArgIds: Record<string, string> = {};
+    for (const [paramId, pd] of Object.entries(paramDefs)) {
+      if (pd.baseValueArgId) baseValueArgIds[paramId] = pd.baseValueArgId;
+    }
+
     return {
       appId,
       params,
       dynTree,
       modArgs,
       paramMemLayout,
+      argDefs,
+      baseValueArgIds,
       paramRefValues,
       relSegData,
       absSegData,
@@ -1949,10 +2206,21 @@ export function buildAppIndex(buf: Buffer): AppIndex | null {
   // insertion order) to support both DefaultProcedure and ProductProcedure
   // style load sequences.
   const loadProcedures: LoadProcedureStep[] = [];
+  // Where each step came from, so the list can be put back in document order
+  // below (see loadProcedureDocumentOrder).
+  const loadProcedureKeys: string[] = [];
+  let procedureIndex = -1;
   for (const lp of toArr(ap.Static?.LoadProcedures?.LoadProcedure)) {
+    procedureIndex++;
+    const mergeIdRaw = attr(lp, 'MergeId');
+    const mergeId = mergeIdRaw ? parseInt(mergeIdRaw, 10) : undefined;
+    const withMergeId = mergeId != null ? { mergeId } : {};
     for (const key of Object.keys(lp as XmlNode)) {
       if (!key.startsWith('LdCtrl')) continue;
+      let elementIndex = -1;
       for (const el of toArr((lp as XmlNode)[key])) {
+        elementIndex++;
+        const stepsBefore = loadProcedures.length;
         switch (key) {
           case 'LdCtrlRelSegment':
             loadProcedures.push({
@@ -1961,6 +2229,7 @@ export function buildAppIndex(buf: Buffer): AppIndex | null {
               size: parseInt(attr(el, 'Size'), 10) || 0,
               mode: attr(el, 'AppliesTo') || 'full',
               fill: parseInt(attr(el, 'Fill'), 10) || 0,
+              ...withMergeId,
             });
             break;
           case 'LdCtrlWriteProp': {
@@ -1973,6 +2242,11 @@ export function buildAppIndex(buf: Buffer): AppIndex | null {
               objIdx: parseInt(attr(el, 'ObjIdx'), 10) || 0,
               propId: parseInt(attr(el, 'PropId'), 10) || 0,
               data,
+              ...(attr(el, 'Verify') === 'true' ||
+              attr(el, 'Verify') === 'false'
+                ? { verifyResponse: attr(el, 'Verify') === 'true' }
+                : {}),
+              ...withMergeId,
             });
             break;
           }
@@ -1982,6 +2256,7 @@ export function buildAppIndex(buf: Buffer): AppIndex | null {
               objIdx: parseInt(attr(el, 'ObjIdx'), 10) || 0,
               propId: parseInt(attr(el, 'PropId'), 10) || 0,
               data: attr(el, 'InlineData').replace(/\s/g, ''),
+              ...withMergeId,
             });
             break;
           case 'LdCtrlWriteRelMem':
@@ -1991,11 +2266,14 @@ export function buildAppIndex(buf: Buffer): AppIndex | null {
               offset: parseInt(attr(el, 'Offset'), 10) || 0,
               size: parseInt(attr(el, 'Size'), 10) || 0,
               mode: attr(el, 'AppliesTo') || 'full',
-              // Real, only-ever-seen-once-so-far attribute (HDL's app,
-              // objIdx 4): `Verify="true"`. See downloadDevice()'s own use
-              // of this field for what it's currently believed to mean and
-              // how tentative that belief still is.
+              // `Verify="true"` on `<LdCtrlWriteRelMem>`. See
+              // downloadDevice() for current usage.
               verify: attr(el, 'Verify') === 'true',
+              ...(attr(el, 'Verify') === 'true' ||
+              attr(el, 'Verify') === 'false'
+                ? { verifyResponse: attr(el, 'Verify') === 'true' }
+                : {}),
+              ...withMergeId,
             });
             break;
           case 'LdCtrlLoadImageProp':
@@ -2003,35 +2281,52 @@ export function buildAppIndex(buf: Buffer): AppIndex | null {
               type: 'LoadImageProp',
               objIdx: parseInt(attr(el, 'ObjIdx'), 10) || 0,
               propId: parseInt(attr(el, 'PropId'), 10) || 27,
+              ...withMergeId,
             });
             break;
-          case 'LdCtrlAbsSegment':
+          case 'LdCtrlAbsSegment': {
+            const optInt = (name: string): number | undefined => {
+              const n = parseInt(attr(el, name), 10);
+              return isNaN(n) ? undefined : n;
+            };
+            const access = optInt('Access');
+            const memType = optInt('MemType');
+            const segType = optInt('SegType');
+            const segFlags = optInt('SegFlags');
             loadProcedures.push({
               type: 'AbsSegment',
               lsmIdx: parseInt(attr(el, 'LsmIdx'), 10) || 0,
               address: parseInt(attr(el, 'Address'), 10) || 0,
               size: parseInt(attr(el, 'Size'), 10) || 0,
+              ...(access != null ? { access } : {}),
+              ...(memType != null ? { memType } : {}),
+              ...(segType != null ? { segType } : {}),
+              ...(segFlags != null ? { segFlags } : {}),
+              ...withMergeId,
             });
             break;
+          }
           case 'LdCtrlConnect':
-            loadProcedures.push({ type: 'Connect' });
+            loadProcedures.push({ type: 'Connect', ...withMergeId });
             break;
           case 'LdCtrlDisconnect':
-            loadProcedures.push({ type: 'Disconnect' });
+            loadProcedures.push({ type: 'Disconnect', ...withMergeId });
             break;
           case 'LdCtrlRestart':
-            loadProcedures.push({ type: 'Restart' });
+            loadProcedures.push({ type: 'Restart', ...withMergeId });
             break;
           case 'LdCtrlUnload':
             loadProcedures.push({
               type: 'Unload',
               lsmIdx: parseInt(attr(el, 'LsmIdx'), 10) || 0,
+              ...withMergeId,
             });
             break;
           case 'LdCtrlLoad':
             loadProcedures.push({
               type: 'Load',
               lsmIdx: parseInt(attr(el, 'LsmIdx'), 10) || 0,
+              ...withMergeId,
             });
             break;
           case 'LdCtrlTaskSegment':
@@ -2039,21 +2334,51 @@ export function buildAppIndex(buf: Buffer): AppIndex | null {
               type: 'TaskSegment',
               lsmIdx: parseInt(attr(el, 'LsmIdx'), 10) || 0,
               address: parseInt(attr(el, 'Address'), 10) || 0,
+              ...withMergeId,
             });
             break;
           case 'LdCtrlLoadCompleted':
             loadProcedures.push({
               type: 'LoadCompleted',
               lsmIdx: parseInt(attr(el, 'LsmIdx'), 10) || 0,
+              ...withMergeId,
             });
             break;
+          default:
+            // Any other LdCtrl* directive: keep it visible instead of
+            // silently dropping it.
+            loadProcedures.push({
+              type: 'Unhandled',
+              tag: key,
+              ...withMergeId,
+            });
+            break;
+        }
+        for (let i = stepsBefore; i < loadProcedures.length; i++) {
+          loadProcedureKeys[i] = `${procedureIndex}|${key}|${elementIndex}`;
         }
       }
     }
   }
+  // Restore the order the application declares its steps in. Only applied when
+  // every step's position is known; otherwise the steps stay as parsed.
+  {
+    const docOrder = loadProcedureDocumentOrder(rawXml);
+    const positions = loadProcedureKeys.map((k) => docOrder.get(k));
+    if (
+      docOrder.size > 0 &&
+      loadProcedures.length > 1 &&
+      positions.every((p) => p !== undefined)
+    ) {
+      const sorted = loadProcedures
+        .map((step, i) => ({ step, pos: positions[i]!, i }))
+        .sort((a, b) => a.pos - b.pos || a.i - b.i)
+        .map((x) => x.step);
+      loadProcedures.splice(0, loadProcedures.length, ...sorted);
+    }
+  }
 
-  // See AppIndex.maxComObjectNumber's doc comment - the app's total static
-  // declaration range, not any per-device instantiated subset.
+  // See AppIndex.maxComObjectNumber's doc comment.
   const maxComObjectNumber = Object.values(coDefs).reduce(
     (max, co) => Math.max(max, co.num),
     0,
@@ -2068,8 +2393,12 @@ export function buildAppIndex(buf: Buffer): AppIndex | null {
     appId,
     maxComObjectNumber,
     isSecureEnabled,
+    peiType,
+    lineCoupler0912NewProgrammingStyle,
     supportsExtendedMemoryServices,
     parameterByteOrder,
+    gaTableMaxEntries,
+    assocTableMaxEntries,
     paramRefKeys: Object.keys(paramRefDefs),
     moduleKeys: Object.keys(modArgs), // "{appId}_MD-n_M-k" — one per instantiated module
     getDefault,

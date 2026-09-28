@@ -1,17 +1,11 @@
 /**
- * Tests for server/ets-app.ts's buildAppIndex()/buildParamModel() — in
- * particular the Union <Memory BitOffset> propagation bug (fix #3, patch 3).
+ * Tests for server/ets-app.ts's buildAppIndex()/buildParamModel().
  *
  * A <Union> element's bit position within its byte comes from the Union's
- * OWN <Memory BitOffset> child (its child Parameters conventionally carry
- * BitOffset="0"). Before the fix, addParam() only read the Union Memory's
- * Offset (byte position) and ignored its BitOffset, so a sub-byte Union
- * field landed in the wrong nibble — e.g. the MDT UP-2124/2125/2126
- * "BehaviourAtLocking_*" fields (real product XML:
- * `<Union SizeInBit="4"><Memory Offset="29" BitOffset="4"/>
- *  <Parameter … Offset="0" BitOffset="0"/></Union>`) were written to the
- * HIGH nibble (bitOffset 0) instead of the LOW nibble (bitOffset 4),
- * producing 0x20 where ETS wrote 0x22.
+ * OWN <Memory BitOffset> child (child Parameters conventionally carry
+ * BitOffset="0"). addParam() must fold this into the child param's
+ * bitOffset, not just the Union Memory's byte Offset — otherwise a sub-byte
+ * Union field lands in the wrong nibble.
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -60,10 +54,8 @@ describe('ets-app.ts: Union <Memory BitOffset> propagation', () => {
       29,
       'byte offset should come from the Union Memory Offset',
     );
-    // Pre-fix this was 0 (only the child Parameter's own BitOffset="0" was
-    // used) — writeBits(29, bitOff=0, size=4, 2) sets the HIGH nibble (0x20).
-    // Post-fix it must be 4 (the Union Memory's BitOffset), which sets the
-    // LOW nibble — matching ETS.
+    // Must be 4 (the Union Memory's BitOffset), which sets the LOW nibble;
+    // using the child Parameter's own BitOffset="0" would set the HIGH one.
     assert.equal(entry.bitOffset, 4);
     assert.equal(entry.bitSize, 4);
   });
@@ -105,9 +97,6 @@ describe('ets-app.ts: Union <Memory BitOffset> propagation', () => {
   });
 
   it('honors a Union <Memory BitOffset> even when the byte Offset is a direct Union attribute', () => {
-    // The Union carries its byte Offset as a direct attribute (29) but its bit
-    // position only in the <Memory BitOffset="4"> child. The BitOffset must
-    // still be picked up — otherwise the 4-bit field lands in the wrong nibble.
     const xml = `<?xml version="1.0" encoding="utf-8"?>
 <KNX>
   <ManufacturerData>
@@ -145,19 +134,10 @@ describe('ets-app.ts: Union <Memory BitOffset> propagation', () => {
   });
 });
 
-// TypeRawData ParameterTypes (whole pre-baked binary blobs, e.g.
-// "Characteristic curve value domain" tables) were never handled at all —
-// every branch in the ParameterType-parsing loop checks for a specific
-// child element (TypeNumber/TypeFloat/TypeTime/TypeText) before falling
-// through to a generic TypeRestriction-based branch that only reads
-// TypeRestriction's own SizeInBit. TypeRawData has none of those, so it
-// silently got the `|| 8` fallback (1 byte) regardless of its real,
-// potentially-hundreds-of-bytes size. Confirmed 2026-08-28 against a real
-// device + its real .knxproj XML (`<TypeRawData MaxSize="516" />` for a
-// 512-byte curve table) — root cause of a real, large gap between
-// koolenex's computed parameter image and a real device. See
-// docs/knx-device-write-protocol.md Part 9 and
-// docs/follow-ups/2026-08-28-full-download-history-and-blob-params.md.
+// TypeRawData ParameterTypes are pre-baked binary blobs (e.g. "Characteristic
+// curve value domain" tables). Unlike TypeNumber/TypeFloat/TypeTime/TypeText,
+// size is MaxSize (bytes, not bits) on TypeRawData itself, not via
+// TypeRestriction's SizeInBit. See docs/knx-device-write-protocol.md Part 9.
 describe('ets-app.ts: TypeRawData ParameterType (blob-shaped defaults)', () => {
   it('reads MaxSize into bitSize (bytes, not bits) instead of falling back to 8', () => {
     const xml = `<?xml version="1.0" encoding="utf-8"?>
@@ -189,9 +169,7 @@ describe('ets-app.ts: TypeRawData ParameterType (blob-shaped defaults)', () => {
     const model = idx!.buildParamModel();
     const entry = model.paramMemLayout['PR-4'];
     assert(entry, 'PR-4 should be present in paramMemLayout');
-    // 516 bytes = 4128 bits — MaxSize is in bytes, confirmed against the
-    // real device's own real .knxprod (MaxSize="516" for a real 512-byte
-    // table + 4-byte length prefix = 516).
+    // 516 bytes = 4128 bits — MaxSize is in bytes.
     assert.equal(entry.bitSize, 4128);
     assert.equal(entry.defaultValue, 'AAAAAQIDBA==');
   });
@@ -231,11 +209,6 @@ describe('ets-app.ts: TypeRawData ParameterType (blob-shaped defaults)', () => {
 });
 
 describe('ets-app.ts: LdCtrlWriteRelMem Verify attribute', () => {
-  // Real, only-ever-seen-once-so-far data point: HDL's app
-  // (M-0073_A-20A9-10-EAA5) declares exactly one LdCtrlWriteRelMem, for
-  // objIdx 4, with Verify="true" - the only occurrence of that attribute
-  // anywhere in the app. See knx-connection.ts's own use of this field for
-  // the full, deliberately cautious caveat on what it's believed to mean.
   it('parses Verify="true" into the WriteRelMem step', () => {
     const xml = `<?xml version="1.0" encoding="utf-8"?>
 <KNX>
@@ -286,5 +259,228 @@ describe('ets-app.ts: LdCtrlWriteRelMem Verify attribute', () => {
     const step = idx!.loadProcedures.find((s) => s.type === 'WriteRelMem');
     assert(step, 'a WriteRelMem step should be present');
     assert.equal(step!.verify, false);
+  });
+});
+
+describe('buildAppIndex - StartElement, Count and PeiType', () => {
+  const app = (
+    attrs: string,
+    steps: string,
+  ) => `<?xml version="1.0" encoding="utf-8"?>
+<KNX>
+  <ManufacturerData>
+    <Manufacturer>
+      <ApplicationPrograms>
+        <ApplicationProgram Id="AP-9" ${attrs}>
+          <Static>
+            <LoadProcedures>
+              <LoadProcedure MergeId="4">
+                ${steps}
+              </LoadProcedure>
+            </LoadProcedures>
+          </Static>
+        </ApplicationProgram>
+      </ApplicationPrograms>
+    </Manufacturer>
+  </ManufacturerData>
+</KNX>`;
+
+  it('parses PeiType from the ApplicationProgram, undefined when absent', () => {
+    const withPei = buildAppIndex(
+      Buffer.from(app('PeiType="0"', '<LdCtrlConnect />'), 'utf8'),
+    );
+    const without = buildAppIndex(
+      Buffer.from(app('', '<LdCtrlConnect />'), 'utf8'),
+    );
+    assert.equal(withPei!.peiType, '0');
+    assert.equal(without!.peiType, undefined);
+  });
+});
+
+describe('buildAppIndex - Verify on LdCtrlWriteProp and LdCtrlWriteRelMem', () => {
+  const app = (steps: string) => `<?xml version="1.0" encoding="utf-8"?>
+<KNX>
+  <ManufacturerData>
+    <Manufacturer>
+      <ApplicationPrograms>
+        <ApplicationProgram Id="AP-10">
+          <Static>
+            <LoadProcedures>
+              <LoadProcedure MergeId="4">
+                ${steps}
+              </LoadProcedure>
+            </LoadProcedures>
+          </Static>
+        </ApplicationProgram>
+      </ApplicationPrograms>
+    </Manufacturer>
+  </ManufacturerData>
+</KNX>`;
+
+  it('records an explicit Verify true/false as verifyResponse, and leaves it absent when not declared', () => {
+    const idx = buildAppIndex(
+      Buffer.from(
+        app(
+          '<LdCtrlWriteProp ObjIdx="4" PropId="27" Verify="false" InlineData="0000000A00330000" />' +
+            '<LdCtrlWriteProp ObjIdx="4" PropId="13" Verify="true" InlineData="0000000000" />' +
+            '<LdCtrlWriteProp ObjIdx="4" PropId="14" InlineData="00" />' +
+            '<LdCtrlWriteRelMem ObjIdx="4" Offset="0" Size="8" Verify="false" AppliesTo="full" />' +
+            '<LdCtrlWriteRelMem ObjIdx="3" Offset="0" Size="8" AppliesTo="full" />',
+        ),
+        'utf8',
+      ),
+    );
+    const props = idx!.loadProcedures.filter(
+      (s) => s.type === 'WriteProp',
+    ) as Array<{ verifyResponse?: boolean }>;
+    assert.equal(props[0]!.verifyResponse, false);
+    assert.equal(props[1]!.verifyResponse, true);
+    assert.equal(props[2]!.verifyResponse, undefined);
+    const mems = idx!.loadProcedures.filter(
+      (s) => s.type === 'WriteRelMem',
+    ) as Array<{ verifyResponse?: boolean }>;
+    assert.equal(mems[0]!.verifyResponse, false);
+    assert.equal(mems[1]!.verifyResponse, undefined);
+  });
+});
+
+describe('buildAppIndex - unrecognised LdCtrl steps and LineCoupler0912NewProgrammingStyle', () => {
+  const app = (
+    options: string,
+    steps: string,
+  ) => `<?xml version="1.0" encoding="utf-8"?>
+<KNX>
+  <ManufacturerData>
+    <Manufacturer>
+      <ApplicationPrograms>
+        <ApplicationProgram Id="AP-11">
+          <Static>
+            ${options}
+            <LoadProcedures>
+              <LoadProcedure MergeId="4">
+                ${steps}
+              </LoadProcedure>
+            </LoadProcedures>
+          </Static>
+        </ApplicationProgram>
+      </ApplicationPrograms>
+    </Manufacturer>
+  </ManufacturerData>
+</KNX>`;
+
+  it('keeps an unrecognised LdCtrl* step as Unhandled instead of dropping it', () => {
+    const idx = buildAppIndex(
+      Buffer.from(
+        app('', '<LdCtrlConnect /><LdCtrlWriteMem Address="256" Size="2" />'),
+        'utf8',
+      ),
+    );
+    const un = idx!.loadProcedures.filter(
+      (s) => s.type === 'Unhandled',
+    ) as Array<{ tag: string }>;
+    assert.equal(un.length, 1);
+    assert.equal(un[0]!.tag, 'LdCtrlWriteMem');
+  });
+
+  it('parses LineCoupler0912NewProgrammingStyle true/false, undefined when absent', () => {
+    const t = buildAppIndex(
+      Buffer.from(
+        app(
+          '<Options LineCoupler0912NewProgrammingStyle="true"/>',
+          '<LdCtrlConnect />',
+        ),
+        'utf8',
+      ),
+    );
+    const f = buildAppIndex(
+      Buffer.from(
+        app(
+          '<Options LineCoupler0912NewProgrammingStyle="false"/>',
+          '<LdCtrlConnect />',
+        ),
+        'utf8',
+      ),
+    );
+    const n = buildAppIndex(Buffer.from(app('', '<LdCtrlConnect />'), 'utf8'));
+    assert.equal(t!.lineCoupler0912NewProgrammingStyle, true);
+    assert.equal(f!.lineCoupler0912NewProgrammingStyle, false);
+    assert.equal(n!.lineCoupler0912NewProgrammingStyle, undefined);
+  });
+});
+
+describe('buildAppIndex - AbsSegment Access, MemType, SegType and SegFlags', () => {
+  it('parses the four attributes when declared, leaves them absent otherwise', () => {
+    const xml = `<?xml version="1.0" encoding="utf-8"?>
+<KNX><ManufacturerData><Manufacturer><ApplicationPrograms>
+  <ApplicationProgram Id="AP-12"><Static><LoadProcedures>
+    <LoadProcedure MergeId="4">
+      <LdCtrlAbsSegment LsmIdx="1" Address="18710" Size="64" Access="3" MemType="2" SegType="0" SegFlags="0" />
+      <LdCtrlAbsSegment LsmIdx="2" Address="1792" Size="8" />
+    </LoadProcedure>
+  </LoadProcedures></Static></ApplicationProgram>
+</ApplicationPrograms></Manufacturer></ManufacturerData></KNX>`;
+    const idx = buildAppIndex(Buffer.from(xml, 'utf8'));
+    const segs = idx!.loadProcedures.filter(
+      (s) => s.type === 'AbsSegment',
+    ) as Array<Record<string, number | undefined>>;
+    assert.equal(segs[0]!.segFlags, 0);
+    assert.equal(segs[0]!.access, 3);
+    assert.equal(segs[0]!.memType, 2);
+    assert.equal(segs[0]!.segType, 0);
+    assert.equal(segs[1]!.segFlags, undefined);
+  });
+});
+
+describe('buildAppIndex - load procedure steps keep the order the application declares', () => {
+  const app = (procedures: string) => `<?xml version="1.0" encoding="utf-8"?>
+<KNX><ManufacturerData><Manufacturer><ApplicationPrograms>
+  <ApplicationProgram Id="AP-13"><Static><LoadProcedures>
+    ${procedures}
+  </LoadProcedures></Static></ApplicationProgram>
+</ApplicationPrograms></Manufacturer></ManufacturerData></KNX>`;
+
+  it('interleaves steps of different kinds in document order, not grouped by tag', () => {
+    const idx = buildAppIndex(
+      Buffer.from(
+        app(`<LoadProcedure MergeId="4">
+      <LdCtrlWriteProp ObjIdx="4" PropId="27" InlineData="0000000A00330000" />
+      <LdCtrlLoadImageProp ObjIdx="4" PropId="27" Count="2" />
+      <LdCtrlWriteProp ObjIdx="1" PropId="5" InlineData="00" />
+      <LdCtrlCompareProp ObjIdx="4" PropId="13" InlineData="0102" />
+    </LoadProcedure>`),
+        'utf8',
+      ),
+    );
+    assert.deepEqual(
+      idx!.loadProcedures.map((s) => s.type),
+      ['WriteProp', 'LoadImageProp', 'WriteProp', 'CompareProp'],
+    );
+    const writes = idx!.loadProcedures.filter(
+      (s) => s.type === 'WriteProp',
+    ) as Array<{ objIdx: number }>;
+    assert.deepEqual(
+      writes.map((w) => w.objIdx),
+      [4, 1],
+    );
+  });
+
+  it('keeps separate LoadProcedure blocks in sequence, each with its own MergeId', () => {
+    const idx = buildAppIndex(
+      Buffer.from(
+        app(`<LoadProcedure MergeId="2">
+      <LdCtrlLoadImageProp ObjIdx="1" PropId="27" />
+      <LdCtrlWriteProp ObjIdx="1" PropId="5" InlineData="00" />
+    </LoadProcedure>
+    <LoadProcedure MergeId="4">
+      <LdCtrlWriteProp ObjIdx="4" PropId="13" InlineData="00" />
+      <LdCtrlLoadImageProp ObjIdx="4" PropId="27" />
+    </LoadProcedure>`),
+        'utf8',
+      ),
+    );
+    assert.deepEqual(
+      idx!.loadProcedures.map((s) => `${s.type}:${s.mergeId}`),
+      ['LoadImageProp:2', 'WriteProp:2', 'WriteProp:4', 'LoadImageProp:4'],
+    );
   });
 });

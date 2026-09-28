@@ -1,33 +1,18 @@
 /**
  * Protocol-level tests for DownloadExtra.mode='partial' (knx-connection.ts's
- * downloadDevice()), added 2026-08-29 alongside a real-hardware round-trip
- * test: ETS wrote a GA change (Full Download), koolenex reverted it via a
- * NEW 'partial' mode - the first partial-download capability this project
- * has ever had (previously every downloadDevice() call always did a full
- * rewrite, unconditionally, regardless of what mode was requested). See
- * koolenex-reference memory and docs/data/captures/README.md in the
- * knx-ets-manager repo for the real capture backing this.
+ * downloadDevice()). Partial mode is driven by DownloadExtra.pendingWriteRanges
+ * - an edit log (device_pending_changes, resolved upstream in routes/bus.ts)
+ * names exactly which byte ranges to write, with no device read/diff involved.
  *
- * REWRITTEN 2026-09-01: partial mode's original mechanism (peek each
- * object's full current content off the device, diff against target) was
- * replaced with DownloadExtra.pendingWriteRanges - a real edit log
- * (device_pending_changes, resolved upstream in routes/bus.ts) tells
- * downloadDevice() exactly which byte ranges to write, with NO device read
- * at all. Real user correction: "I don't want to store a device memory
- * cache. I want to log changes in our DB (e.g. by edits)." Every test below
- * now drives that field directly rather than pre-seeding a `backing` buffer
- * for downloadDevice() to read and diff.
- *
- * This is a protocol-level "virtual device" test (subclasses KnxConnection,
- * intercepts sendCEMI, answers both reads AND writes against its own backing
- * buffer) - proves the skip-when-nothing-pending and mode-byte logic
- * deterministically, without needing real hardware for every run. The
- * real-hardware round trip (see the capture above) is what proves the same
- * underlying protocol sequence actually works on a real device; this file is
- * the fast, repeatable regression guard for it.
+ * Uses a protocol-level "virtual device" (subclasses KnxConnection, intercepts
+ * sendCEMI, answers both reads and writes against its own backing buffer) to
+ * prove the skip-when-nothing-pending and mode-byte logic deterministically
+ * without hardware.
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'fs';
+import path from 'path';
 
 import {
   parseCEMI,
@@ -39,23 +24,16 @@ import {
 } from '../server/knx-cemi.ts';
 import { KnxConnection } from '../server/knx-connection.ts';
 import type { DownloadStep } from '../server/knx-connection.ts';
+import { saveMasterXml, DATA_DIR } from '../server/routes/shared.ts';
+import { clearMaskProcedureCache } from '../server/knx-mask-procedures.ts';
 
 /**
- * Answers DeviceDescriptor_Read (System B, 0x07B0 - matches 1.1.9/1.1.10,
- * the only real devices this project has tested), Authorize_Request,
- * PropertyValue_Write (LSM/load-state transitions - always accepted, no
- * real state machine simulated), PropertyValue_Read (from a configurable
- * per-objIdx/propId property store - added 2026-08-29 alongside Object 3's
- * computeGroupObjectByte()/buildGroupObjectTable() so a future test can
- * simulate a real PID_TABLE_REFERENCE/property-27 round trip for objIdx 3
- * without needing this plumbing built from scratch; no downloadDevice()
- * code writes objIdx 3 yet, so nothing exercises this today - see
- * docs/knx-device-write-protocol.md §10.1), Memory_Read/MemoryExtended_Read
- * (answers from its own backing buffer - this is what makes the
- * partial-mode skip-if-unchanged check exercisable), and Memory_Write/
- * MemoryExtended_Write (applies to its own backing buffer, so the buffer's
- * state after a downloadDevice() call reflects exactly what was actually
- * written).
+ * Fake device answering DeviceDescriptor_Read (System B, mask 0x07B0),
+ * Authorize_Request, PropertyValue_Write (LSM/load-state transitions -
+ * always accepted, no real state machine simulated), PropertyValue_Read
+ * (from a configurable per-objIdx/propId property store), Memory_Read/
+ * MemoryExtended_Read, and Memory_Write/MemoryExtended_Write - both memory
+ * services apply to and read back from a shared backing buffer.
  */
 class FakeRWMemoryDevice extends KnxConnection {
   sent: Buffer[] = [];
@@ -72,19 +50,32 @@ class FakeRWMemoryDevice extends KnxConnection {
     this.memory = memory;
     this.connected = true;
     this.localAddr = '1.0.1';
-    // PID_MAX_APDULENGTH (property 56, objIdx 0) - real request, 2026-08-31:
-    // downloadDevice() now resolves this once per session
-    // (KnxConnection._resolveMaxApduLength()) to compute the real chunk-
-    // size ceiling. Defaulted here (generous - never caps anything at the
-    // sizes this file's tests use) so every existing test keeps its real
-    // 3s-timeout-free speed; a test can still override via setProperty()
-    // to exercise real capping/fallback behavior explicitly.
+    // PID_MAX_APDULENGTH (property 56, objIdx 0): downloadDevice() resolves
+    // this once per session (_resolveMaxApduLength()) for the chunk-size
+    // ceiling. Defaulted generously so it never caps this file's sizes;
+    // override via setProperty() to test capping/fallback explicitly.
     this.setProperty(0, 56, Buffer.from([0x03, 0xe8])); // 1000
   }
 
   /** Configure this fake device to answer a PropertyValue_Read for (objIdx, propId) with `data`. */
   setProperty(objIdx: number, propId: number, data: Buffer): void {
     this.properties.set(`${objIdx}:${propId}`, data);
+  }
+
+  /** objIdx:propId -> live MaxNrOfElements to answer a
+   * PropertyDescription_Read with (real KNX PropertyDescription_Response
+   * shape: [ObjIdx][PropId][PX][T][MaxNrOfElem:2][R/W]). Unconfigured reads
+   * get no response at all, matching `properties` above. */
+  descriptors = new Map<string, number>();
+
+  /** Configure this fake device to answer a PropertyDescription_Read for
+   * (objIdx, propId) with a given live MaxNrOfElements (12-bit field). */
+  setDescriptorMaxNrOfElements(
+    objIdx: number,
+    propId: number,
+    maxNrOfElements: number,
+  ): void {
+    this.descriptors.set(`${objIdx}:${propId}`, maxNrOfElements);
   }
 
   private reply(respApdu: Buffer): void {
@@ -115,21 +106,17 @@ class FakeRWMemoryDevice extends KnxConnection {
       );
       return Promise.resolve();
     }
-    // PropertyValue_Write (0x3D7): downloadDevice() waits for an 'OTHER'
-    // response (see propWrite/lsmWrite) - any non-error reply unblocks it.
-    // 0x3D7 low byte pattern mirrors apduPropertyValueWrite's own encoding.
+    // PropertyValue_Write (0x3D7): downloadDevice() waits for any non-error
+    // reply to unblock (see propWrite/lsmWrite); this echoes a minimal
+    // PropertyValue_Response-shaped frame without decoding it.
     if (fullApci === 0x3d7) {
-      // Echo back a minimal PropertyValue_Response-shaped OTHER frame -
-      // downloadDevice() only awaits *a* response, doesn't decode this one.
       const word = (TPCI.DATA_CONNECTED << 10) | 0x3d5;
       this.reply(Buffer.from([(word >> 8) & 0xff, word & 0xff, 0, 0, 0]));
       return Promise.resolve();
     }
-    // PropertyValue_Read (0x3D5) - answered from `this.properties`, set via
-    // setProperty(). No response at all if unconfigured (see the field's
-    // own comment) - propRead() in knx-connection.ts treats that as "no
-    // response received" and returns null, same as real hardware would for
-    // an unallocated/unanswered property.
+    // PropertyValue_Read (0x3D5) - answered from `this.properties`. An
+    // unconfigured property gets no response, matching an unallocated
+    // property on real hardware (propRead() treats that as null).
     if (fullApci === 0x3d5) {
       const objIdx = frame.apduData[0]!;
       const propId = frame.apduData[1]!;
@@ -145,6 +132,30 @@ class FakeRWMemoryDevice extends KnxConnection {
             meta,
             data,
           ]),
+        );
+      }
+      return Promise.resolve();
+    }
+
+    // PropertyDescription_Read (0x3D8) - answered from `this.descriptors`,
+    // set via setDescriptorMaxNrOfElements(). No response at all if
+    // unconfigured, same convention as PropertyValue_Read above.
+    if (fullApci === APCI_EXT.PropertyDescription_Read) {
+      const objIdx = frame.apduData[0]!;
+      const propId = frame.apduData[1]!;
+      const maxNrOfElements = this.descriptors.get(`${objIdx}:${propId}`);
+      if (maxNrOfElements !== undefined) {
+        const value = Buffer.from([
+          objIdx,
+          propId,
+          0x03, // PX
+          0x14, // T (PDT code)
+          (maxNrOfElements >> 8) & 0x0f,
+          maxNrOfElements & 0xff,
+          0x32, // R/W, packed
+        ]);
+        this.reply(
+          apduConnectedFull(0, APCI_EXT.PropertyDescription_Response, value),
         );
       }
       return Promise.resolve();
@@ -198,10 +209,8 @@ class FakeRWMemoryDevice extends KnxConnection {
       const count = frame.apduData[0]!;
       const address = (frame.apduData[1]! << 8) | frame.apduData[2]!;
       frame.apduData.subarray(3, 3 + count).copy(this.memory, address);
-      // downloadDevice()'s memory-write loop now waits for each chunk's
-      // real response before sending the next (2026-08-30 fix) - respond
-      // like real hardware does, or every write would stall on the 3s
-      // timeout.
+      // downloadDevice()'s write loop waits for each chunk's response
+      // before sending the next; omitting this would stall on the timeout.
       this.reply(apduGroup('Memory_Response', 0, frame.apduData));
     } else if (frame.apciName === 'MemoryExtended_Write') {
       const count = frame.apduData[0]!;
@@ -235,9 +244,7 @@ class FakeRWMemoryDevice extends KnxConnection {
         f.apdu.length >= 2 ? ((f.apdu[0]! & 0x03) << 8) | f.apdu[1]! : -1;
       if (fullApci !== 0x3d7) continue;
       // apduData layout: [objIdx][propId][count/startIdx:2][event][SCF][rsvd:2][size:2][mode][fill][rsvd:2]
-      // - 4-byte meta header (apduPropertyValueWrite) + 10-byte LSM payload
-      // (lsmWrite's [event] + loadDataExtra's 9-byte body, whose own mode
-      // byte sits at its own index 5 -> overall index 4+1+5=10).
+      // - 4-byte meta header + 10-byte LSM payload; mode byte at index 10.
       const event = f.apduData[4];
       if (event === 0x03) out.push(f.apduData[10]!); // event=LOAD_DATA, mode byte
     }
@@ -256,7 +263,7 @@ class FakeRWMemoryDevice extends KnxConnection {
   }
 }
 
-describe("downloadDevice() mode='partial' (2026-09-01 rewrite)", () => {
+describe("downloadDevice() mode='partial'", () => {
   const BASE = 0x5f0e; // within 16 bits, matches 1.1.9's real relmem base shape
 
   it('skips the object entirely when nothing is pending for it (no Unload/StartLoading/LoadData/write, no read either)', async () => {
@@ -360,11 +367,9 @@ describe("downloadDevice() mode='partial' (2026-09-01 rewrite)", () => {
     payload.copy(backing, BASE); // device ALREADY matches - full mode must still write anyway
     const dev = new FakeRWMemoryDevice('1.1.9', backing);
 
-    // TWO RelSegment steps for the same lsmIdx - mirrors 1.1.10's real app
-    // model (the only one this project has seen declare both a "full" and a
-    // "par" RelSegment for the parameter object) - makes relSegByObj compute
-    // combined=true, so this test actually exercises "mode byte follows the
-    // declared shape" rather than coincidentally landing on 0 either way.
+    // Two RelSegment steps for the same lsmIdx makes relSegByObj compute
+    // combined=true, so the mode byte genuinely follows the declared shape
+    // rather than coincidentally landing on 0.
     const relSegFull: DownloadStep = {
       type: 'RelSegment',
       objIdx: 4,
@@ -413,15 +418,277 @@ describe("downloadDevice() mode='partial' (2026-09-01 rewrite)", () => {
   });
 });
 
-describe('FakeRWMemoryDevice.setProperty() - PropertyValue_Read support (2026-08-29)', () => {
-  // Exercises writeUndeclaredTable()'s real PID_TABLE_REFERENCE (property 7)
-  // resolution for objIdx 1 (the GA table) - a code path no test in this
-  // project could reach before, since no prior fake device answered
-  // PropertyValue_Read at all. Added alongside Object 3's
-  // computeGroupObjectByte()/buildGroupObjectTable() so this plumbing exists
-  // when a future test needs to simulate objIdx 3's own PID 7/property-27
-  // round trip - not exercised by that new code yet, since no
-  // downloadDevice() path writes objIdx 3.
+describe("downloadDevice() sequencing: WriteProp deferred to its own object's load phase, content written in descending objIdx order", () => {
+  const BASE4 = 0x1000;
+  const BASE1 = 0x2000;
+
+  it("WriteProp(4,27) fires after ObjIdx=4's own StartLoading+LoadData, not upfront before any Unload", async () => {
+    const payload = Buffer.from('deadbeefcafef00d', 'hex');
+    const backing = Buffer.alloc(0x10000);
+    const dev = new FakeRWMemoryDevice('1.1.9', backing);
+
+    const relSeg4: DownloadStep = {
+      type: 'RelSegment',
+      objIdx: 4,
+      propId: 0,
+      lsmIdx: 4,
+      size: payload.length,
+      fill: 0,
+    };
+    const write4: DownloadStep = {
+      type: 'WriteRelMem',
+      objIdx: 4,
+      propId: 0,
+      size: payload.length,
+      offset: 0,
+    };
+    const writeProp: DownloadStep = {
+      type: 'WriteProp',
+      objIdx: 4,
+      propId: 27,
+      data: Buffer.alloc(10), // matches the real 10-byte declared InlineData shape (trimmed to 8 on write)
+    };
+    const relSeg1: DownloadStep = {
+      type: 'RelSegment',
+      objIdx: 1,
+      propId: 0,
+      lsmIdx: 1,
+      size: 4,
+      fill: 0,
+    };
+    const write1: DownloadStep = {
+      type: 'WriteRelMem',
+      objIdx: 1,
+      propId: 0,
+      size: 4,
+      offset: 0,
+    };
+
+    const progress: string[] = [];
+    await dev.downloadDevice(
+      '1.1.9',
+      [relSeg4, write4, writeProp, relSeg1, write1],
+      null,
+      null,
+      payload,
+      (p) => progress.push(p.msg),
+      { resolvedBases: { 4: BASE4, 1: BASE1 } },
+    );
+
+    const loadData4 = progress.findIndex(
+      (m) => m === 'LoadData ObjIdx=4 Size=8 (param obj 4)',
+    );
+    // Match only the "(deferred..." log from the loadOrder loop (the actual
+    // send), not the unconditional logDebug fired when the step is first
+    // collected into relmemJobs.
+    const writePropIdx = progress.findIndex(
+      (m) =>
+        m.includes('WriteProp ObjIdx=4 PropId=27') && m.includes('deferred'),
+    );
+    const startLoading1 = progress.findIndex(
+      (m) => m === 'StartLoading ObjIdx=1 (param obj 1)',
+    );
+    const firstUnload = progress.findIndex((m) =>
+      m.startsWith('Unload ObjIdx='),
+    );
+
+    assert.notEqual(loadData4, -1, 'expected a LoadData log line for objIdx 4');
+    assert.notEqual(
+      writePropIdx,
+      -1,
+      'expected a deferred WriteProp log line for objIdx 4 propId 27',
+    );
+    assert.ok(
+      writePropIdx > loadData4,
+      "WriteProp(4,27) must fire AFTER objIdx 4's own StartLoading+LoadData, not before",
+    );
+    assert.ok(
+      firstUnload !== -1 && writePropIdx > firstUnload,
+      'WriteProp(4,27) must not fire before Unload has even begun',
+    );
+    assert.ok(
+      startLoading1 === -1 || writePropIdx < startLoading1,
+      "WriteProp(4,27) belongs to objIdx 4's own load phase, before StartLoading begins for the next object",
+    );
+  });
+
+  it('writes object content in descending objIdx order (4 before 1), matching real ETS', async () => {
+    const payload = Buffer.from('deadbeefcafef00d', 'hex');
+    const backing = Buffer.alloc(0x10000);
+    const dev = new FakeRWMemoryDevice('1.1.9', backing);
+
+    const relSeg4: DownloadStep = {
+      type: 'RelSegment',
+      objIdx: 4,
+      propId: 0,
+      lsmIdx: 4,
+      size: payload.length,
+      fill: 0,
+    };
+    const write4: DownloadStep = {
+      type: 'WriteRelMem',
+      objIdx: 4,
+      propId: 0,
+      size: payload.length,
+      offset: 0,
+    };
+    const relSeg1: DownloadStep = {
+      type: 'RelSegment',
+      objIdx: 1,
+      propId: 0,
+      lsmIdx: 1,
+      size: 4,
+      fill: 0,
+    };
+    const write1: DownloadStep = {
+      type: 'WriteRelMem',
+      objIdx: 1,
+      propId: 0,
+      size: 4,
+      offset: 0,
+    };
+
+    const progress: string[] = [];
+    // Steps declared ascending (1 before 4) - write order must still come
+    // out descending, proving it follows ETS convention, not declaration order.
+    await dev.downloadDevice(
+      '1.1.9',
+      [relSeg1, write1, relSeg4, write4],
+      null,
+      null,
+      payload,
+      (p) => progress.push(p.msg),
+      { resolvedBases: { 4: BASE4, 1: BASE1 } },
+    );
+
+    // "(param obj N)" only appears on the actual chunk-write progress
+    // message; the plain "WriteRelMem ObjIdx=N Size=..." line is the
+    // step-collection log and follows declaration order, not write order.
+    const firstWrite4 = progress.findIndex(
+      (m) => m.startsWith('WriteRelMem ObjIdx=4') && m.includes('(param obj'),
+    );
+    const firstWrite1 = progress.findIndex(
+      (m) => m.startsWith('WriteRelMem ObjIdx=1') && m.includes('(param obj'),
+    );
+
+    assert.notEqual(firstWrite4, -1);
+    assert.notEqual(firstWrite1, -1);
+    assert.ok(
+      firstWrite4 < firstWrite1,
+      "objIdx 4's own content must be written before objIdx 1's, regardless of step declaration order",
+    );
+  });
+
+  it('with a real mask-Procedure source available (extra.projectId + real master data), the mask-driven path actually engages and reproduces the identical descending order', async () => {
+    // Regression guard for knx-mask-procedures.ts's wiring: supplies real
+    // knx_master_1.xml (mask 0x07B0, System B) via a saved project id to
+    // force the mask-driven path (vs. the hand-written descending-by-objIdx
+    // fallback the other tests exercise) and confirms it produces the same order.
+    const masterXmlPath = 'data/knx_master_1.xml';
+    if (!fs.existsSync(masterXmlPath)) return; // real master data not present in this checkout
+    const projectId = `test_maskproc_wiring_${Date.now()}`;
+    saveMasterXml(projectId, fs.readFileSync(masterXmlPath, 'utf8'));
+    try {
+      const payload = Buffer.from('deadbeefcafef00d', 'hex');
+      const backing = Buffer.alloc(0x10000);
+      const dev = new FakeRWMemoryDevice('1.1.9', backing);
+
+      const relSeg4: DownloadStep = {
+        type: 'RelSegment',
+        objIdx: 4,
+        propId: 0,
+        lsmIdx: 4,
+        size: payload.length,
+        fill: 0,
+      };
+      // Mask 07B0's Load:all Procedure declares the GA/Association/Object-3
+      // WriteRelMem steps directly (ETS always writes those regardless of
+      // the app), but reserves a splice point (MergeId=4) for the
+      // application-specific parameter-object write, right before its own
+      // WriteRelMem(3,2,1) sequence. Setting mergeId here exercises that
+      // real splice rather than relying on the step happening to have none.
+      const write4: DownloadStep = {
+        type: 'WriteRelMem',
+        objIdx: 4,
+        propId: 0,
+        size: payload.length,
+        offset: 0,
+        mergeId: 4,
+      };
+      const relSeg1: DownloadStep = {
+        type: 'RelSegment',
+        objIdx: 1,
+        propId: 0,
+        lsmIdx: 1,
+        size: 4,
+        fill: 0,
+      };
+      const write1: DownloadStep = {
+        type: 'WriteRelMem',
+        objIdx: 1,
+        propId: 0,
+        size: 4,
+        offset: 0,
+      };
+
+      const progress: string[] = [];
+      await dev.downloadDevice(
+        '1.1.9',
+        [relSeg1, write1, relSeg4, write4],
+        null,
+        null,
+        payload,
+        (p) => progress.push(p.msg),
+        { resolvedBases: { 4: BASE4, 1: BASE1 }, projectId },
+      );
+
+      const engaged = progress.some((m) =>
+        m.includes('Real download sequence resolved from mask 07b0'),
+      );
+      assert.ok(
+        engaged,
+        'expected the mask-driven path to actually engage for this real project id/mask - if this fails, the test is silently exercising the fallback instead of what it means to test',
+      );
+
+      const firstWrite4 = progress.findIndex(
+        (m) => m.startsWith('WriteRelMem ObjIdx=4') && m.includes('(param obj'),
+      );
+      const firstWrite1 = progress.findIndex(
+        (m) => m.startsWith('WriteRelMem ObjIdx=1') && m.includes('(param obj'),
+      );
+      assert.notEqual(firstWrite4, -1);
+      assert.notEqual(firstWrite1, -1);
+      assert.ok(
+        firstWrite4 < firstWrite1,
+        'the mask-driven order must match the same real descending (4 before 1) order the fallback produces',
+      );
+
+      const firstUnload4 = progress.findIndex(
+        (m) => m === 'Unload ObjIdx=4 (param obj 4)',
+      );
+      const firstUnload1 = progress.findIndex(
+        (m) => m === 'Unload ObjIdx=1 (param obj 1)',
+      );
+      assert.notEqual(firstUnload4, -1);
+      assert.notEqual(firstUnload1, -1);
+      assert.ok(
+        firstUnload4 < firstUnload1,
+        'Unload order must also be descending (4 before 1) under the mask-driven path',
+      );
+    } finally {
+      clearMaskProcedureCache(projectId);
+      try {
+        fs.unlinkSync(path.join(DATA_DIR, `knx_master_${projectId}.xml`));
+      } catch {
+        /* nothing to clean up */
+      }
+    }
+  });
+});
+
+describe('FakeRWMemoryDevice.setProperty() - PropertyValue_Read support', () => {
+  // Exercises writeUndeclaredTable()'s PID_TABLE_REFERENCE (property 7)
+  // resolution for objIdx 1 (the GA table).
   const GA_TABLE_BASE = 0x4000;
 
   it('resolves the real base via a configured property and writes the GA table there (full mode)', async () => {
@@ -459,13 +726,9 @@ describe('FakeRWMemoryDevice.setProperty() - PropertyValue_Read support (2026-08
     const gaTable = Buffer.from('000249014905', 'hex');
     const backing = Buffer.alloc(0x10000);
     const dev = new FakeRWMemoryDevice('1.1.9', backing);
-    // Deliberately NOT configured via setProperty() - if the new code
-    // tried to resolve objIdx 1's base at all, this read would go
-    // unanswered and the object would be treated as "no base" rather than
-    // genuinely skipped for having nothing pending. Asserting writeCount
-    // 0 here holds either way, but the real intent (see
-    // DownloadExtra.pendingWriteRanges' doc comment) is "skip before any
-    // bus round-trip happens for this object", not just "no write lands".
+    // Not configured via setProperty() - the intent is skip-before-any-
+    // round-trip, not merely "no write lands"; if PID 7 resolution were
+    // attempted here it would go unanswered.
 
     await dev.downloadDevice('1.1.9', [], gaTable, null, null, undefined, {
       mode: 'partial',
@@ -498,18 +761,13 @@ describe('FakeRWMemoryDevice.setProperty() - PropertyValue_Read support (2026-08
   });
 });
 
-describe("downloadDevice() mode='partial' surgical write (2026-09-01 rewrite)", () => {
+describe("downloadDevice() mode='partial' surgical write", () => {
   const BASE = 0x5f0e;
 
   it('writes only the pending-write-range bytes, not the whole object, for a single tracked change in a large buffer', async () => {
-    // Real motivation, unchanged from the original version of this test:
-    // a live partial download after ONE changed parameter rewrote an
-    // entire ~10KB object. Now driven directly by pendingWriteRanges
-    // (what resolvePendingWriteRanges() would produce for one changed
-    // param key) instead of a device-content diff - a large (1000-byte)
-    // object with one tracked 2-byte range produces exactly ONE small
-    // write, not the ~5 chunks (Math.ceil(1000/228)) a full rewrite of
-    // this size would need.
+    // A large (1000-byte) object with one tracked 2-byte pending range
+    // produces exactly one small write, not ~5 chunks (Math.ceil(1000/228))
+    // for a full rewrite of this size.
     const size = 1000;
     const target = Buffer.alloc(size);
     for (let i = 0; i < size; i++) target[i] = i % 256;
@@ -612,6 +870,103 @@ describe("downloadDevice() mode='partial' surgical write (2026-09-01 rewrite)", 
     assert.deepEqual(
       [dev.memory[BASE + 10], dev.memory[BASE + 900]],
       [target[10], target[900]],
+    );
+  });
+});
+
+/** Association-table wire format (buildAssocTable, routes/knx-tables.ts):
+ * a leading 2-byte entry count followed by 4 bytes per entry. */
+function assocTableWithCount(count: number): Buffer {
+  const buf = Buffer.alloc(2 + count * 4);
+  buf.writeUInt16BE(count, 0);
+  return buf;
+}
+
+describe('downloadDevice() - live Association-table capacity check (PropertyDescription_Read ObjIdx=2 PropId=23)', () => {
+  it('proceeds normally when the real entry count is within the live-reported MaxNrOfElements', async () => {
+    const backing = Buffer.alloc(0x20000);
+    const dev = new FakeRWMemoryDevice('1.1.9', backing);
+    dev.setDescriptorMaxNrOfElements(2, 23, 1600);
+    // GA/Association tables resolve their write base via a live
+    // PID_TABLE_REFERENCE (P=7) read, not `resolvedBases` (that only feeds
+    // the parameter object, objIdx 4); base 0 reads as unallocated.
+    dev.setProperty(1, 7, Buffer.from([0x00, 0x01, 0x00, 0x00]));
+    dev.setProperty(2, 7, Buffer.from([0x00, 0x02, 0x00, 0x00]));
+
+    const assocTable = assocTableWithCount(4); // well within 1600
+    const gaTable = Buffer.from([0x00, 0x00]);
+
+    await dev.downloadDevice(
+      '1.1.9',
+      [],
+      gaTable,
+      assocTable,
+      null,
+      undefined,
+      {
+        mode: 'full',
+      },
+    );
+
+    assert.equal(
+      dev.writeCount() > 0,
+      true,
+      'the Association table should have actually been written',
+    );
+  });
+
+  it('refuses the download (throws) when the real entry count exceeds the live-reported MaxNrOfElements, even when a caller-supplied table would otherwise pass a larger static declaration', async () => {
+    const backing = Buffer.alloc(0x20000);
+    const dev = new FakeRWMemoryDevice('1.1.10', backing);
+    // An app may statically declare a larger MaxEntries than the device
+    // itself live-reports.
+    dev.setDescriptorMaxNrOfElements(2, 23, 255);
+
+    const assocTable = assocTableWithCount(280); // exceeds the LIVE 255
+    const gaTable = Buffer.from([0x00, 0x00]);
+
+    await assert.rejects(
+      () =>
+        dev.downloadDevice('1.1.10', [], gaTable, assocTable, null, undefined, {
+          mode: 'full',
+        }),
+      /Association table needs 280 real entries.*maximum of 255/,
+      'should refuse with a clear message naming both the real need and the live-reported ceiling',
+    );
+    assert.equal(
+      dev.writeCount(),
+      0,
+      'must refuse before writing anything, not after a partial write',
+    );
+  });
+
+  it('proceeds without a capacity check when the device gives no PropertyDescription_Read response at all', async () => {
+    const backing = Buffer.alloc(0x20000);
+    const dev = new FakeRWMemoryDevice('1.1.9', backing);
+    // No setDescriptorMaxNrOfElements() call - the fake device answers
+    // nothing for ObjIdx=2/PropId=23, matching an app/mask that never
+    // declares this property.
+    dev.setProperty(1, 7, Buffer.from([0x00, 0x01, 0x00, 0x00]));
+    dev.setProperty(2, 7, Buffer.from([0x00, 0x02, 0x00, 0x00]));
+    const assocTable = assocTableWithCount(9000); // would exceed any realistic real capacity
+    const gaTable = Buffer.from([0x00, 0x00]);
+
+    await dev.downloadDevice(
+      '1.1.9',
+      [],
+      gaTable,
+      assocTable,
+      null,
+      undefined,
+      {
+        mode: 'full',
+      },
+    );
+
+    assert.equal(
+      dev.writeCount() > 0,
+      true,
+      'with no live capacity signal available, the write must proceed unchecked rather than refuse blindly',
     );
   });
 });
