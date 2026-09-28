@@ -98,11 +98,11 @@ interface DeviceTypeIconProps {
   type?: string;
   size?: number;
   style?: React.CSSProperties;
-  // Real request 2026-08-31: the icon's own color (actuator=blue,
-  // sensor=green, router=amber - see COLMAP call sites) had no
-  // explanation on hover, so the meaning had to be told rather than
-  // discovered. Optional so callers that don't want a tooltip (or
-  // already wrap this in their own) aren't forced into one.
+  // The icon's own color (actuator=blue, sensor=green, router=amber - see
+  // COLMAP call sites) has no explanation on hover by default, so the
+  // meaning must be discoverable rather than assumed. Optional so callers
+  // that don't want a tooltip (or already wrap this in their own) aren't
+  // forced into one.
   title?: string;
 }
 
@@ -610,10 +610,10 @@ export function IconOffline({ size = 14 }: SizeOnlyProps) {
   // Signal-strength bars (ascending) with a diagonal strike-through - the
   // common, calm "not connected" glyph used broadly in software (browser
   // offline pages, OS network indicators), not an alarm/warning symbol.
-  // Added 2026-08-31, replacing a ⚠ character: "not connected" is this
-  // app's normal, everyday idle state (most work here is offline project
-  // editing, not live bus access), not an error condition, and reads as
-  // one whenever the disconnected indicator borrows warning iconography.
+  // Used in place of a ⚠ character: "not connected" is this app's normal,
+  // everyday idle state (most work here is offline project editing, not
+  // live bus access), not an error condition, so the disconnected
+  // indicator should not borrow warning iconography.
   return (
     <_SvgIcon size={size}>
       <rect
@@ -696,10 +696,9 @@ export function IconAttention({ size = 14 }: SizeOnlyProps) {
 export function IconSerial({ size = 14 }: SizeOnlyProps) {
   // Barcode glyph - per-device row indicator for whether a real physical
   // unit's serial number has been recorded against this address (see
-  // ProgrammingView.tsx's serial-status icon, added 2026-08-30). Deliberately
-  // distinct from IconScan (the general "scan for devices" action icon)
-  // so the two aren't confused at a glance despite both relating to
-  // addressing.
+  // ProgrammingView.tsx's serial-status icon). Deliberately distinct from
+  // IconScan (the general "scan for devices" action icon) so the two
+  // aren't confused at a glance despite both relating to addressing.
   return (
     <_SvgIcon size={size}>
       <rect

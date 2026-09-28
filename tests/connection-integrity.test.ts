@@ -203,7 +203,7 @@ describe('connection integrity guards', () => {
     // to exercise the Connect-confirmation check itself in isolation.
     await assert.rejects(
       () => dev.restartDevice('1.1.30'),
-      /negative L_Data\.con confirmation/,
+      /No device found at/,
     );
     const elapsedMs = Date.now() - before;
     assert.ok(

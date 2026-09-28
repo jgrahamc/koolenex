@@ -302,8 +302,28 @@ export function getPendingChanges(
   );
 }
 
-// Called once a download (full or partial) completes; a failed download
-// never reaches this, so pending rows survive for the next attempt.
+/** Full pending rows for a device (every column, oldest first) - the
+ *  Programming page's "Modified" badge popover's own data source. A
+ *  separate export from getPendingChanges() above rather than widening it,
+ *  since that one is a hot path (every partial download) and callers there
+ *  only ever wanted kind/key. */
+export function getPendingChangesFull(deviceId: number): Array<{
+  kind: string;
+  key: string;
+  baseline_value: string | null;
+  current_value: string | null;
+  updated_at: string;
+}> {
+  return db.all(
+    'SELECT kind, key, baseline_value, current_value, updated_at FROM device_pending_changes WHERE device_id=? ORDER BY updated_at ASC',
+    [deviceId],
+  );
+}
+
+// Called once a download (full or partial) actually completes - pending
+// changes are logged until the device has been programmed successfully.
+// A download that throws/fails never reaches this, so pending
+// rows correctly survive a failed attempt for the next try.
 export function clearPendingChanges(deviceId: number): void {
   db.run('DELETE FROM device_pending_changes WHERE device_id=?', [deviceId]);
 }

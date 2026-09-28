@@ -3,13 +3,12 @@
  * are active under the app's Dynamic conditions, and how they group into
  * sections, blocks, channels and table layouts.
  *
- * Extracted from DeviceParameters.tsx on 2026-09-09. It had lived inside
- * the component as a set of closures, which meant nothing could test it -
- * so tests/params-ui*.test.ts and eval-dynamic.test.ts each carried their
- * own re-implementation of this walk ("replicate client logic") and
- * asserted section layouts against THAT. Those tests could pass while this
- * code diverged from them. Pure and dependency-free, so those tests now
- * drive the real thing.
+ * Extracted from DeviceParameters.tsx, where this logic had lived as a set
+ * of closures, which meant nothing could test it directly - so
+ * tests/params-ui*.test.ts and eval-dynamic.test.ts each carried their own
+ * re-implementation of this walk and asserted section layouts against that
+ * instead, allowing this code to diverge from them undetected. Pure and
+ * dependency-free, so those tests now drive the real thing.
  *
  * Returns plain data - no JSX; the component renders from it.
  */

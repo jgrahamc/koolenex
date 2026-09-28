@@ -13,6 +13,7 @@ import {
   MAX_UPLOAD_BYTES,
   markDeviceModifiedIfProgrammed,
   clearPendingChanges,
+  getPendingChangesFull,
 } from './shared.ts';
 import type { PendingChangeInput } from './shared.ts';
 import type { Device } from '../../shared/types.ts';
@@ -441,6 +442,117 @@ router.get(
       /* ignore */
     }
     res.json({ ...(model as Record<string, unknown>), currentValues });
+  },
+);
+
+// The Programming page's "Modified" badge popover's own data source - what
+// changed since this device's last download, resolved to a real label
+// where that's cheap (ga_link/group_object_flag, one join against this
+// project's own com_objects). param_value's `key` is a composite param
+// reference (`<appId>_P-<id>_R-<ref>`) that only means something once
+// matched against that app's own param-model tree (paramUI.ts's own
+// instanceKey convention) - left unresolved here and returned raw; the
+// client already has the machinery to resolve it (getParamModel +
+// buildParamUI) and only needs to when there are few enough changes to
+// actually display them (see the route's own doc note on the client side).
+router.get(
+  '/projects/:pid/devices/:did/pending-changes',
+  (req: Request, res: Response): void => {
+    const pid = paramId(req, 'pid');
+    const did = paramId(req, 'did');
+    const dev = db.get<{ id: number }>(
+      'SELECT id FROM devices WHERE id=? AND project_id=?',
+      [did, pid],
+    );
+    if (!dev) {
+      res.status(404).json({ error: 'Device not found' });
+      return;
+    }
+    const rows = getPendingChangesFull(did);
+    const coRows = db.all<{
+      object_number: number;
+      name: string;
+      channel: string;
+    }>(
+      'SELECT object_number, name, channel FROM com_objects WHERE device_id=?',
+      [did],
+    );
+    const coByNumber = new Map(coRows.map((c) => [String(c.object_number), c]));
+    const parseJson = (s: string | null): unknown => {
+      if (!s) return null;
+      try {
+        return JSON.parse(s);
+      } catch {
+        return s;
+      }
+    };
+    // group_object_flag's before/after are a composite object (see
+    // gas.ts's own comment on why it's tracked as one unit, not one row
+    // per field) - reduce it to just the field(s) that actually differ,
+    // same spirit as the audit-log line gas.ts already writes for this
+    // same edit.
+    const FLAG_LABELS: Record<string, string> = {
+      read: 'Read',
+      write: 'Write',
+      comm: 'Communication',
+      tx: 'Transmit',
+      upd: 'Update',
+      read_on_init: 'Read On Init',
+      priority: 'Priority',
+    };
+    const diffFlags = (
+      oldVal: unknown,
+      newVal: unknown,
+    ): Array<{ field: string; from: string; to: string }> => {
+      if (
+        !oldVal ||
+        !newVal ||
+        typeof oldVal !== 'object' ||
+        typeof newVal !== 'object'
+      )
+        return [];
+      const out: Array<{ field: string; from: string; to: string }> = [];
+      const ov = oldVal as Record<string, unknown>;
+      const nv = newVal as Record<string, unknown>;
+      for (const k of Object.keys(FLAG_LABELS)) {
+        if (JSON.stringify(ov[k]) !== JSON.stringify(nv[k])) {
+          const fmt = (v: unknown): string =>
+            typeof v === 'boolean' ? (v ? 'on' : 'off') : String(v ?? '');
+          out.push({
+            field: FLAG_LABELS[k]!,
+            from: fmt(ov[k]),
+            to: fmt(nv[k]),
+          });
+        }
+      }
+      return out;
+    };
+    const changes = rows.map((r) => {
+      const co = coByNumber.get(r.key);
+      const label = co
+        ? co.name || co.channel || `Object ${r.key}`
+        : `Object ${r.key}`;
+      const oldVal = parseJson(r.baseline_value);
+      const newVal = parseJson(r.current_value);
+      return {
+        kind: r.kind,
+        key: r.key,
+        updatedAt: r.updated_at,
+        ...(r.kind === 'ga_link'
+          ? {
+              label: `GA link — ${label}`,
+              from: String(oldVal ?? ''),
+              to: String(newVal ?? ''),
+            }
+          : r.kind === 'group_object_flag'
+            ? {
+                label: `Flags — ${label}`,
+                flagDiffs: diffFlags(oldVal, newVal),
+              }
+            : { label: null, from: oldVal, to: newVal }),
+      };
+    });
+    res.json({ count: changes.length, changes });
   },
 );
 

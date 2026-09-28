@@ -253,12 +253,108 @@
   border-bottom: 1px solid hsl(var(--section-hue) 55% 55% / 0.4);
   border-radius: 6px 6px 0 0;
 }
+/* Every section's table is only mounted while expanded (see
+   DeviceCompareResults.tsx's expandedSections) - while collapsed, this
+   header is .sectionBlock's only child, so it should read as a complete,
+   self-contained pill rather than a header awkwardly missing its body. */
+.sectionTitle:only-child {
+  border-radius: 6px;
+  border-bottom: none;
+}
+/* .sectionTitle is a <button> (was a plain <div>) so the whole header row
+   is clickable, not just a chevron glyph - reset only the button-native
+   defaults that would otherwise fight its already-set look
+   (width/border/cursor/alignment/line-height). Deliberately does NOT touch
+   `font` as a shorthand - that resets font-size/letter-spacing too, which
+   would silently override .sectionTitle's own 10px/uppercase styling with
+   the browser's default button font (a real bug hit once already: the
+   button read bigger and taller than the div version it replaced). */
+.sectionTitleBtn {
+  width: 100%;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  line-height: 1.4;
+  /* Browsers default a <button>'s font-family to a system UI font, not the
+     page's own - inherit it specifically, without the `font` shorthand
+     (see the comment above for why that one's excluded). */
+  font-family: inherit;
+}
+.sectionCollapseIcon {
+  color: var(--muted);
+  width: 10px;
+  flex-shrink: 0;
+}
 .sectionCount {
   color: var(--muted);
   font-size: 9px;
   background: var(--bg);
   border-radius: 999px;
   padding: 1px 7px;
+}
+/* Only rendered when a section actually has a mismatch (see the call
+   sites' own `> 0` guard) - a real-vs-neutral badge, same shape as
+   .sectionCount, so a collapsed section can say up front whether it's
+   worth opening without needing the usual --red literal (this module has
+   no existing warning-badge convention of its own to match instead). */
+.sectionMismatchCount {
+  color: var(--red);
+  font-size: 9px;
+  background: color-mix(in srgb, var(--red) 15%, var(--bg));
+  border-radius: 999px;
+  padding: 1px 7px;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+/* ── Category (Parameters / Group Addresses / Communication Flags) —
+   a Parameters group, broken down by section, kept separate from a Group
+   Addresses/Object 3 group rendered after it. Deliberately bolder than
+   .sectionBlock/.sectionTitle nested inside it - larger padding/font, a
+   heavier border - so the hierarchy reads at a glance: one prominent
+   category header, its real ETS sections (for Parameters) or its own
+   table (for Group Addresses/Communication Flags) underneath. ── */
+.categoryBlock {
+  border: 1px solid hsl(var(--section-hue) 55% 55% / 0.5);
+  border-radius: 8px;
+  min-width: 0;
+  background: hsl(var(--section-hue) 55% 50% / 0.08);
+  scroll-margin-top: 8px;
+}
+.categoryTitle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: hsl(var(--section-hue) 55% 50% / 0.22);
+  padding: 9px 14px;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  color: hsl(var(--section-hue) 60% 85%);
+  text-transform: uppercase;
+  border-bottom: 1px solid hsl(var(--section-hue) 55% 55% / 0.5);
+  border-radius: 8px 8px 0 0;
+}
+.categoryTitle:only-child {
+  border-radius: 8px;
+  border-bottom: none;
+}
+/* Same reasoning as .sectionTitleBtn above - reset only the button-native
+   defaults, never the `font` shorthand (would clobber the size/weight/
+   letter-spacing set above). */
+.categoryTitleBtn {
+  width: 100%;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  line-height: 1.4;
+  font-family: inherit;
+}
+.categoryBody {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
 }
 
 /* Group Addresses section - deliberately stronger than the usual per-section
@@ -277,6 +373,33 @@
   background: hsl(var(--section-hue) 65% 50% / 0.32);
   color: hsl(var(--section-hue) 75% 85%);
   font-weight: 600;
+}
+
+/* A section with more than one real declared Group gets one sub-table per
+   group instead of a single flat table with a "Group (raw)" text column -
+   real feedback, matching ETS's own Section > Group > Parameter nesting
+   (screenshot of ETS's own tabbed parameter view). Deliberately subdued
+   relative to .sectionTitle above it (smaller, no pill/background fill,
+   just a left accent rule) so the hierarchy reads at a glance: one bold
+   section header, several quieter group sub-headers underneath it. */
+.subTables {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px;
+}
+.subTableBlock {
+  border-left: 2px solid hsl(var(--section-hue) 55% 55% / 0.5);
+}
+.subTableTitle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 0 4px 10px;
+  font-size: 9.5px;
+  letter-spacing: 0.04em;
+  color: hsl(var(--section-hue) 45% 70%);
+  text-transform: uppercase;
 }
 
 .table {

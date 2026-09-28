@@ -217,10 +217,10 @@ export default function App() {
       } catch {}
     })();
     // Shared by the initial boot fetch AND every WebSocket (re)connect (see
-    // createWS's onOpen below) - a reconnect used to never re-check real bus
-    // status at all, so a connection change that happened while the socket
-    // was down (e.g. the server restarting) left the UI showing stale state
-    // indefinitely. Fixed 2026-08-29.
+    // createWS's onOpen below), so a reconnect always re-checks real bus
+    // status - otherwise a connection change that happened while the socket
+    // was down (e.g. the server restarting) would leave the UI showing
+    // stale state indefinitely.
     const syncBusStatus = () =>
       api
         .busStatus()
@@ -282,18 +282,18 @@ export default function App() {
             pct: msg.pct as number | undefined,
             done: msg.done as boolean | undefined,
             error: msg.error as boolean | undefined,
-            // Real request, 2026-08-31: a dedicated "press the button"
-            // modal needs a reliable signal distinct from every other
-            // progress message - see /bus/program-device's own pre-
-            // flight (server/routes/bus.ts) and DownloadProgress's own
-            // doc comment (server/knx-connection.ts) for why this is only
-            // ever true on the one message announcing the wait.
+            // A dedicated "press the button" modal needs a reliable signal
+            // distinct from every other progress message - see
+            // /bus/program-device's own pre-flight (server/routes/bus.ts)
+            // and DownloadProgress's own doc comment (server/knx-
+            // connection.ts) for why this is only ever true on the one
+            // message announcing the wait.
             awaitingButton: msg.awaitingButton as boolean | undefined,
           },
         }));
-        // Real request, 2026-08-31: "each step should also show in the
-        // log, with reasonable details" - every program:progress message
-        // previously only ever updated the button's own inline text/
+        // Every program:progress message should also be reflected in the
+        // log with reasonable detail - previously a program:progress
+        // message only ever updated the button's own inline text/
         // percentage, never the actual log panel. `msg.debug` (see
         // DownloadProgress's own doc comment, knx-connection.ts) filters
         // this at the source, not just at render time, when the debug-log
@@ -443,6 +443,7 @@ export default function App() {
       applyDeviceStatus: projectHandlers.applyDeviceStatus,
       applyDeviceVerifyCleared: projectHandlers.applyDeviceVerifyCleared,
       applyDeviceVerifyResult: projectHandlers.applyDeviceVerifyResult,
+      applyDeviceHistoryCleared: projectHandlers.applyDeviceHistoryCleared,
     }),
     [projectHandlers],
   );
@@ -451,6 +452,7 @@ export default function App() {
     () => ({
       connect: busHandlers.handleConnect,
       connectUsb: busHandlers.handleConnectUsb,
+      connectLoopback: busHandlers.handleConnectLoopback,
       disconnect: busHandlers.handleDisconnect,
       deviceStatus: busHandlers.handleDeviceStatus,
       write: busHandlers.handleWrite,

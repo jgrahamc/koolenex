@@ -53,6 +53,27 @@ export function useBusHandlers(
     [state.activeProjectId],
   );
 
+  // LOCAL TESTING AID ONLY - see api.busConnectLoopback's own doc comment.
+  const handleConnectLoopback = useCallback(
+    async (deviceId: number) => {
+      const result = await api.busConnectLoopback(
+        state.activeProjectId!,
+        deviceId,
+      );
+      dispatch({
+        type: 'SET_BUS',
+        status: {
+          connected: true,
+          type: 'loopback',
+          host: null,
+          hasLib: true,
+        },
+      });
+      return result;
+    },
+    [state.activeProjectId],
+  );
+
   const handleDisconnect = useCallback(async () => {
     await api.busDisconnect();
     dispatch({
@@ -85,6 +106,7 @@ export function useBusHandlers(
   return {
     handleConnect,
     handleConnectUsb,
+    handleConnectLoopback,
     handleDisconnect,
     handleDeviceStatus,
     handleWrite,

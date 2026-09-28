@@ -47,7 +47,18 @@ import type {
 } from '../../shared/types.ts';
 import type KnxBusManager from '../knx-bus.ts';
 import type { DownloadStep, DownloadProgress } from '../knx-connection.ts';
+import {
+  getExpectedHardwareType,
+  describeHardwareType,
+  type HardwareTypeParamDef,
+} from '../hardware-type.ts';
 import { delay, scaledMs } from '../knx-connection.ts';
+// LOCAL TESTING AID ONLY - see /bus/connect-loopback's own doc comment.
+import {
+  parseProgramVersionFromAppId,
+  programVersionToBuffer,
+} from '../knx-connection.ts';
+import { KnxLoopbackConnection } from '../knx-loopback-connection.ts';
 import { planVerify } from '../knx-download-plan.ts';
 import type { PlanStep } from '../knx-download-plan.ts';
 
@@ -75,6 +86,26 @@ function getGaDpt(projectId: number, gaAddress: string): string | null {
 export function invalidateGaDptCache(): void {
   _gaDptCache = null;
   _gaDptCacheProjectId = null;
+}
+
+/**
+ * The HTTP status for a caught bus-operation error, by message content -
+ * every one of these call sites used to special-case only "Not connected"
+ * (409) versus a generic fallback (502), which meant "no device answered
+ * at this address" (see knx-connection.ts's managementSession() - a
+ * negative L_Data.con confirmation on the T_CONNECT frame, the actual and
+ * only way a KNX device's absence manifests at the link layer) came back
+ * as the same generic 502 as a real transport/protocol failure - easy to
+ * misread as a hardware fault rather than the address-level signal it
+ * actually is. 404 names this distinctly, matching genuinely-different
+ * meanings that deserve genuinely different HTTP semantics: 409
+ * (conflict - not connected to the bus at all), 404 (not found - no
+ * device at this address), 502 (bad gateway - something else went wrong).
+ */
+function statusForBusError(msg: string, fallback = 502): number {
+  if (msg.includes('Not connected')) return 409;
+  if (msg.includes('No device found at')) return 404;
+  return fallback;
 }
 
 /** Return the bus instance or send a 503 and return null. */
@@ -134,7 +165,7 @@ function busRoute(
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       res
-        .status(msg.includes('Not connected') ? 409 : failStatus)
+        .status(statusForBusError(msg, failStatus))
         .json({ error: safeErrorOrConnection('bus', context, e) });
     }
   };
@@ -496,6 +527,227 @@ router.post(
       return { ok: true, type: 'usb', ...result };
     },
   ),
+);
+
+// LOCAL TESTING AID ONLY - connects to a simulated single device (from
+// the active project) instead of a real socket/USB device, so the whole
+// app can be driven through exactly the flow a real user would use, with
+// no hardware attached. For development and testing only: it never touches
+// a real device or a device's recorded status.
+router.post(
+  '/bus/connect-loopback',
+  busRoute(
+    z.object({
+      projectId: z.number().int(),
+      deviceId: z.number().int(),
+    }),
+    'Loopback connection failed',
+    (b, body) => {
+      const dev = db.get<Device>(
+        'SELECT * FROM devices WHERE id=? AND project_id=?',
+        [body.deviceId, body.projectId],
+      );
+      if (!dev) throw new Error('Device not found');
+      const safe = (dev.app_ref || '').replace(/[^a-zA-Z0-9_-]/g, '_');
+      const modelPath = path.join(APPS_DIR, safe + '.json');
+      let appId: string | undefined = dev.app_ref;
+      // hardwareTypeParams, when this app declares them, so the loopback
+      // fake can answer PID_HARDWARE_TYPE with the real EXPECTED value
+      // instead of its generic 0xAA-fill default: downloadDevice()'s own
+      // hardware-type check (see this file's own `hardware_type_mismatch`
+      // refusal, only reachable once a reimport correctly populated this
+      // device's hardwareTypeParams) refuses any device answering a
+      // mismatched type, and the 0xAA-fill default can never match a real
+      // declared one - a loopback session for such an app modeled with
+      // declared hardwareTypeParams would otherwise ALWAYS be refused
+      // before ever reaching downloadDevice() at all.
+      let hardwareTypeParams: HardwareTypeParamDef[] | undefined;
+      if (fs.existsSync(modelPath)) {
+        try {
+          const model = JSON.parse(fs.readFileSync(modelPath, 'utf8')) as {
+            appId?: string;
+            hardwareTypeParams?: HardwareTypeParamDef[];
+          };
+          appId = model.appId ?? appId;
+          hardwareTypeParams = model.hardwareTypeParams;
+        } catch {
+          /* fall back to dev.app_ref as-is */
+        }
+      }
+      const pv = parseProgramVersionFromAppId(appId);
+      let currentValues: Record<string, unknown> = {};
+      try {
+        currentValues = dev.param_values ? JSON.parse(dev.param_values) : {};
+      } catch {
+        /* malformed/empty param_values - fall back to {} */
+      }
+      const expectedHw = getExpectedHardwareType(
+        hardwareTypeParams,
+        currentValues,
+        appId,
+      );
+      const result = b.connectLoopback(
+        dev.individual_address,
+        {
+          deviceAddr: dev.individual_address,
+          // Only mask family this codebase has ever tested against real
+          // hardware - see docs/knx-device-write-protocol.md.
+          mask: 0x07b0,
+          serial: (dev.serial_number || '000000000000').toLowerCase(),
+          manufacturerId: pv?.manufacturerId,
+          programVersion: pv ? programVersionToBuffer(pv) : undefined,
+          hardwareType: expectedHw?.buffer,
+          // Per-device runtime allocations, not app content - there is no
+          // "correct" value to guess, only distinct/nonzero ones so the
+          // write phase proceeds instead of treating every object as
+          // unallocated. Same placeholders the standalone loopback
+          // scripts use.
+          tableBases: { 1: 0x0f0000, 2: 0x0c0000, 3: 0x0c2000, 4: 0x0c3000 },
+        },
+        body.projectId,
+      );
+      return result;
+    },
+  ),
+);
+
+// LOCAL TESTING AID ONLY - flips the connected loopback device silent
+// (or back) so a download's dead-connection abort path can be exercised
+// live. No-op / 400 if not currently connected via loopback.
+router.post(
+  '/bus/test-loopback-silent',
+  busRoute(
+    z.object({
+      silent: z.boolean().optional(),
+      afterResponses: z.number().int().min(0).nullable().optional(),
+      overrideObjIdx: z.number().int().optional(),
+      overridePropId: z.number().int().optional(),
+      overrideValueHex: z.string().nullable().optional(),
+      responseDelayMs: z.number().int().min(0).max(5000).optional(),
+    }),
+    'Not connected via loopback',
+    (b, body) => {
+      if (!(b.connection instanceof KnxLoopbackConnection)) {
+        throw new Error('Not connected via loopback');
+      }
+      if (body.responseDelayMs !== undefined)
+        b.connection.responseDelayMs = body.responseDelayMs;
+      if (body.silent !== undefined) b.connection.goSilent = body.silent;
+      if (body.afterResponses !== undefined) {
+        b.connection.goSilentAfterResponses = body.afterResponses;
+      }
+      if (
+        body.overrideObjIdx !== undefined &&
+        body.overridePropId !== undefined
+      ) {
+        const key = `${body.overrideObjIdx}:${body.overridePropId}`;
+        if (body.overrideValueHex === null) {
+          b.connection.propertyOverrides.set(key, null);
+        } else if (body.overrideValueHex === undefined) {
+          b.connection.propertyOverrides.delete(key);
+        } else {
+          b.connection.propertyOverrides.set(
+            key,
+            Buffer.from(body.overrideValueHex, 'hex'),
+          );
+        }
+      }
+      return {
+        ok: true,
+        goSilent: b.connection.goSilent,
+        goSilentAfterResponses: b.connection.goSilentAfterResponses,
+      };
+    },
+  ),
+);
+
+// LOCAL TESTING AID ONLY - dumps the loopback device's recorded memory
+// writes (optionally filtered to one objIdx), reassembled into a single
+// contiguous buffer per objIdx so a specific table's final on-wire bytes
+// can be inspected without a working Verify/read-back path.
+router.post(
+  '/bus/test-loopback-dump-writes',
+  busRoute(
+    z.object({ objIdx: z.number().int().optional() }),
+    'Not connected via loopback',
+    (b, body) => {
+      if (!(b.connection instanceof KnxLoopbackConnection)) {
+        throw new Error('Not connected via loopback');
+      }
+      const writes = b.connection.memoryWrites.filter(
+        (w) => body.objIdx === undefined || w.objIdx === body.objIdx,
+      );
+      // Reassemble per-objIdx into one contiguous buffer, keyed by the
+      // lowest address seen for that objIdx (real writes are sequential
+      // chunks starting at the table's own base address).
+      const byObjIdx = new Map<number, { base: number; buf: Buffer }[]>();
+      for (const w of writes) {
+        if (w.objIdx === null) continue;
+        const arr = byObjIdx.get(w.objIdx) ?? [];
+        arr.push({ base: w.address, buf: w.data });
+        byObjIdx.set(w.objIdx, arr);
+      }
+      const assembled: Record<string, string> = {};
+      for (const [objIdx, chunks] of byObjIdx) {
+        chunks.sort((a, c) => a.base - c.base);
+        const minBase = chunks[0]!.base;
+        const maxEnd = Math.max(...chunks.map((c) => c.base + c.buf.length));
+        const out = Buffer.alloc(maxEnd - minBase, 0);
+        for (const c of chunks) c.buf.copy(out, c.base - minBase);
+        assembled[objIdx] = out.toString('hex');
+      }
+      return {
+        ok: true,
+        rawWrites: writes.map((w) => ({
+          objIdx: w.objIdx,
+          address: w.address,
+          extended: w.extended,
+          dataHex: w.data.toString('hex'),
+        })),
+        assembledByObjIdx: assembled,
+      };
+    },
+  ),
+);
+
+// LOCAL TESTING AID ONLY - dumps the loopback connection's full frame log
+// (every frame, both directions, in the exact shape
+// loopback-download-device.ts's own frames.json dump already uses), for
+// comparing a REAL /bus/program-device run's full wire sequence
+// (readDeviceInfo() identity reads + downloadDevice() itself, the same
+// multi-session shape real ETS uses) against a real ETS capture - not just
+// downloadDevice() called in isolation, which a standalone script can
+// already do without a running server, but skips runProgramDevice()'s own
+// readDeviceInfo() calls entirely.
+router.post(
+  '/bus/test-loopback-dump-frames',
+  busRoute(z.object({}), 'Not connected via loopback', (b) => {
+    if (!(b.connection instanceof KnxLoopbackConnection)) {
+      throw new Error('Not connected via loopback');
+    }
+    return {
+      ok: true,
+      frames: b.connection.frames.map((f, i) => ({
+        index: i,
+        direction: f.direction,
+        decoded: f.decoded,
+        cemiHex: f.cemi.toString('hex'),
+        parsed: f.parsed
+          ? {
+              msgCode: f.parsed.msgCode,
+              src: f.parsed.src,
+              dst: f.parsed.dst,
+              isGroup: f.parsed.isGroup,
+              apciIdx: f.parsed.apciIdx,
+              apciName: f.parsed.apciName,
+              apduDataHex: f.parsed.apduData.toString('hex'),
+              apduHex: f.parsed.apdu.toString('hex'),
+              tpciType: f.parsed.tpciType,
+            }
+          : null,
+      })),
+    };
+  }),
 );
 
 router.post('/bus/project', (req: Request, res: Response) => {
@@ -988,27 +1240,60 @@ router.post(
 
 // Assign an individual address via the device's serial number
 // (A_IndividualAddressSerialNumber_Write/_Read, spec 3/5/2 §2.5/§2.4) -
-// unlike /bus/program-ia, needs no programming-button press or
-// programming-mode precondition.
+// unlike /bus/program-ia above, this needs no physical programming-button
+// press and no programming-mode precondition. Real-hardware confirmed
+// (a device moved from its factory-default address to a real target
+// address) - see docs/knx-device-write-protocol.md §9.2.
+//
+// A manual handler, not busRoute() - an occupied target address is a
+// refusal (409, same convention and body shape as /bus/program-device's
+// own address_occupied), not a 200 success with an ok:false field buried
+// in it, so this needs to set its own status.
 router.post(
   '/bus/assign-address-by-serial',
-  busRoute(
-    z.object({
-      serial: z
-        .string()
-        .regex(/^[0-9a-fA-F]{12}$/, 'serial must be 12 hex chars (6 bytes)'),
-      newAddress: z.string().min(1),
-    }),
-    'Assign address by serial failed',
-    async (b, body) => {
-      const { serial, newAddress } = body;
+  async (req: Request, res: Response) => {
+    const b = requireBus(res);
+    if (!b) return;
+    const body = validateBody(
+      req,
+      z.object({
+        serial: z
+          .string()
+          .regex(/^[0-9a-fA-F]{12}$/, 'serial must be 12 hex chars (6 bytes)'),
+        newAddress: z.string().min(1),
+      }),
+    );
+    try {
       const result = await b.assignIndividualAddressBySerial(
-        Buffer.from(serial, 'hex'),
-        newAddress,
+        Buffer.from(body.serial, 'hex'),
+        body.newAddress,
       );
-      return result;
-    },
-  ),
+      if (result.occupiedBy) {
+        res.status(409).json({
+          error: 'address_occupied',
+          message:
+            `Not writing: a different device${result.occupiedBy.serial ? ` (serial ${result.occupiedBy.serial})` : ''} ` +
+            `already answers at ${body.newAddress}, and writing that address to this device would put two ` +
+            `devices on the same address. Choose a free address, or - if that device is the replacement for ` +
+            `this one - capture its serial instead.`,
+          ...(result.occupiedBy.serial
+            ? { occupantSerial: result.occupiedBy.serial }
+            : {}),
+        });
+        return;
+      }
+      res.json(result);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      res.status(statusForBusError(msg)).json({
+        error: safeErrorOrConnection(
+          'bus',
+          'Assign address by serial failed',
+          e,
+        ),
+      });
+    }
+  },
 );
 
 // Read-only counterpart to /bus/assign-address-by-serial - ask by serial
@@ -1036,7 +1321,7 @@ router.post(
       res.json(result ?? { address: null });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      res.status(msg.includes('Not connected') ? 409 : 502).json({
+      res.status(statusForBusError(msg)).json({
         error: safeErrorOrConnection('bus', 'Read address by serial failed', e),
       });
     }
@@ -1076,6 +1361,7 @@ interface DeviceModel {
   isSecureEnabled?: boolean;
   // See ParamModel.peiType (ets-app.ts).
   peiType?: string;
+  hardwareTypeParams?: HardwareTypeParamDef[];
   lineCoupler0912NewProgrammingStyle?: boolean;
   // 🟡 See ParamModel.supportsExtendedMemoryServices (ets-app.ts).
   supportsExtendedMemoryServices?: boolean;
@@ -1117,6 +1403,12 @@ type DeviceProgramming =
       writtenParamKeys: Set<string> | null;
       isSecureEnabled?: boolean;
       peiType?: string;
+      // The hardware type this device's application expects it to report
+      // (hex, and the option's description when it has one), and the
+      // application's own options for describing what it actually reports.
+      // Null/absent when the application declares none.
+      expectedHardwareType?: { hex: string; label: string | null } | null;
+      hardwareTypeParams?: HardwareTypeParamDef[];
       lineCoupler0912NewProgrammingStyle?: boolean;
       supportsExtendedMemoryServices?: boolean;
       parameterByteOrder?: 'LittleEndian' | 'BigEndian';
@@ -1341,6 +1633,38 @@ function buildDeviceProgramming(dev: Device): DeviceProgramming {
   // groupObjectTableSize - downloadDevice() treats that as nothing to write.
   let groupObjectTable: Buffer | null = null;
   if (model.groupObjectTableSize && model.groupObjectTableSize > 0) {
+    // groupObjectTableSize is computed once per APP, from the template's
+    // own declared Number attributes (ets-app.ts's maxComObjectNumber) -
+    // it does not, and structurally cannot, account for BaseNumber: a
+    // module-instanced ComObject's real, resolved object_number (already
+    // computed per device in coRows, via resolveObjectNumber) can exceed
+    // the template's own small per-instance Number once a real project
+    // instantiates enough copies of that module. buildGroupObjectTable()
+    // silently drops any object whose offset falls outside the buffer it's
+    // given - so trusting groupObjectTableSize alone here would silently
+    // omit that com object's flags/GA-link from Object 3 entirely, with no
+    // error anywhere. Grow the buffer to cover every real object this
+    // device actually has, whenever the template-only estimate turns out
+    // too small; never shrink it.
+    const maxRealObjectNumber = coRows.reduce(
+      (max, co) => Math.max(max, co.object_number),
+      0,
+    );
+    const neededSize = 2 * maxRealObjectNumber + 2;
+    let groupObjectTableSize = model.groupObjectTableSize;
+    if (neededSize > groupObjectTableSize) {
+      logger.warn(
+        'knx',
+        'Object 3 (Group Object Table): a real com object number exceeds the app-template size estimate - growing the buffer to fit rather than silently dropping it',
+        {
+          deviceAddress: dev.individual_address,
+          maxRealObjectNumber,
+          templateSize: groupObjectTableSize,
+          neededSize,
+        },
+      );
+      groupObjectTableSize = neededSize;
+    }
     const groupObjects: GroupObjectFlags[] = coRows.map((co) => ({
       object_number: co.object_number,
       // Uses the dedicated raw `upd` column (like the other flags), not
@@ -1360,7 +1684,7 @@ function buildDeviceProgramming(dev: Device): DeviceProgramming {
       objectSize: co.object_size,
     }));
     groupObjectTable = buildGroupObjectTable(
-      model.groupObjectTableSize,
+      groupObjectTableSize,
       groupObjects,
     );
   }
@@ -1434,6 +1758,15 @@ function buildDeviceProgramming(dev: Device): DeviceProgramming {
     writtenParamKeys: writtenParams,
     isSecureEnabled: model.isSecureEnabled,
     peiType: model.peiType,
+    expectedHardwareType: (() => {
+      const hw = getExpectedHardwareType(
+        model.hardwareTypeParams,
+        currentValues,
+        model.appId ?? dev.app_ref,
+      );
+      return hw ? { hex: hw.buffer.toString('hex'), label: hw.label } : null;
+    })(),
+    hardwareTypeParams: model.hardwareTypeParams,
     lineCoupler0912NewProgrammingStyle:
       model.lineCoupler0912NewProgrammingStyle,
     supportsExtendedMemoryServices: model.supportsExtendedMemoryServices,
@@ -1485,6 +1818,30 @@ function resolvePendingWriteRanges(
   let touchedGaOrAssoc = false;
   const touchedComObjNums = new Set<number>();
 
+  // Real bug: a parameter with no direct offset of its own - a
+  // <choose>/Union gate like "Indicating status temporarily" (P-1556),
+  // whose real byte only exists at whichever sibling parameter
+  // (UP-1554/UP-1555) the gate currently selects, resolved by
+  // buildParamMem()'s own evalConditionallyActiveParamRefs/fromMemoryChild
+  // gating - used to silently contribute ZERO write ranges here, because
+  // this resolver only ever checked the EDITED key's own offset, never
+  // consulting that resolution logic at all (a separate, earlier fix
+  // covered buildParamMem()'s own FULL-download image-building
+  // correctness for the same gate, but never touched this
+  // partial-download write-range resolver). A partial download of such an
+  // edit therefore always wrote nothing, with no error and no indication.
+  //
+  // Fixed conservatively rather than re-implementing buildParamMem()'s own
+  // Union/choose walk a second time here (which would drift from it over
+  // time, the exact anti-pattern this codebase's own comments elsewhere
+  // warn against): a `param_value` edit whose own key has no resolvable
+  // offset marks the WHOLE parameter-memory object (objIdx 4) dirty instead
+  // of contributing nothing - guaranteed correct (buildParamMem() already
+  // computes the fully-resolved image a full download would write; this
+  // just widens the partial write to match it for this one edit) at the
+  // cost of writing more than the theoretical minimum only for this rare
+  // case, which is a small, honest trade against a silent no-op.
+  let anyUnresolvedParamValue = false;
   for (const row of pending) {
     if (row.kind === 'param_value') {
       const layout = (paramMemLayout as Record<string, ParamMemEntry>)[row.key];
@@ -1494,6 +1851,8 @@ function resolvePendingWriteRanges(
           Math.ceil((layout.bitOffset + layout.bitSize) / 8),
         );
         add(4, layout.offset, length);
+      } else {
+        anyUnresolvedParamValue = true;
       }
     } else if (row.kind === 'ga_link') {
       touchedGaOrAssoc = true;
@@ -1516,6 +1875,17 @@ function resolvePendingWriteRanges(
   for (const n of touchedComObjNums) {
     add(3, n * 2, 2);
   }
+  // See this function's own doc comment above - a param_value edit with no
+  // resolvable offset of its own marks the WHOLE parameter object dirty,
+  // same -1 "whole table" sentinel convention as GA/Association above, in
+  // case a caller doesn't pass `paramSize` - resolved directly here when
+  // it's known, which every real caller does.
+  if (anyUnresolvedParamValue) {
+    add(4, 0, paramSize && paramSize > 0 ? paramSize : -1);
+  }
+  // See this function's own doc comment above for the real-capture evidence
+  // behind this - real ETS always includes the parameter object's own
+  // final byte in any partial write to that object.
   if (ranges[4] && ranges[4].length && paramSize && paramSize > 0) {
     const lastByteOffset = paramSize - 1;
     const alreadyCovered = ranges[4].some(
@@ -1563,6 +1933,26 @@ export async function runProgramDevice(
 ): Promise<RouteResult | null> {
   const { deviceAddress, mode, addressMethod } = body;
 
+  // A test download run against "Loopback (test)" (an in-memory,
+  // no-hardware harness explicitly documented as LOCAL TESTING AID ONLY -
+  // see KnxLoopbackConnection's own doc comment) can fail its pre-Restart
+  // checks (the fake device's PID_MCB_TABLE read doesn't resemble a real
+  // one - see runVerifyDevice's own comments) and persist
+  // `restart_withheld=1` to the device's REAL `devices` row - the same
+  // row real hardware status is tracked in, since loopback reuses the
+  // project's real device IDs rather than a separate sandbox, showing a
+  // "RESTART NEEDED" badge for a restart no real device ever needed. Every
+  // `devices` UPDATE below that records an
+  // operational outcome (status/last_download/restart_withheld/serial/
+  // pending-changes) is skipped when connected via loopback - the write
+  // still runs against the fake device (so the write path itself is still
+  // genuinely exercised end to end), only the persisted record of a real
+  // device's status is left untouched. `instanceof KnxLoopbackConnection`
+  // is specific to the UI's own "Loopback (test)" feature - unit tests
+  // build their own separate fake `KnxBusManager` subclasses and are
+  // unaffected by this gate.
+  const isTestConnection = b.connection instanceof KnxLoopbackConnection;
+
   const built = buildDeviceProgramming(dev);
   if (!built.ok) return { status: built.status, body: built.body };
   const {
@@ -1577,6 +1967,8 @@ export async function runProgramDevice(
     appId,
     isSecureEnabled,
     peiType,
+    expectedHardwareType,
+    hardwareTypeParams,
     lineCoupler0912NewProgrammingStyle,
     supportsExtendedMemoryServices,
     cachedMaxApduLength,
@@ -1624,7 +2016,9 @@ export async function runProgramDevice(
               ? (gaTable?.length ?? 0)
               : objIdx === 2
                 ? (assocTable?.length ?? 0)
-                : 0;
+                : objIdx === 4
+                  ? (paramMem?.length ?? 0)
+                  : 0;
         }
       }
     }
@@ -1656,7 +2050,7 @@ export async function runProgramDevice(
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     return {
-      status: msg.includes('Not connected') ? 409 : 502,
+      status: statusForBusError(msg),
       body: {
         error: safeErrorOrConnection(
           'bus',
@@ -1687,6 +2081,156 @@ export async function runProgramDevice(
     // (confirmed by a read, or captured while addressing it). Used to decide
     // whether this physical unit has been downloaded to before.
     let sessionSerial: string | undefined;
+    // Serial of a DIFFERENT device found answering at deviceAddress during the
+    // pre-flight below. Writing deviceAddress onto our device while that one
+    // sits there would leave two devices on one address.
+    let occupantSerial: string | undefined;
+    const occupiedError = (serial: string | null | undefined): RouteResult => ({
+      status: 409,
+      body: {
+        error: 'address_occupied',
+        message:
+          `Not writing: a different device${serial ? ` (serial ${serial})` : ''} already answers at ${deviceAddress}, ` +
+          `and writing that address to this device would put two devices on the same address. ` +
+          `Choose a free address, or - if that device is the replacement for this one - capture its serial instead.`,
+        ...(serial ? { occupantSerial: serial } : {}),
+      },
+    });
+
+    // What the application program says the device must be: its manufacturer,
+    // application number and version come straight from the application Id
+    // ("M-<manufacturer>_A-<number>-<version>-..."). Before any write, the
+    // device found at the address is checked against them, so a download for
+    // the wrong product (or firmware) is refused instead of written.
+    const expectedIdentity = parseAppIdentity(appId);
+    const hex = (n: number, w: number): string =>
+      n.toString(16).padStart(w, '0');
+    const checkDeviceIdentity = async (
+      info: {
+        manufacturerId?: number;
+        hardwareType?: string;
+        serialNumber?: string;
+      },
+      via: string,
+      // True for the addressing paths (by serial, by programming button):
+      // by the time this check runs, the address write ALREADY happened
+      // and was verified - a KNX device's manufacturer/hardware-type/
+      // program-version can only be read point-to-point, which needs it
+      // to have SOME resolvable address first, so this check structurally
+      // cannot run before that write. A mismatch here therefore cannot be
+      // "refused before anything happened" the way the identity-only
+      // fast path below can honestly say - the wording has to say what
+      // actually happened instead.
+      addressAlreadyWritten = false,
+    ): Promise<RouteResult | null> => {
+      const refusalNote = addressAlreadyWritten
+        ? ` Address ${deviceAddress} has already been written to a device with serial ` +
+          `${info.serialNumber ?? 'unknown'}, and confirmed that it is present. To re-assign this address, ` +
+          `please clear it from the original device before continuing.`
+        : ' Refusing to write.';
+      // The device's PID_HARDWARE_TYPE against the option the application
+      // declares for it: catches the wrong physical product (or variant, for
+      // example a 2-gang unit where a 4-gang one is expected) at this address.
+      // Skipped when either side is unknown.
+      if (expectedHardwareType && info.hardwareType !== undefined) {
+        const actualHex = info.hardwareType.toLowerCase();
+        const expectedHex = expectedHardwareType.hex.toLowerCase();
+        const actualLabel =
+          actualHex === expectedHex
+            ? expectedHardwareType.label
+            : describeHardwareType(
+                hardwareTypeParams,
+                Buffer.from(actualHex, 'hex'),
+              );
+        onProgress({
+          msg:
+            `Hardware type check (${via}): device reports 0x${actualHex}` +
+            (actualLabel ? ` (${actualLabel})` : '') +
+            `, this application expects 0x${expectedHex}` +
+            (expectedHardwareType.label
+              ? ` (${expectedHardwareType.label})`
+              : ''),
+        });
+        if (actualHex !== expectedHex) {
+          return {
+            status: 409,
+            body: {
+              error: 'hardware_type_mismatch',
+              message:
+                `The device's hardware type (0x${actualHex}${actualLabel ? ` / ${actualLabel}` : ''}) does not match ` +
+                `what this application expects (0x${expectedHex}${expectedHardwareType.label ? ` / ${expectedHardwareType.label}` : ''}) - ` +
+                `this looks like the wrong physical product for this address.${refusalNote}`,
+              addressAlreadyWritten,
+            },
+          };
+        }
+      }
+      if (!expectedIdentity) return null;
+      if (info.manufacturerId !== undefined) {
+        onProgress({
+          msg:
+            `Manufacturer check (${via}): device reports 0x${hex(info.manufacturerId, 4)}, ` +
+            `this application expects 0x${hex(expectedIdentity.manufacturerId, 4)}`,
+        });
+        if (info.manufacturerId !== expectedIdentity.manufacturerId) {
+          return {
+            status: 409,
+            body: {
+              error: 'manufacturer_mismatch',
+              message:
+                `The device is from a different manufacturer than the application program ` +
+                `(device reports 0x${hex(info.manufacturerId, 4)}, this application expects ` +
+                `0x${hex(expectedIdentity.manufacturerId, 4)}).${refusalNote}`,
+              addressAlreadyWritten,
+            },
+          };
+        }
+      }
+      // A fresh read of the Application Program object's PID_PROGRAM_VERSION
+      // (object 4, property 13): manufacturer, application number, version.
+      let actual:
+        | { manufacturerId: number; appNumber: number; appVersion: number }
+        | undefined;
+      try {
+        const [pv] = await b.readPropertyMany(deviceAddress, [
+          { objIdx: 4, propId: 13 },
+        ]);
+        if (pv && pv.length >= 5) {
+          actual = {
+            manufacturerId: pv.readUInt16BE(0),
+            appNumber: pv.readUInt16BE(2),
+            appVersion: pv[4]!,
+          };
+        }
+      } catch (e) {
+        onProgress({
+          msg: `Program version check (${via}): live read failed (${e instanceof Error ? e.message : String(e)}) - check skipped`,
+        });
+      }
+      if (!actual) return null;
+      const expectedStr = `M-${hex(expectedIdentity.manufacturerId, 4)}_A-${hex(expectedIdentity.appNumber, 4)}-${hex(expectedIdentity.appVersion, 2)}`;
+      const actualStr = `M-${hex(actual.manufacturerId, 4)}_A-${hex(actual.appNumber, 4)}-${hex(actual.appVersion, 2)}`;
+      const matches =
+        actual.manufacturerId === expectedIdentity.manufacturerId &&
+        actual.appNumber === expectedIdentity.appNumber &&
+        actual.appVersion === expectedIdentity.appVersion;
+      onProgress({
+        msg: `Program version check (${via}): device reports ${actualStr}, this application is ${expectedStr}`,
+      });
+      if (!matches) {
+        return {
+          status: 409,
+          body: {
+            error: 'program_version_mismatch',
+            message:
+              `The device is currently running a different application/firmware version (${actualStr}) ` +
+              `than this application expects (${expectedStr}).${refusalNote}`,
+            addressAlreadyWritten,
+          },
+        };
+      }
+      return null;
+    };
     if (dev.serial_number) {
       try {
         const info = await b.readDeviceInfo(deviceAddress);
@@ -1694,12 +2238,19 @@ export async function runProgramDevice(
           info.serialNumber &&
           info.serialNumber.toLowerCase() === dev.serial_number.toLowerCase()
         ) {
+          const idErr = await checkDeviceIdentity(
+            info,
+            'address already confirmed',
+          );
+          if (idErr) return idErr;
           addressConfirmed = true;
           sessionSerial = info.serialNumber;
           onProgress({
             msg: `Confirmed device at ${deviceAddress} (serial ${info.serialNumber})`,
           });
         } else {
+          if (info.serialNumber)
+            occupantSerial = info.serialNumber.toLowerCase();
           onProgress({
             msg: info.serialNumber
               ? `Device at ${deviceAddress} reports a different serial (${info.serialNumber}) - re-addressing required`
@@ -1724,11 +2275,17 @@ export async function runProgramDevice(
     // spacing stays 2s regardless of budget.
     const waitForDeviceBackUp = async (): Promise<{
       serialNumber?: string;
+      manufacturerId?: number;
+      hardwareType?: string;
     } | null> => {
       onProgress({ msg: `Confirming device at ${deviceAddress}…` });
       const confirmStart = Date.now();
       const confirmDeadlineMs = scaledMs(opts.confirmDeadlineMs ?? 35000);
-      let confirmedInfo: { serialNumber?: string } | null = null;
+      let confirmedInfo: {
+        serialNumber?: string;
+        manufacturerId?: number;
+        hardwareType?: string;
+      } | null = null;
       let attempt = 0;
       let lastHeartbeatMs = 0;
       while (
@@ -1807,7 +2364,7 @@ export async function runProgramDevice(
         } catch (e) {
           const msg = e instanceof Error ? e.message : String(e);
           return {
-            status: msg.includes('Not connected') ? 409 : 502,
+            status: statusForBusError(msg),
             body: {
               error: safeErrorOrConnection(
                 'bus',
@@ -1816,6 +2373,9 @@ export async function runProgramDevice(
               ),
             },
           };
+        }
+        if (bySerial.occupiedBy) {
+          return occupiedError(bySerial.occupiedBy.serial);
         }
         if (!bySerial.verified) {
           return {
@@ -1843,6 +2403,12 @@ export async function runProgramDevice(
         onProgress({
           msg: `Confirmed device at ${deviceAddress} via serial - continuing with the rest of the download`,
         });
+        const idErr = await checkDeviceIdentity(
+          confirmedInfo,
+          'after addressing by serial',
+          true,
+        );
+        if (idErr) return idErr;
         addressConfirmed = true;
         sessionSerial = confirmedInfo.serialNumber ?? dev.serial_number;
       }
@@ -1901,6 +2467,15 @@ export async function runProgramDevice(
       // This message (no awaitingButton flag) is the client's cue to
       // dismiss the modal - a real device was found, the wait is over.
       const [foundAddr, foundSerial] = [...bySrc.entries()][0]!;
+      // The device in programming mode is not the one already sitting at the
+      // target address, so writing that address to it would duplicate it.
+      if (
+        occupantSerial &&
+        foundAddr !== deviceAddress &&
+        (foundSerial || '').toLowerCase() !== occupantSerial
+      ) {
+        return occupiedError(occupantSerial);
+      }
       onProgress({
         msg: `Identified device ${foundSerial || foundAddr} in programming mode - writing address ${deviceAddress}…`,
       });
@@ -1919,12 +2494,24 @@ export async function runProgramDevice(
           },
         };
       }
+      const idErr = await checkDeviceIdentity(
+        confirmedInfo,
+        'after addressing by programming button',
+        true,
+      );
+      if (idErr) return idErr;
       if (confirmedInfo.serialNumber) {
         sessionSerial = confirmedInfo.serialNumber;
-        db.run('UPDATE devices SET serial_number=?, has_address=1 WHERE id=?', [
-          confirmedInfo.serialNumber,
-          dev.id,
-        ]);
+        // See isTestConnection's own doc comment above - a loopback
+        // session's "serial" is the fake device's own placeholder, not a
+        // real unit's, so it must never overwrite the real device's
+        // recorded serial/addressing state.
+        if (!isTestConnection) {
+          db.run(
+            'UPDATE devices SET serial_number=?, has_address=1 WHERE id=?',
+            [confirmedInfo.serialNumber, dev.id],
+          );
+        }
         onProgress({
           msg: `Confirmed device at ${deviceAddress}, serial ${confirmedInfo.serialNumber} - rebooted, continuing with the rest of the download`,
         });
@@ -1980,15 +2567,24 @@ export async function runProgramDevice(
     // claim it now matches the project. Return a distinct error instead.
     if (downloadResult.restartWithheld) {
       const reasons = downloadResult.restartWithheldReasons ?? [];
-      // An earlier Verify result no longer describes this device (its
-      // content did change) - cleared here even though status/pending
-      // changes are left alone. `restart_withheld` is the only persisted
-      // record of this outcome; cleared by a later clean download or the
-      // operator's "clear device history" action.
-      db.run(
-        'UPDATE devices SET last_verify_match=NULL, last_verify_at=NULL, restart_withheld=1, restart_withheld_at=?, restart_withheld_reason=? WHERE id=?',
-        [new Date().toISOString(), reasons.join(' | '), dev.id],
-      );
+      // The write did change the device's content, so an earlier Verify
+      // result no longer describes it: clear it (same as a completed
+      // download does), even though status and pending changes are kept.
+      // `restart_withheld` is the only persisted record of this outcome -
+      // status stays 'modified', so without it the device would look no
+      // different from one that was simply never (re-)programmed. Cleared
+      // by a later download that completes without withholding Restart, or
+      // by the operator's own "clear device history" action.
+      //
+      // See isTestConnection's own doc comment above - this is exactly the
+      // kind of persisted record a loopback-testing session must not leave
+      // behind on a real device row, so it's gated the same way here.
+      if (!isTestConnection) {
+        db.run(
+          'UPDATE devices SET last_verify_match=NULL, last_verify_at=NULL, restart_withheld=1, restart_withheld_at=?, restart_withheld_reason=? WHERE id=?',
+          [new Date().toISOString(), reasons.join(' | '), dev.id],
+        );
+      }
       b.broadcast('program:progress', {
         deviceAddress,
         msg: `Restart withheld - ${reasons.length} pre-Restart check(s) failed`,
@@ -2002,7 +2598,10 @@ export async function runProgramDevice(
           message:
             `Download written but the device was NOT restarted: ${reasons.length} pre-Restart verification check(s) failed. ` +
             `It is still running its previous application, and its status and pending changes were left unchanged (its last verify result was cleared). ` +
-            `Reasons: ${reasons.join(' | ')}`,
+            `Reasons: ${reasons.join(' | ')}` +
+            (isTestConnection
+              ? " (Loopback/test connection - this device's real status was NOT touched.)"
+              : ''),
           restartWithheld: true,
           restartWithheldReasons: reasons,
           verificationIssues: downloadResult.verificationIssues,
@@ -2049,35 +2648,50 @@ export async function runProgramDevice(
     // device (the restartWithheld branch above returns early otherwise) -
     // a trusted write, so any earlier withheld-Restart record no longer
     // describes the device's current state.
-    if (serialNumber) {
-      db.run(
-        'UPDATE devices SET status=?, last_download=?, last_download_serial=?, serial_number=?, unconfirmed_writes_count=?, unconfirmed_writes_detail=?, last_verify_match=NULL, last_verify_at=NULL, restart_withheld=0, restart_withheld_at=NULL, restart_withheld_reason=NULL WHERE id=?',
-        [
-          'programmed',
-          new Date().toISOString(),
-          serialNumber,
-          serialNumber,
-          unconfirmedWritesCount,
-          unconfirmedWritesDetail,
-          dev.id,
-        ],
-      );
-    } else {
-      db.run(
-        'UPDATE devices SET status=?, last_download=?, last_download_serial=?, unconfirmed_writes_count=?, unconfirmed_writes_detail=?, last_verify_match=NULL, last_verify_at=NULL, restart_withheld=0, restart_withheld_at=NULL, restart_withheld_reason=NULL WHERE id=?',
-        [
-          'programmed',
-          new Date().toISOString(),
-          sessionSerial ?? '',
-          unconfirmedWritesCount,
-          unconfirmedWritesDetail,
-          dev.id,
-        ],
-      );
+    // See isTestConnection's own doc comment above - none of this success-
+    // path bookkeeping (status/last_download/serial/pending-changes) is a
+    // real device's actual state when the write just ran against the
+    // loopback fake, so none of it gets persisted to the real row either.
+    if (!isTestConnection) {
+      if (serialNumber) {
+        db.run(
+          'UPDATE devices SET status=?, last_download=?, last_download_serial=?, serial_number=?, unconfirmed_writes_count=?, unconfirmed_writes_detail=?, last_verify_match=NULL, last_verify_at=NULL, restart_withheld=0, restart_withheld_at=NULL, restart_withheld_reason=NULL WHERE id=?',
+          [
+            'programmed',
+            new Date().toISOString(),
+            serialNumber,
+            serialNumber,
+            unconfirmedWritesCount,
+            unconfirmedWritesDetail,
+            dev.id,
+          ],
+        );
+      } else {
+        db.run(
+          'UPDATE devices SET status=?, last_download=?, last_download_serial=?, unconfirmed_writes_count=?, unconfirmed_writes_detail=?, last_verify_match=NULL, last_verify_at=NULL, restart_withheld=0, restart_withheld_at=NULL, restart_withheld_reason=NULL WHERE id=?',
+          [
+            'programmed',
+            new Date().toISOString(),
+            sessionSerial ?? '',
+            unconfirmedWritesCount,
+            unconfirmedWritesDetail,
+            dev.id,
+          ],
+        );
+      }
+      // Pending changes are tracked only until they have been programmed
+      // successfully. Reaching here means downloadDevice() completed
+      // without throwing, so whatever was pending (full or partial) has now
+      // been written. A device now matches its own DB state either way:
+      // full mode always writes everything regardless of what was tracked,
+      // partial mode just wrote exactly the tracked deltas - so the log is
+      // cleared unconditionally here, not gated on mode.
+      clearPendingChanges(dev.id);
     }
-    // downloadDevice() completed without throwing, so whatever was pending
-    // has now been written - cleared unconditionally, not gated on mode.
-    clearPendingChanges(dev.id);
+    // The client's success log line (ProgrammingView.tsx's
+    // programDevice()) reads straight from this response, so it can show
+    // that the download succeeded along with the device's serial number
+    // and the number of bytes written.
     db.scheduleSave();
     // Completing without throwing means the protocol sequence ran to
     // completion, not that every write was confirmed - a device may not
@@ -2094,6 +2708,10 @@ export async function runProgramDevice(
         totalBytes,
         unconfirmedWrites: downloadResult.unconfirmedWrites,
         unconfirmedDetails: downloadResult.unconfirmedDetails,
+        // Surfaced so the client's log line can say plainly that this ran
+        // against the loopback fake and the device's real recorded status
+        // was left untouched - see isTestConnection's own doc comment.
+        testConnection: isTestConnection || undefined,
       },
     };
   } catch (e) {
@@ -2105,7 +2723,7 @@ export async function runProgramDevice(
       error: true,
     });
     return {
-      status: errMsg.includes('Not connected') ? 409 : 502,
+      status: statusForBusError(errMsg),
       body: {
         error: safeErrorOrConnection('bus', 'Device programming failed', e),
       },
@@ -2166,9 +2784,27 @@ router.post('/bus/program-device', async (req: Request, res: Response) => {
 // genuine protocol-level NAK, not a timeout, and isn't retried here).
 const VERIFY_TRANSIENT_RETRY_DELAY_MS = 4000;
 
-// An error message that looks like a transient connectivity blip (router
-// dropped the tunnel, reconnect timed out) rather than a real protocol or
-// device failure.
+/** Manufacturer, application number and version out of an application Id
+ *  ("M-<manufacturer>_A-<number>-<version>-..."), or null when it has none. */
+function parseAppIdentity(
+  appId: string | undefined,
+): { manufacturerId: number; appNumber: number; appVersion: number } | null {
+  const m = /^M-([0-9a-f]{4})_A-([0-9a-f]{4})-([0-9a-f]{2})/i.exec(appId ?? '');
+  return m
+    ? {
+        manufacturerId: parseInt(m[1]!, 16),
+        appNumber: parseInt(m[2]!, 16),
+        appVersion: parseInt(m[3]!, 16),
+      }
+    : null;
+}
+
+// An error message that looks like a transient connectivity blip (the router
+// dropped the tunnel, a reconnect attempt timed out) rather than a real
+// protocol or device failure. A locate-by-serial in the middle of a batch can
+// hit one when the gateway drops an idle tunnel; the connection is
+// re-established on demand a moment later, just too late for the call already
+// in flight.
 const CONNECTIVITY_ERROR_PATTERN =
   /not connected|connect timeout|econnreset|econnrefused|etimedout|epipe/i;
 
@@ -2240,7 +2876,7 @@ router.post('/bus/verify-device', async (req: Request, res: Response) => {
     }
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    return res.status(msg.includes('Not connected') ? 409 : 502).json({
+    return res.status(statusForBusError(msg)).json({
       error: safeErrorOrConnection(
         'bus',
         'Failed to reconnect before verifying',
@@ -2271,7 +2907,7 @@ router.post('/bus/verify-device', async (req: Request, res: Response) => {
           continue;
         }
         const msg = e instanceof Error ? e.message : String(e);
-        res.status(msg.includes('Not connected') ? 409 : 502).json({
+        res.status(statusForBusError(msg)).json({
           error: safeErrorOrConnection('bus', 'Device verify failed', e),
         });
         return;
@@ -2292,6 +2928,12 @@ export async function runVerifyDevice(
   dev: Device,
   deviceAddress: string,
 ): Promise<RouteResult> {
+  // See runProgramDevice's own isTestConnection doc comment - a Verify run
+  // against the loopback fake describes the fake device's own memory, not
+  // this real device's, so it must not persist as this real device's
+  // verify record either.
+  const isTestConnection = b.connection instanceof KnxLoopbackConnection;
+
   const built = buildDeviceProgramming(dev);
   if (!built.ok) return { status: built.status, body: built.body };
   const {
@@ -2309,6 +2951,8 @@ export async function runVerifyDevice(
     paramMemBySegment,
     writtenParamKeys: writtenParams,
     parameterByteOrder,
+    expectedHardwareType,
+    hardwareTypeParams,
   } = built;
 
   // Derive the read-back plan from the same artifacts the download would use.
@@ -2786,6 +3430,113 @@ export async function runVerifyDevice(
   // ETS never shows in its own UI, sometimes a device-firmware sentinel
   // that legitimately changes after a Download - see DecodedParam.isVisible.
   // Doesn't count as a real mismatch here.
+  // Identity rows: the manufacturer, application program version and hardware
+  // type the application expects, against what the device reports - the same
+  // three things a download checks before writing. A read that gets no answer
+  // leaves a row's match as null ("could not confirm"), never false.
+  {
+    const expectedId = parseAppIdentity(appId);
+    const hex = (n: number, w: number): string =>
+      n.toString(16).padStart(w, '0');
+    const identityRow = (
+      key: string,
+      label: string,
+      expectedValue: string,
+      actualValue: string | null,
+      match: boolean | null,
+    ): DecodedComparison => ({
+      key: `device-identity-${key}`,
+      label,
+      section: 'Identity',
+      group: '',
+      unit: '',
+      offset: 0,
+      bitOffset: 0,
+      bitSize: 0,
+      rawValue: '',
+      expectedValue,
+      actualValue,
+      match,
+      isVisible: true,
+    });
+    if (expectedId || expectedHardwareType) {
+      let info: { manufacturerId?: number; hardwareType?: string } | null;
+      try {
+        info = await b.readDeviceInfo(deviceAddress);
+      } catch {
+        info = null;
+      }
+      let programVersion: Buffer | null = null;
+      if (expectedId) {
+        try {
+          const [pv] = await b.readPropertyMany(deviceAddress, [
+            { objIdx: 4, propId: 13 },
+          ]);
+          if (pv && pv.length >= 5) programVersion = pv.subarray(0, 5);
+        } catch {
+          programVersion = null;
+        }
+      }
+      const rows: DecodedComparison[] = [];
+      if (expectedId) {
+        const expMfr = `0x${hex(expectedId.manufacturerId, 4)}`;
+        const actMfr =
+          info?.manufacturerId !== undefined
+            ? `0x${hex(info.manufacturerId, 4)}`
+            : null;
+        rows.push(
+          identityRow(
+            'manufacturer',
+            'Manufacturer',
+            expMfr,
+            actMfr ?? '(no response)',
+            actMfr === null
+              ? null
+              : info!.manufacturerId === expectedId.manufacturerId,
+          ),
+        );
+        const expPv = `M-${hex(expectedId.manufacturerId, 4)}_A-${hex(expectedId.appNumber, 4)}-${hex(expectedId.appVersion, 2)}`;
+        const actPv = programVersion
+          ? `M-${hex(programVersion.readUInt16BE(0), 4)}_A-${hex(programVersion.readUInt16BE(2), 4)}-${hex(programVersion[4]!, 2)}`
+          : null;
+        rows.push(
+          identityRow(
+            'program-version',
+            'Program version (application)',
+            expPv,
+            actPv ?? '(no response)',
+            actPv === null ? null : actPv.toLowerCase() === expPv.toLowerCase(),
+          ),
+        );
+      }
+      if (expectedHardwareType) {
+        const expHex = expectedHardwareType.hex.toLowerCase();
+        const actHex = info?.hardwareType?.toLowerCase();
+        const actLabel =
+          actHex === undefined
+            ? null
+            : actHex === expHex
+              ? expectedHardwareType.label
+              : describeHardwareType(
+                  hardwareTypeParams,
+                  Buffer.from(actHex, 'hex'),
+                );
+        rows.push(
+          identityRow(
+            'hardware-type',
+            'Hardware type',
+            `0x${expHex}${expectedHardwareType.label ? ` (${expectedHardwareType.label})` : ''}`,
+            actHex === undefined
+              ? '(no response)'
+              : `0x${actHex}${actLabel ? ` (${actLabel})` : ''}`,
+            actHex === undefined ? null : actHex === expHex,
+          ),
+        );
+      }
+      if (rows.length) decoded = [...(decoded ?? []), ...rows];
+    }
+  }
+
   const allDecodedMatch =
     !decoded ||
     decoded.every((d) => d.match !== false || d.isVisible === false);
@@ -2800,8 +3551,10 @@ export async function runVerifyDevice(
   const match =
     Math.max(0, totalDiffering - hiddenMismatchBytes) === 0 && allDecodedMatch;
   // A clean verify clears any "verify recommended" indicator left over
-  // from a download with unconfirmed writes.
-  if (match) {
+  // from a download with unconfirmed writes. Neither persisted record
+  // below applies when this Verify ran against the loopback fake - see
+  // isTestConnection's own doc comment above.
+  if (match && !isTestConnection) {
     db.run(
       'UPDATE devices SET unconfirmed_writes_count=0, unconfirmed_writes_detail=? WHERE id=?',
       ['[]', dev.id],
@@ -2810,11 +3563,13 @@ export async function runVerifyDevice(
   // Persisted verify indicator, written unconditionally (match or
   // mismatch) - a live bus verify just happened either way. Only ever
   // written here (a live bus read), never from the cache-only recompute
-  // path below.
-  db.run(
-    'UPDATE devices SET last_verify_match=?, last_verify_at=? WHERE id=?',
-    [match ? 1 : 0, new Date().toISOString(), dev.id],
-  );
+  // path below. Skipped for the loopback fake, same as above.
+  if (!isTestConnection) {
+    db.run(
+      'UPDATE devices SET last_verify_match=?, last_verify_at=? WHERE id=?',
+      [match ? 1 : 0, new Date().toISOString(), dev.id],
+    );
+  }
   db.scheduleSave();
   return {
     status: 200,
@@ -2830,6 +3585,10 @@ export async function runVerifyDevice(
       ...(flagsTotalBytes !== undefined
         ? { flagsTotalBytes, flagsDifferingBytes }
         : {}),
+      // See isTestConnection's own doc comment above - lets the client log
+      // this result as a test/loopback read rather than a real device
+      // verify.
+      testConnection: isTestConnection || undefined,
     },
   };
 }
@@ -2977,7 +3736,14 @@ router.post(
 
     const cachedDecoded: RecomputeDecoded[] = cached.decoded ?? [];
     const priorParamRows = cachedDecoded.filter(
-      (d) => !String(d.key ?? '').startsWith('co-'),
+      (d) =>
+        !String(d.key ?? '').startsWith('co-') &&
+        !String(d.key ?? '').startsWith('device-identity-'),
+    );
+    // Identity rows describe the device as read at verify time; nothing in
+    // the project changes them, so recomputing keeps them as they were.
+    const priorIdentityRows = cachedDecoded.filter((d) =>
+      String(d.key ?? '').startsWith('device-identity-'),
     );
     const priorGaRows = new Map(
       cachedDecoded
@@ -3078,6 +3844,7 @@ router.post(
       ...(paramRows ?? priorParamRows),
       ...(gaTable && assocTable ? gaRows : [...priorGaRows.values()]),
       ...(groupObjectTable ? obj3Rows : [...priorObj3Rows.values()]),
+      ...priorIdentityRows,
     ];
     // An Access="None" (isVisible: false) parameter doesn't count as a
     // mismatch here - see DecodedParam.isVisible.

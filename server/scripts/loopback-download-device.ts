@@ -180,8 +180,24 @@ async function main() {
     ),
   );
 
+  // Full structured write list, for a byte-exact comparison against a real
+  // ETS capture.
+  fs.writeFileSync(
+    path.join(outDir, `loopback-${safeAddr}-memory-writes.json`),
+    JSON.stringify(
+      conn.memoryWrites.map((w) => ({
+        objIdx: w.objIdx,
+        address: w.address,
+        extended: w.extended,
+        dataHex: w.data.toString('hex'),
+      })),
+      null,
+      2,
+    ),
+  );
+
   console.log(
-    `\nWritten: ${outDir}/loopback-${safeAddr}-frames.json, loopback-${safeAddr}-result.json`,
+    `\nWritten: ${outDir}/loopback-${safeAddr}-frames.json, loopback-${safeAddr}-result.json, loopback-${safeAddr}-memory-writes.json`,
   );
 }
 

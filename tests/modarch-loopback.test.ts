@@ -140,6 +140,47 @@ describe('KnxLoopbackConnection', () => {
     assert.equal(conn.memoryWrites[0]!.objIdx, 4);
   });
 
+  // Real, critical bug: a real Partial Download to 1.1.13 wrote to
+  // address 0x28C0 instead of the real PID_TABLE_REFERENCE value
+  // (0xC3000). Root cause: propRead()'s waitResponse('OTHER', ...) passed
+  // no `accept` predicate at all, unlike MemoryExtended_Read/Memory_Read
+  // just below it in the same file (both already validate the response's
+  // own echoed address before accepting it) - a real, direct gap in this
+  // codebase's own code, not a hardware defect: a stale response (ordinary
+  // processing latency, nothing wrong with the device sending it) got
+  // claimed by a newer request's generic 'OTHER' matcher purely because
+  // nothing checked whose answer it actually was. This class can't produce
+  // that race on its own (always answers the request it just received, in
+  // order) - `forceMismatchedMetaFor` exists purely to inject the exact
+  // malformed shape a stale response would have, proving the fix (the same
+  // `accept`-predicate pattern already proven for memory reads, now applied
+  // to property reads too) correctly ignores it rather than ever treating it
+  // as an answer.
+  it('ignores a PropertyValue_Response whose echoed objIdx/propId do not match the request, rather than treating it as an answer (real address-corruption bug)', async () => {
+    const conn = new KnxLoopbackConnection(
+      config({ tableBases: { 4: PARAM_BASE } }),
+    );
+    // Simulates the real incident: every response to the P=7
+    // (PID_TABLE_REFERENCE) read for objIdx 4 comes back with meta bytes
+    // claiming it's for objIdx 4, propId 27 (PID_MCB_TABLE) instead - the
+    // exact malformed shape a stale/misattributed response would have.
+    // Permanently mismatched (never a genuine P=7 answer arrives), so the
+    // read can only ever time out - proving the mismatch is truly ignored,
+    // not just retried into eventually succeeding.
+    conn.forceMismatchedMetaFor.set('4:7', { objIdx: 4, propId: 27 });
+    // downloadDevice() itself does not throw: an unresolvable
+    // PID_TABLE_REFERENCE is the same, already-handled "unallocated - skip
+    // this object" case a genuinely blank device hits - safe by design, not
+    // a new failure mode this fix needed to introduce.
+    await conn.downloadDevice(ADDR, steps, null, null, payload, undefined, {
+      mode: 'full',
+    });
+    // The critical safety property: NO memory write was ever sent using the
+    // bogus/misattributed data - objIdx 4 was correctly skipped rather than
+    // written to a wrong address.
+    assert.equal(conn.memoryWrites.length, 0);
+  });
+
   it('uses the configured PID_MCB_TABLE byte 5 to answer the memory-write-service question', async () => {
     const run = async (mcbByte5: number) => {
       const conn = new KnxLoopbackConnection(config({ mcbByte5 }));

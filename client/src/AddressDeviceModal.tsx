@@ -13,11 +13,10 @@ import styles from './AddressDeviceModal.module.css';
 
 /**
  * Small inline "copy to clipboard" button, used next to a detected serial
- * (or address, when no serial is available) - real request, 2026-08-31:
- * "display the serial when we detect a device (in case it doesn't have an
- * address) and make serial copy'able." Falls back silently if the
- * Clipboard API is unavailable or denied (e.g. a non-HTTPS context) -
- * copying is a convenience, not worth surfacing an error over.
+ * (or address, when no serial is available) so the value can be captured
+ * without retyping it. Falls back silently if the Clipboard API is
+ * unavailable or denied (e.g. a non-HTTPS context) - copying is a
+ * convenience, not worth surfacing an error over.
  */
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
@@ -92,10 +91,10 @@ export function AddressDeviceModal({
   // something else - UNLESS lockDevice is also set (see below).
   initialDeviceId?: number;
   // Opens directly on the given tab instead of always defaulting to
-  // 'detect' - added 2026-08-30 for the serial icon's "already has a
-  // known serial" case (ProgrammingView.tsx), which makes more sense to
-  // open straight on the serial tab with that value pre-filled than to
-  // make the operator re-scan/re-enter something already on record.
+  // 'detect' - used for the serial icon's already-has-a-known-serial case
+  // (ProgrammingView.tsx), which makes more sense to open straight on the
+  // serial tab with that value pre-filled than to make the operator
+  // re-scan/re-enter something already on record.
   initialTab?: 'detect' | 'serial';
   // Pre-fills the manual serial-entry field (serial tab only).
   initialSerial?: string;
@@ -143,8 +142,8 @@ export function AddressDeviceModal({
   // (see recordDetectedSerial() below) - it's bookkeeping-only, so the
   // has_address=0 hazard the comment above `devices` warns about (writing
   // a synthetic placeholder address to a physical unit) doesn't apply.
-  // Real request, 2026-08-31: "allow the device to be added as if it were
-  // a new unassigned device."
+  // A detected device can be added here as a new unassigned project
+  // device even if it has no project address yet.
   const generalCandidates = showAllDevices
     ? allDevices
     : allDevices.filter((d) => d.status === 'unassigned' || !d.has_address);
@@ -163,10 +162,9 @@ export function AddressDeviceModal({
     src: string;
   }> | null>(null);
   const [detectError, setDetectError] = useState<string | null>(null);
-  // 'new' is a real, addressable choice, not just a device id - real
-  // request, 2026-08-31 (general/unlocked flow only): "in the Assign To,
-  // we should have an option (maybe first in the list) to add as New
-  // Device (i.e. something not already in our DB)."
+  // 'new' is a real, addressable choice, not just a device id - the
+  // general/unlocked flow's "Assign To" list offers an option to add the
+  // detected device as a new project device not already in the database.
   const [detectSelection, setDetectSelection] = useState<
     Record<string, number | 'new' | ''>
   >({});
@@ -175,10 +173,8 @@ export function AddressDeviceModal({
     Record<string, { ok: boolean; msg: string }>
   >({});
 
-  // Real user request, 2026-08-31: "Detect should also auto-initiate a
-  // connection if possible" - then, once a device write also came up
-  // (about to fail outright with no connection at all): "please wire up
-  // autoconnect to the write button (and in fact to all write buttons)."
+  // Auto-connects to the bus when possible before any bus-write action
+  // runs, instead of requiring a separate manual connect step first.
   // Shared by every bus-write action below (scan/writeAddressDirect/
   // writeBySerial/writeDetected/writeManual). `busStatus` still carries
   // the last known host/port/type even while disconnected (see AppShell's
@@ -205,9 +201,8 @@ export function AddressDeviceModal({
   };
 
   // Status indicator specifically for the scan's own "press the button
-  // now" reminder - real user request, 2026-08-31: "when it is clicked,
-  // and connection made, it should show a status indicator reminding the
-  // user to press prog on their device."
+  // now" reminder, shown once the bus connection is established so the
+  // operator knows to press the programming button on the device.
   const [scanStatus, setScanStatus] = useState<string | null>(null);
 
   const scan = async () => {
@@ -221,16 +216,14 @@ export function AddressDeviceModal({
       addLog(
         `[${new Date().toLocaleTimeString()}] Scanning for devices in programming mode…`,
       );
-      // Real live-test finding, 2026-08-31: "our Scan for New Device
-      // functionality does not seem to pick up our device in prog mode" -
-      // this only ever tried the serial-number scan
-      // (A_SystemNetworkParameter_Read), which gets zero replies from a
-      // non-Albrecht-Jung device (HDL) even with the button genuinely
-      // held - see writeAddressDirect()'s own dual-mechanism fix, same
-      // day, for the full real-hardware finding. Applying the same fix
-      // here: run both broadcasts concurrently in short (3s) rounds,
-      // exiting as soon as either reports at least one device, for up to
-      // 30s total. A device found ONLY via the legacy address broadcast
+      // The serial-number scan alone (A_SystemNetworkParameter_Read) gets
+      // zero replies from some devices (e.g. non-Albrecht-Jung units such
+      // as HDL) even with the programming button genuinely held - see
+      // writeAddressDirect()'s dual-mechanism handling for the full
+      // real-hardware detail. Both broadcasts run concurrently here in
+      // short (3s) rounds, exiting as soon as either reports at least one
+      // device, for up to 30s total. A device found ONLY via the legacy
+      // address broadcast
       // has no real serial - `serial: ''` marks that case; every
       // dictionary below is keyed by `src` (the address, always real and
       // unique) rather than `serial` (which can't be, when empty) - see
@@ -252,16 +245,14 @@ export function AddressDeviceModal({
           bySrc.set(addrCheck.address, '');
         }
       }
-      // Real user question, 2026-08-31: "how does ETS grab the serial -
-      // after assigning an address?" - checked against our own real
-      // capture (docs/knx-device-write-protocol.md §9.3): ETS does NOT
-      // need to assign a NEW address first. It connects point-to-point to
+      // Confirmed against a real capture (docs/knx-device-write-
+      // protocol.md §9.3): ETS does NOT need to assign a NEW address
+      // first to read a device's serial. It connects point-to-point to
       // the device's CURRENT address (found via the same classic broadcast
       // used above) and reads Property 11 (PID_SERIAL_NUMBER-family,
       // Object Index 0) via a real PropertyValue_Read - the exact same
-      // mechanism `busDeviceInfo()` already uses (confirmed working
-      // earlier the same session, reading this device's real serial right
-      // after an address write). Mirrored here for any device found only
+      // mechanism `busDeviceInfo()` already uses. Mirrored here for any
+      // device found only
       // via the legacy broadcast (no serial from either broadcast
       // mechanism itself): a best-effort point-to-point follow-up read,
       // same as ETS's own real sequence. Failure is expected/non-fatal for
@@ -308,12 +299,12 @@ export function AddressDeviceModal({
   };
 
   // General (unlocked) "Scan for New Device" flow's only action, replacing
-  // the earlier write-via-broadcast/write-by-serial buttons entirely - real
-  // request, 2026-08-31: "the Write Address buttons here shouldn't be
-  // present as we don't have an address editor. Remove the buttons
-  // entirely, and allow the device to be added as if it were a new
-  // unassigned device." This flow was never the right place for a real
-  // bus write anyway (no visible confirmation of exactly which address is
+  // the earlier write-via-broadcast/write-by-serial buttons entirely: this
+  // flow has no address editor, so there is nothing meaningful for a
+  // write button to target here - it now allows a detected device to be
+  // added as a new unassigned project device instead. This flow was never
+  // the right place for a real bus write anyway (no visible confirmation
+  // of exactly which address is
   // about to be written, unlike the locked single-device flow's own
   // Device Address tab) - it's bookkeeping-only now, same idea as
   // confirmSerial() below but for the general flow: record the detected
@@ -328,8 +319,8 @@ export function AddressDeviceModal({
   // device found by address scan" flow already uses), then records the
   // serial on it too if one is known. Unlike recording onto an EXISTING
   // device, creating one is worth doing even with no serial at all - at
-  // minimum the address gets captured, which is the real point of "add as
-  // if it were a new unassigned device".
+  // minimum the address gets captured, which is the point of adding it as
+  // a new unassigned device.
   const recordDetectedSerial = async (src: string, serial: string) => {
     const selection = detectSelection[src];
     if (!selection) return;
@@ -385,12 +376,12 @@ export function AddressDeviceModal({
   };
 
   // ── lockDevice-only: confirm a detected serial with no bus write ────────
-  // Real request 2026-08-31: when the modal was opened for a specific,
-  // already-addressed device, a scan that finds it already reporting the
-  // EXPECTED address has nothing to write - programIA/assignAddressBySerial
-  // would just be re-asserting an address the device already has. This
-  // just records the serial (`updateDevice`), the same bookkeeping every
-  // real write already does at the end, without touching the bus at all.
+  // When the modal was opened for a specific, already-addressed device, a
+  // scan that finds it already reporting the EXPECTED address has nothing
+  // to write - programIA/assignAddressBySerial would just be re-asserting
+  // an address the device already has. This just records the serial
+  // (`updateDevice`), the same bookkeeping every real write already does
+  // at the end, without touching the bus at all.
   const [confirmBusy, setConfirmBusy] = useState(false);
   const confirmSerial = async (serial: string) => {
     if (!lockedTarget) return;
@@ -422,25 +413,25 @@ export function AddressDeviceModal({
   const manualSerialValid = /^[0-9a-fA-F]{12}$/.test(manualSerial);
   const manualMatch = manualSerialValid ? matchBySerial(manualSerial) : null;
   // Resolved from allDevices, not the has_address-filtered `devices` above
-  // - real request 2026-08-31: opening this modal from the serial icon of
-  // an unaddressed device (has_address=0) was inconsistent, popping the
-  // "assign a project address" modal instead of this one. A locked target
-  // can legitimately have no real address yet; what changes is which
-  // actions are offered below (lockedNoAddress), not whether the target
-  // itself can be found.
+  // - opening this modal from the serial icon of an unaddressed device
+  // (has_address=0) needs to work consistently rather than popping the
+  // "assign a project address" modal instead. A locked target can
+  // legitimately have no real address yet; what changes is which actions
+  // are offered below (lockedNoAddress), not whether the target itself
+  // can be found.
   const lockedTarget = lockDevice
     ? (allDevices.find((d) => d.id === initialDeviceId) ?? null)
     : null;
 
-  // Real bug, live-tested 2026-08-31: manualSerial only ever seeded once
-  // from initialSerial at mount (a snapshot of lockedTarget.serial_number
-  // taken when the modal opened) - a real address+serial write completing
-  // WHILE the modal stayed open (e.g. via Write Address on the other tab)
-  // never touched this box again, so it kept showing whatever it had at
-  // mount (often blank) even after the project record itself was updated.
-  // That produced a spurious "Serial must be exactly 12 hex characters"
-  // warning on a perfectly valid just-recorded serial - the box was stale,
-  // not the data. Resync whenever the locked device's own recorded serial
+  // manualSerial only ever seeded once from initialSerial at mount (a
+  // snapshot of lockedTarget.serial_number taken when the modal opened) -
+  // an address+serial write completing WHILE the modal stayed open (e.g.
+  // via Write Address on the other tab) never touched this box again, so
+  // it kept showing whatever it had at mount (often blank) even after the
+  // project record itself was updated. That produced a spurious "Serial
+  // must be exactly 12 hex characters" warning on a perfectly valid
+  // just-recorded serial - the box was stale, not the data. Resync
+  // whenever the locked device's own recorded serial
   // changes. Scoped to the lockDevice case only - in the general
   // (non-locked) flow below, this same input is a genuine blank-slate
   // manual entry field (optionally pre-filled once via initialSerial),
@@ -458,17 +449,15 @@ export function AddressDeviceModal({
   // even the normally-safe programIA/assignAddressBySerial ones.
   const lockedNoAddress = !!lockedTarget && !lockedTarget.has_address;
 
-  // ── Project address editing, folded into this modal 2026-08-31 ──────────
+  // ── Project address editing, folded into this modal ─────────────────────
   // Previously a separate popup (AssignProjectAddressModal), opened only
   // from the "-.-.-" placeholder badge for a not-yet-addressed device -
-  // real user feedback: "clicking the address takes me to the device info
-  // page, nowhere to edit/change the address again" (once has_address was
-  // true, there was no way back into that modal at all) and "address write
-  // in serial box doesn't make sense, unless we have address edit there
-  // too... let's combine address edit and serial edit into the one
-  // popup." Folded in here instead of kept separate - this section covers
-  // both the original "assign for the first time" case and a genuinely
-  // new "edit/reassign later" capability.
+  // once has_address became true there was no way back into that modal to
+  // edit the address again, and having address editing live separately
+  // from serial editing (when a write-by-serial needs an address too)
+  // didn't make sense. Folded in here instead of kept separate - this
+  // section covers both the original "assign for the first time" case and
+  // a genuinely new "edit/reassign later" capability.
   const REAL_MAX = 15;
   const [addrEditing, setAddrEditing] = useState(lockedNoAddress);
   const suggestAddr = (): { a: number; l: number; n: number } => {
@@ -492,11 +481,9 @@ export function AddressDeviceModal({
     while (used.has(n) && n <= 255) n++;
     return { a, l, n };
   };
-  // Two tabs for the lockDevice layout - real user feedback, 2026-08-31,
-  // on the first single-scroll merged version: "our popup for address/
-  // serial change is looking a bit convoluted. Please make two tabs - one
-  // for device address and one for serial number." Defaults to the
-  // 'serial' tab when opened via the serial icon on a device with an
+  // Two tabs for the lockDevice layout, replacing an earlier single-scroll
+  // merged version that mixed address and serial editing in one place.
+  // Defaults to the 'serial' tab when opened via the serial icon on a device with an
   // already-known serial (matches the old initialTab behavior - jumping
   // straight to the thing you're most likely here to re-confirm), 'address'
   // otherwise (including lockedNoAddress, where the address form itself
@@ -570,10 +557,10 @@ export function AddressDeviceModal({
   };
 
   // Direct broadcast write of the CURRENT project address, no serial
-  // needed - moved onto the Device Address tab itself, 2026-08-31: "Put
-  // the Write Address button below this [the address display/edit]." The
-  // serial-based write (busAssignAddressBySerial) stays on the Serial tab
-  // below, since it inherently needs a serial to target by.
+  // needed - lives on the Device Address tab itself, directly below the
+  // address display/edit. The serial-based write (busAssignAddressBySerial)
+  // stays on the Serial tab below, since it inherently needs a serial to
+  // target by.
   const [writeAddrBusy, setWriteAddrBusy] = useState(false);
   const [writeAddrResult, setWriteAddrResult] = useState<{
     ok: boolean;
@@ -587,20 +574,16 @@ export function AddressDeviceModal({
   // True only while actively waiting on the programming-mode scan (i.e. a
   // real cancel window) - false once the scan has resolved and the actual
   // address write is in flight, where cancelling would no longer mean
-  // anything. Drives the Write Address button's real user request,
-  // 2026-08-31: "The cancel can be the write button itself."
+  // anything. Drives the Write Address button doubling as its own cancel
+  // control while waiting.
   const [writeAddrWaiting, setWriteAddrWaiting] = useState(false);
   const writeAddrAbortRef = useRef<AbortController | null>(null);
-  // Real user finding, 2026-08-31: "It is showing a tick but I did not
-  // press the prog button" + "how is it writing to the device if I
-  // haven't pressed the prog button? i.e. how does it know which device?"
-  // - programIA()/A_IndividualAddress_Write is a fire-and-forget broadcast
+  // programIA()/A_IndividualAddress_Write is a fire-and-forget broadcast
   // to 0/0/0 with no device identifier in the frame at all - it's accepted
-  // by whichever single device physically has its button held, and there
-  // was previously NOTHING in this flow that told the operator to press it
-  // before firing the write, or that confirmed a device was actually
-  // listening first. Real follow-up: "FYI, there was no notification that
-  // prog button press is required." Fixed by reusing the same
+  // by whichever single device physically has its button held, so a
+  // success indicator with no prior confirmation that a device was
+  // actually listening could mislead an operator who hadn't pressed the
+  // button at all. Fixed by reusing the same
   // busReadSerialsInProgrammingMode() scan the Serial tab's Detect button
   // already uses (real-hardware confirmed there) as a mandatory
   // detect-before-write gate: (a) tell the operator to press the button,
@@ -608,28 +591,26 @@ export function AddressDeviceModal({
   // unless EXACTLY one device answers (zero = nothing pressed / didn't
   // register; more than one = genuinely ambiguous, the broadcast has no
   // way to pick between them), (d) only then send the write. Every step
-  // logged, per explicit request ("each step should go into log").
+  // is logged for traceability.
   //
-  // Real live-test finding, same day: the original 3s window was much too
-  // short - "this needs to be at least 30 seconds or more as it will take
-  // time for people to go to the device to set prog mode" - raised to
-  // 30000ms (the server route's own hard cap, server/routes/bus.ts). A
-  // long wait needs a real way out, so it's paired with an AbortController
-  // wired to the button itself (see writeAddrWaiting/cancelWriteAddress).
+  // The original 3s detection window was too short for an operator to
+  // physically reach the device and set programming mode, so it was
+  // raised to 30000ms (the server route's own hard cap, server/routes/
+  // bus.ts). A long wait needs a real way out, so it's paired with an
+  // AbortController wired to the button itself (see
+  // writeAddrWaiting/cancelWriteAddress).
   const writeAddressDirect = async () => {
     if (!lockedTarget?.has_address) return;
-    // Real bug, live-tested 2026-08-31: "I change the address to 1.1.21 in
-    // the UI selectors, but did NOT click Save to the project, and instead
-    // directly clicked Write. This then wrote the old address, 1.1.20." -
-    // this write path used lockedTarget.individual_address (the last SAVED
+    // Editing the address in the UI selectors without clicking Save to
+    // the project, then clicking Write, previously wrote the old,
+    // last-saved address instead of the value currently shown - this
+    // write path used lockedTarget.individual_address (the last SAVED
     // project value) throughout, ignoring newAddr (the live selector
     // value) entirely unless Save had already been clicked first. Fixed:
     // write whatever the selectors currently show, and persist that same
     // value to the project automatically on a confirmed write (see the
-    // updateDevice call below) - the operator's real request, not just a
-    // bug fix: "We need to write whatever is in the selectors AND
-    // automatically update the project DB with this value as soon as we
-    // write."
+    // updateDevice call below), rather than requiring a separate Save
+    // step before every write.
     if (addrConflict) {
       setWriteAddrResult({
         ok: false,
@@ -649,27 +630,26 @@ export function AddressDeviceModal({
       addLog(
         `[${new Date().toLocaleTimeString()}] Waiting for a device in programming mode before writing ${newAddr}…`,
       );
-      // Real live-test finding, 2026-08-31: on a non-Albrecht-Jung device
-      // (HDL M/AG40B.1), the serial-number scan alone (A_SystemNetworkParameter_
-      // Read, PID_SERIAL_NUMBER) got zero responses even with the physical
-      // button genuinely held/pressed - cross-checked against a real ETS
-      // capture taken against this exact device the same day, which shows
-      // ETS itself using the older, more universally-supported
-      // A_IndividualAddress_Read broadcast instead (checkProgrammingMode()
-      // below) for this manufacturer. Running both concurrently and
-      // merging by responding address covers both cases without slowing
-      // down the devices that do answer the serial scan (Albrecht Jung,
-      // real-hardware confirmed there).
+      // On a non-Albrecht-Jung device (HDL M/AG40B.1), the serial-number
+      // scan alone (A_SystemNetworkParameter_Read, PID_SERIAL_NUMBER) gets
+      // zero responses even with the physical button genuinely held -
+      // confirmed against a real ETS capture taken against this exact
+      // device, which shows ETS itself using the older, more universally-
+      // supported A_IndividualAddress_Read broadcast instead
+      // (checkProgrammingMode() below) for this manufacturer. Running both
+      // concurrently and merging by responding address covers both cases
+      // without slowing down the devices that do answer the serial scan
+      // (Albrecht Jung, real-hardware confirmed there).
       //
-      // Real live-test finding, same day, after the above: a single
-      // Promise.all([...30000ms calls]) took the FULL 30s to resolve even
-      // when the device answered within a few seconds - readSerialsInProgrammingMode
-      // deliberately never resolves early (it collects for its whole
-      // window, by design, to catch multiple simultaneous devices), so
-      // Promise.all was always blocked on whichever of the two calls
-      // didn't get a match, however fast the other one was. Real ETS
-      // itself (per capture) reacts within a few seconds of a real press.
-      // Fixed by polling in short (3s) rounds instead of one long call,
+      // A single Promise.all([...30000ms calls]) took the FULL 30s to
+      // resolve even when the device answered within a few seconds -
+      // readSerialsInProgrammingMode deliberately never resolves early
+      // (it collects for its whole window, by design, to catch multiple
+      // simultaneous devices), so Promise.all was always blocked on
+      // whichever of the two calls didn't get a match, however fast the
+      // other one was. Real ETS itself (per capture) reacts within a few
+      // seconds of a real press. Fixed by polling in short (3s) rounds
+      // instead of one long call,
       // exiting the loop the instant either mechanism reports a device,
       // while still allowing up to 30s total for someone to physically
       // reach the device and press its button.
@@ -732,17 +712,16 @@ export function AddressDeviceModal({
         `[${new Date().toLocaleTimeString()}] Identified device ${detectedSerial ?? detectedAddr} in programming mode — writing address ${newAddr}…`,
       );
       const r = await api.busProgramIA(newAddr);
-      // Real user finding, 2026-08-31: a green checkmark showed up even
-      // though the programming button was never pressed. Root cause:
+      // A success indicator could previously appear even though the
+      // programming button was never pressed. Root cause:
       // A_IndividualAddress_Write is a fire-and-forget broadcast with NO
       // application-layer response at all (matches real ETS's own blind
       // spot for this exact service) - busProgramIA() resolving without
       // throwing only means the frame was sent, never that any device
       // received or acted on it. Treating "no exception" as "success" was
       // simply wrong for a service that structurally cannot confirm
-      // itself. The read-back below (originally added just to grab the
-      // serial - "Did it also grab the serial at the same time? If not it
-      // should do") is now the ONLY thing this result is allowed to call
+      // itself. The read-back below (which also grabs the serial at the
+      // same time) is now the ONLY thing this result is allowed to call
       // success: a real point-to-point read of the target address,
       // succeeding only if a real device is actually there to answer.
       let serialMsg = '';
@@ -752,7 +731,7 @@ export function AddressDeviceModal({
         confirmed = true;
         const serial = (info as { serialNumber?: string }).serialNumber;
         // Persist the address that was actually written - not just the
-        // serial - the moment it's confirmed, per the real request above.
+        // serial - the moment it's confirmed.
         // serial_number is included in the SAME call deliberately: the
         // server clears serial_number whenever individual_address changes
         // unless the caller also supplies a new one in that request
@@ -819,16 +798,16 @@ export function AddressDeviceModal({
   };
 
   // Aborts the in-flight programming-mode wait, wired to the same button
-  // that started it - real user request, 2026-08-31: "The cancel can be
-  // the write button itself."
+  // that started it, so the write button doubles as its own cancel
+  // control while waiting.
   const cancelWriteAddress = () => {
     writeAddrAbortRef.current?.abort();
   };
 
   // Plain bookkeeping - clears a recorded serial with no bus interaction
-  // at all, distinct from confirmSerial (records one) - real user request,
-  // 2026-08-31: "a button next to the serial number, which allows us to
-  // clear any existing number from the DB."
+  // at all, distinct from confirmSerial (records one). Offered as a
+  // button next to the serial number so a stale recorded serial can be
+  // cleared from the project directly.
   const [clearSerialBusy, setClearSerialBusy] = useState(false);
   const clearSerial = async () => {
     if (!lockedTarget?.serial_number) return;
@@ -847,17 +826,17 @@ export function AddressDeviceModal({
   };
 
   // Write-by-serial, using whatever serial is currently recorded (edited
-  // on the Serial tab) - moved here from the Serial tab, 2026-08-31: "The
-  // Write Address button should not show on the serials tab at all, as it
-  // is unrelated" - both real write mechanisms (button-press above, and
-  // this one) now live together on the Device Address tab; the Serial tab
-  // is pure bookkeeping only (view/detect/clear).
+  // on the Serial tab) - lives on the Device Address tab rather than the
+  // Serial tab, since a write is unrelated to serial bookkeeping. Both
+  // real write mechanisms (button-press above, and this one) live
+  // together on the Device Address tab; the Serial tab is pure
+  // bookkeeping only (view/detect/clear).
   const [writeBySerialBusy, setWriteBySerialBusy] = useState(false);
   const [writeBySerialResult, setWriteBySerialResult] = useState<{
     ok: boolean;
     msg: string;
   } | null>(null);
-  // Same real bug/fix as writeAddressDirect() above, 2026-08-31: this used
+  // Same fix as writeAddressDirect() above: this used
   // lockedTarget.individual_address (the last SAVED project value)
   // regardless of unsaved edits sitting in the address selectors - fixed
   // to write newAddr (the live selector value) and persist it to the
@@ -878,6 +857,10 @@ export function AddressDeviceModal({
     );
     try {
       await ensureBusConnected();
+      // An occupied target address now throws (409, matching /bus/
+      // program-device's own address_occupied convention) - the server's
+      // own message is already the right thing to show, so the catch
+      // block below handles it with no special-casing needed here.
       const r = await api.busAssignAddressBySerial(
         lockedTarget.serial_number,
         newAddr,
@@ -917,8 +900,8 @@ export function AddressDeviceModal({
     (d) => d.id === (manualDeviceId || manualMatch?.id),
   );
   // Nothing to write - the entered serial already matches what's on
-  // record for this device (real request 2026-08-31: don't offer a write
-  // that would just be re-recording the same value).
+  // record for this device, so no write that would just re-record the
+  // same value is offered.
   const manualNoChange =
     !!manualTarget &&
     !!manualTarget.serial_number &&
@@ -935,6 +918,7 @@ export function AddressDeviceModal({
     );
     try {
       await ensureBusConnected();
+      // Same as writeBySerial() above - an occupied address now throws.
       const r = await api.busAssignAddressBySerial(
         manualSerial,
         target.individual_address,
@@ -1005,12 +989,10 @@ export function AddressDeviceModal({
           </div>
 
           {lockDevice ? (
-            // ── Known-device layout, split into two tabs 2026-08-31 (real
-            // user feedback: "our popup for address/serial change is
-            // looking a bit convoluted. Please make two tabs - one for
-            // device address and one for serial number.") - no candidate
-            // picker in either tab, the target is already fixed
-            // (lockedTarget).
+            // ── Known-device layout, split into two tabs: one for device
+            // address and one for serial number, instead of a single
+            // combined scroll - no candidate picker in either tab, the
+            // target is already fixed (lockedTarget).
             <>
               <div className={styles.tabRow}>
                 <button
@@ -1083,10 +1065,10 @@ export function AddressDeviceModal({
                           &#x2717; {addrError}
                         </div>
                       )}
-                      {/* Real user note, 2026-08-31: "the save button on
-                          editing the device address may be confusing.
-                          People may not recognise the distinction between
-                          saving locally and writing to device." */}
+                      {/* The save button on editing the device address
+                          could be confused with a physical write, since
+                          the distinction between saving locally and
+                          writing to the device isn't obvious at a glance. */}
                       <div className={styles.emptyState}>
                         Saving only updates the project's planned address - it
                         does not write anything to the physical device. Use ⚡
@@ -1215,9 +1197,9 @@ export function AddressDeviceModal({
                   )}
                   {/* Pointer, not a duplicate control - the real toggle
                       lives on the Programming page header (a per-device
-                      modal is the wrong scope for an all-devices setting).
-                      Real request, 2026-09-01: someone landing here first
-                      (like this one) should still discover it exists. */}
+                      modal is the wrong scope for an all-devices setting),
+                      surfaced here so someone landing on this modal first
+                      can still discover it exists. */}
                   <div className={styles.emptyState}>
                     This is also used automatically during Program when
                     "Auto-program by Serial No." is enabled — see the
@@ -1225,13 +1207,13 @@ export function AddressDeviceModal({
                   </div>
                 </>
               ) : (
-                // ── Serial tab, redesigned 2026-08-31: real user feedback
-                // ("just show the number in the edit box... Clear to its
-                // right... Detect... on one line") - the recorded serial IS
-                // the manual-entry box now, pre-filled instead of a
-                // separate read-only display; write actions (button-press
-                // AND by-serial) both moved to the Device Address tab -
-                // this tab is pure bookkeeping (view/detect/clear) only.
+                // ── Serial tab, redesigned: the recorded serial number,
+                // Clear action and Detect action sit on one line - the
+                // recorded serial IS the manual-entry box now, pre-filled
+                // instead of a separate read-only display; write actions
+                // (button-press AND by-serial) both moved to the Device
+                // Address tab - this tab is pure bookkeeping
+                // (view/detect/clear) only.
                 <>
                   <div className={styles.row}>
                     <input
@@ -1250,10 +1232,9 @@ export function AddressDeviceModal({
                       placeholder="12 hex chars"
                       title="Recorded serial number — edit and press Enter or click Save"
                     />
-                    {/* Real bug, found live 2026-08-31: "we don't have a
-                        save button" - Enter-to-save (above) was the only
-                        way to commit an edit, with no visible affordance
-                        for it at all. */}
+                    {/* Enter-to-save (above) was previously the only way
+                        to commit an edit, with no visible save affordance
+                        at all. */}
                     <Btn
                       onClick={() => confirmSerial(manualSerial)}
                       disabled={
@@ -1374,13 +1355,12 @@ export function AddressDeviceModal({
                 <button
                   className={`${styles.tabBtn} ${tab === 'serial' ? styles.tabBtnActive : ''}`}
                   onClick={() => {
-                    // Real request, 2026-08-31: "once I select the device to
-                    // assign it to, shouldn't that selection carry over to the
-                    // Enter Serial Number tab (along with the serial of the
-                    // selected device)?" - only meaningful with exactly one
-                    // detected device (detectSelection is keyed by address, so
-                    // there's no single "the" selection to carry over when
-                    // several are on screen at once).
+                    // Carries the selected device (and its serial) over to
+                    // the Enter Serial Number tab, since re-picking it
+                    // there would be redundant - only meaningful with
+                    // exactly one detected device (detectSelection is keyed
+                    // by address, so there's no single selection to carry
+                    // over when several are on screen at once).
                     if (detected?.length === 1) {
                       const d = detected[0]!;
                       const pickedId = detectSelection[d.src];
@@ -1442,11 +1422,9 @@ export function AddressDeviceModal({
                       {detected.map((d) => {
                         // Keyed by d.src throughout (see scan()'s own comment) -
                         // d.serial can be '' for a device found only via the
-                        // legacy address broadcast (real live-test finding,
-                        // 2026-08-31: "Scan for New Device... does not seem to
-                        // pick up our device in prog mode" - a non-Albrecht-
-                        // Jung device that doesn't answer the serial-number
-                        // scan at all).
+                        // legacy address broadcast (a non-Albrecht-Jung
+                        // device that doesn't answer the serial-number scan
+                        // at all).
                         const matched = d.serial
                           ? matchBySerial(d.serial)
                           : null;
@@ -1492,10 +1470,10 @@ export function AddressDeviceModal({
                                   }
                                 >
                                   <option value="">— select a device —</option>
-                                  {/* Real request, 2026-08-31: "in the Assign
-                                  To, we should have an option (maybe first
-                                  in the list) to add as New Device (i.e.
-                                  something not already in our DB)." */}
+                                  {/* Offers adding the detected device as a
+                                  new project device not already in the
+                                  database, alongside the existing devices
+                                  in the list. */}
                                   <option value="new">
                                     + Add as New Device
                                   </option>
@@ -1510,17 +1488,14 @@ export function AddressDeviceModal({
                               </div>
                             </div>
                             {/* No bus write happens from this general/unlocked
-                            flow at all any more - real request, 2026-08-31:
-                            "the Write Address buttons here shouldn't be
-                            present as we don't have an address editor.
-                            Remove the buttons entirely, and allow the
-                            device to be added as if it were a new
-                            unassigned device." Recording the serial is
-                            bookkeeping only (see recordDetectedSerial()) -
-                            a real write happens later via that project
-                            device's own row (which now offers a real
-                            address editor - the locked flow's Device
-                            Address tab). */}
+                            flow at all any more, since it has no address
+                            editor of its own - a detected device can only
+                            be recorded or added as a new unassigned
+                            device. Recording the serial is bookkeeping
+                            only (see recordDetectedSerial()) - a real
+                            write happens later via that project device's
+                            own row (which now offers a real address editor
+                            - the locked flow's Device Address tab). */}
                             <div className={styles.row}>
                               <Btn
                                 onClick={() =>

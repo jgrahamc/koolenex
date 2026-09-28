@@ -620,7 +620,7 @@
   white-space: nowrap;
 }
 .thCoFlags {
-  /* Widened from 60px, 2026-08-31 - the cell can now show "·RI"/"·<Priority
+  /* Widened from 60px - the cell can show "·RI"/"·<Priority
      initial>" suffixes alongside the C/R/W/T/U composite (see
      flagsCellDisplay(), DevicePinPanel.tsx), which didn't fit at 60px. */
   width: 90px;
@@ -635,7 +635,7 @@
   background: var(--surface);
   border: 1px solid var(--border);
 }
-/* Object 3 (Group Object Table) flags/priority editing - added 2026-08-31.
+/* Object 3 (Group Object Table) flags/priority editing.
    FLAGS cell becomes a clickable popover trigger when onUpdateComObjectFlags
    is provided; read-only span (existing .dimMono) otherwise. */
 .flagsCellWrap {
@@ -658,8 +658,7 @@
   /* Anchored to the cell's RIGHT edge, opening leftward - not left:0/
      opening rightward. FLAGS sits second-to-last in a wide table (right
      before GA), close to the table's own right edge, so a rightward-opening
-     popover clips off the viewport; real bug found 2026-08-31 testing at a
-     narrower width. */
+     popover clips off the viewport at narrower widths. */
   right: 0;
   z-index: 50;
   width: 180px;

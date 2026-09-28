@@ -17,6 +17,8 @@ import {
   decodeAssocTable,
   buildParamMem,
   resolveParamSegment,
+  decodeGroupObjectEntry,
+  computeGroupObjectByte,
 } from '../server/routes/knx-tables.ts';
 import type { GroupObjectFlags } from '../server/routes/knx-tables.ts';
 import { APPS_DIR } from '../server/routes/shared.ts';
@@ -156,6 +158,9 @@ class MockBus extends EventEmitter {
   deviceInfoSerialOverride: string | null | undefined = undefined;
   // A device that never answers - an address write that did not take.
   deviceInfoFails = false;
+  // Extra identity fields merged into readDeviceInfo()'s answer (for example
+  // manufacturerId).
+  deviceInfoExtra: Record<string, unknown> = {};
   async readDeviceInfo(deviceAddr: string): Promise<any> {
     this.calls.push({ method: 'readDeviceInfo', args: [deviceAddr] });
     if (!this.connected) throw new Error('Not connected to KNX bus');
@@ -167,6 +172,7 @@ class MockBus extends EventEmitter {
         this.deviceInfoSerialOverride !== undefined
           ? this.deviceInfoSerialOverride
           : 'aabbccddeeff',
+      ...this.deviceInfoExtra,
     };
   }
 
@@ -204,11 +210,19 @@ class MockBus extends EventEmitter {
   // Makes the next N assignIndividualAddressBySerial() calls throw this
   // error before behaving normally.
   assignBySerialFailures: { times: number; message: string } | null = null;
+  // Set to report that a different device already answers at the target
+  // address (nothing is written in that case).
+  assignBySerialOccupiedBy: { serial: string | null } | null = null;
   async assignIndividualAddressBySerial(
     serial: Buffer,
     newAddr: string,
     timeoutMs?: number,
-  ): Promise<{ ok: boolean; verified: boolean; address: string | null }> {
+  ): Promise<{
+    ok: boolean;
+    verified: boolean;
+    address: string | null;
+    occupiedBy?: { serial: string | null };
+  }> {
     this.calls.push({
       method: 'assignIndividualAddressBySerial',
       args: [serial, newAddr, timeoutMs],
@@ -217,6 +231,14 @@ class MockBus extends EventEmitter {
     if (this.assignBySerialFailures && this.assignBySerialFailures.times > 0) {
       this.assignBySerialFailures.times--;
       throw new Error(this.assignBySerialFailures.message);
+    }
+    if (this.assignBySerialOccupiedBy) {
+      return {
+        ok: false,
+        verified: false,
+        address: null,
+        occupiedBy: this.assignBySerialOccupiedBy,
+      };
     }
     return {
       ok: true,
@@ -838,6 +860,42 @@ describe('POST /bus/assign-address-by-serial', () => {
       serial: '00a625401d94',
     });
     assert.equal(r.status, 400);
+  });
+
+  // Standardised to the same 409 address_occupied convention /bus/program-
+  // device already uses, rather than a 200 with an ok:false field - see
+  // this route's own doc comment.
+  it('returns 409 address_occupied, not a 200, when a different device already answers at the target address', async () => {
+    mockBus.connected = true;
+    mockBus.assignBySerialOccupiedBy = { serial: '112233445566' };
+    const r = await req(ts.baseUrl, 'POST', '/bus/assign-address-by-serial', {
+      serial: 'aabbccddeeff',
+      newAddress: '1.1.20',
+    });
+    mockBus.assignBySerialOccupiedBy = null;
+    assert.equal(r.status, 409);
+    const data = r.data as {
+      error: string;
+      occupantSerial?: string;
+      message: string;
+    };
+    assert.equal(data.error, 'address_occupied');
+    assert.equal(data.occupantSerial, '112233445566');
+    assert.match(data.message, /112233445566/);
+  });
+
+  it('omits occupantSerial when the occupying device answered but its own serial could not be read', async () => {
+    mockBus.connected = true;
+    mockBus.assignBySerialOccupiedBy = { serial: null };
+    const r = await req(ts.baseUrl, 'POST', '/bus/assign-address-by-serial', {
+      serial: 'aabbccddeeff',
+      newAddress: '1.1.20',
+    });
+    mockBus.assignBySerialOccupiedBy = null;
+    assert.equal(r.status, 409);
+    const data = r.data as { error: string; occupantSerial?: string };
+    assert.equal(data.error, 'address_occupied');
+    assert.equal(data.occupantSerial, undefined);
   });
 });
 
@@ -2001,6 +2059,24 @@ describe('POST /bus/program-device — address-by-serial choice', () => {
     );
   });
 
+  it('refuses with address_occupied, and never downloads, when another device already answers at the target address', async () => {
+    mockBus.assignBySerialOccupiedBy = { serial: '112233445566' };
+    const r = await req(ts.baseUrl, 'POST', '/bus/program-device', {
+      deviceAddress: deviceAddr,
+      projectId,
+      addressMethod: 'serial',
+    });
+    mockBus.assignBySerialOccupiedBy = null;
+    assert.equal(r.status, 409);
+    const body = r.data as { error: string; occupantSerial?: string };
+    assert.equal(body.error, 'address_occupied');
+    assert.equal(body.occupantSerial, '112233445566');
+    assert.equal(
+      mockBus.calls.some((c) => c.method === 'downloadDevice'),
+      false,
+    );
+  });
+
   it('uses serial-based addressing when the client explicitly chooses it (addressMethod:"serial")', async () => {
     const r = await req(ts.baseUrl, 'POST', '/bus/program-device', {
       deviceAddress: deviceAddr,
@@ -2540,6 +2616,74 @@ describe('POST /bus/program-device — builds and passes a real Object 3 (Group 
     assert.ok(call, 'expected downloadDevice to be called');
     const extra = call!.args[6] as { groupObjectTable?: Buffer | null };
     assert.equal(extra.groupObjectTable, null);
+  });
+
+  // BaseNumber: a real com object number can legitimately exceed the
+  // app-template-only groupObjectTableSize estimate (see its own doc
+  // comment) once a project instantiates enough copies of a module.
+  // buildGroupObjectTable() silently drops anything past the buffer it's
+  // given - so this proves the growth guard actually engages instead of
+  // truncating this object out of Object 3 entirely.
+  it('grows the Object 3 buffer to fit a real com object number that exceeds groupObjectTableSize (module BaseNumber case)', async () => {
+    mockBus.connected = true;
+    ts.db.run(`INSERT INTO projects (name) VALUES ('program-obj3-oversize')`);
+    const oversizeProject = ts.db.get<{ id: number }>(
+      `SELECT id FROM projects WHERE name='program-obj3-oversize'`,
+    )!.id;
+    const addr = '1.1.37';
+    const did = seedDevice(ts.db, oversizeProject, addr, OBJ3_APP, [], []);
+    // Real, module-BaseNumber-resolved object number well past what
+    // groupObjectTableSize (20 -> objects 0-8) can represent.
+    ts.db.run(
+      `INSERT INTO com_objects (project_id, device_id, object_number, ga_address, read, write, comm, tx, flags) VALUES (?,?,?,?,?,?,?,?,?)`,
+      [oversizeProject, did, 50, '', 1, 0, 1, 0, 'CR'],
+    );
+    mockBus.propImage = new Map([
+      ['4/7', Buffer.from([0, 0, PARAM_BASE >> 8, PARAM_BASE & 0xff])],
+      ['1/7', Buffer.from([0, 0, GA_BASE >> 8, GA_BASE & 0xff])],
+      ['2/7', Buffer.from([0, 0, ASSOC_BASE >> 8, ASSOC_BASE & 0xff])],
+      ['3/7', Buffer.from([0, 0, OBJ3_BASE >> 8, OBJ3_BASE & 0xff])],
+    ]);
+    const r = await req(ts.baseUrl, 'POST', '/bus/program-device', {
+      deviceAddress: addr,
+      projectId: oversizeProject,
+    });
+    mockBus.propImage = null;
+    assert.equal(r.status, 200);
+
+    const call = [...mockBus.calls]
+      .reverse()
+      .find((c) => c.method === 'downloadDevice');
+    assert.ok(call, 'expected downloadDevice to be called');
+    const extra = call!.args[6] as { groupObjectTable?: Buffer | null };
+    assert.ok(
+      extra.groupObjectTable,
+      'expected extra.groupObjectTable to be set',
+    );
+    assert.ok(
+      extra.groupObjectTable!.length > OBJ3_MODEL.groupObjectTableSize,
+      `expected the buffer to grow past the template size (${OBJ3_MODEL.groupObjectTableSize}), got ${extra.groupObjectTable!.length}`,
+    );
+    assert.equal(extra.groupObjectTable!.length, 2 * 50 + 2);
+    const entry = decodeGroupObjectEntry(extra.groupObjectTable!, 50);
+    assert.ok(
+      entry,
+      'object 50 must have a real entry, not be silently dropped',
+    );
+    assert.equal(
+      entry!.flagByte,
+      computeGroupObjectByte({
+        object_number: 50,
+        update: false,
+        transmit: false,
+        readOnInit: false,
+        write: false,
+        read: true,
+        communication: true,
+        linked: false,
+        priority: 'low',
+      }),
+    );
   });
 });
 
@@ -3625,5 +3769,241 @@ describe('/bus/clear-download-history', () => {
       deviceId: did,
     });
     assert.equal(r.status, 404);
+  });
+});
+
+describe('/bus/program-device: manufacturer and program-version checks before any write', () => {
+  async function program(app: string) {
+    writeModel(app, {
+      appId: app,
+      loadProcedures: [{ type: 'Connect' }],
+      params: {},
+    });
+    ts.db.run("INSERT INTO projects (name) VALUES ('identity')");
+    const pid = ts.db.get<{ id: number }>(
+      'SELECT last_insert_rowid() AS id',
+    )!.id;
+    const did = seedDevice(ts.db, pid, '1.1.44', app, [], []);
+    const dev = ts.db.get<any>('SELECT * FROM devices WHERE id=?', [did])!;
+    mockBus.connected = true;
+    mockBus.calls.length = 0;
+    const result = await runProgramDevice(
+      mockBus as any,
+      dev,
+      { deviceAddress: '1.1.44', projectId: pid, deviceId: did, mode: 'full' },
+      () => false,
+    );
+    return result!;
+  }
+  const wroteAnything = () =>
+    mockBus.calls.some((c) => c.method === 'downloadDevice');
+
+  it('refuses a device from a different manufacturer', async () => {
+    mockBus.deviceInfoExtra = { manufacturerId: 0x0004 };
+    const r = await program('M-00FA_A-0001-01-IDM1');
+    mockBus.deviceInfoExtra = {};
+    assert.equal(r.status, 409);
+    assert.equal((r.body as { error: string }).error, 'manufacturer_mismatch');
+    assert.equal(wroteAnything(), false);
+    // The identity-only fast path (device already answering at the target
+    // address with the recorded serial) never writes an address at all -
+    // unlike the two addressing paths (by serial/by button), this refusal
+    // genuinely means nothing was written.
+    assert.equal(
+      (r.body as { addressAlreadyWritten?: boolean }).addressAlreadyWritten,
+      false,
+    );
+  });
+
+  it('proceeds when the manufacturer matches', async () => {
+    mockBus.deviceInfoExtra = { manufacturerId: 0x00fa };
+    const r = await program('M-00FA_A-0001-01-IDM2');
+    mockBus.deviceInfoExtra = {};
+    assert.equal(r.status, 200);
+    assert.equal(wroteAnything(), true);
+  });
+
+  it('refuses a device running a different application version', async () => {
+    // manufacturer 0x00FA, application number 0x0001, version 0x02
+    mockBus.propImage = new Map([['4/13', Buffer.from('00fa000102', 'hex')]]);
+    const r = await program('M-00FA_A-0001-01-IDV1');
+    mockBus.propImage = null;
+    assert.equal(r.status, 409);
+    assert.equal(
+      (r.body as { error: string }).error,
+      'program_version_mismatch',
+    );
+    assert.equal(wroteAnything(), false);
+  });
+
+  it('proceeds when the program version matches', async () => {
+    mockBus.propImage = new Map([['4/13', Buffer.from('00fa000101', 'hex')]]);
+    const r = await program('M-00FA_A-0001-01-IDV2');
+    mockBus.propImage = null;
+    assert.equal(r.status, 200);
+    assert.equal(wroteAnything(), true);
+  });
+
+  it('skips the version check (does not refuse) when the read returns nothing usable', async () => {
+    const r = await program('M-00FA_A-0001-01-IDV3');
+    assert.equal(r.status, 200);
+  });
+});
+
+describe('/bus/program-device: hardware type check before any write', () => {
+  const enums = {
+    '1': '$00 0A 80 00 01 1D (2-gang)',
+    '2': '$00 0A 80 00 01 1E (4-gang)',
+  };
+  async function program(app: string, expectDefault: string) {
+    writeModel(app, {
+      appId: app,
+      loadProcedures: [{ type: 'Connect' }],
+      params: {},
+      hardwareTypeParams: [{ key: `${app}_P-2`, value: expectDefault, enums }],
+    });
+    ts.db.run("INSERT INTO projects (name) VALUES ('hw-type')");
+    const pid = ts.db.get<{ id: number }>(
+      'SELECT last_insert_rowid() AS id',
+    )!.id;
+    const did = seedDevice(ts.db, pid, '1.1.47', app, [], []);
+    const dev = ts.db.get<any>('SELECT * FROM devices WHERE id=?', [did])!;
+    mockBus.connected = true;
+    mockBus.calls.length = 0;
+    const result = await runProgramDevice(
+      mockBus as any,
+      dev,
+      { deviceAddress: '1.1.47', projectId: pid, deviceId: did, mode: 'full' },
+      () => false,
+    );
+    return result!;
+  }
+  const wrote = () => mockBus.calls.some((c) => c.method === 'downloadDevice');
+
+  it('refuses a device reporting a different hardware type than the application expects', async () => {
+    mockBus.deviceInfoExtra = { hardwareType: '000a8000011e' }; // 4-gang
+    const r = await program('M-00FA_A-0001-01-HW01', '1'); // application expects 2-gang
+    mockBus.deviceInfoExtra = {};
+    assert.equal(r.status, 409);
+    const body = r.body as { error: string; message: string };
+    assert.equal(body.error, 'hardware_type_mismatch');
+    assert.match(body.message, /4-gang/);
+    assert.match(body.message, /2-gang/);
+    assert.equal(wrote(), false);
+  });
+
+  it('proceeds when the device reports the expected hardware type', async () => {
+    mockBus.deviceInfoExtra = { hardwareType: '000A8000011D' }; // upper-case, 2-gang
+    const r = await program('M-00FA_A-0001-01-HW02', '1');
+    mockBus.deviceInfoExtra = {};
+    assert.equal(r.status, 200);
+    assert.equal(wrote(), true);
+  });
+
+  it('skips the check when the device reports no hardware type', async () => {
+    const r = await program('M-00FA_A-0001-01-HW03', '1');
+    assert.equal(r.status, 200);
+  });
+});
+
+describe('POST /bus/verify-device - identity rows', () => {
+  const APP = 'M-00FA_A-0002-03-IDNT';
+  const deviceAddr = '1.0.1';
+  let projectId: number;
+  const propImage = (extra: Array<[string, string]> = []) =>
+    new Map<string, Buffer>([
+      ['0/12', Buffer.from('00fa', 'hex')],
+      ['0/78', Buffer.from('0000fa07000a', 'hex')],
+      ...extra.map(([k, v]) => [k, Buffer.from(v, 'hex')] as [string, Buffer]),
+    ]);
+  const identity = (body: any) =>
+    Object.fromEntries(
+      (body.decoded ?? [])
+        .filter((d: any) => String(d.key).startsWith('device-identity-'))
+        .map((d: any) => [d.key, d]),
+    ) as Record<string, any>;
+
+  before(() => {
+    writeModel(APP, {
+      ...PROP_MODEL,
+      appId: APP,
+      hardwareTypeParams: [
+        {
+          key: `${APP}_P-2`,
+          value: '1',
+          enums: {
+            '1': '$00 0A 80 00 01 1D (2-gang)',
+            '2': '$00 0A 80 00 01 1E (4-gang)',
+          },
+        },
+      ],
+    });
+    ts.db.run("INSERT INTO projects (name) VALUES ('verify-identity')");
+    projectId = ts.db.get<{ id: number }>(
+      "SELECT id FROM projects WHERE name='verify-identity'",
+    )!.id;
+    seedDevice(ts.db, projectId, deviceAddr, APP, [], []);
+  });
+
+  async function verify(info: Record<string, unknown>, pvHex?: string) {
+    mockBus.connected = true;
+    mockBus.deviceInfoExtra = info;
+    mockBus.propImage = propImage(pvHex ? [['4/13', pvHex]] : []);
+    const r = await req(ts.baseUrl, 'POST', '/bus/verify-device', {
+      deviceAddress: deviceAddr,
+      projectId,
+    });
+    mockBus.propImage = null;
+    mockBus.deviceInfoExtra = {};
+    return r.data as any;
+  }
+
+  it('adds Manufacturer, Program version and Hardware type rows, all matching', async () => {
+    const body = await verify(
+      { manufacturerId: 0x00fa, hardwareType: '000a8000011d' },
+      '00fa000203',
+    );
+    const rows = identity(body);
+    assert.equal(rows['device-identity-manufacturer'].match, true);
+    assert.equal(rows['device-identity-program-version'].match, true);
+    assert.equal(rows['device-identity-hardware-type'].match, true);
+    assert.match(rows['device-identity-hardware-type'].expectedValue, /2-gang/);
+    assert.equal(body.match, true);
+  });
+
+  it('flags a different hardware type (with its description) and fails the verify', async () => {
+    const body = await verify(
+      { manufacturerId: 0x00fa, hardwareType: '000a8000011e' },
+      '00fa000203',
+    );
+    const row = identity(body)['device-identity-hardware-type'];
+    assert.equal(row.match, false);
+    assert.match(row.actualValue, /4-gang/);
+    assert.equal(body.match, false);
+  });
+
+  it('flags a different application version', async () => {
+    const body = await verify(
+      { manufacturerId: 0x00fa, hardwareType: '000a8000011d' },
+      '00fa000204',
+    );
+    assert.equal(
+      identity(body)['device-identity-program-version'].match,
+      false,
+    );
+    assert.equal(body.match, false);
+  });
+
+  it('leaves a row as "could not confirm" (null), not a mismatch, when the device gives no answer', async () => {
+    const body = await verify({}, undefined);
+    const rows = identity(body);
+    assert.equal(rows['device-identity-manufacturer'].match, null);
+    assert.equal(rows['device-identity-program-version'].match, null);
+    assert.equal(rows['device-identity-hardware-type'].match, null);
+    assert.equal(
+      body.match,
+      true,
+      'an unconfirmed identity must not read as a mismatch',
+    );
   });
 });

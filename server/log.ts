@@ -25,11 +25,28 @@ function log(
   fn(JSON.stringify(entry));
 }
 
-/** Log the real error server-side, return a generic message to the client. */
+/**
+ * Log the real error server-side, and return a client-facing message that
+ * leads with `context` (a stable, code-checkable prefix - some callers
+ * still branch on it, e.g. Assign/Read-by-serial's own error text) followed
+ * by the real underlying message, e.g. "Device verify failed: Management
+ * timeout waiting for MemoryExtended_Read_Response".
+ *
+ * Used to return just `context` alone, deliberately withholding the real
+ * message from the client ("log the real error server-side, return a
+ * generic message to the client") only made the event log harder to read
+ * without the real failure reason: this is a single-operator internal
+ * tool working real hardware, not a multi-tenant service with untrusted
+ * clients, so hiding the actual failure reason from the one person who
+ * needs it to diagnose a real bus/device problem was pure cost with no
+ * real benefit - every other place in this app that CAN show real
+ * protocol/hardware detail already does (e.g. restart-withheld's own
+ * checksum/size messages).
+ */
 export function safeError(tag: string, context: string, err: unknown): string {
   const msg = err instanceof Error ? err.message : String(err);
   logger.error(tag, context, { error: msg });
-  return context;
+  return msg && msg !== context ? `${context}: ${msg}` : context;
 }
 
 /**

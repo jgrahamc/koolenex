@@ -100,11 +100,10 @@ export interface ProjectActions {
     coId: number,
     body: Record<string, unknown>,
   ) => Promise<void>;
-  // Returns the created row (previously void) - real request 2026-08-31,
-  // AddressDeviceModal's "add as if it were a new unassigned device": the
-  // caller needs the new device's own id to chain a serial-number record
-  // onto it right after creation. Existing callers that ignore the return
-  // value (BusScanView.tsx) are unaffected.
+  // Returns the created row (previously void) so AddressDeviceModal's "add
+  // as if it were a new unassigned device" flow can chain a serial-number
+  // record onto the new device's own id right after creation. Existing
+  // callers that ignore the return value (BusScanView.tsx) are unaffected.
   addScannedDevice: (address: string) => Promise<Device>;
   // Local-only store update (no API call - the caller already got this
   // status from a server response that persisted it, e.g.
@@ -113,13 +112,18 @@ export interface ProjectActions {
   // markDeviceModifiedIfProgrammed() flip immediately without a redundant
   // second PATCH /devices/:id/status round trip.
   applyDeviceStatus: (deviceId: number, status: string) => void;
-  // Same local-only pattern, added 2026-09-01 for the persisted verify
-  // indicator (server/db.ts's last_verify_match/last_verify_at) - see
+  // Same local-only pattern, for the persisted verify indicator
+  // (server/db.ts's last_verify_match/last_verify_at) - see
   // applyDeviceStatus's own doc comment above.
   applyDeviceVerifyCleared: (deviceId: number) => void;
   // The other side - records a real verify outcome the server already
   // persisted (see runVerifyDevice(), server/routes/bus.ts).
   applyDeviceVerifyResult: (deviceId: number, match: boolean) => void;
+  // Same local-only pattern, for /bus/clear-download-history's own reset
+  // (server already persisted this in the same call) - last_download,
+  // last_download_serial and the restart-withheld record all go back to
+  // "never downloaded to".
+  applyDeviceHistoryCleared: (deviceId: number) => void;
 }
 
 export const ProjectActionsCtx = createContext<ProjectActions | null>(null);
@@ -139,6 +143,8 @@ export interface BusActions {
     protocol?: 'udp' | 'tcp' | 'auto',
   ) => Promise<unknown>;
   connectUsb: (devicePath: string) => Promise<unknown>;
+  // LOCAL TESTING AID ONLY - see api.busConnectLoopback's own doc comment.
+  connectLoopback: (deviceId: number) => Promise<unknown>;
   disconnect: () => Promise<void>;
   deviceStatus: (deviceId: number, status: DeviceStatus) => Promise<void>;
   write: (ga: string, value: unknown, dpt?: string) => Promise<void>;
@@ -233,26 +239,24 @@ export interface VerifyProgress {
   pct: number;
 }
 
-// Real, granular progress for an in-flight Program (write) action - the
-// server has broadcast this over WebSocket (program:progress) all along
-// (see server/routes/bus.ts's onProgress / knx-connection.ts's
-// DownloadProgress), but the client never listened for it, faking its own
-// progress instead (a setInterval climbing to a hardcoded 90% cap,
-// completely disconnected from the real write - found live 2026-08-29:
-// "shows 90% and then sits there for a few minutes" is exactly that fake
-// climb hitting its cap while the real, much slower write continues
-// underneath it). `pct` here is real: 0-80% tracks actual bytes written
-// during the memory-write loop, the remaining steps (LoadCompleted,
+// Granular progress for an in-flight Program (write) action. The server
+// broadcasts this over WebSocket (program:progress) (see
+// server/routes/bus.ts's onProgress / knx-connection.ts's
+// DownloadProgress); the client listens for it instead of faking its own
+// progress with a setInterval climbing to a hardcoded cap, which would
+// sit at that cap while the real, much slower write continues underneath
+// it. `pct` here is real: 0-80% tracks actual bytes written during the
+// memory-write loop, the remaining steps (LoadCompleted,
 // PID_PROGRAM_VERSION write-back, Restart) take it to 100.
 export interface ProgramProgress {
   msg: string;
   pct?: number;
   done?: boolean;
   error?: boolean;
-  // Real request, 2026-08-31: mirrors DownloadProgress.awaitingButton
-  // (server/knx-connection.ts) - true only on the single message
-  // announcing /bus/program-device's own "waiting for the programming
-  // button" pre-flight wait; the client's cue to show a dedicated modal.
+  // Mirrors DownloadProgress.awaitingButton (server/knx-connection.ts) -
+  // true only on the single message announcing /bus/program-device's own
+  // "waiting for the programming button" pre-flight wait; the client's
+  // cue to show a dedicated modal.
   awaitingButton?: boolean;
 }
 
@@ -305,10 +309,10 @@ export interface ProgrammingLog {
   entries: string[];
   add: (line: string) => void;
   clear: () => void;
-  // Real request, 2026-09-01: the write-service-resolution work added a
-  // lot of low-level protocol detail to the log (per-step Unload/
-  // StartLoading/WriteProp/mask-resolution messages etc.) - genuinely
-  // useful for debugging, too much for a normal operator just watching a
+  // The write-service-resolution work added a lot of low-level protocol
+  // detail to the log (per-step Unload/StartLoading/WriteProp/mask-
+  // resolution messages etc.) - genuinely useful for debugging, too much
+  // for a normal operator just watching a
   // download happen. Server-tagged messages (DownloadProgress.debug, see
   // knx-connection.ts) are filtered out of `entries` at the source
   // (App.tsx's program:progress handler) when this is false, not just

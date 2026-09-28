@@ -904,6 +904,8 @@ describe('KnxConnection.readIndividualAddressBySerial', () => {
   });
 });
 
+const EXPECTED_SENT_1 = 10;
+
 describe('KnxConnection.assignIndividualAddressBySerial', () => {
   it('writes then reads back to verify', async () => {
     const conn = new TestKnxConnection();
@@ -911,12 +913,21 @@ describe('KnxConnection.assignIndividualAddressBySerial', () => {
     conn.localAddr = '1.0.1';
     const serial = Buffer.from([0x00, 0xa6, 0x25, 0x40, 0x1d, 0x94]);
 
-    const assignP = conn.assignIndividualAddressBySerial(serial, '1.1.20', 500);
-    // Let the Write's sendCEMI (a resolved promise) settle before the Read
-    // is issued, then answer the Read.
-    await delay(10);
-    // [serial(6)][4 reserved zero bytes] - src carries the device's
-    // (newly-assigned) address instead - see
+    const assignP = conn.assignIndividualAddressBySerial(
+      serial,
+      '1.1.20',
+      2000,
+    );
+    // Each read window is 2000ms. The first read (the pre-check for where the
+    // device currently is) gets no answer and times out (0-2000ms); the probe
+    // of the target address then waits 2000ms for a device that is not there
+    // (2000-4000ms); only then are the write and the verifying read sent
+    // (4000-6000ms window). Answer in the middle of that, at 5000ms. The
+    // windows are wide because the suite runs on a compressed clock, where a
+    // narrow one is shorter than the timer jitter.
+    await delay(5000);
+    // [serial(6)][4 reserved zero bytes] - confirmed real payload shape,
+    // src carries the device's (newly-assigned) address instead - see
     // docs/knx-device-write-protocol.md §9.
     const apduData = Buffer.concat([serial, Buffer.alloc(4)]);
     const apdu = Buffer.concat([Buffer.from([0x03, 0xdd]), apduData]);
@@ -939,19 +950,25 @@ describe('KnxConnection.assignIndividualAddressBySerial', () => {
       verified: true,
       address: '1.1.20',
       restarted: true,
+      alreadyCorrect: false,
     });
-    // Write, then Read (both GROUP-type to 0/0/0 via the normal Tunneling
-    // connection), then a full management session for the Restart:
+    // Pre-check read, a probe of the target address (is another device
+    // already there?), Write, verifying Read (the broadcast ones are GROUP-
+    // type to 0/0/0), then a full management session for the Restart:
     // T_Connect, DeviceDescriptor_Read, PropertyValue_Read (P=56),
-    // PropertyValue_Read (P=11), Restart (data), T_Disconnect - same three
-    // best-effort identity reads as programIA()'s test above (see its
-    // comment for why the count includes them even though nothing answers).
-    assert.equal(conn.sent.length, 8);
+    // PropertyValue_Read (P=11), Restart (data), T_Disconnect - the same
+    // best-effort identity reads as programIA()'s own test above.
+    assert.equal(conn.sent.length, EXPECTED_SENT_1);
     // The Restart's own management session addresses the device at its
     // NEW individual address (1.1.20), not the broadcast address used for
     // the write/read-verify.
-    const connectFrame = parseCEMI(conn.sent[2]!);
-    assert.equal(connectFrame?.dst, '1.1.20');
+    const restartConnect = conn.sent
+      .map((f) => parseCEMI(f))
+      .filter((f) => f?.dst === '1.1.20' && f?.tpciType === 'CONNECT');
+    assert.ok(
+      restartConnect.length >= 1,
+      'expected a T_Connect to the new address',
+    );
   });
 
   it('does not attempt a restart when verification fails', async () => {
@@ -979,14 +996,20 @@ describe('KnxConnection.assignIndividualAddressBySerial', () => {
       verified: false,
       address: null,
       restarted: false,
+      alreadyCorrect: false,
     });
     // Asserts by frame addressing rather than count, to avoid coupling to
     // the retry loop's timing: no restart session was opened against the
     // new address (1.1.20, checked in the successful-verify test above) -
     // write and read-back stay broadcasts to 0/0/0.
     assert.ok(conn.sent.length >= 2, 'expected at least the write and a read');
+    // The only frames not broadcast to 0/0/0 are the single probe of the
+    // target address; there is no Restart.
     for (const frame of conn.sent) {
-      assert.equal(parseCEMI(frame)?.dst, '0/0/0');
+      const f = parseCEMI(frame);
+      assert.notEqual(f?.apciName, 'Restart');
+      if (f?.dst !== '0/0/0')
+        assert.equal(f?.apciName, 'DeviceDescriptor_Read');
     }
   });
 
@@ -996,21 +1019,20 @@ describe('KnxConnection.assignIndividualAddressBySerial', () => {
     conn.localAddr = '1.0.1';
     const serial = Buffer.from([0x00, 0xa6, 0x25, 0x40, 0x1d, 0x94]);
 
-    // First read-back attempt (t=0 to t=2000ms) times out - nothing
-    // answers. The loop's 2000ms between-attempt delay pushes the second
-    // attempt's read to start at t≈4000ms, with its own window open until
-    // t≈6000ms. The frame is simulated at t≈5000ms - inside the SECOND
-    // attempt's window, not the first - proving a real second attempt
-    // answers it, not just a longer single wait. Windows are wide because
-    // the suite runs on a compressed clock, where a narrow one is shorter
-    // than timer jitter.
+    // Timeline (each read window is 2000ms): pre-check read 0-2000ms
+    // (unanswered), probe of the target address 2000-4000ms (unanswered), the
+    // write, the first verifying read 4000-6000ms (unanswered), a 2000ms
+    // pause, and the second verifying read 8000-10000ms. Answer in the middle
+    // of that window, at 9000ms. The windows are wide because the suite runs
+    // on a compressed clock, where a narrow one is shorter than the timer
+    // jitter.
     const assignP = conn.assignIndividualAddressBySerial(
       serial,
       '1.1.20',
       2000, // each individual read-back attempt's own timeout
       8000, // overall retry deadline - comfortably covers a second attempt
     );
-    await delay(5000);
+    await delay(9000);
     const apduData = Buffer.concat([serial, Buffer.alloc(4)]);
     const apdu = Buffer.concat([Buffer.from([0x03, 0xdd]), apduData]);
     conn.simulateMgmtFrame({
@@ -1029,14 +1051,13 @@ describe('KnxConnection.assignIndividualAddressBySerial', () => {
     assert.equal(result.verified, true);
     assert.equal(result.address, '1.1.20');
     assert.equal(result.restarted, true);
-    // Write + 2 Reads (first timed out, second answered) + the same
-    // 6-frame restart session as the single-attempt success case above
-    // (8 total there) = 9 - confirms a real second read-back attempt went
-    // out, not just a single longer-timeout read.
+    // One more frame than the single-attempt success case above - confirms
+    // a real second read-back attempt actually went out on the wire, not
+    // just a single longer-timeout read.
     assert.equal(
       conn.sent.length,
-      9,
-      'expected Write + 2 Reads (one retried) + the 6-frame restart session',
+      EXPECTED_SENT_1 + 1,
+      'expected one extra verifying Read compared with the single-attempt case',
     );
   });
 });

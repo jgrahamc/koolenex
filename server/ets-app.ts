@@ -10,6 +10,7 @@
  */
 
 import { logger } from './log.ts';
+import type { HardwareTypeParamDef } from './hardware-type.ts';
 import { etsTestMatch } from '../shared/ets-dyn.ts';
 import {
   el,
@@ -116,12 +117,22 @@ interface ParamDef {
   // time) so a per-device resolver can expand this into one entry per
   // instance. `undefined` for non-module-instanced parameters.
   baseOffsetArgId?: string;
-  // A module-instanced Parameter can carry a `BaseValue` attribute
-  // (reference to an <Argument> Id, same shape as `baseOffsetArgId`) whose
-  // per-instance value selects which Union alternative is active for that
-  // instance (e.g. a relative vs. absolute range). Only takes effect once a
-  // consumer resolves it per instance (`resolveModuleParamMemLayout.ts`'s
-  // `conditionallyActiveFor`).
+  // Property-based placement: a <Property ObjectIndex|ObjectType="..."
+  // PropertyId="..."/> child instead of <Memory>. Such a parameter has no
+  // memory offset; it maps to a device property. Kept so the application's
+  // hidden "hardware type" parameter (device object, PID_HARDWARE_TYPE) can be
+  // found - see hardware-type.ts.
+  propObjType?: number;
+  propId?: number;
+  // A module-instanced Parameter's own <Parameter> element can carry a
+  // `BaseValue` attribute (a reference to an <Argument> Id, same shape as
+  // `baseOffsetArgId`) whose real per-instance value determines which of
+  // several Union alternatives is genuinely active for that instance - e.g.
+  // a relative vs. an absolute range, selected per real module instance
+  // rather than once device-globally. Only takes effect once a consumer
+  // resolves it per instance (via a `resolveBaseValue` hook on
+  // `evalConditionallyActiveParamRefs()` /
+  // `resolveModuleParamMemLayout.ts`'s `conditionallyActiveFor`).
   baseValueArgId?: string;
 }
 
@@ -507,11 +518,17 @@ export interface ParamModel {
   // (Physical External Interface) program content. downloadDevice() refuses
   // any other declared value (see peiType there) - untested.
   peiType?: string;
-  // See AppIndex.supportsExtendedMemoryServices's doc comment. Checked
-  // before `isSecureEnabled` and the PID_MCB_TABLE check
-  // (knx-connection.ts) because it is a literal, KNX-Association-documented
-  // boolean (`Knx.Ets.Sdk.Product.ApplicationOptions.
-  // SupportsExtendedMemoryServices`), not an inferred correlate.
+  // The application's hidden hardware-type parameter (device object, property
+  // 78) with its enumeration: what the device must report as
+  // PID_HARDWARE_TYPE. See hardware-type.ts.
+  hardwareTypeParams?: HardwareTypeParamDef[];
+  // See AppIndex.supportsExtendedMemoryServices's own doc comment for the
+  // full evidence. Checked before `isSecureEnabled` above (and before the
+  // PID_MCB_TABLE check in knx-connection.ts's resolution chain) because it
+  // is a literal, KNX-Association-documented boolean ("Gets a value
+  // indicating whether extended memory services are supported" - ETS6 SDK,
+  // `Knx.Ets.Sdk.Product.ApplicationOptions.SupportsExtendedMemoryServices`),
+  // not an inferred correlate like `isSecureEnabled`.
   supportsExtendedMemoryServices?: boolean;
   // See AppIndex.parameterByteOrder's doc comment.
   parameterByteOrder?: 'LittleEndian' | 'BigEndian';
@@ -607,6 +624,9 @@ export interface AppIndex {
   gaTableMaxEntries: number;
   assocTableMaxEntries: number;
   paramRefKeys: string[];
+  // The application's hardware-type parameter(s): device object (0), property
+  // 78, with their enumerations. Empty when the application declares none.
+  hardwareTypeParams: HardwareTypeParamDef[];
   moduleKeys: string[];
   getDefault: (prKey: string) => string | null;
   getModArgs: (mk: string) => Record<string, string | number> | null;
@@ -1333,6 +1353,23 @@ export function buildAppIndex(buf: Buffer): AppIndex | null {
         if (bo !== '') baseOffsetArgId = bo;
       }
     }
+    // <Property> placement (mutually exclusive with <Memory>). The object is
+    // named by `ObjectType` on some parameters and `ObjectIndex` on others
+    // (the hardware-type one), so accept whichever is present.
+    let propObjType: number | undefined;
+    let propId: number | undefined;
+    const propEl = Array.isArray(p.Property) ? p.Property[0] : p.Property;
+    if (propEl) {
+      const ot = parseInt(
+        attr(propEl, 'ObjectType') || attr(propEl, 'ObjectIndex'),
+        10,
+      );
+      const pid = parseInt(attr(propEl, 'PropertyId'), 10);
+      if (!isNaN(ot) && !isNaN(pid)) {
+        propObjType = ot;
+        propId = pid;
+      }
+    }
     paramDefs[id] = {
       // Use Text attribute (display label), NOT Name (internal code identifier)
       text: T(id, 'Text') || attr(p, 'Text') || '',
@@ -1359,6 +1396,9 @@ export function buildAppIndex(buf: Buffer): AppIndex | null {
       ...(baseOffsetArgId ? { baseOffsetArgId } : {}),
       // See ParamDef.baseValueArgId's own doc comment.
       ...(attr(p, 'BaseValue') ? { baseValueArgId: attr(p, 'BaseValue') } : {}),
+      ...(propObjType !== undefined && propId !== undefined
+        ? { propObjType, propId }
+        : {}),
     };
   };
   for (const st of allStaticSections) {
@@ -2416,6 +2456,14 @@ export function buildAppIndex(buf: Buffer): AppIndex | null {
     gaTableMaxEntries,
     assocTableMaxEntries,
     paramRefKeys: Object.keys(paramRefDefs),
+    hardwareTypeParams: Object.entries(paramDefs)
+      .filter(([, pd]) => pd.propObjType === 0 && pd.propId === 78)
+      .map(([key, pd]) => ({
+        key,
+        value: pd.value,
+        enums: paramTypes[pd.typeRef]?.enums ?? {},
+      }))
+      .filter((d) => Object.keys(d.enums).length > 0),
     moduleKeys: Object.keys(modArgs), // "{appId}_MD-n_M-k" — one per instantiated module
     getDefault,
     getModArgs,

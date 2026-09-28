@@ -151,12 +151,11 @@ interface BusStatus {
   path?: string;
   // Distinguishes a calm "not connected, nothing needs it right now" idle
   // state from a genuine "this needs manual attention" one (wrong IP,
-  // router down, etc.) - real request 2026-08-31. Absent/false by default
-  // on every real SET_BUS (a fresh disconnect is assumed calm first - "if
-  // auto-reconnect is possible, go to idle" - only escalated by a separate
-  // SET_BUS_ATTENTION dispatch once a reconnect attempt genuinely fails).
-  // See AppShell.tsx's connection badge and knx-bus.ts's
-  // 'knx:reconnect-failed' broadcast.
+  // router down, etc.). Absent/false by default on every SET_BUS - a fresh
+  // disconnect is assumed calm first, since auto-reconnect may still
+  // succeed - and only escalated by a separate SET_BUS_ATTENTION dispatch
+  // once a reconnect attempt genuinely fails. See AppShell.tsx's connection
+  // badge and knx-bus.ts's 'knx:reconnect-failed' broadcast.
   needsAttention?: boolean;
 }
 
@@ -168,8 +167,8 @@ export interface VerifyCacheEntry {
   // Set only by RECOMPUTE_VERIFY_RESULT (never by SET_VERIFY_RESULT, a
   // real read, which clears it back to undefined) - the last time the
   // PROJECT/expected side was locally recomputed against fresh DB state
-  // without a new device read, added 2026-08-31 (see the matching
-  // reasoning in server/routes/bus.ts's /bus/verify-device/recompute).
+  // without a new device read (see the matching reasoning in
+  // server/routes/bus.ts's /bus/verify-device/recompute).
   // Lets the UI say "recomputed just now, device last read 5m ago"
   // honestly, instead of implying a fresh bus round trip happened.
   recomputedAt?: number;

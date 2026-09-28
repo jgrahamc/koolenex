@@ -2,10 +2,10 @@ import { useState, useEffect } from 'react';
 import { errMessage } from './api.ts';
 import { Btn, Spinner } from './primitives.tsx';
 import { api } from './api.ts';
-import { useLiveData, useBusActions } from './contexts.ts';
+import { useLiveData, useBusActions, useAppData } from './contexts.ts';
 // Reuses ProjectInfoView's own styles rather than duplicating them - this
-// panel WAS ProjectInfoView's inline "BUS CONNECTION" card, extracted
-// 2026-08-29 so the quick-connect popover on the top-bar status badge (see
+// panel was extracted from ProjectInfoView's inline "BUS CONNECTION" card
+// so the quick-connect popover on the top-bar status badge (see
 // AppShell.tsx) can show the exact same real connect UI (IP/USB tabs, USB
 // device scan, error display) instead of a second, thinner one.
 import styles from './views/ProjectInfoView.module.css';
@@ -36,9 +36,13 @@ export function BusConnectionPanel({
   onConnected?: () => void;
 }) {
   const { busStatus } = useLiveData();
+  // LOCAL TESTING AID ONLY - see connectLoopback's own doc comment
+  // (contexts.ts).
+  const { projectData } = useAppData();
   const {
     connect: onConnect,
     connectUsb: onConnectUsb,
+    connectLoopback: onConnectLoopback,
     disconnect: onDisconnect,
   } = useBusActions();
 
@@ -53,6 +57,9 @@ export function BusConnectionPanel({
   const [usbDevices, setUsbDevices] = useState<UsbDevice[] | null>(null);
   const [usbLoading, setUsbLoading] = useState(false);
   const [selectedUsb, setSelectedUsb] = useState('');
+
+  // LOCAL TESTING AID ONLY state - see connectLoopback's own doc comment.
+  const [selectedLoopbackDevice, setSelectedLoopbackDevice] = useState('');
 
   useEffect(() => {
     if (busStatus.connected) return;
@@ -91,6 +98,20 @@ export function BusConnectionPanel({
     setError(null);
     try {
       await onConnectUsb(selectedUsb);
+      onConnected?.();
+    } catch (e) {
+      setError(errMessage(e));
+    }
+    setConnecting(false);
+  };
+
+  // LOCAL TESTING AID ONLY - see connectLoopback's own doc comment.
+  const doConnectLoopback = async () => {
+    if (!selectedLoopbackDevice) return;
+    setConnecting(true);
+    setError(null);
+    try {
+      await onConnectLoopback(Number(selectedLoopbackDevice));
       onConnected?.();
     } catch (e) {
       setError(errMessage(e));
@@ -142,6 +163,15 @@ export function BusConnectionPanel({
           >
             USB
           </button>
+          {/* LOCAL TESTING AID ONLY - simulates one device from the active
+              project so the whole app can be driven with no hardware
+              attached. */}
+          <button
+            className={`${styles.tabBtn} ${tabClass('loopback')}`}
+            onClick={() => setTab('loopback')}
+          >
+            Loopback (test)
+          </button>
         </div>
       )}
 
@@ -150,12 +180,45 @@ export function BusConnectionPanel({
           <span className={styles.connectedLabel}>
             {busStatus.type === 'usb'
               ? '● Connected via USB'
-              : `● Connected to ${busStatus.host}:${busStatus.port || 3671} (${(busStatus.type || 'udp').toUpperCase()})`}
+              : busStatus.type === 'loopback'
+                ? '● Connected via Loopback (test - no real device)'
+                : `● Connected to ${busStatus.host}:${busStatus.port || 3671} (${(busStatus.type || 'udp').toUpperCase()})`}
           </span>
           <Btn onClick={doDisconnect} color="var(--red)" bg="#1a0a0a">
             Disconnect
           </Btn>
         </div>
+      ) : tab === 'loopback' ? (
+        <>
+          <div className={styles.fieldLabel}>
+            SIMULATE DEVICE (from this project)
+          </div>
+          <select
+            value={selectedLoopbackDevice}
+            onChange={(e) => setSelectedLoopbackDevice(e.target.value)}
+            className={styles.textInput}
+          >
+            <option value="">Choose a device…</option>
+            {(projectData?.devices ?? []).map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.individual_address} · {d.name}
+              </option>
+            ))}
+          </select>
+          {error && <div className={styles.errorMsg}>&#x2717; {error}</div>}
+          <Btn
+            onClick={doConnectLoopback}
+            disabled={connecting || !selectedLoopbackDevice}
+          >
+            {connecting ? (
+              <>
+                <Spinner /> Connecting...
+              </>
+            ) : (
+              '⟲ Connect (test)'
+            )}
+          </Btn>
+        </>
       ) : tab === 'ip' ? (
         <>
           <div className={styles.ipRow}>

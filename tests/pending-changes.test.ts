@@ -1,13 +1,10 @@
 /**
  * Tests for the device_pending_changes edit log (server/routes/shared.ts,
  * server/db.ts) and its resolution into byte ranges for a partial download
- * (server/routes/bus.ts's resolvePendingWriteRanges()) - added 2026-09-01,
- * replacing an earlier same-day design that peeked the device's own current
- * memory content and diffed it against the target. Real user correction:
- * "I don't want to store a device memory cache. I want to log changes in
- * our DB (e.g. by edits). That is all I am interested in." - and: "please
- * build in logic such that if user re-edits a previous change back to
- * original value, we clear the tracking/undo modified status."
+ * (server/routes/bus.ts's resolvePendingWriteRanges()) - a log of edits
+ * (device, kind, key), not a cached copy of device memory diffed against
+ * the target: a re-edit back to a key's original value clears its
+ * tracking/modified status instead of leaving a stale entry behind.
  *
  * markDeviceModifiedIfProgrammed() itself is exercised indirectly, through
  * the real routes that call it (param-values PATCH, GA-link PATCH, flags
@@ -415,9 +412,9 @@ describe('resolvePendingWriteRanges()', () => {
     assert.deepEqual(ranges[4], [{ offset: 172, length: 1 }]);
   });
 
-  // Real ETS quirk, confirmed 2026-09-01 via a byte-for-byte capture of a
-  // genuine real ETS Partial Download: it wrote both the edited byte AND
-  // the parameter object's own final byte (a device-required trailer),
+  // Real ETS quirk, confirmed via a byte-for-byte capture of a genuine
+  // real ETS Partial Download: it wrote both the edited byte AND the
+  // parameter object's own final byte (a device-required trailer),
   // unconditionally. See resolvePendingWriteRanges()'s own doc comment.
   it("appends the parameter object's own final byte (trailer) alongside a real edit, when paramSize is given", () => {
     const { did } = seedProject('resolve-param-trailer');
@@ -478,14 +475,51 @@ describe('resolvePendingWriteRanges()', () => {
     assert.deepEqual(ranges[4], [{ offset: 10, length: 2 }]);
   });
 
-  it('a param_value key with no paramMemLayout entry (or offset: null) contributes nothing', () => {
+  // Real bug, reproduced live against real hardware: this USED TO assert
+  // "contributes nothing", which is exactly the silent-no-op behavior that
+  // let a real edit to a <choose>/Union-gated parameter (no offset of its
+  // own - the real byte only exists at whichever sibling parameter the
+  // gate currently selects, resolved by buildParamMem()'s own gating, never
+  // consulted here) get written as precisely zero bytes with no error. Now
+  // marks the whole parameter object dirty instead - guaranteed correct
+  // (a full download's own image already includes whatever this edit
+  // resolves to) rather than silently wrong.
+  it('a param_value key with no paramMemLayout entry (or offset: null) marks the whole parameter object dirty, not nothing', () => {
     const { did } = seedProject('resolve-param-missing');
     ts.db.run(
       'INSERT INTO device_pending_changes (device_id, kind, key, baseline_value, current_value) VALUES (?,?,?,?,?)',
       [did, 'param_value', 'P-not-mapped', 'null', '5'],
     );
     const ranges = _resolvePendingWriteRanges(did, {});
-    assert.equal(ranges[4], undefined);
+    assert.deepEqual(ranges[4], [{ offset: 0, length: -1 }]);
+  });
+
+  it('a param_value key with no paramMemLayout entry resolves the whole-object sentinel to the real paramSize when given', () => {
+    const { did } = seedProject('resolve-param-missing-with-size');
+    ts.db.run(
+      'INSERT INTO device_pending_changes (device_id, kind, key, baseline_value, current_value) VALUES (?,?,?,?,?)',
+      [did, 'param_value', 'P-not-mapped', 'null', '5'],
+    );
+    const ranges = _resolvePendingWriteRanges(did, {}, 10433);
+    assert.deepEqual(ranges[4], [{ offset: 0, length: 10433 }]);
+  });
+
+  it('an unresolved param_value key alongside a real one still marks the whole object dirty (not just the resolved byte)', () => {
+    const { did } = seedProject('resolve-param-mixed');
+    ts.db.run(
+      'INSERT INTO device_pending_changes (device_id, kind, key, baseline_value, current_value) VALUES (?,?,?,?,?)',
+      [did, 'param_value', 'P-1', 'null', '5'],
+    );
+    ts.db.run(
+      'INSERT INTO device_pending_changes (device_id, kind, key, baseline_value, current_value) VALUES (?,?,?,?,?)',
+      [did, 'param_value', 'P-not-mapped', 'null', '1'],
+    );
+    const layout = { 'P-1': { offset: 172, bitOffset: 0, bitSize: 8 } };
+    const ranges = _resolvePendingWriteRanges(did, layout);
+    assert.deepEqual(ranges[4], [
+      { offset: 172, length: 1 },
+      { offset: 0, length: -1 },
+    ]);
   });
 
   it("a ga_link change marks objIdx 1 and 2 with the -1 (whole-table) sentinel, plus the comm object's own Object 3 entry", () => {

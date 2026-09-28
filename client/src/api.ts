@@ -106,6 +106,13 @@ export interface VerifyDeviceResult {
    * totalBytes/totalDiffering but for that separate memory region. */
   flagsTotalBytes?: number;
   flagsDifferingBytes?: number;
+  /** True when this Verify ran against the "Loopback (test)" harness
+   * rather than a real device - the server deliberately does NOT persist
+   * this result as the device's real verify/status record in that case
+   * (a loopback session is otherwise indistinguishable from a real one,
+   * and would leave a real device showing a false "Restart needed"
+   * badge). Undefined for a real bus read. */
+  testConnection?: boolean;
 }
 
 export interface ImportSummary {
@@ -268,6 +275,23 @@ export const api = {
       'GET',
       `/projects/${pid}/devices/${did}/param-model`,
     ),
+  // The Programming page's "Modified" badge popover's own data source -
+  // see the route's own doc comment (server/routes/devices.ts) for what
+  // each change kind's shape means and why param_value comes back
+  // unresolved.
+  getDevicePendingChanges: (pid: number, did: number) =>
+    req<{
+      count: number;
+      changes: Array<{
+        kind: string;
+        key: string;
+        updatedAt: string;
+        label: string | null;
+        from?: unknown;
+        to?: unknown;
+        flagDiffs?: Array<{ field: string; from: string; to: string }>;
+      }>;
+    }>('GET', `/projects/${pid}/devices/${did}/pending-changes`),
   saveParamValues: (
     pid: number,
     did: number,
@@ -404,6 +428,14 @@ export const api = {
       devicePath,
       projectId,
     }),
+  // LOCAL TESTING AID ONLY - see /bus/connect-loopback's own doc comment
+  // (server/routes/bus.ts).
+  busConnectLoopback: (projectId: number, deviceId: number) =>
+    req<{ ok: boolean; deviceAddress?: string; [key: string]: unknown }>(
+      'POST',
+      '/bus/connect-loopback',
+      { projectId, deviceId },
+    ),
   busUsbDevices: () =>
     req<{ devices: Record<string, unknown>[] }>('GET', '/bus/usb-devices'),
   busUsbDevicesAll: () =>
@@ -480,6 +512,11 @@ export const api = {
   // the Falcon SDK's docs + Calimero's implementation, but unlike every
   // other write path here has NO real-hardware confirmation yet - don't
   // present it as equally proven to busProgramIA.
+  // An occupied target address is a 409 (ApiError), not a 200 with an
+  // ok:false field - same convention as busProgramDevice's own
+  // address_occupied. The thrown error's message is already the full
+  // friendly text; err.data.occupantSerial carries the raw serial for a
+  // caller that wants it structured rather than parsed out of the message.
   busAssignAddressBySerial: (serial: string, newAddress: string) =>
     req<{
       ok: boolean;
@@ -518,12 +555,37 @@ export const api = {
       // write was confirmed.
       unconfirmedWrites?: number;
       unconfirmedDetails?: string[];
+      /** True when this download ran against the "Loopback (test)" harness -
+       * see VerifyDeviceResult.testConnection's own doc comment for why the
+       * server deliberately does not persist status/history for one. */
+      testConnection?: boolean;
     }>(
       'POST',
       '/bus/program-device',
       { deviceAddress, projectId, deviceId, mode, addressMethod },
       false,
       signal,
+    ),
+
+  // Sends A_Restart directly to an already-addressed device, without a
+  // write of any kind - the recovery action offered alongside a
+  // restart-withheld indicator, for a device that wrote its content but is
+  // still running its previous application.
+  busRestartDevice: (deviceAddress: string) =>
+    req<{ ok: boolean }>('POST', '/bus/restart-device', { deviceAddress }),
+
+  // Resets a device's last_download/last_download_serial and
+  // restart-withheld record - never touches the device itself, only this
+  // project's own record of it. See server/routes/bus.ts's own doc comment
+  // for the two situations this is the recovery action for.
+  busClearDownloadHistory: (projectId: number, deviceId: number) =>
+    req<{ ok: boolean; device: Device }>(
+      'POST',
+      '/bus/clear-download-history',
+      {
+        projectId,
+        deviceId,
+      },
     ),
 
   // Read-only: compare a device's actual memory to the computed image (no writes)

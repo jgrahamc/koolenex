@@ -96,10 +96,9 @@ const VIEWS: ViewEntry[] = [
   { id: 'monitor', slug: 'monitor', Icon: IconMonitor, label: 'Monitor' },
   { id: 'scan', slug: 'scan', Icon: IconScan, label: 'Scan' },
   {
-    // wip: true removed 2026-08-31 - stale from when this page genuinely
-    // was a work-in-progress placeholder; it's had extensive real work
-    // since (device addressing, download modes, log panel, etc.) and no
-    // longer belongs dimmed out next to the other, fully real nav items.
+    // No wip flag: this page has full functionality (device addressing,
+    // download modes, log panel, etc.) and should not render dimmed like
+    // a placeholder nav item.
     id: 'programming',
     slug: 'programming',
     Icon: IconProgramming,
@@ -160,12 +159,11 @@ export function AppShell(props: AppShellProps) {
   const [reimportPassword, setReimportPassword] = useState('');
   const lastHandledReimportRef = useRef<string | null>(null);
 
-  // Quick-connect popover on the top-bar bus status badge (2026-08-29, per
-  // explicit request) - clicking the badge (which now also actually reflects
-  // disconnection, see the busStatus render below and the WS onOpen re-sync
-  // in App.tsx) opens the same real connect UI ProjectInfoView already had,
-  // extracted into BusConnectionPanel so both places share one
-  // implementation instead of a second, thinner one.
+  // Quick-connect popover on the top-bar bus status badge - clicking the
+  // badge (which reflects disconnection; see the busStatus render below
+  // and the WS onOpen re-sync in App.tsx) opens the same connect UI
+  // ProjectInfoView uses, extracted into BusConnectionPanel so both places
+  // share one implementation instead of a second, thinner one.
   const [connectPopoverOpen, setConnectPopoverOpen] = useState(false);
   const connectPopoverRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
@@ -285,6 +283,29 @@ export function AppShell(props: AppShellProps) {
     },
     [dispatch],
   );
+
+  // A pinned device's address is a real project value, not a stable ID - if
+  // a device is re-addressed (or its record otherwise changes address) after
+  // being pinned, the old pin never gets removed on its own. It keeps
+  // rendering in the sidebar as if valid (still shows the old address, no
+  // "not found" indication there) but clicking it always resolves to the
+  // detail view's "Device not found" empty state, since nothing in the
+  // current project data matches that address anymore. Once real project
+  // data is loaded, drop any 'device' pin whose address no longer resolves
+  // to an actual device, rather than leaving a permanently dead link in the
+  // sidebar.
+  useEffect(() => {
+    const devices = state.projectData?.devices;
+    if (!devices) return;
+    for (const w of state.windows) {
+      if (
+        w.wtype === 'device' &&
+        !devices.some((d) => d.individual_address === w.address)
+      ) {
+        dispatch({ type: 'CLOSE_WINDOW', key: w.key });
+      }
+    }
+  }, [state.projectData?.devices, state.windows, dispatch]);
 
   const [sidebarWidth, setSidebarWidth] = useState<number>(
     () => Number(localStorage.getItem('knx-sidebar-width')) || 150,
@@ -452,7 +473,9 @@ export function AppShell(props: AppShellProps) {
               {state.busStatus.connected
                 ? state.busStatus.type === 'usb'
                   ? 'USB'
-                  : `${state.busStatus.host}`
+                  : state.busStatus.type === 'loopback'
+                    ? 'Loopback (test)'
+                    : `${state.busStatus.host}`
                 : state.busStatus.needsAttention
                   ? 'Disconnected'
                   : 'Idle'}

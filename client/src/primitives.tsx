@@ -338,25 +338,25 @@ interface DeviceAddrProps {
  * Address display for a device row - the one place that decides whether to
  * show a device's real individual_address or ETS's own "-.-.-" convention
  * for a device with no real address at all (has_address=0, a synthetic
- * placeholder - see ets-parser.ts's synthetic-address handling, added
- * 2026-08-30). Deliberately never renders the synthetic value itself
+ * placeholder - see ets-parser.ts's synthetic-address handling).
+ * Deliberately never renders the synthetic value itself
  * (e.g. "99.99.256") anywhere a person would read it, and never makes it
  * pinnable (PinAddr's click-to-pin), since pinning a fake address has no
  * real meaning. Use this instead of PinAddr directly for any device row.
  *
  * A real address with no recorded serial number gets its own distinct
- * amber "pending" color, not the normal accent - added 2026-08-30 after a
- * real gap: assigning/changing a device's planned address (AddressDeviceModal's
- * own project-address section, merged in 2026-08-31 - see that
- * component's doc comment) only updates our project record, not the
+ * amber "pending" color, not the normal accent: assigning/changing a
+ * device's planned address (AddressDeviceModal's
+ * own project-address section - see that
+ * component's doc comment) only updates the project record, not the
  * physical device - nothing has actually been written to hardware until a
  * real addressing write happens and records a serial against it. Without
- * this, a freshly (re)planned address looked indistinguishable from one
- * already confirmed on real hardware. That same gap also let a STALE
- * serial from a prior, unrelated address survive a project address
- * change and misleadingly count as "confirmed" for the new one - fixed
- * server-side, 2026-08-31 (server/routes/devices.ts clears serial_number
- * whenever individual_address genuinely changes).
+ * this, a freshly (re)planned address would be indistinguishable from one
+ * already confirmed on real hardware. A stale
+ * serial from a prior, unrelated address could otherwise survive a project address
+ * change and misleadingly count as "confirmed" for the new one -
+ * server/routes/devices.ts clears serial_number
+ * whenever individual_address genuinely changes to prevent this.
  */
 export function DeviceAddr({
   device,
@@ -407,7 +407,7 @@ export function DeviceAddr({
       wtype={wtype}
       className={className}
       style={style}
-      // Real request 2026-08-31: this badge already opens the device
+      // This badge already opens the device
       // detail page (DevicePinPanel.tsx), which has real parameter and
       // GA-link editing (DeviceParameters.tsx / onUpdateComObjectGAs) -
       // that wasn't obvious from PinAddr's own generic default tooltip

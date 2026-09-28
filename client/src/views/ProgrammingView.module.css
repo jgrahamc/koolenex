@@ -4,7 +4,22 @@
   /* Row (the default) lays out [.main, resizer, log panel] side by side -
      the original, vertical/right-docked log layout. */
   flex: 1;
-  overflow: hidden;
+  /* `clip`, not `hidden` - this root is never meant to scroll at all (it's
+     a fixed layout container, not scrollable content), but `overflow:
+     hidden` only hides the scrollbar and blocks user-driven wheel/touch
+     scroll - it does NOT stop a programmatic `scrollLeft` assignment or
+     `scrollIntoView()` call from still shifting the visible viewport
+     within this box's real scrollable area. That real area includes the
+     closed slide-over below: `transform`/`visibility` only affect paint,
+     not layout, so the off-screen panel still contributes its own width to
+     this element's scrollWidth. Some interaction (observed after a failed
+     Verify) was landing a scroll here, revealing a blank strip of that
+     hidden panel's real, un-transformed position - the "empty blank panel"
+     bug. `overflow: clip` closes this off at the root instead of chasing
+     every individual call that might scroll this element, since nothing
+     here is ever meant to be scrolled to begin with.
+  */
+  overflow: clip;
   /* Positioning root for the slide-over/scrim below - keeps both scoped to
      this page's own content area (to the right of the app's sidebar)
      instead of the full browser viewport, so resizing the window shrinks
@@ -12,12 +27,12 @@
   position: relative;
   min-width: 0;
 }
-/* Horizontal log mode, added 2026-08-31: same three children
-   ([.main, resizer, log panel]), just stacked as a column instead of a
-   row - .main on top, the panel bottom-docked. Everything else about the
-   layout (the resizer's own drag handler, the panel's internal
-   header/body/footer flex-column) stays the same; only this direction
-   flip plus the panel/resizer's own width->height swap (below) differ. */
+/* Horizontal log mode: same three children ([.main, resizer, log panel]),
+   just stacked as a column instead of a row - .main on top, the panel
+   bottom-docked. Everything else about the layout (the resizer's own drag
+   handler, the panel's internal header/body/footer flex-column) stays the
+   same; only this direction flip plus the panel/resizer's own
+   width->height swap (below) differ. */
 .rootHorizontal {
   flex-direction: column;
 }
@@ -39,9 +54,8 @@
 .content::-webkit-scrollbar {
   height: 8px;
 }
-/* Standard small Badge pills (see primitives.tsx's Badge) instead of the
-   giant stat-card grid this replaced 2026-08-29 - just a flex row with the
-   app's usual badge gap. */
+/* Standard small Badge pills (see primitives.tsx's Badge) instead of a
+   giant stat-card grid - just a flex row with the app's usual badge gap. */
 .statBadgeRow {
   display: flex;
   align-items: center;
@@ -70,8 +84,8 @@
      the matching floor so the table (not the DEVICE column) is what
      shrinks/scrolls once the log pane leaves too little room, rather than
      squeezing DEVICE toward zero again. */
-  /* other columns' widths (88+300=388, thActions widened again 2026-08-30
-     - see its own comment) + thDevice's own 168px min-width, below -
+  /* other columns' widths (88+300=388, thActions widened - see its own
+     comment) + thDevice's own 168px min-width, below -
      table-layout:fixed derives DEVICE's actual share from (this min-width
      minus the other columns' widths), not from its own min-width
      directly, so this has to stay in sync with both. (The PROGRESS column
@@ -94,8 +108,8 @@
   align-items: center;
   gap: 7px;
 }
-/* Real bug found live 2026-08-31: the device name and manufacturer label
-   used to be two plain flex ITEMS on .devName's single row, alongside the
+/* The device name and manufacturer label used to be two plain flex ITEMS
+   on .devName's single row, alongside the
    icon/address-pill/serial-icon - a short name (fits one line) left the
    manufacturer sitting right after it, but a longer name (wraps to 2+
    lines) pushed the manufacturer down to wherever the wrap happened to
@@ -117,9 +131,9 @@
   font-size: 9px;
 }
 /* STATUS cell's own stacked layout (badge on top, last-download date
-   underneath) - same visual language as .devNameCol/.mfrLabel above, real
-   request 2026-08-31: "display last download date on the Programming
-   page... Maybe inside the Status badge, in small text?" */
+   underneath) - same visual language as .devNameCol/.mfrLabel above, so
+   the last download date is visible inline in small text under the
+   status badge. */
 .statusCol {
   display: flex;
   flex-direction: column;
@@ -132,6 +146,10 @@
   display: flex;
   align-items: center;
   gap: 5px;
+  /* Anchors DeviceStatusPopover, which positions itself absolute/top:100%
+     relative to this row rather than the badge button itself, so it opens
+     just under the whole badge+icon cluster instead of overlapping it. */
+  position: relative;
 }
 .lastDownloadLabel {
   color: var(--dim);
@@ -140,17 +158,17 @@
 }
 /* The device address, folded into the DEVICE cell in place of its own
    column (see .table's min-width comment). Plain small monospace, like
-   every other address in the app - it was a pill until 2026-09-10, which
-   was the only place that boxed an address, and the box clipped anything
+   every other address in the app - it used to be boxed as a pill, the only
+   place in the app that boxed an address, and the box clipped anything
    longer than about five characters ("1.4.100" spilled out of it).
-   
+
    Still a fixed width, which is what the box was really doing for the
-   layout: added 2026-08-30 on a real request, because a real address and
-   the "-.-.-" placeholder aren't the same length, so without it the device
-   name after it started at a different x per row and read as a misaligned
-   column. Sized in ch against the monospace font rather than the old 46px,
-   which only left room for five characters inside its padding; 9ch is the
-   longest an individual address can be ("15.15.255"). */
+   layout: a real address and the "-.-.-" placeholder aren't the same
+   length, so without a fixed width the device name after it started at a
+   different x per row and read as a misaligned column. Sized in ch against
+   the monospace font rather than a fixed pixel width, which only left room
+   for five characters inside its padding; 9ch is the longest an individual
+   address can be ("15.15.255"). */
 .addrBadge {
   flex-shrink: 0;
   font-family: monospace;
@@ -178,7 +196,7 @@
 }
 /* Horizontal mode's resizer: a full-width horizontal bar (drags height via
    mouse-Y, see onResizerMouseDown) instead of a narrow vertical bar
-   (drags width via mouse-X) - added 2026-08-31. */
+   (drags width via mouse-X). */
 .resizerHorizontal {
   height: 5px;
   width: 100%;
@@ -199,11 +217,10 @@
   overflow: hidden;
 }
 /* Horizontal mode: same panel, full page width instead of a border on the
-   left, a border on top instead (it's now above, not beside, .main) -
-   added 2026-08-31. Its own internal layout (header/body/footer, all
-   already flex-column) needs no change - only the outer dimension the
-   size prop controls flips from width (see the inline style at the call
-   site) to height. */
+   left, a border on top instead (it's now above, not beside, .main). Its
+   own internal layout (header/body/footer, all already flex-column) needs
+   no change - only the outer dimension the size prop controls flips from
+   width (see the inline style at the call site) to height. */
 .sidebarHorizontal {
   border-left: none;
   border-top: 1px solid var(--border);
@@ -216,9 +233,9 @@
   padding: 10px 14px;
   border-bottom: 1px solid var(--border);
   /* Same token AppShell uses for its own title/nav chrome (global.css's
-     --sidebar) - a real request 2026-08-31: a plain border-bottom alone
-     didn't read as "this is a header bar" against the log body's own
-     background, which was the same color. */
+     --sidebar) - a plain border-bottom alone doesn't read as "this is a
+     header bar" against the log body's own background when they're the
+     same color. */
   background: var(--sidebar);
   font-size: 9px;
   color: var(--dim);
@@ -227,10 +244,10 @@
   align-items: center;
   justify-content: space-between;
 }
-/* Horizontal mode's header, added 2026-08-31: shorter (a bottom-docked
-   panel is already competing with the device table for vertical space,
-   unlike the vertical panel which only ever competes for width) - same
-   background/border, just less vertical padding. */
+/* Horizontal mode's header: shorter (a bottom-docked panel is already
+   competing with the device table for vertical space, unlike the vertical
+   panel which only ever competes for width) - same background/border, just
+   less vertical padding. */
 .logHeaderHorizontal {
   padding: 4px 14px;
 }
@@ -239,7 +256,7 @@
   align-items: center;
   gap: 6px;
 }
-/* Real request, 2026-09-01: extra space beyond the container's own 6px
+/* Extra space beyond the container's own 6px
    gap, so the destructive Clear Log icon (leftmost, no confirm) doesn't
    sit close enough to the debug/collapse icons to be an accidental-click
    risk. */
@@ -258,13 +275,12 @@
 .logCollapseBtn:hover {
   color: var(--fg);
 }
-/* Collapse button specifically, added 2026-08-31: the small triangle
-   (shared size with the other header icons) read as too small/easy to
-   miss on a real screen - bumped up on its own rather than growing every
-   header icon, since it's the one action a person needs to find
-   reliably (the others are secondary/discoverable-on-hover actions).
-   16px (the first attempt) turned out too big on a real screen -
-   settled on 13px, still visibly larger than the 11px siblings. */
+/* Collapse button specifically: the small triangle (shared size with the
+   other header icons) reads as too small/easy to miss - bumped up on its
+   own rather than growing every header icon, since it's the one action a
+   person needs to find reliably (the others are secondary/
+   discoverable-on-hover actions). 13px, visibly larger than the 11px
+   siblings without being oversized. */
 .logCollapseBtnLarge {
   background: none;
   border: none;
@@ -307,7 +323,7 @@
 }
 /* Horizontal mode's collapsed state: a thin strip along the bottom edge
    instead of the right - the label reads normally (no rotation needed,
-   there's no vertical strip to fit it into) - added 2026-08-31. */
+   there's no vertical strip to fit it into). */
 .logCollapsedStripHorizontal {
   flex-shrink: 0;
   height: 24px;
@@ -359,9 +375,8 @@
   color: var(--dim);
 }
 .logEntry {
-  /* Reduced from 10px, real request 2026-08-30 - the log read as
-     cluttered/hard to scan, both this and the time/text split below were
-     part of the same fix. */
+  /* Reduced from a larger size - the log read as cluttered/hard to scan;
+     both this and the time/text split below are part of the same fix. */
   font-size: 9px;
   line-height: 1.45;
 }
@@ -382,11 +397,11 @@
      instead, which affects every wrapped line equally. */
   padding-left: 8px;
 }
-/* Bottom-horizontal orientation only - real request 2026-09-01: with the
-   log as a wide strip (not a narrow sidebar column), a stacked time/
-   message pair reads as wasted vertical space rather than the clarity
-   fix it was for the sidebar (see .logEntryTime's own doc comment) -
-   same-line reads better here, time still its own (dim) color. */
+/* Bottom-horizontal orientation only: with the log as a wide strip (not a
+   narrow sidebar column), a stacked time/message pair reads as wasted
+   vertical space rather than the clarity fix it is for the sidebar (see
+   .logEntryTime's own doc comment) - same-line reads better here, time
+   still its own (dim) color. */
 .logEntryHorizontal {
   display: flex;
   align-items: baseline;
@@ -406,16 +421,16 @@
   width: 88px;
 }
 .thActions {
-  /* Real bug, found live 2026-08-30: viewSlot(52) + gap(6) +
+  /* viewSlot(52) + gap(6) +
      verifyBtnWrap's actionBtn(min 92) + gap(6) + downloadModeAnchor's
      actionBtn(min 92) = 248px of real content, packed into a 250px
      column that itself loses 24px to TD's own horizontal padding (see
      primitives.module.css's .td) - genuinely never enough room, just
      narrowly enough to go unnoticed until Re-program's button visibly
      spilled out past the column into whatever sits to its right (the log
-     panel's collapsed strip). Widened with real slack this time - see
+     panel's collapsed strip). Widened with real slack - see
      .table's min-width comment for how this feeds into it.
-     Widened again 2026-08-30 (same day) alongside .actionBtn going from a
+     Widened again alongside .actionBtn going from a
      92px min-width to a fixed 104px (both Verify and Program, so
      "✓ Re-program" - the longest real label - no longer grows one button
      past the other): new content total 52+6+104+6+104=272px, needing
@@ -447,12 +462,12 @@
 }
 /* Shared FIXED width (not just a floor) across Verify/Re-verify and
    Program/Re-program/✓ Re-program/Retry so the buttons stay exactly the
-   same size regardless of which label is currently showing - real
-   request 2026-08-30: a plain min-width let "✓ Re-program" (the longest
-   real label, checkmark included) grow past Verify's own width, so the
-   two buttons visibly weren't aligned/matched anymore. Widened slightly
-   and paired with a 1px-smaller font (below) to fit that longest label
-   without the column needing to grow again. */
+   same size regardless of which label is currently showing - a plain
+   min-width lets "✓ Re-program" (the longest real label, checkmark
+   included) grow past Verify's own width, so the two buttons visibly
+   wouldn't stay aligned/matched. Widened slightly and paired with a
+   1px-smaller font (below) to fit that longest label without the column
+   needing to grow again. */
 .actionBtn {
   width: 104px;
   font-size: 9px;
@@ -460,20 +475,20 @@
   position: relative;
   overflow: hidden;
 }
-/* Gentle left-to-right "flow" while a Verify/Program is running - real
-   request 2026-08-31, replacing the global `pulse` class (whole-button
-   opacity fade, global.css) which read as too harsh/flashing on a large
-   filled button. A soft shine band sweeps across the button's own area on
-   a loop, independent of the percentage-fill gradient set inline per-row
-   (that gradient stays on the button's own `background`; this is a
-   separate ::before layer on top of it, not a replacement).
+/* Gentle left-to-right "flow" while a Verify/Program is running, in place
+   of the global `pulse` class (whole-button opacity fade, global.css)
+   which reads as too harsh/flashing on a large filled button. A soft
+   shine band sweeps across the button's own area on a loop, independent
+   of the percentage-fill gradient set inline per-row (that gradient stays
+   on the button's own `background`; this is a separate ::before layer on
+   top of it, not a replacement).
 
    Clipped to --action-pct (set inline per-row alongside the fill
-   gradient) rather than the button's full width - real follow-up request
-   2026-08-31: the shine used to sweep the whole button regardless of how
-   much of the progress bar was actually filled, which didn't read as
-   "part of the progress bar". Falls back to 100% when no percentage is
-   known yet (verifying but no live progress message received yet). */
+   gradient) rather than the button's full width - without this the shine
+   sweeps the whole button regardless of how much of the progress bar is
+   actually filled, which doesn't read as "part of the progress bar".
+   Falls back to 100% when no percentage is known yet (verifying but no
+   live progress message received yet). */
 .actionBtnRunning::before {
   content: '';
   position: absolute;
@@ -500,11 +515,15 @@
     background-position: 160% 0;
   }
 }
+/* Fixed-width slot for the Restart/Clear-history icons - same reasoning
+   as .viewSlot below, its own sibling slot. Wide enough for two icons,
+   since both can appear together (a restart-withheld device always has
+   history to clear too). */
 /* Fixed-width slot for the View icon so Verify/Program always line up at
    the same x across rows, whether or not a row has a cached result (see
-   the comment at its call site). Narrowed 2026-09-01 (52px -> 26px) when
-   the clear-cache icon that used to share this slot moved into the
-   compare slide-over's own header instead. */
+   the comment at its call site). Narrower than it would need to be for two
+   icons, since the clear-cache icon that used to share this slot has
+   moved into the compare slide-over's own header instead. */
 .viewSlot {
   width: 26px;
   flex-shrink: 0;
@@ -596,10 +615,28 @@
   display: flex;
   flex-direction: column;
   transform: translateX(100%);
-  transition: transform 0.22s ease-out;
+  transition:
+    transform 0.22s ease-out,
+    visibility 0s linear 0.22s;
+  /* Belt-and-braces alongside the transform above: `translateX(100%)`'s
+     percentage is resolved against this box's own width, which - because
+     that width is itself a `min(900px, 96%)` of `.root`'s width - can go
+     briefly stale relative to `.root`'s actual current width after a log
+     panel resize/orientation change, moving the panel off-screen by less
+     than its own real width and leaving a visible sliver of empty panel
+     bleeding in from the right (the "empty blank panel" bug). `visibility`
+     hides it unconditionally regardless of that pixel math, independent of
+     `.root`'s own `overflow: hidden` (which only clips layout overflow, not
+     a mispositioned-but-still-painted sibling). The transition delay keeps
+     it visible for the full slide-out animation and only hides it once
+     that finishes; opening drops the delay so it becomes visible instantly.
+  */
+  visibility: hidden;
 }
 .slideOverOpen {
   transform: translateX(0);
+  transition: transform 0.22s ease-out;
+  visibility: visible;
 }
 .slideOverHeader {
   display: flex;
@@ -618,10 +655,9 @@
   font-weight: 700;
   font-size: 14px;
 }
-/* Wraps the clear-cache icon + close button, added 2026-09-01 so
-   .slideOverHeader's own space-between still only has two real children
-   (title, this group) rather than three fighting over the same
-   justify-content behavior. */
+/* Wraps the clear-cache icon + close button so .slideOverHeader's own
+   space-between still only has two real children (title, this group)
+   rather than three fighting over the same justify-content behavior. */
 .slideOverHeaderActions {
   display: flex;
   align-items: center;
@@ -650,7 +686,7 @@
   display: flex;
 }
 
-/* ── Full/Partial download picker popover (2026-08-30) - the button that
+/* ── Full/Partial download picker popover - the button that
    opens it lives inside the table's own scrolling container (.content),
    but the popover itself renders through a React portal into
    document.body (see ProgrammingView.tsx's DownloadModePopover/
@@ -669,7 +705,7 @@
   z-index: 200;
   background: var(--surface);
   border: 1px solid var(--border);
-  /* Real bug, found live via a screenshot 2026-08-31: this popover renders
+  /* This popover renders
      through a React portal straight into document.body (see the file
      comment above for why), which takes it outside .appShell's DOM
      subtree entirely - the app's monospace font ('DM Mono', set on
@@ -733,7 +769,7 @@
   cursor: not-allowed;
   opacity: 0.4;
 }
-/* Real request 2026-08-31: each row's own background now carries the same
+/* Each row's own background now carries the same
    color its icon chip already did, rather than the icon being the only
    colored element on an otherwise flat row - same tint-percentage
    convention the app already uses elsewhere for a semantic row/badge

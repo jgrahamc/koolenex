@@ -1,0 +1,107 @@
+.popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 40;
+  width: 320px;
+  max-width: calc(100vw - 32px);
+  /* Never grow past the actual viewport regardless of placement - a long
+     restart-withheld reason or many pending changes could otherwise make
+     this taller than there's room for even after flipping upward. .body's
+     own overflow-y handles scrolling within that budget. */
+  max-height: calc(100vh - 24px);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  display: flex;
+  flex-direction: column;
+  font-size: 12.5px;
+}
+/* Opens upward instead, when the caller's own viewport check (after real
+   content renders) finds no room below - see the component's own doc
+   comment. */
+.popoverUp {
+  top: auto;
+  bottom: calc(100% + 6px);
+}
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.header strong {
+  font-size: 12px;
+  letter-spacing: 0.02em;
+}
+.closeBtn {
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 2px 4px;
+  line-height: 1;
+  border-radius: 4px;
+}
+.closeBtn:hover {
+  color: var(--fg);
+  background: var(--selected);
+}
+.body {
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 260px;
+  overflow-y: auto;
+}
+.infoLine {
+  color: var(--fg);
+}
+.muted {
+  color: var(--muted);
+}
+.err {
+  color: var(--red);
+}
+.warnBlock {
+  margin-top: 4px;
+  padding: 8px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--red) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--red) 30%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.reason {
+  color: var(--fg);
+  white-space: pre-wrap;
+}
+.changeList {
+  margin: 0;
+  padding-left: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.changeList li {
+  color: var(--fg);
+}
+.changeList code {
+  background: var(--selected);
+  border-radius: 3px;
+  padding: 0 4px;
+  font-size: 11.5px;
+}
+.actions {
+  display: flex;
+  gap: 8px;
+  padding: 8px 10px;
+  border-top: 1px solid var(--border);
+}
+.actions > * {
+  flex: 1;
+}

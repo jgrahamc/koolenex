@@ -1322,6 +1322,8 @@ export function parseKnxproj(
         m.isSecureEnabled = idx.isSecureEnabled;
         // See ParamModel.peiType's own doc comment (ets-app.ts).
         if (idx.peiType !== undefined) m.peiType = idx.peiType;
+        if (idx.hardwareTypeParams.length > 0)
+          m.hardwareTypeParams = idx.hardwareTypeParams;
         if (idx.lineCoupler0912NewProgrammingStyle !== undefined)
           m.lineCoupler0912NewProgrammingStyle =
             idx.lineCoupler0912NewProgrammingStyle;

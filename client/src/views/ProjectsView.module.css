@@ -2,9 +2,10 @@
 .root {
   flex: 1;
   display: flex;
-  align-items: center;
+  align-items: safe center;
   justify-content: center;
   padding: 40px;
+  overflow-y: auto;
 }
 .inner {
   width: 560px;

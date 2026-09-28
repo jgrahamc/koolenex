@@ -90,9 +90,9 @@
   letter-spacing: 0.04em;
 }
 /* Separator between the scan and manual-entry sections in the lockDevice
-   ("known device") layout, added 2026-08-31 - both are always offered
+   ("known device") layout - both are always offered
    together there (no tabs), so a plain divider replaces the tab bar that
-   used to separate them. */
+   would otherwise separate them. */
 .orDivider {
   font-size: 9px;
   color: var(--dim);
@@ -113,8 +113,8 @@
 .select {
   composes: textInput;
 }
-/* Serial tab's compact one-line layout, 2026-08-31 - real user feedback:
-   "everything on one line", reduced-width serial box, Clear and Detect
+/* Serial tab's compact one-line layout - everything on one line: a
+   reduced-width serial box, with Clear and Detect
    the same width as each other, immediately to its right. */
 .serialTopInput {
   composes: textInput;
@@ -165,8 +165,8 @@
   align-items: center;
   gap: 8px;
 }
-/* Copy-to-clipboard button next to a detected serial/address - real
-   request 2026-08-31: "make serial copy'able". Small, text-only, matching
+/* Copy-to-clipboard button next to a detected serial/address, so the
+   value can be copied without retyping it. Small, text-only, matching
    the app's existing plain-text-button convention (Clear/Detect/Edit)
    rather than adding a new icon. */
 .copyBtn {
@@ -198,11 +198,10 @@
   color: var(--dim);
   padding: 8px 0;
 }
-/* "Press the programming button now" prompt - real user request, 2026-08-31:
-   "the notice to press prog should be in an amber badge - slightly
-   flashing?" Used for both the Detect scan (scanStatus) and the
-   Write Address detect-first flow (writeAddrStatus) - same underlying
-   "go press the button" moment in both places. */
+/* "Press the programming button now" prompt, shown in a slightly flashing
+   amber badge to draw attention without reading as an error. Used for
+   both the Detect scan (scanStatus) and the Write Address detect-first
+   flow (writeAddrStatus) - the same underlying prompt in both places. */
 @keyframes pressPromptFlash {
   0%,
   100% {

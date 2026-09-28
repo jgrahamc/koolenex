@@ -24,15 +24,13 @@ export const SPACE_COLOR = {
 
 export const MediumCtx = createContext<Record<string, string>>({});
 // The entry, not just its name: GET /mask-versions returns
-// { name, managementModel, medium } per mask, and the device panel reads all
-// three. Declared as Record<string, string> until 2026-09-10, which is why
-// its readers had to be typed `any`.
+// { name, managementModel, medium } per mask, and the device panel reads
+// all three.
 export const MaskCtx = createContext<Record<string, MaskVersionEntry>>({});
 
 export interface I18nContextValue {
   lang: string;
-  /** From GET /translations: each language's id and display name. Declared
-   *  as string[] until 2026-09-10, though it always held these objects. */
+  /** From GET /translations: each language's id and display name. */
   languages: { id: string; name: string }[];
   t: (refId: string) => string | null;
 }

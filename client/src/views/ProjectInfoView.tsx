@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import type { AuditLogEntry } from '../../../shared/types.ts';
 import { Btn } from '../primitives.tsx';
 import { api } from '../api.ts';
+import { BusConnectionPanel } from '../BusConnectionPanel.tsx';
 import { useAppData } from '../contexts.ts';
 import styles from './ProjectInfoView.module.css';
 
@@ -41,6 +42,14 @@ export function ProjectInfoView({
 
         <div className={styles.columns}>
           <div className={styles.columnsLeft}>
+            {/* The same shared BusConnectionPanel is also reachable from the
+                top-bar status badge popover in AppShell; it is kept here too so
+                the inline connect card on this page remains available. */}
+            <div className={styles.card}>
+              <div className={styles.sectionTitleWide}>BUS CONNECTION</div>
+              <BusConnectionPanel />
+            </div>
+
             <div className={styles.card}>
               <div className={styles.sectionTitleWide}>ETS PROJECT</div>
               {[

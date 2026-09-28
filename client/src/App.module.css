@@ -168,8 +168,8 @@
   gap: 8px;
   align-items: center;
 }
-/* Wraps the status badge + its quick-connect popover (2026-08-29) - the
-   badge itself is now a <button>, clickable to open BusConnectionPanel
+/* Wraps the status badge + its quick-connect popover - the
+   badge itself is a <button>, clickable to open BusConnectionPanel
    without navigating away from wherever the user currently is. */
 .busStatusWrap {
   position: relative;
@@ -199,27 +199,25 @@
   background: color-mix(in srgb, var(--green) 9%, transparent);
   border: 1px solid color-mix(in srgb, var(--green) 19%, transparent);
 }
-/* Neutral gray, not red - real request 2026-08-31: "not connected" is this
-   app's normal, everyday state (most work here is offline project editing,
-   not live bus access), not an error condition, and red/⚠ read as an alarm
-   regardless of that context. The badge still needs to be genuinely
-   noticeable, not mistaken for "quiet/idle" the way the ORIGINAL --dim-only
-   treatment was (found live 2026-08-29: that ambiguity let a stale
-   "connected" state go unnoticed) - but that problem is now solved by
-   accuracy (the WebSocket re-sync fix from that day) and a real, distinct
-   icon (IconOffline, icons.tsx), not by borrowing warning/error coloring
-   for an unremarkable state. Renamed from .busDisconnected 2026-08-31 -
-   this is now specifically the "not connected, nothing needs it right
-   now" reading, distinct from .busNeedsAttention below (a THIRD, real
-   state: a reconnect attempt genuinely failed - see
+/* Neutral gray, not red - not connected is this app's normal, everyday
+   state (most work here is offline project editing, not live bus access),
+   not an error condition, and red/⚠ read as an alarm regardless of that
+   context. The badge still needs to be genuinely noticeable, not mistaken
+   for a quiet/idle state the way a --dim-only treatment could let a stale
+   connected state go unnoticed - solved by accuracy (the WebSocket
+   re-sync fix, see createWS's onOpen handling) and a real, distinct icon
+   (IconOffline, icons.tsx), not by borrowing warning/error coloring for an
+   unremarkable state. This is specifically the "not connected, nothing
+   needs it right now" reading, distinct from .busNeedsAttention below (a
+   THIRD, real state: a reconnect attempt genuinely failed - see
    BusStatus.needsAttention, state.ts). */
 .busIdle {
   color: var(--dim);
   background: color-mix(in srgb, var(--dim) 9%, transparent);
   border: 1px solid color-mix(in srgb, var(--dim) 19%, transparent);
 }
-/* Amber, not red - real request 2026-08-31: even a genuine "this needs
-   manual attention" failure (a reconnect attempt exhausted its retries -
+/* Amber, not red - even a genuine needs-manual-attention
+   failure (a reconnect attempt exhausted its retries -
    see knx-bus.ts's 'knx:reconnect-failed') shouldn't read as red/danger
    for a KNX bus connection; amber matches this app's own established
    language elsewhere for "needs a look, not an emergency" (e.g. the
@@ -284,9 +282,9 @@
    windows below it take whatever is left and scroll inside themselves -
    that list is the one that actually grows without limit as devices and
    group addresses are pinned.
-   (Until 2026-09-11 this was the other way round: the nav list shrank and
-   scrolled while pinSection refused to, which meant opening a handful of
-   pins scrolled the menu itself.) ── */
+   (The alternative - the nav list shrinking and scrolling while
+   pinSection refuses to - means opening a handful of pins scrolls the
+   menu itself, which this layout avoids.) ── */
 .navItems {
   flex: 0 0 auto;
   padding: 8px 0;

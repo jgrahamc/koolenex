@@ -5,11 +5,20 @@ import type { VerifyDecodedParam, GroupObjectEntryFlags } from '../api.ts';
 import { useVerifyCache } from '../contexts.ts';
 import styles from './DeviceComparisonView.module.css';
 
-/** Deterministic hue (0-359) from a section name, for the per-section tint. */
-function hueForSection(name: string): number {
-  let h = 0;
-  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
-  return h % 360;
+// Was a per-section hash-derived hue (every section its own colour) - real
+// feedback: with every table now collapsed by default (see
+// expandedSections below), the original reason for that - making a long,
+// fully-expanded page's sections tell apart at a glance - matters much
+// less, and the hash's arbitrary results ("doesn't look right") weren't
+// worth keeping just for their own sake. One calm, deliberate hue for
+// every ordinary section now; Group Addresses and Group Object Table keep
+// their own fixed hues (a real, deliberate distinction - see the call
+// site's own comment - not just "different colour for variety").
+const NEUTRAL_SECTION_HUE = 230;
+function sectionHue(name: string): number {
+  if (name === 'Group Addresses') return 205;
+  if (name === 'Group Object Table') return 280;
+  return NEUTRAL_SECTION_HUE;
 }
 
 function sectionId(name: string): string {
@@ -27,9 +36,11 @@ export function displaySectionName(section: string): string {
   return section;
 }
 
-/** Compose a "5 params / 2 GAs / 1 Object 3" style count string, omitting
- * zero entries rather than always spelling out every category. Used for the
- * combined match/differ summary badges below. */
+/** Compose a "5 params / 2 GAs / 1 Object 3" style count string from any
+ * number of scoped counts, omitting whichever entries are zero. Used for
+ * the combined match/differ summary badges below. Takes an arbitrary list
+ * of scoped counts, so Object 3's own separately-tracked count can fold in
+ * alongside GA's without hardcoding a third fixed parameter. */
 function composeCount(entries: Array<{ count: number; word: string }>): string {
   return entries
     .filter((e) => e.count > 0)
@@ -197,6 +208,31 @@ export function DeviceCompareResults({
   const [sectionsOpen, setSectionsOpen] = useState(false);
   const bodyRef = useRef<HTMLDivElement | null>(null);
   const sectionsPopoverRef = useRef<HTMLDivElement | null>(null);
+  // Which ONE section is expanded, by name - `null` means every section
+  // starts collapsed (accordion behaviour, real feedback: opening a second
+  // section should close whichever one was already open, rather than
+  // stacking every table someone has looked at down the page). Scoped to
+  // sections *within* the Parameters category - see `expandedCategory`
+  // below for the outer axis.
+  const [expandedSection, setExpandedSection] = useState<string | null>(null);
+  const toggleSection = (name: string): void => {
+    setExpandedSection((prev) => (prev === name ? null : name));
+  };
+  // Real ETS parameter sections (D01, Enabled Functions, ...), Group
+  // Addresses and the Group Object Table (Communication Flags) used to be
+  // flat siblings in one accordion, sorted alphabetically together, so a
+  // "Group Addresses" entry could sit between two unrelated parameter
+  // sections purely by alphabetical accident. Grouped instead: a Parameters
+  // group broken down by section, with Group Addresses/Object 3 kept as
+  // their own separate group after it - one outer accordion axis for the
+  // category, independent of which individual parameter section is open
+  // inside it.
+  const [expandedCategory, setExpandedCategory] = useState<
+    'parameters' | 'ga' | 'obj3' | null
+  >(null);
+  const toggleCategory = (cat: 'parameters' | 'ga' | 'obj3'): void => {
+    setExpandedCategory((prev) => (prev === cat ? null : cat));
+  };
 
   const cacheEntry = device ? cache[device.id] : undefined;
   const result = cacheEntry?.result ?? null;
@@ -326,12 +362,207 @@ export function DeviceCompareResults({
   const hiddenMismatchCount = mismatchCount - shownMismatchCount;
 
   const jumpTo = (name: string) => {
+    // Expand first (closing whatever else was open - accordion) - jumping
+    // to a still-collapsed section would otherwise scroll to what looks
+    // like an empty header with nothing under it. Group Addresses/Object 3
+    // are now their own top-level category with no inner section of their
+    // own to also open - everything else is a real parameter section
+    // nested inside the Parameters category.
+    if (name === 'Group Addresses') {
+      setExpandedCategory('ga');
+    } else if (name === 'Group Object Table') {
+      setExpandedCategory('obj3');
+    } else {
+      setExpandedCategory('parameters');
+      setExpandedSection(name);
+    }
     const el = bodyRef.current?.querySelector(
       `#${CSS.escape(sectionId(name))}`,
     );
     el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     setSectionsOpen(false);
   };
+
+  // Renders one table of rows - shared by every real ETS parameter section
+  // AND by the Group Addresses/Group Object Table categories (which have no
+  // further per-section nesting of their own). `flagsMode` is true only for
+  // Group Object Table rows, whose Project/Device cells are a FlagChips
+  // strip rather than a plain value, and whose byte-layout column is always
+  // suppressed (an Object 3 row isn't a single byte-mapped parameter - see
+  // FlagChips's own doc comment). Lifted out of the per-section render
+  // loop so the Group Addresses/Object 3 categories can call it directly
+  // without an inner section header duplicating the category header above
+  // it.
+  const renderRowsTable = (
+    tableRows: VerifyDecodedParam[],
+    flagsMode: boolean,
+  ) => (
+    <table className={styles.table}>
+      <colgroup>
+        <col style={{ width: nameColWidth }} />
+        {showGroupCol && <col style={{ width: '22%' }} />}
+        {showLayoutCol && <col style={{ width: '14%' }} />}
+        <col style={{ width: valueColWidth }} />
+        <col style={{ width: valueColWidth }} />
+        <col style={{ width: '4%' }} />
+      </colgroup>
+      <thead>
+        <tr>
+          <th className={styles.th}>Parameter</th>
+          {showGroupCol && <th className={styles.th}>Group (raw)</th>}
+          {showLayoutCol && <th className={styles.th}>Byte</th>}
+          <th className={styles.th}>Project</th>
+          <th className={styles.th}>Device</th>
+          <th className={styles.th} title="Match">
+            ✓
+          </th>
+        </tr>
+      </thead>
+      <tbody>
+        {tableRows.map((r) => (
+          <tr
+            key={r.key}
+            className={r.match === false ? styles.rowDiffer : styles.row}
+          >
+            <td className={styles.td}>
+              <span className={styles.tip} data-tip={r.key}>
+                <span className={styles.tipText}>{r.label}</span>
+              </span>
+            </td>
+            {showGroupCol && (
+              <td className={`${styles.td} ${styles.groupCell}`}>
+                <span className={styles.tip} data-tip={r.group || undefined}>
+                  <span className={styles.tipText}>{r.group || '—'}</span>
+                </span>
+              </td>
+            )}
+            {showLayoutCol && (
+              <td className={`${styles.td} ${styles.mono} ${styles.groupCell}`}>
+                {flagsMode ? '—' : byteLayout(r)}
+              </td>
+            )}
+            <td className={`${styles.td} ${styles.mono}`}>
+              {flagsMode ? (
+                <FlagChips flags={r.obj3Expected} other={r.obj3Actual} />
+              ) : (
+                <span className={styles.tip} data-tip={r.expectedValue}>
+                  <span className={styles.tipText}>{r.expectedValue}</span>
+                </span>
+              )}
+            </td>
+            <td className={`${styles.td} ${styles.mono}`}>
+              {flagsMode ? (
+                <FlagChips flags={r.obj3Actual} other={r.obj3Expected} />
+              ) : (
+                <span
+                  className={styles.tip}
+                  data-tip={r.actualValue ?? undefined}
+                >
+                  <span className={styles.tipText}>{r.actualValue ?? '—'}</span>
+                </span>
+              )}
+            </td>
+            <td className={styles.td}>
+              <MatchIcon match={r.match} />
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+
+  // ETS itself nests a section's real parameters under their own declared
+  // Group heading, not as one flat list - real feedback, with a screenshot
+  // of ETS's own tabbed parameter view. `r.group` already carries that real
+  // declared value (the same one the "Group (raw)" column showed as text) -
+  // promoted here into actual sub-tables, one per distinct group, when a
+  // section genuinely has more than one. A section with only one group (or
+  // none) stays a single flat table exactly as before - splitting a section
+  // that ETS itself never subdivides would invent structure that isn't
+  // real. Shared by real parameter sections and by the Group
+  // Addresses/Object 3 categories, though the latter two never actually
+  // have more than one group in practice.
+  const renderSectionBody = (
+    rows: VerifyDecodedParam[],
+    flagsMode: boolean,
+  ) => {
+    const byGroup = new Map<string, VerifyDecodedParam[]>();
+    for (const r of rows) {
+      const g = r.group || '';
+      if (!byGroup.has(g)) byGroup.set(g, []);
+      byGroup.get(g)!.push(r);
+    }
+    const groupNames = Array.from(byGroup.keys());
+    if (groupNames.length <= 1) return renderRowsTable(rows, flagsMode);
+    return (
+      <div className={styles.subTables}>
+        {groupNames.map((g) => (
+          <div key={g} className={styles.subTableBlock}>
+            <div className={styles.subTableTitle}>
+              {g || '(Ungrouped)'}
+              <span className={styles.sectionCount}>
+                {byGroup.get(g)!.length}
+              </span>
+            </div>
+            {renderRowsTable(byGroup.get(g)!, flagsMode)}
+          </div>
+        ))}
+      </div>
+    );
+  };
+
+  // One real ETS parameter section (D01 - General, Enabled Functions, ...),
+  // nested inside the outer Parameters category below - own header/accordion
+  // (expandedSection), same chrome as before this category split, just no
+  // longer a top-level sibling of Group Addresses/Object 3.
+  const renderParamSection = (section: string, rows: VerifyDecodedParam[]) => {
+    const hue = sectionHue(section);
+    const isExpanded = expandedSection === section;
+    const sectionMismatchCount = rows.filter(
+      (r) => r.match === false && r.isVisible !== false,
+    ).length;
+    return (
+      <div
+        key={section}
+        id={sectionId(section)}
+        className={styles.sectionBlock}
+        style={{ '--section-hue': hue } as React.CSSProperties}
+      >
+        <button
+          type="button"
+          className={`${styles.sectionTitle} ${styles.sectionTitleBtn}`}
+          onClick={() => toggleSection(section)}
+          aria-expanded={isExpanded}
+        >
+          <span className={styles.sectionCollapseIcon}>
+            {isExpanded ? '▾' : '▸'}
+          </span>
+          {displaySectionName(section)}
+          <span className={styles.sectionCount}>{rows.length}</span>
+          {sectionMismatchCount > 0 && (
+            <span className={styles.sectionMismatchCount}>
+              {sectionMismatchCount} differ
+            </span>
+          )}
+        </button>
+        {isExpanded && renderSectionBody(rows, false)}
+      </div>
+    );
+  };
+
+  // Real ETS parameter sections, i.e. everything that isn't Group
+  // Addresses/Group Object Table - these get nested inside one outer
+  // "Parameters" category (below), instead of sitting as top-level
+  // siblings sorted alphabetically alongside GA/Object 3.
+  const paramSectionNames = sections.filter((s) => !nonParamSections.has(s));
+  const gaRows = bySection.get('Group Addresses') ?? [];
+  const obj3Rows = bySection.get('Group Object Table') ?? [];
+  const paramRowsTotal = paramSectionNames.reduce(
+    (n, s) => n + bySection.get(s)!.length,
+    0,
+  );
+  const gaRowsMismatch = gaRows.filter((r) => r.match === false).length;
+  const obj3RowsMismatch = obj3Rows.filter((r) => r.match === false).length;
 
   // Close the sections popover on outside click.
   useEffect(() => {
@@ -388,7 +619,7 @@ export function DeviceCompareResults({
                 {sectionsOpen && (
                   <div className={styles.sectionsPopover}>
                     {sections.map((s) => {
-                      const hue = hueForSection(s);
+                      const hue = sectionHue(s);
                       return (
                         <button
                           key={s}
@@ -416,9 +647,8 @@ export function DeviceCompareResults({
                   first: that's the scope under project control, where a
                   mismatch means something real. Raw memory legitimately
                   includes padding/gap bytes ETS never writes to (see the
-                  2026-08-27 relmem write-scope investigation), so it's
-                  structurally noisy and muted to --dim rather than
-                  amber/green. */}
+                  relmem write-scope documentation), so it's structurally
+                  noisy and muted to --dim rather than amber/green. */}
               {/* Params and GA links share one page with no filter
                   distinction - `filtered`'s scope-blind `d.match` check
                   already shows both together, so they're composed into one
@@ -447,7 +677,7 @@ export function DeviceCompareResults({
                         'Named, project-configurable parameters' +
                         (gaDecoded.length ? ', group-address links' : '') +
                         (obj3Decoded.length
-                          ? ", and group objects' flags"
+                          ? ", and communication objects' flags"
                           : '') +
                         ' only. Underneath, at the raw byte level, ' +
                         `${result.totalBytes - result.totalDiffering}/${result.totalBytes} ` +
@@ -656,135 +886,134 @@ export function DeviceCompareResults({
             {filtered.length === 0 ? (
               <Empty msg="No parameters match the current filter." />
             ) : (
-              Array.from(bySection.entries()).map(([section, rows]) => {
-                // Group Addresses / Group Object Table both get a fixed hue
-                // (not the usual name-hash) plus the distinct
-                // .sectionBlockGA/.sectionTitleGA treatment - a hash-derived
-                // tint alone can land close to a params section's hue by
-                // chance, but both are a different domain from a
-                // byte-mapped named parameter (GA rows are a com object's
-                // linked address; Object 3 rows are its device-side
-                // flags/priority/size) and should always look distinct.
-                // Different hues from each other too (205 vs 280).
-                const isGA = section === 'Group Addresses';
-                const isObj3 = section === 'Group Object Table';
-                const hue = isGA ? 205 : isObj3 ? 280 : hueForSection(section);
-                return (
+              <>
+                {/* Parameters - every real ETS section nested inside one
+                    outer category, instead of sitting as top-level siblings
+                    sorted alphabetically alongside Group Addresses/Object 3.
+                    Own accordion axis (expandedCategory) from the individual
+                    sections nested inside it (expandedSection) - opening the
+                    category doesn't pick which section is open, and
+                    switching sections doesn't collapse the category itself. */}
+                {paramSectionNames.length > 0 && (
                   <div
-                    key={section}
-                    id={sectionId(section)}
-                    className={`${styles.sectionBlock} ${isGA || isObj3 ? styles.sectionBlockGA : ''}`}
-                    style={{ '--section-hue': hue } as React.CSSProperties}
+                    className={styles.categoryBlock}
+                    style={
+                      {
+                        '--section-hue': NEUTRAL_SECTION_HUE,
+                      } as React.CSSProperties
+                    }
                   >
-                    <div
-                      className={`${styles.sectionTitle} ${isGA || isObj3 ? styles.sectionTitleGA : ''}`}
+                    <button
+                      type="button"
+                      className={`${styles.categoryTitle} ${styles.categoryTitleBtn}`}
+                      onClick={() => toggleCategory('parameters')}
+                      aria-expanded={expandedCategory === 'parameters'}
                     >
-                      {displaySectionName(section)}
-                      <span className={styles.sectionCount}>{rows.length}</span>
-                    </div>
-                    <table className={styles.table}>
-                      <colgroup>
-                        <col style={{ width: nameColWidth }} />
-                        {showGroupCol && <col style={{ width: '22%' }} />}
-                        {showLayoutCol && <col style={{ width: '14%' }} />}
-                        <col style={{ width: valueColWidth }} />
-                        <col style={{ width: valueColWidth }} />
-                        <col style={{ width: '4%' }} />
-                      </colgroup>
-                      <thead>
-                        <tr>
-                          <th className={styles.th}>Parameter</th>
-                          {showGroupCol && (
-                            <th className={styles.th}>Group (raw)</th>
-                          )}
-                          {showLayoutCol && <th className={styles.th}>Byte</th>}
-                          <th className={styles.th}>Project</th>
-                          <th className={styles.th}>Device</th>
-                          <th className={styles.th} title="Match">
-                            ✓
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {rows.map((r) => (
-                          <tr
-                            key={r.key}
-                            className={
-                              r.match === false ? styles.rowDiffer : styles.row
-                            }
-                          >
-                            <td className={styles.td}>
-                              <span className={styles.tip} data-tip={r.key}>
-                                <span className={styles.tipText}>
-                                  {r.label}
-                                </span>
-                              </span>
-                            </td>
-                            {showGroupCol && (
-                              <td
-                                className={`${styles.td} ${styles.groupCell}`}
-                              >
-                                <span
-                                  className={styles.tip}
-                                  data-tip={r.group || undefined}
-                                >
-                                  <span className={styles.tipText}>
-                                    {r.group || '—'}
-                                  </span>
-                                </span>
-                              </td>
-                            )}
-                            {showLayoutCol && (
-                              <td
-                                className={`${styles.td} ${styles.mono} ${styles.groupCell}`}
-                              >
-                                {isGA || isObj3 ? '—' : byteLayout(r)}
-                              </td>
-                            )}
-                            <td className={`${styles.td} ${styles.mono}`}>
-                              {isObj3 ? (
-                                <FlagChips
-                                  flags={r.obj3Expected}
-                                  other={r.obj3Actual}
-                                />
-                              ) : (
-                                <span
-                                  className={styles.tip}
-                                  data-tip={r.expectedValue}
-                                >
-                                  <span className={styles.tipText}>
-                                    {r.expectedValue}
-                                  </span>
-                                </span>
-                              )}
-                            </td>
-                            <td className={`${styles.td} ${styles.mono}`}>
-                              {isObj3 ? (
-                                <FlagChips
-                                  flags={r.obj3Actual}
-                                  other={r.obj3Expected}
-                                />
-                              ) : (
-                                <span
-                                  className={styles.tip}
-                                  data-tip={r.actualValue ?? undefined}
-                                >
-                                  <span className={styles.tipText}>
-                                    {r.actualValue ?? '—'}
-                                  </span>
-                                </span>
-                              )}
-                            </td>
-                            <td className={styles.td}>
-                              <MatchIcon match={r.match} />
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                      <span className={styles.sectionCollapseIcon}>
+                        {expandedCategory === 'parameters' ? '▾' : '▸'}
+                      </span>
+                      Parameters
+                      <span className={styles.sectionCount}>
+                        {paramRowsTotal}
+                      </span>
+                      {shownMismatchCount > 0 && (
+                        <span className={styles.sectionMismatchCount}>
+                          {shownMismatchCount} differ
+                        </span>
+                      )}
+                    </button>
+                    {expandedCategory === 'parameters' && (
+                      <div className={styles.categoryBody}>
+                        {paramSectionNames.map((section) =>
+                          renderParamSection(section, bySection.get(section)!),
+                        )}
+                      </div>
+                    )}
                   </div>
-                );
-              })
+                )}
+                {/* Group Addresses - its own category, own fixed hue (see
+                    sectionHue's own doc comment for why this and Object 3
+                    keep a distinct, non-neutral colour). No further section
+                    nesting of its own (a device only ever has one "Group
+                    Addresses" section), so the category header IS the
+                    section header - renderSectionBody is called directly,
+                    with no renderParamSection wrapper duplicating it. */}
+                {gaRows.length > 0 && (
+                  <div
+                    id={sectionId('Group Addresses')}
+                    className={`${styles.categoryBlock} ${styles.sectionBlockGA}`}
+                    style={
+                      {
+                        '--section-hue': sectionHue('Group Addresses'),
+                      } as React.CSSProperties
+                    }
+                  >
+                    <button
+                      type="button"
+                      className={`${styles.categoryTitle} ${styles.categoryTitleBtn} ${styles.sectionTitleGA}`}
+                      onClick={() => toggleCategory('ga')}
+                      aria-expanded={expandedCategory === 'ga'}
+                    >
+                      <span className={styles.sectionCollapseIcon}>
+                        {expandedCategory === 'ga' ? '▾' : '▸'}
+                      </span>
+                      {displaySectionName('Group Addresses')}
+                      <span className={styles.sectionCount}>
+                        {gaRows.length}
+                      </span>
+                      {gaRowsMismatch > 0 && (
+                        <span className={styles.sectionMismatchCount}>
+                          {gaRowsMismatch} differ
+                        </span>
+                      )}
+                    </button>
+                    {expandedCategory === 'ga' && (
+                      <div className={styles.categoryBody}>
+                        {renderSectionBody(gaRows, false)}
+                      </div>
+                    )}
+                  </div>
+                )}
+                {/* Communication Flags (server-side 'Group Object Table') -
+                    same treatment as Group Addresses above, its own fixed
+                    hue, flagsMode=true so its rows render as FlagChips. */}
+                {obj3Rows.length > 0 && (
+                  <div
+                    id={sectionId('Group Object Table')}
+                    className={`${styles.categoryBlock} ${styles.sectionBlockGA}`}
+                    style={
+                      {
+                        '--section-hue': sectionHue('Group Object Table'),
+                      } as React.CSSProperties
+                    }
+                  >
+                    <button
+                      type="button"
+                      className={`${styles.categoryTitle} ${styles.categoryTitleBtn} ${styles.sectionTitleGA}`}
+                      onClick={() => toggleCategory('obj3')}
+                      aria-expanded={expandedCategory === 'obj3'}
+                    >
+                      <span className={styles.sectionCollapseIcon}>
+                        {expandedCategory === 'obj3' ? '▾' : '▸'}
+                      </span>
+                      {displaySectionName('Group Object Table')}
+                      <span className={styles.sectionCount}>
+                        {obj3Rows.length}
+                      </span>
+                      {obj3RowsMismatch > 0 && (
+                        <span className={styles.sectionMismatchCount}>
+                          {obj3RowsMismatch} differ
+                        </span>
+                      )}
+                    </button>
+                    {expandedCategory === 'obj3' && (
+                      <div className={styles.categoryBody}>
+                        {renderSectionBody(obj3Rows, true)}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </>
             )}
           </>
         )}
@@ -794,51 +1023,68 @@ export function DeviceCompareResults({
             className={styles.sectionBlock}
             style={{ '--section-hue': 210 } as React.CSSProperties}
           >
-            <div className={styles.sectionTitle}>
+            <button
+              type="button"
+              className={`${styles.sectionTitle} ${styles.sectionTitleBtn}`}
+              onClick={() => toggleSection('Properties')}
+              aria-expanded={expandedSection === 'Properties'}
+            >
+              <span className={styles.sectionCollapseIcon}>
+                {expandedSection === 'Properties' ? '▾' : '▸'}
+              </span>
               Properties ({result.family} — no decodable parameter memory for
               this device family)
-            </div>
-            <table className={styles.table}>
-              <colgroup>
-                <col style={{ width: '52%' }} />
-                <col style={{ width: '19%' }} />
-                <col style={{ width: '19%' }} />
-                <col style={{ width: '4%' }} />
-              </colgroup>
-              <thead>
-                <tr>
-                  <th className={styles.th}>Property</th>
-                  <th className={styles.th}>Project (hex)</th>
-                  <th className={styles.th}>Device (hex)</th>
-                  <th className={styles.th}>Match</th>
-                </tr>
-              </thead>
-              <tbody>
-                {result.props.map((p, i) => (
-                  <tr
-                    key={i}
-                    className={!p.match ? styles.rowDiffer : styles.row}
-                  >
-                    <td className={styles.td}>
-                      obj={p.obj} pid={p.pid}
-                    </td>
-                    <td className={`${styles.td} ${styles.mono}`}>
-                      <span className={styles.tip} data-tip={p.expectedHex}>
-                        <span className={styles.tipText}>{p.expectedHex}</span>
-                      </span>
-                    </td>
-                    <td className={`${styles.td} ${styles.mono}`}>
-                      <span className={styles.tip} data-tip={p.actualHex}>
-                        <span className={styles.tipText}>{p.actualHex}</span>
-                      </span>
-                    </td>
-                    <td className={styles.td}>
-                      <MatchIcon match={p.match} />
-                    </td>
+              {result.props.filter((p) => !p.match).length > 0 && (
+                <span className={styles.sectionMismatchCount}>
+                  {result.props.filter((p) => !p.match).length} differ
+                </span>
+              )}
+            </button>
+            {expandedSection === 'Properties' && (
+              <table className={styles.table}>
+                <colgroup>
+                  <col style={{ width: '52%' }} />
+                  <col style={{ width: '19%' }} />
+                  <col style={{ width: '19%' }} />
+                  <col style={{ width: '4%' }} />
+                </colgroup>
+                <thead>
+                  <tr>
+                    <th className={styles.th}>Property</th>
+                    <th className={styles.th}>Project (hex)</th>
+                    <th className={styles.th}>Device (hex)</th>
+                    <th className={styles.th}>Match</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {result.props.map((p, i) => (
+                    <tr
+                      key={i}
+                      className={!p.match ? styles.rowDiffer : styles.row}
+                    >
+                      <td className={styles.td}>
+                        obj={p.obj} pid={p.pid}
+                      </td>
+                      <td className={`${styles.td} ${styles.mono}`}>
+                        <span className={styles.tip} data-tip={p.expectedHex}>
+                          <span className={styles.tipText}>
+                            {p.expectedHex}
+                          </span>
+                        </span>
+                      </td>
+                      <td className={`${styles.td} ${styles.mono}`}>
+                        <span className={styles.tip} data-tip={p.actualHex}>
+                          <span className={styles.tipText}>{p.actualHex}</span>
+                        </span>
+                      </td>
+                      <td className={styles.td}>
+                        <MatchIcon match={p.match} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
           </div>
         )}
 

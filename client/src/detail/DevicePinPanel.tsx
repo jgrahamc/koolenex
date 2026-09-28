@@ -862,10 +862,9 @@ interface ComObjectFlagsCellProps {
 // encodes the 5 boolean C/R/W/T/U flags - it never carried Read-On-Init or
 // Priority, so a cell showing just `co.flags` gave no visible sign that
 // either had changed, even though the popover's own checkboxes updated
-// correctly the instant you clicked. Real user report, 2026-08-31, with a
-// screenshot of exactly this: Read-On-Init checked in the popover, closed
-// popover, cell still just said "CRT" - not a stale-data bug, a missing
-// display. Appends a compact "·RI" when Read-On-Init is on and "·<initial>"
+// correctly the instant you clicked: Read-On-Init checked in the popover,
+// closed popover, cell still just said "CRT" - not a stale-data bug, a
+// missing display. Appends a compact "·RI" when Read-On-Init is on and "·<initial>"
 // for a non-default Priority (ETS's own default is Low, so that one stays
 // silent) - same abbreviations DeviceCompareResults.tsx's FlagChips uses,
 // just condensed for this column's narrow width instead of one chip each.

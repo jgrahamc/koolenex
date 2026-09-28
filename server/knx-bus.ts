@@ -18,6 +18,11 @@ import {
   KnxConnection as KnxIpConnection,
   type IpTransportProtocol,
 } from './knx-protocol.ts';
+// LOCAL TESTING AID ONLY - see connectLoopback()'s own doc comment below.
+import {
+  KnxLoopbackConnection,
+  type LoopbackDeviceConfig,
+} from './knx-loopback-connection.ts';
 import { KnxUsbConnection } from './knx-usb.ts';
 import type { Telegram } from '../shared/types.ts';
 
@@ -35,7 +40,10 @@ class KnxBusManager extends EventEmitter {
   connected: boolean;
   host: string | null;
   port: number | null;
-  type: 'udp' | 'tcp' | 'usb' | null;
+  // 'loopback' is a LOCAL TESTING AID ONLY - a simulated single device,
+  // never a real bus connection. Not part of any real feature; drop this
+  // before shipping anything.
+  type: 'udp' | 'tcp' | 'usb' | 'loopback' | null;
   projectId: number | string | null;
   _wss: WebSocketServer | null;
   _remapFn: ((telegram: Telegram) => Telegram) | null;
@@ -239,6 +247,37 @@ class KnxBusManager extends EventEmitter {
         return info;
       },
     );
+  }
+
+  /**
+   * LOCAL TESTING AID ONLY - connects to a KnxLoopbackConnection simulating
+   * one real device from the active project, instead of a real socket/USB
+   * device. Lets the whole app (Program/Verify/Restart) be driven exactly
+   * as a real user would, with no hardware attached. For development and
+   * testing only: it never touches a real device.
+   */
+  connectLoopback(
+    deviceAddr: string,
+    cfg: LoopbackDeviceConfig,
+    projectId?: number | string | null,
+  ): Promise<Record<string, unknown>> {
+    if (this.connection) this.disconnect();
+
+    this.projectId = projectId ?? null;
+    this.type = 'loopback';
+    this.host = null;
+    this.port = null;
+
+    const conn = new KnxLoopbackConnection(cfg);
+    this._attachEvents(conn);
+    this.connection = conn;
+    this.connected = true;
+    logger.info('knx', `Connected via loopback (test): ${deviceAddr}`);
+    this.broadcast('knx:connected', {
+      connectionType: 'loopback',
+      deviceAddress: deviceAddr,
+    });
+    return Promise.resolve({ ok: true, deviceAddress: deviceAddr });
   }
 
   /** List available KNX USB HID devices */
@@ -490,6 +529,8 @@ class KnxBusManager extends EventEmitter {
     verified: boolean;
     address: string | null;
     restarted: boolean;
+    alreadyCorrect: boolean;
+    occupiedBy?: { serial: string | null };
   }> {
     await this._ensureConnected();
     return this.connection!.assignIndividualAddressBySerial(

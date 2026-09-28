@@ -642,6 +642,15 @@ export class KnxConnection extends EventEmitter {
     // request, so all following frames would target a connection it lacks.
     // Fail closed only on that explicit negative, never on silence — this
     // method is shared by every transport, and USB/loopback has no such echo.
+    //
+    // This is, specifically and only, how "no device answers at this
+    // individual address" manifests at the link layer - nobody acknowledged
+    // the frame, so the router's own confirmation comes back negative, not
+    // a sign of a wiring or hardware fault. The thrown message leads with
+    // "No device found at X" (matching the wording elsewhere in this
+    // codebase, e.g. routes/bus.ts's "No device answered at ... -
+    // re-addressing required") so it reads as the address-level signal it
+    // actually is.
     let connectNacked: Error | null = null;
     const onConnectEcho = (cemi: CemiFrame): void => {
       if (
@@ -651,9 +660,7 @@ export class KnxConnection extends EventEmitter {
         !cemi.confirmBit
       )
         return;
-      connectNacked = new Error(
-        `Connect to ${deviceAddr}: negative L_Data.con confirmation - the router reports this frame did not reach the device's bus interface`,
-      );
+      connectNacked = new Error(`No device found at ${deviceAddr}.`);
     };
     this.on('_mgmt', onConnectEcho);
     await sendControl(TPCI.CONNECT);
@@ -1111,15 +1118,75 @@ export class KnxConnection extends EventEmitter {
     verified: boolean;
     address: string | null;
     restarted: boolean;
+    /** True when the pre-check found the device already at `newAddr`: the
+     *  write was skipped ("don't write what is already correct"). `false`
+     *  whenever a write was attempted, including when the pre-check itself
+     *  failed. */
+    alreadyCorrect: boolean;
+    /** Set (and NO write attempted) when a DIFFERENT device already answers
+     *  at `newAddr` - see `_probeAddressOccupant()`. `serial` is that
+     *  device's hex serial, or null when something answered but its serial
+     *  could not be read. Absent in every other outcome. */
+    occupiedBy?: { serial: string | null };
   }> {
-    await this.writeIndividualAddressBySerial(serial, newAddr);
-    const verifyStart = Date.now();
+    let alreadyCorrect = false;
+    let currentAddress: string | null = null;
+    try {
+      const current = await this.readIndividualAddressBySerial(
+        serial,
+        timeoutMs,
+      );
+      currentAddress = current?.address ?? null;
+      if (currentAddress === newAddr) alreadyCorrect = true;
+    } catch (e) {
+      logger.warn(
+        'knx',
+        'assignIndividualAddressBySerial: pre-check read failed - falling through to write-then-verify',
+        { newAddr, error: e instanceof Error ? e.message : String(e) },
+      );
+    }
     let chk: { address: string } | null = null;
-    let attempt = 0;
-    while (!chk && Date.now() - verifyStart < scaledMs(verifyDeadlineMs)) {
-      attempt++;
-      if (attempt > 1) await delay(2000);
-      chk = await this.readIndividualAddressBySerial(serial, timeoutMs);
+    if (alreadyCorrect) {
+      chk = { address: newAddr };
+    } else {
+      // Never write an address onto a bus that already has a DIFFERENT device
+      // answering there: two devices sharing one individual address means
+      // every later point-to-point connection reaches whichever answers first
+      // (or both, garbled), including a download. Only reached when a write
+      // is actually about to happen, so the normal case pays nothing.
+      const occupant = await this._probeAddressOccupant(
+        newAddr,
+        serial,
+        currentAddress,
+      );
+      if (occupant) {
+        logger.warn(
+          'knx',
+          'assignIndividualAddressBySerial: refusing to write - a different device already answers at the target address',
+          {
+            newAddr,
+            occupantSerial: occupant.serial,
+            ourSerial: serial.toString('hex'),
+            ourCurrentAddress: currentAddress,
+          },
+        );
+        return {
+          ok: false,
+          verified: false,
+          address: currentAddress,
+          restarted: false,
+          alreadyCorrect: false,
+          occupiedBy: occupant,
+        };
+      }
+      await this.writeIndividualAddressBySerial(serial, newAddr);
+      const verifyStart = Date.now();
+      let attempt = 0;
+      while (!chk && Date.now() - verifyStart < scaledMs(verifyDeadlineMs)) {
+        attempt++;
+        if (attempt > 1) await delay(2000);
+        chk = await this.readIndividualAddressBySerial(serial, timeoutMs);
+      }
     }
     const verified = chk?.address === newAddr;
     let restarted = false;
@@ -1135,7 +1202,70 @@ export class KnxConnection extends EventEmitter {
         );
       }
     }
-    return { ok: true, verified, address: chk?.address ?? null, restarted };
+    return {
+      ok: true,
+      verified,
+      address: chk?.address ?? null,
+      restarted,
+      alreadyCorrect,
+    };
+  }
+
+  /**
+   * Is a DIFFERENT device already answering at `addr`? Called only once a
+   * write of `addr` is about to happen (the device with `ourSerial` is not
+   * already there).
+   *
+   * Returns null (safe to write) when nothing answers a DeviceDescriptor_Read
+   * at `addr`, or when the answering device turns out to be ours. Returns
+   * `{ serial }` when the occupant is definitively another device: its serial
+   * was read and differs from ours - or, when its serial cannot be read, when
+   * the serial lookup already told us OUR device sits at a different address,
+   * so whatever answers here cannot be it. The one deliberately NOT refused
+   * case - something answers, its serial is unreadable AND our own location
+   * is unknown - is genuinely ambiguous, so it falls through to the ordinary
+   * write-then-verify with a warning instead of refusing on a guess.
+   */
+  private async _probeAddressOccupant(
+    addr: string,
+    ourSerial: Buffer,
+    ourCurrentAddress: string | null,
+  ): Promise<{ serial: string | null } | null> {
+    const probe = await this._probeSingle(addr, 2000);
+    if (!probe) return null;
+
+    let occupantSerial = null as string | null; // assigned in the callback below
+    try {
+      await this.managementSession(addr, async ({ waitResponse, nextSeq }) => {
+        const seq = nextSeq();
+        const apdu = apduPropertyValueRead(seq, 0, 11);
+        await this.sendCEMI(
+          buildCEMI(this.localAddr, addr, apdu, false, { priority: 'system' }),
+        );
+        const res = await waitResponse('OTHER', 2000);
+        const data = res?.apduData;
+        if (data && data.length >= 10)
+          occupantSerial = data.subarray(4, 10).toString('hex');
+      });
+    } catch (e) {
+      logger.warn(
+        'knx',
+        "_probeAddressOccupant: could not read the occupant's serial",
+        { addr, error: e instanceof Error ? e.message : String(e) },
+      );
+    }
+
+    const ours = ourSerial.toString('hex');
+    if (occupantSerial === ours) return null;
+    if (occupantSerial) return { serial: occupantSerial };
+    if (ourCurrentAddress && ourCurrentAddress !== addr)
+      return { serial: null };
+    logger.warn(
+      'knx',
+      '_probeAddressOccupant: something answers at the target address but its serial is unreadable and our own location is unknown - not refusing on a guess',
+      { addr },
+    );
+    return null;
   }
 
   // ── Application download ──────────────────────────────────────────────────────
@@ -1400,7 +1530,19 @@ export class KnxConnection extends EventEmitter {
               maxChunkFromApduLength(maxApduLengthValue, useExtended),
             )
           : protocolMaxN;
-      const n = Math.min(chunkSize, length - off, maxN, sizeCeiling);
+      let n = Math.min(chunkSize, length - off, maxN, sizeCeiling);
+      // A legacy A_Memory_Read's address field can only represent up to
+      // 0xFFFF - if this chunk's own end would cross that boundary, clamp
+      // it here so it stays entirely below 0xFFFF; the remaining bytes
+      // fall into the next loop iteration, where wantAddr > 0xffff then
+      // naturally selects the extended service instead, with no special-
+      // casing needed there. Without this, a chunk that starts just under
+      // 0xFFFF but whose count pushes its end past it is a request the
+      // legacy service's 16-bit address genuinely cannot represent - real
+      // hardware confirmed correctly refusing exactly this with a
+      // zero-byte response (0xFFFA start, 63-byte count -> 0x10039 end)
+      // rather than serving it.
+      if (!useExtended && wantAddr + n > 0x10000) n = 0x10000 - wantAddr;
       if (useExtended) {
         const apdu = apduMemoryExtendedRead(seq, n, wantAddr);
         const respP = waitResponse(
@@ -2165,13 +2307,53 @@ export class KnxConnection extends EventEmitter {
           priority: 'system',
         });
         if (!verify) {
-          // A step declared Verify="false" never gets an application-layer
-          // confirmation (ETS does not wait for one either and moves on
-          // within ~150-200ms). Waiting the full timeout here would stall
-          // every such step for seconds, and counting the silence as a
-          // missed response would misread it as a dead connection.
+          // Real, critical bug: a real Partial Download to 1.1.13 wrote to
+          // address 0x28C0 instead of the real PID_TABLE_REFERENCE value
+          // (0xC3000). Traced all the way back to HERE - this app's own
+          // declared Verify="false" WriteProp for property 27's first
+          // element carries data starting `00 00 28 c0...`, and the device
+          // (entirely correctly - nothing wrong with it answering a write
+          // it wasn't asked to confirm) sent back a real
+          // PropertyValue_Response echoing exactly that. This branch used
+          // to send-and-move-on via a bare `delay(50)` - a plain timer,
+          // registering NO listener at all - so that real response had
+          // nothing consuming it and sat "in flight" until the NEXT,
+          // unrelated `waitResponse('OTHER', ...)` call (the P=7 read this
+          // exact app issues moments later) came along and claimed it,
+          // generically, since nothing distinguishes one 'OTHER'-tagged
+          // frame from another.
+          //
+          // A step declared Verify="false" never gets a REQUIRED
+          // application-layer confirmation (ETS does not wait for one
+          // either and moves on within ~150-200ms per this file's own
+          // prior comment on this branch) - but "not required" is not the
+          // same as "never arrives", and real ETS almost certainly still
+          // drains whatever DOES come back in that window rather than
+          // leaving it unclaimed for something else to misattribute later.
+          // Fixed to do the same: register a real (short) listener and let
+          // it settle - resolve or time out - before moving on, discarding
+          // the result either way (Verify="false" genuinely means the
+          // content doesn't matter). What matters is occupying the
+          // listener slot so the device's real response, if and when it
+          // arrives, is safely consumed here rather than sitting available
+          // for a later, unrelated exchange to wrongly claim. `accept`
+          // scopes this specifically to THIS write's own echoed
+          // objIdx/propId, same correlation pattern now used by propRead().
+          const drainP = waitResponse(
+            'OTHER',
+            200,
+            (f) =>
+              f.apduData.length >= 2 &&
+              f.apduData[0] === objIdx &&
+              f.apduData[1] === propId,
+          );
           await this.sendCEMI(cemi);
-          await delay(50);
+          await drainP.catch(() => {
+            /* Genuinely fine either way - Verify="false" means no response
+             * was ever required. What mattered was holding this listener
+             * open long enough to catch one if it comes; a timeout here
+             * just means none did within the window, same as before. */
+          });
           return;
         }
         const respP = waitResponse('OTHER', 3000);
@@ -2219,7 +2401,42 @@ export class KnxConnection extends EventEmitter {
         const cemi = buildCEMI(this.localAddr, deviceAddr, apdu, false, {
           priority: 'system',
         });
-        const respP = waitResponse('OTHER', 3000);
+        // Real, critical bug: unlike MemoryExtended_Read/
+        // Memory_Read just below (both pass a real `accept` predicate here,
+        // validating the response's own echoed address before accepting
+        // it), this call used to pass none at all - it resolved with
+        // WHICHEVER extended-APCI frame arrived next classified as 'OTHER'
+        // (the generic bucket covering every extended APCI except the 4
+        // MemoryExtended_*/Restart_Extended codes - PropertyValue_Read/
+        // Write, Authorize, PropDescrRead, FuncPropExtRead all share it), on
+        // the assumption requests and responses always stay strictly
+        // one-in-one-out. A real Partial Download to 1.1.13 was confirmed
+        // (via a live packet capture) to write to address 0x28C0 instead of
+        // the real PID_TABLE_REFERENCE value (0xC3000) - a stale response
+        // (nothing wrong with the device sending it; ordinary processing
+        // latency) was accepted as this read's answer well after a NEWER
+        // request's own `waitResponse('OTHER', ...)` had already been
+        // registered, and the newer call's listener claimed it first purely
+        // because generic 'OTHER' matching can't tell the two apart. This
+        // codebase already has the fix pattern proven elsewhere for the
+        // identical risk (below); it just was never applied to property
+        // reads. A real PropertyValue_Response always echoes back the
+        // objIdx/propId it was asked for (the request's own meta bytes,
+        // apduPropertyValueRead() - confirmed against this codebase's own
+        // loopback fake, which builds its response the identical way) -
+        // `accept` now requires that match, so a stale/misattributed frame
+        // is correctly ignored (same "Ignoring a non-matching response" path
+        // memory reads already use) and this call keeps waiting for its own
+        // genuine response instead of ever treating the wrong one as an
+        // answer.
+        const respP = waitResponse(
+          'OTHER',
+          3000,
+          (f) =>
+            f.apduData.length >= 2 &&
+            f.apduData[0] === objIdx &&
+            f.apduData[1] === propId,
+        );
         await this.sendCEMI(cemi);
         try {
           const res = await respP;

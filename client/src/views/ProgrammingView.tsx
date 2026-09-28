@@ -20,6 +20,7 @@ import {
   IconMagnify,
 } from '../icons.tsx';
 import { errMessage, errCode, api } from '../api.ts';
+import { DeviceStatusPopover } from './DeviceStatusPopover.tsx';
 import {
   useAppData,
   useBusActions,
@@ -51,7 +52,8 @@ function parseUnconfirmedDetail(raw: string): string[] {
 export function ProgrammingView() {
   const { projectData: data } = useAppData();
   const { deviceStatus: onDeviceStatus } = useBusActions();
-  const { updateDevice, applyDeviceVerifyResult } = useProjectActions();
+  const { updateDevice, applyDeviceVerifyResult, applyDeviceHistoryCleared } =
+    useProjectActions();
   const {
     cache: verifyCache,
     setResult: setVerifyResult,
@@ -112,6 +114,7 @@ export function ProgrammingView() {
   const programPctMaxRef = useRef<Record<string, number>>({});
   // Keyed by deviceId - lets the "press the button" modal's Cancel button
   // reach the specific in-flight programDevice() call it belongs to.
+
   const programAbortRef = useRef<Record<string, AbortController>>({});
   const {
     entries: log,
@@ -121,6 +124,27 @@ export function ProgrammingView() {
     toggleShowDebug,
   } = useProgrammingLog();
   const [verifyingIds, setVerifyingIds] = useState<Set<number>>(new Set());
+  // In-flight state for the two device-history recovery actions, same
+  // pattern as verifyingIds - keyed by device id so only the row an
+  // operator actually clicked shows as busy.
+  const [restartingIds, setRestartingIds] = useState<Set<number>>(new Set());
+  const [clearingHistoryIds, setClearingHistoryIds] = useState<Set<number>>(
+    new Set(),
+  );
+  // Which row's status badge popover is open, if any - only one at a time.
+  // Closed on an outside click (effect below) or its own close button.
+  const [statusPopoverFor, setStatusPopoverFor] = useState<number | null>(null);
+  useEffect(() => {
+    if (statusPopoverFor === null) return;
+    const onDocClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target.closest(`.${styles.statusBadgeRow}`)) {
+        setStatusPopoverFor(null);
+      }
+    };
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, [statusPopoverFor]);
   const [slideOverDevice, setSlideOverDevice] = useState<Device | null>(null);
   // Which status lozenge is selected, or 'all'. Clicking the selected one
   // clears it, so the row doubles as its own "show everything" control -
@@ -326,15 +350,25 @@ export function ProgrammingView() {
           (result.serialNumber
             ? `, serial ${result.serialNumber}`
             : ' (could not confirm serial — device unresponsive after restart)') +
-          `, ${result.totalBytes} bytes written`,
+          `, ${result.totalBytes} bytes written` +
+          (result.testConnection
+            ? " — TEST (loopback): this device's real status was NOT changed"
+            : ''),
       );
-      onDeviceStatus(deviceId, 'programmed');
-      // The server already persisted the read-back serial and the
-      // unconfirmed-writes count/detail (see /bus/program-device's own doc
-      // comment) - sync them into local state too, so the Verify button
-      // (gated on serial_number) and the "verify recommended" indicator
-      // reflect the real state immediately, not just after a reload.
-      {
+      // None of this device's REAL status is touched when the write just
+      // ran against the loopback fake - see the server's own
+      // isTestConnection doc comment, server/routes/bus.ts - so the local
+      // state that mirrors it (status/serial/unconfirmed-writes/cached
+      // verify) must stay exactly as it was too, not just what the server
+      // actually persisted.
+      if (!result.testConnection) {
+        onDeviceStatus(deviceId, 'programmed');
+        // The server already persisted the read-back serial and the
+        // unconfirmed-writes count/detail (see /bus/program-device's own
+        // doc comment) - sync them into local state too, so the Verify
+        // button (gated on serial_number) and the "verify recommended"
+        // indicator reflect the real state immediately, not just after a
+        // reload.
         const patch: Record<string, unknown> = {
           unconfirmed_writes_count: unconfirmed,
           unconfirmed_writes_detail: JSON.stringify(
@@ -353,13 +387,24 @@ export function ProgrammingView() {
             `[${new Date().toLocaleTimeString()}] Download recorded on the device, but the project record didn't refresh locally → ${errMessage(e)} (a reload will show it correctly)`,
           );
         }
+        // A successful write just changed the device's real content - the
+        // cached verify result (if any) now describes the PRE-write state
+        // and would otherwise keep showing until the user manually hits
+        // "clear cache" or re-verifies successfully, which would
+        // misleadingly show old differences as though the write had not
+        // happened. Drop it so the page reverts to "not yet verified"
+        // rather than silently-stale data.
+        clearVerifyResult(deviceId);
+        // If this device's comparison slide-over happens to be open at the
+        // time (e.g. left open from an earlier Verify), clearing its
+        // cached result above leaves the panel open with nothing left to
+        // show - DeviceCompareResults has no comparison data to render, so
+        // the panel just goes blank. Reloading doesn't help either, since
+        // the data it would need is genuinely gone, not stale. Close it
+        // here instead - there's nothing useful left in it once the write
+        // it was showing is superseded.
+        setSlideOverDevice((cur) => (cur?.id === deviceId ? null : cur));
       }
-      // A successful write just changed the device's real content - the
-      // cached verify result (if any) now describes the PRE-write state and
-      // would otherwise keep showing until manually cleared or re-verified.
-      // Drop it so the page reverts to "not yet verified" instead of
-      // silently-stale data.
-      clearVerifyResult(deviceId);
     } catch (err) {
       if (errCode(err) === 'aborted') {
         // Reverts the button to its normal (non-error) state, based on
@@ -424,33 +469,42 @@ export function ProgrammingView() {
       const pid = data?.project?.id;
       const r = await api.busVerifyDevice(devAddr, pid!, deviceId);
       setVerifyResult(deviceId, r);
-      // `status` (Programmed/Modified/Unassigned) was previously only ever
-      // set by a successful Program action, never by Verify - a real Verify
-      // showing differences left the device reading stale status. Verify
-      // now updates the same persistent status Program does, reflecting
-      // live read-back state. Deliberately doesn't touch 'unassigned' -
-      // only match/no-match, not "never verified".
-      onDeviceStatus(deviceId, r.match ? 'programmed' : 'modified');
-      // Persisted verify indicator - the server already persisted this in
-      // the same call (see runVerifyDevice()'s doc comment,
-      // server/routes/bus.ts); reflect it locally immediately, both
-      // outcomes (unlike the unconfirmed-writes sync below, which is only
-      // for a clean match).
-      applyDeviceVerifyResult(deviceId, r.match);
-      // A clean verify is positive confirmation the device's content
-      // matches the project - the server already cleared
-      // unconfirmed_writes_count/detail; sync that locally too, same
-      // reasoning as programDevice()'s sync above.
-      if (r.match) {
-        try {
-          await updateDevice(deviceId, {
-            unconfirmed_writes_count: 0,
-            unconfirmed_writes_detail: '[]',
-          });
-        } catch (e) {
-          addLog(
-            `[${new Date().toLocaleTimeString()}] Verify cleared the unconfirmed-writes flag on the device, but the project record didn't refresh locally → ${errMessage(e)} (a reload will show it correctly)`,
-          );
+      // None of this device's real persisted status is touched when this
+      // Verify ran against the loopback fake (see the server's own
+      // isTestConnection doc comment, server/routes/bus.ts) - so the local
+      // state that mirrors it must stay exactly as it was too. The
+      // comparison result itself is still cached and shown above
+      // regardless - it's a genuine read of the fake device, just not a
+      // real device's status.
+      if (!r.testConnection) {
+        // `status` (Programmed/Modified/Unassigned) was previously only ever
+        // set by a successful Program action, never by Verify - a real
+        // Verify showing differences left the device reading stale status.
+        // Verify now updates the same persistent status Program does,
+        // reflecting live read-back state. Deliberately doesn't touch
+        // 'unassigned' - only match/no-match, not "never verified".
+        onDeviceStatus(deviceId, r.match ? 'programmed' : 'modified');
+        // Persisted verify indicator - the server already persisted this in
+        // the same call (see runVerifyDevice()'s doc comment,
+        // server/routes/bus.ts); reflect it locally immediately, both
+        // outcomes (unlike the unconfirmed-writes sync below, which is only
+        // for a clean match).
+        applyDeviceVerifyResult(deviceId, r.match);
+        // A clean verify is positive confirmation the device's content
+        // matches the project - the server already cleared
+        // unconfirmed_writes_count/detail; sync that locally too, same
+        // reasoning as programDevice()'s sync above.
+        if (r.match) {
+          try {
+            await updateDevice(deviceId, {
+              unconfirmed_writes_count: 0,
+              unconfirmed_writes_detail: '[]',
+            });
+          } catch (e) {
+            addLog(
+              `[${new Date().toLocaleTimeString()}] Verify cleared the unconfirmed-writes flag on the device, but the project record didn't refresh locally → ${errMessage(e)} (a reload will show it correctly)`,
+            );
+          }
         }
       }
       // r.match accounts for decoded rows (GA table / communication flags,
@@ -517,6 +571,9 @@ export function ProgrammingView() {
         `Verified → ${devAddr} — ${scopes.join('; ')}` +
         (mismatchedSections.length
           ? `; ${mismatchedSections.join(', ')} differ`
+          : '') +
+        (r.testConnection
+          ? " — TEST (loopback): this device's real status was NOT changed"
           : '');
       addLog(`[${new Date().toLocaleTimeString()}] ${msg}`);
       // Slide over to show the full comparison as soon as the read completes,
@@ -532,6 +589,63 @@ export function ProgrammingView() {
       );
     } finally {
       setVerifyingIds((s) => {
+        const next = new Set(s);
+        next.delete(deviceId);
+        return next;
+      });
+    }
+  };
+
+  // Sends A_Restart to an already-addressed device with no write of any
+  // kind - the "try restarting it again" half of the recovery pair offered
+  // alongside a restart-withheld indicator. Never touches any persisted
+  // field: a successful manual restart doesn't retroactively make the
+  // withheld write a trusted one, so restart_withheld is left exactly as
+  // it was - "Clear device history" below is the only thing that clears
+  // it, deliberately, as an explicit separate step.
+  const restartDevice = async (deviceId: number, devAddr: string) => {
+    setLogOpen(true);
+    setRestartingIds((s) => new Set(s).add(deviceId));
+    addLog(`[${new Date().toLocaleTimeString()}] Restarting → ${devAddr}`);
+    try {
+      await api.busRestartDevice(devAddr);
+      addLog(
+        `[${new Date().toLocaleTimeString()}] ✓ Restart sent → ${devAddr}`,
+      );
+    } catch (err) {
+      addLog(
+        `[${new Date().toLocaleTimeString()}] Restart failed → ${devAddr} — ${errMessage(err)}`,
+      );
+    } finally {
+      setRestartingIds((s) => {
+        const next = new Set(s);
+        next.delete(deviceId);
+        return next;
+      });
+    }
+  };
+
+  // Resets last_download/last_download_serial and any withheld-Restart
+  // record for this device (server/routes/bus.ts's own doc comment has the
+  // two situations this recovers from). Does not touch the device itself -
+  // only this project's own record of it - so it works even for a device
+  // that's currently offline.
+  const clearDeviceHistory = async (deviceId: number, devAddr: string) => {
+    setLogOpen(true);
+    setClearingHistoryIds((s) => new Set(s).add(deviceId));
+    try {
+      const pid = data?.project?.id;
+      await api.busClearDownloadHistory(pid!, deviceId);
+      applyDeviceHistoryCleared(deviceId);
+      addLog(
+        `[${new Date().toLocaleTimeString()}] Download/restart history cleared → ${devAddr}`,
+      );
+    } catch (err) {
+      addLog(
+        `[${new Date().toLocaleTimeString()}] Clear history failed → ${devAddr} — ${errMessage(err)}`,
+      );
+    } finally {
+      setClearingHistoryIds((s) => {
         const next = new Set(s);
         next.delete(deviceId);
         return next;
@@ -674,9 +788,8 @@ export function ProgrammingView() {
   // Also opened by clicking the "-.-.-" placeholder badge itself (see
   // DeviceAddr's onAssignClick below) - AddressDeviceModal's lockedNoAddress
   // case handles a device with has_address=0 directly; the separate
-  // AssignProjectAddressModal this used to open is gone (merged in, 2026-
-  // 08-31 - real user feedback: "let's combine address edit and serial
-  // edit into the one popup").
+  // AssignProjectAddressModal this used to open is gone, merged into a
+  // single combined address-edit/serial-edit popup.
   const [addressModalFor, setAddressModalFor] = useState<
     number | 'scan' | null
   >(null);
@@ -899,14 +1012,59 @@ export function ProgrammingView() {
                     <TD>
                       <div className={styles.statusCol}>
                         <span className={styles.statusBadgeRow}>
-                          {prog?.state === 'done' ? (
-                            <Badge label="PROGRAMMED" color="var(--green)" />
-                          ) : (
-                            <Badge
-                              label={d.status.toUpperCase()}
-                              color={STATUS_COLOR[d.status] || 'var(--dim)'}
-                            />
-                          )}
+                          {(() => {
+                            // A live download finishing shows "PROGRAMMED"
+                            // immediately (prog?.state) even a beat before
+                            // the row's own d.status catches up via the
+                            // next data reload - kept as its own branch,
+                            // unaffected by restart-withheld styling below
+                            // (that only ever applies to the row's actual
+                            // persisted state, not a just-finished one).
+                            if (prog?.state === 'done') {
+                              return (
+                                <Badge
+                                  label="PROGRAMMED"
+                                  color="var(--green)"
+                                />
+                              );
+                            }
+                            const needsRestart =
+                              d.status === 'programmed' && !!d.restart_withheld;
+                            const clickable =
+                              d.status === 'programmed' ||
+                              d.status === 'modified';
+                            return (
+                              <Badge
+                                label={
+                                  needsRestart
+                                    ? 'RESTART NEEDED'
+                                    : d.status.toUpperCase()
+                                }
+                                color={
+                                  needsRestart
+                                    ? 'var(--red)'
+                                    : STATUS_COLOR[d.status] || 'var(--dim)'
+                                }
+                                title={
+                                  clickable
+                                    ? needsRestart
+                                      ? 'Click for details and to restart or reset this device'
+                                      : d.status === 'modified'
+                                        ? 'Click to see what changed since the last download'
+                                        : 'Click for download details'
+                                    : undefined
+                                }
+                                onClick={
+                                  clickable
+                                    ? () =>
+                                        setStatusPopoverFor((cur) =>
+                                          cur === d.id ? null : d.id,
+                                        )
+                                    : undefined
+                                }
+                              />
+                            );
+                          })()}
                           {/* Persisted across reloads (server/db.ts's
                               unconfirmed_writes_count) - downloadDevice()
                               completing without throwing only means the
@@ -932,6 +1090,30 @@ export function ProgrammingView() {
                               <IconAttention size={12} />
                             </span>
                           )}
+                          {/* Replaces the old always-visible restart/
+                              clear-history icon buttons that used to sit
+                              on the historySlot column, plus the small red
+                              attention triangle on the badge itself - real
+                              feedback: the icons "didn't look very nice"
+                              crowding the badge. Restart-withheld now shows
+                              as the badge's own label/colour (above), and
+                              both actions live in this popover instead. */}
+                          {statusPopoverFor === d.id && (
+                            <DeviceStatusPopover
+                              device={d}
+                              projectId={data?.project?.id ?? null}
+                              onClose={() => setStatusPopoverFor(null)}
+                              onRestart={() =>
+                                restartDevice(d.id, d.individual_address)
+                              }
+                              onClearHistory={() => {
+                                clearDeviceHistory(d.id, d.individual_address);
+                                setStatusPopoverFor(null);
+                              }}
+                              restarting={restartingIds.has(d.id)}
+                              clearingHistory={clearingHistoryIds.has(d.id)}
+                            />
+                          )}
                         </span>
                         {d.last_download && (
                           <span
@@ -946,6 +1128,13 @@ export function ProgrammingView() {
                     </TD>
                     <TD>
                       <div className={styles.rowActions}>
+                        {/* The Restart/Reset-download-status actions used
+                            to live here as a permanent historySlot of icon
+                            buttons - moved into DeviceStatusPopover (opened
+                            by clicking the status badge in the previous
+                            column) since they crowded the badge visually
+                            and only apply to a minority of rows at any
+                            given time. */}
                         {/* Fixed-width slot, always rendered (empty when
                             there's no cached result yet) so Verify/Program
                             start at the same x position on every row -
