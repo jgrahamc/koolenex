@@ -20,6 +20,9 @@ import {
   apduMemoryExtendedRead,
   apduMemoryExtendedWrite,
   parseMemoryExtendedResponse,
+  apduUserMemoryRead,
+  apduUserMemoryWrite,
+  parseUserMemoryResponse,
   buildCEMI,
   parseCEMI,
   apduConnectedFull,
@@ -147,7 +150,7 @@ class FakeMemoryDevice extends KnxConnection {
         buildCEMI(this.deviceAddr, this.localAddr, respApdu, false),
       )!;
       setImmediate(() => this._onCEMI(resp));
-    } else if (frame && frame.apciName === 'MemoryExtended_Read') {
+    } else if (frame.apciName === 'MemoryExtended_Read') {
       // [count(1)][address(3, BE)] — same shape apduMemoryExtendedRead sends.
       const count = frame.apduData[0]!;
       const address =
@@ -172,6 +175,27 @@ class FakeMemoryDevice extends KnxConnection {
         ]),
         data,
       ]);
+      const resp = parseCEMI(
+        buildCEMI(this.deviceAddr, this.localAddr, respApdu, false),
+      )!;
+      setImmediate(() => this._onCEMI(resp));
+    } else if (frame.apciName === 'UserMemory_Read') {
+      const count = frame.apduData[0]! & 0x0f;
+      const address =
+        ((frame.apduData[0]! & 0xf0) << 12) |
+        (frame.apduData[1]! << 8) |
+        frame.apduData[2]!;
+      const data = this.memory.slice(address, address + count);
+      const meta = Buffer.from([
+        ((address >> 12) & 0xf0) | count,
+        (address >> 8) & 0xff,
+        address & 0xff,
+      ]);
+      const respApdu = apduConnectedFull(
+        0,
+        APCI_EXT.UserMemory_Response,
+        Buffer.concat([meta, data]),
+      );
       const resp = parseCEMI(
         buildCEMI(this.deviceAddr, this.localAddr, respApdu, false),
       )!;
@@ -405,6 +429,110 @@ describe('parseMemoryExtendedResponse', () => {
     const parsed = parseMemoryExtendedResponse(frame);
     assert.equal(parsed.returnCode, 1);
     assert.equal(parsed.data.length, 0);
+  });
+});
+
+describe('A_UserMemory', () => {
+  it('encodes the 4-bit count and 20-bit address', () => {
+    assert.equal(
+      apduUserMemoryRead(0, 15, 0x10600).toString('hex'),
+      '42c01f0600',
+    );
+    assert.equal(
+      apduUserMemoryWrite(0, 0x10600, Buffer.from([0xaa, 0xbb])).toString(
+        'hex',
+      ),
+      '42c2120600aabb',
+    );
+  });
+
+  it('uses the cEMI extended-frame flag when a 15-byte write exceeds the standard frame limit', () => {
+    const apdu = apduUserMemoryWrite(0, 0x10600, Buffer.alloc(15, 0xaa));
+    const cemi = buildCEMI('1.0.1', '1.1.1', apdu, false);
+    assert.equal(cemi[2]! & 0x80, 0);
+  });
+
+  it('rejects values that do not fit the service fields', () => {
+    assert.throws(() => apduUserMemoryRead(0, 16, 0x10600), /between 1 and 15/);
+    assert.throws(
+      () => apduUserMemoryWrite(0, 0x100000, Buffer.from([1])),
+      /20-bit range/,
+    );
+  });
+
+  it('parses the echoed count, address, and bytes', () => {
+    const apdu = apduConnectedFull(
+      0,
+      APCI_EXT.UserMemory_Response,
+      Buffer.from([0x12, 0x06, 0x00, 0xaa, 0xbb]),
+    );
+    const frame = parseCEMI(buildCEMI('1.1.2', '1.0.2', apdu, false));
+    assert.ok(frame);
+    assert.equal(frame.apciName, 'UserMemory_Response');
+    const parsed = parseUserMemoryResponse(frame);
+    assert.equal(parsed.address, 0x10600);
+    assert.deepEqual([...parsed.data], [0xaa, 0xbb]);
+  });
+
+  it('reads a 20-bit region in 15-byte chunks when explicitly selected', async () => {
+    const mem = Buffer.alloc(0x10700);
+    for (let i = 0x10600; i < 0x10622; i++) mem[i] = i & 0xff;
+    const dev = new FakeMemoryDevice('1.1.1', mem);
+
+    const out = await dev.readMemory(
+      '1.1.1',
+      0x10600,
+      34,
+      228,
+      undefined,
+      undefined,
+      'user',
+    );
+
+    assert.deepEqual([...out], [...mem.subarray(0x10600, 0x10622)]);
+    const frames = dev.sent.map((c) => parseCEMI(c));
+    const reads = frames.filter((f) => f?.apciName === 'UserMemory_Read');
+    assert.equal(reads.length, 3);
+    assert.deepEqual(
+      reads.map((f) => f!.apduData[0]! & 0x0f),
+      [15, 15, 4],
+    );
+    assert.equal(
+      frames.filter((f) => f?.apciName === 'MemoryExtended_Read').length,
+      0,
+    );
+  });
+
+  it('uses UserMemory automatically for high verification regions when the app disables extended memory', async () => {
+    const mem = Buffer.alloc(0x10620);
+    mem.set(Buffer.from([1, 2, 3, 4]), 0x0100);
+    mem.set(Buffer.from([5, 6, 7, 8]), 0x10600);
+    const dev = new FakeMemoryDevice('1.1.1', mem);
+
+    const [low, high] = await dev.readMemoryMany(
+      '1.1.1',
+      [
+        { address: 0x0100, length: 4 },
+        { address: 0x10600, length: 4 },
+      ],
+      228,
+      undefined,
+      undefined,
+      false,
+    );
+
+    assert.deepEqual([...low!], [1, 2, 3, 4]);
+    assert.deepEqual([...high!], [5, 6, 7, 8]);
+    const frames = dev.sent.map((c) => parseCEMI(c));
+    assert.equal(frames.filter((f) => f?.apciName === 'Memory_Read').length, 1);
+    assert.equal(
+      frames.filter((f) => f?.apciName === 'UserMemory_Read').length,
+      1,
+    );
+    assert.equal(
+      frames.filter((f) => f?.apciName === 'MemoryExtended_Read').length,
+      0,
+    );
   });
 });
 

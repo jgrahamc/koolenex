@@ -18,9 +18,16 @@ export const APCI_EXT = {
   MemoryExtended_Write_Response: 0x01fc,
   MemoryExtended_Read: 0x01fd,
   MemoryExtended_Read_Response: 0x01fe,
-  // A_IndividualAddressSerialNumber_{Write,Read,Response} - NM_IndividualAddress_
-  // SerialNumber_Write/_Read (spec 3/5/2 §2.5/§2.4): assign/query a device's
-  // individual address by its 6-byte KNX serial, no programming-button press
+  // A_UserMemory_* carries a 4-bit byte count and a 20-bit address. It is
+  // distinct from A_MemoryExtended_* and is used by devices whose logical
+  // table references exceed 0xFFFF without implementing extended memory.
+  UserMemory_Read: 0x02c0,
+  UserMemory_Response: 0x02c1,
+  UserMemory_Write: 0x02c2,
+  // A_IndividualAddressSerialNumber_{Write,Read,Response} - the standard KNX
+  // network-management procedures NM_IndividualAddress_SerialNumber_Write/
+  // _Read (spec 3/5/2 §2.5/§2.4): assign or query a device's individual
+  // address via its 6-byte KNX serial number, no programming-button press
   // needed. GROUP-type broadcast to 0/0/0 at System priority, never
   // point-to-point. Wire format: docs/knx-device-write-protocol.md §9.
   IndividualAddressSerialNumber_Read: 0x03dc,
@@ -67,6 +74,9 @@ const APCI_EXT_NAMES: Record<number, string> = {
   // named after its 4-bit base APCI ('ADC_Response') and a wait for it never
   // matches.
   0x01d6: 'FunctionPropertyExt_Response',
+  0x02c0: 'UserMemory_Read',
+  0x02c1: 'UserMemory_Response',
+  0x02c2: 'UserMemory_Write',
 };
 
 // CEMI message codes
@@ -382,6 +392,49 @@ export function apduMemoryExtendedWrite(
   return apduConnectedFull(seq, APCI_EXT.MemoryExtended_Write, extra);
 }
 
+export function apduUserMemoryRead(
+  seq: number,
+  count: number,
+  address: number,
+): Buffer {
+  if (!Number.isInteger(count) || count < 1 || count > 0x0f)
+    throw new Error('A_UserMemory_Read count must be between 1 and 15');
+  if (!Number.isInteger(address) || address < 0 || address > 0x0fffff)
+    throw new Error('A_UserMemory_Read address exceeds 20-bit range');
+  return apduConnectedFull(
+    seq,
+    APCI_EXT.UserMemory_Read,
+    Buffer.from([
+      ((address >> 12) & 0xf0) | count,
+      (address >> 8) & 0xff,
+      address & 0xff,
+    ]),
+  );
+}
+
+export function apduUserMemoryWrite(
+  seq: number,
+  address: number,
+  data: Buffer,
+): Buffer {
+  if (data.length < 1 || data.length > 0x0f)
+    throw new Error(
+      'A_UserMemory_Write payload must be between 1 and 15 bytes',
+    );
+  if (!Number.isInteger(address) || address < 0 || address > 0x0fffff)
+    throw new Error('A_UserMemory_Write address exceeds 20-bit range');
+  const meta = Buffer.from([
+    ((address >> 12) & 0xf0) | data.length,
+    (address >> 8) & 0xff,
+    address & 0xff,
+  ]);
+  return apduConnectedFull(
+    seq,
+    APCI_EXT.UserMemory_Write,
+    Buffer.concat([meta, data]),
+  );
+}
+
 /**
  * Build an APDU carrying a 10-bit extended APCI with UNNUMBERED transport
  * (TPCI_DATA_GROUP, no sequence number) - the shape used for broadcast
@@ -533,6 +586,9 @@ export function buildCEMI(
   // `systemBroadcast` additionally clears bit4 (the spec's separate "system
   // broadcast" bit) - opt-in, unused by any service here today.
   let ctrl1 = 0xbc;
+  // Standard cEMI L-Data frames can carry at most 16 TPDU octets. UserMemory
+  // writes can exceed that even though their data field is capped at 15 bytes.
+  if (apdu.length > 16) ctrl1 &= ~0x80;
   if (opts?.priority === 'system') ctrl1 &= ~0x0c; // bits3-2 -> 00 (System)
   if (opts?.systemBroadcast) ctrl1 &= ~0x10; // bit4 -> 0 (system broadcast)
   const buf = Buffer.alloc(9 + apdu.length);
@@ -667,6 +723,15 @@ export function parseMemoryExtendedResponse(
   const address = (d[1]! << 16) | (d[2]! << 8) | d[3]!;
   const data = d.slice(4);
   return { returnCode, address, data };
+}
+
+export function parseUserMemoryResponse(frame: CemiFrame): MemoryResponse {
+  const d = frame.apduData;
+  const declaredCount = (d[0] ?? 0) & 0x0f;
+  const address =
+    (((d[0] ?? 0) & 0xf0) << 12) | ((d[1] ?? 0) << 8) | (d[2] ?? 0);
+  const count = Math.min(declaredCount, Math.max(0, d.length - 3));
+  return { address, data: d.slice(3, 3 + count) };
 }
 
 // ── Event type from APCI ───────────────────────────────────────────────────────

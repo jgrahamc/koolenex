@@ -320,10 +320,12 @@ class MockBus extends EventEmitter {
     deviceAddr: string,
     address: number,
     length: number,
+    chunkSize?: number,
+    service?: 'auto' | 'legacy' | 'extended' | 'user',
   ): Promise<Buffer> {
     this.calls.push({
       method: 'readMemory',
-      args: [deviceAddr, address, length],
+      args: [deviceAddr, address, length, chunkSize, service],
     });
     if (!this.connected) throw new Error('Not connected to KNX bus');
     if (!this.memImage) return Buffer.alloc(length);
@@ -994,6 +996,19 @@ describe('POST /bus/read-memory', () => {
       length: 4,
     });
     assert.equal(r.status, 200);
+  });
+
+  it('passes an explicit UserMemory diagnostic override to the bus', async () => {
+    mockBus.connected = true;
+    const r = await req(ts.baseUrl, 'POST', '/bus/read-memory', {
+      deviceAddress: '1.1.1',
+      address: 0x10600,
+      length: 4,
+      service: 'user',
+    });
+    assert.equal(r.status, 200);
+    const call = mockBus.calls.findLast((c) => c.method === 'readMemory');
+    assert.equal(call?.args[4], 'user');
   });
 
   it('rejects a read that would run past the 24-bit address space', async () => {

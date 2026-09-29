@@ -318,8 +318,8 @@ describe('downloadDevice() memory-write-service resolution', () => {
     );
   });
 
-  it('address-size hard floor still wins over SupportsExtendedMemoryServices=false - address alone exceeding 0xFFFF forces extended', async () => {
-    const HIGH_BASE = 0x1c3000; // exceeds 0xFFFF
+  it('an address beyond the 20-bit UserMemory range still forces extended', async () => {
+    const HIGH_BASE = 0x1c3000; // exceeds 0xFFFFF
     const dev = new FakeResolutionDevice('1.1.20', { maskVersion: 0x07b0 });
     await dev.downloadDevice(
       '1.1.20',
@@ -338,7 +338,7 @@ describe('downloadDevice() memory-write-service resolution', () => {
     assert.ok(used.length > 0);
     assert.ok(
       used.every((s) => s === 'extended'),
-      `address > 0xFFFF must force extended regardless of the new signal, got ${JSON.stringify(used)}`,
+      `address > 0xFFFFF must force extended regardless of the new signal, got ${JSON.stringify(used)}`,
     );
   });
 
@@ -501,8 +501,8 @@ describe('downloadDevice() memory-write-service resolution', () => {
     assert.ok(dev.writeServicesUsed().every((s) => s === 'legacy'));
   });
 
-  it('address-size hard floor still wins over a legacy MCB signal - address alone exceeding 0xFFFF forces extended', async () => {
-    const HIGH_BASE = 0x1c3000; // exceeds 0xFFFF
+  it('an address beyond the 20-bit UserMemory range wins over a legacy MCB signal', async () => {
+    const HIGH_BASE = 0x1c3000; // exceeds 0xFFFFF
     const dev = new FakeResolutionDevice('1.1.10', { maskVersion: 0x07b0 });
     await dev.downloadDevice(
       '1.1.10',
@@ -520,7 +520,7 @@ describe('downloadDevice() memory-write-service resolution', () => {
     assert.ok(used.length > 0);
     assert.ok(
       used.every((s) => s === 'extended'),
-      `address > 0xFFFF must force extended regardless of the MCB signal, got ${JSON.stringify(used)}`,
+      `address > 0xFFFFF must force extended regardless of the MCB signal, got ${JSON.stringify(used)}`,
     );
   });
 });

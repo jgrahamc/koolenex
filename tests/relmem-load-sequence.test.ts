@@ -6,11 +6,13 @@
  *
  * Unlike relmem-write-protocol.test.ts's FakeWritableMemoryDevice (which
  * accepts any Memory_Write unconditionally - fine for proving address
- * SELECTION, but blind to this class of bug), this fake device models Load
- * State gating: a memory write only lands while the target object is in
- * "Loading" state. Proves the load sequence is both necessary (without it,
- * the gated fake device rejects the write) and sufficient (the sequence
- * unlocks the write).
+ * SELECTION is correct, but blind to this class of bug entirely), this
+ * fake device models Load State gating: it only actually applies a memory
+ * write to its backing buffer while the target object is in "Loading"
+ * state, exactly like real hardware. Proves this fix is both necessary
+ * (a version without the load-sequence emits writes the gated fake device
+ * would reject) and sufficient (the standards-sized control events and
+ * LoadData descriptor actually unlock the write).
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -245,7 +247,7 @@ describe('WriteRelMem load sequence — device gating simulation', () => {
     );
   });
 
-  it('sends the exact real LSM event sequence', async () => {
+  it('sends one-byte control events and the complete LoadData descriptor', async () => {
     const backing = Buffer.alloc(0x10000);
     const dev = new LoadGatedFakeDevice('1.1.9', backing);
     await dev.downloadDevice('1.1.9', steps, null, null, payload, undefined, {
@@ -261,19 +263,43 @@ describe('WriteRelMem load sequence — device gating simulation', () => {
       // unconditionally, before anything else, on every Full Download for a
       // System-B-mask device (see hasPeiProgramObject's doc comment,
       // knx-connection.ts).
-      { objIdx: 5, full: '04000000000000000000' }, // Unload (PEI Program)
-      { objIdx: 4, full: '04000000000000000000' }, // Unload
-      { objIdx: 4, full: '01000000000000000000' }, // StartLoading
+      { objIdx: 5, full: '04' }, // Unload (PEI Program)
+      { objIdx: 4, full: '04' }, // Unload
+      { objIdx: 4, full: '01' }, // StartLoading
       // LoadData: size=20 (0x0014), combined=1 (two RelSegment entries), fill=255
       { objIdx: 4, full: '030b0000001401ff0000' },
-      { objIdx: 4, full: '02000000000000000000' }, // LoadCompleted
+      { objIdx: 4, full: '02' }, // LoadCompleted
     ]);
+  });
+
+  it('uses the explicit LdCtrlRelSegment Mode instead of inferring it from duplicate entries', async () => {
+    const backing = Buffer.alloc(0x10000);
+    const dev = new LoadGatedFakeDevice('1.1.9', backing);
+    const explicitSteps = steps.map((step) =>
+      step.type === 'RelSegment' ? { ...step, loadMode: 0 } : step,
+    );
+    await dev.downloadDevice(
+      '1.1.9',
+      explicitSteps,
+      null,
+      null,
+      payload,
+      undefined,
+      { resolvedBases: { 4: RESOLVED_BASE } },
+    );
+
+    const loadData = dev.lsmEvents.find((e) => e.event === 0x03);
+    assert.ok(loadData);
+    assert.equal(
+      loadData.data[6],
+      0,
+      'Mode byte should preserve the explicit Mode="0"',
+    );
   });
 
   it('with no RelSegment steps in the model, the write is correctly rejected by the gated fake device', async () => {
     // An app whose loadProcedures model doesn't declare a RelSegment for the
-    // object being written - proves the fake device's gating is real (would
-    // catch the missing-load-sequence bug), not just a tautology.
+    // object being written proves the fake device's gating is real.
     const bareSteps: DownloadStep[] = [
       { type: 'WriteRelMem', objIdx: 4, propId: 0, size: 20, offset: 0 },
     ];

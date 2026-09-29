@@ -271,6 +271,8 @@ interface LpRelSegment extends LpBase {
   lsmIdx: number;
   size: number;
   mode: string;
+  /** Numeric LdCtrlRelSegment.Mode byte, distinct from AppliesTo. */
+  loadMode?: number;
   fill: number;
 }
 interface LpWriteProp extends LpBase {
@@ -2272,16 +2274,21 @@ export function buildAppIndex(buf: Buffer): AppIndex | null {
         elementIndex++;
         const stepsBefore = loadProcedures.length;
         switch (key) {
-          case 'LdCtrlRelSegment':
+          case 'LdCtrlRelSegment': {
+            const rawLoadMode = attr(el, 'Mode');
             loadProcedures.push({
               type: 'RelSegment',
               lsmIdx: parseInt(attr(el, 'LsmIdx'), 10) || 4,
               size: parseInt(attr(el, 'Size'), 10) || 0,
               mode: attr(el, 'AppliesTo') || 'full',
+              ...(rawLoadMode !== ''
+                ? { loadMode: parseInt(rawLoadMode, 10) || 0 }
+                : {}),
               fill: parseInt(attr(el, 'Fill'), 10) || 0,
               ...withMergeId,
             });
             break;
+          }
           case 'LdCtrlWriteProp': {
             const raw = attr(el, 'InlineData');
             const data = raw
