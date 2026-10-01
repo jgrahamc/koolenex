@@ -24,6 +24,9 @@ import {
   apduMemoryExtendedRead,
   apduMemoryExtendedWrite,
   parseMemoryExtendedResponse,
+  apduUserMemoryRead,
+  apduUserMemoryWrite,
+  parseUserMemoryResponse,
   apduPropertyValueWrite,
   apduPropertyValueRead,
   apduFuncPropExtStateRead,
@@ -120,6 +123,8 @@ export interface DownloadStep {
   // declares both "full" and "par" RelSegment for the same lsmIdx (e.g.
   // "full,par" on the WriteRelMem step); fill is the segment's fill byte.
   mode?: string;
+  // Numeric LdCtrlRelSegment.Mode byte, distinct from AppliesTo (`mode`).
+  loadMode?: number;
   fill?: number;
   // `Verify="true"` on this app's `LdCtrlWriteRelMem` declaration. 🟡 Only
   // observed on the parameter-object step; not confirmed as a general rule
@@ -358,6 +363,8 @@ interface ManagementSessionFns {
      */
     accept?: (frame: CemiFrame) => boolean,
   ) => Promise<CemiFrame>;
+  /** Wait for a numbered request's transport acknowledgement. */
+  waitTransportAck: (seq: number, ms?: number) => Promise<CemiFrame>;
   nextSeq: () => number;
 }
 
@@ -615,9 +622,41 @@ export class KnxConnection extends EventEmitter {
         this.on('_mgmt', handler);
       });
 
-    // Connection-oriented transport requires T_Ack of every numbered data
-    // frame the device sends before issuing the next request, or the peer
-    // desyncs and stops responding after the first exchange.
+    const waitTransportAck = (
+      expectedSeq: number,
+      ms: number = timeoutMs,
+    ): Promise<CemiFrame> =>
+      new Promise((resolve, reject) => {
+        const wireSeq = expectedSeq & 0x0f;
+        const timer = setTimeout(() => {
+          this.off('_mgmt', handler);
+          reject(
+            new Error(`Management timeout waiting for T_ACK seq=${wireSeq}`),
+          );
+        }, ms);
+        const handler = (cemi: CemiFrame): void => {
+          if (
+            cemi.src !== deviceAddr ||
+            cemi.tpciType !== 'ACK' ||
+            cemi.apdu.length !== 1 ||
+            ((cemi.apdu[0]! >> 2) & 0x0f) !== wireSeq
+          )
+            return;
+          clearTimeout(timer);
+          this.off('_mgmt', handler);
+          if ((cemi.apdu[0]! & 0x03) === 0x03) {
+            reject(new Error(`Device returned T_NAK seq=${wireSeq}`));
+            return;
+          }
+          resolve(cemi);
+        };
+        this.on('_mgmt', handler);
+      });
+
+    // Connection-oriented transport requires us to T_Ack every numbered data
+    // frame the device sends (its responses), before issuing the next request —
+    // otherwise the peer desyncs and stops responding after the first exchange.
+    // (Confirmed against ETS's own bus trace, which acks each device response.)
     const ackHandler = (cemi: CemiFrame): void => {
       if (cemi.src !== deviceAddr || cemi.tpciType !== 'DATA_CONNECTED') return;
       const rxSeq = (cemi.apdu[0]! >> 2) & 0xf;
@@ -672,7 +711,12 @@ export class KnxConnection extends EventEmitter {
     }
 
     try {
-      await fn({ sendData, waitResponse, nextSeq: () => seq++ });
+      await fn({
+        sendData,
+        waitResponse,
+        waitTransportAck,
+        nextSeq: () => seq++,
+      });
     } finally {
       this.off('_mgmt', ackHandler);
       try {
@@ -1294,6 +1338,7 @@ export class KnxConnection extends EventEmitter {
     // property-56 read when available (no bus round-trip needed).
     // undefined/null falls back to the live read.
     cachedMaxApduLength?: number | null,
+    service: 'auto' | 'legacy' | 'extended' | 'user' = 'auto',
   ): Promise<Buffer> {
     if (!this.connected) throw new Error('Not connected');
     let out: Buffer = Buffer.alloc(length);
@@ -1315,6 +1360,7 @@ export class KnxConnection extends EventEmitter {
         useExtendedMemory,
         maxApduLengthValue,
         onChunk,
+        service,
       );
     });
     return out;
@@ -1343,15 +1389,17 @@ export class KnxConnection extends EventEmitter {
     onChunk?: (bytesRead: number) => void,
     // See readMemory()'s identical parameter for the real evidence/doc.
     cachedMaxApduLength?: number | null,
+    // App-level declaration used by verification. Unlike a mask-version
+    // guess, an explicit false lets high 20-bit regions select UserMemory.
+    supportsExtendedMemoryServices?: boolean,
   ): Promise<Buffer[]> {
     if (!this.connected) throw new Error('Not connected');
     const results: Buffer[] = [];
     let cumulative = 0;
     await this.managementSession(deviceAddr, async (fns) => {
-      const useExtendedMemory = await this._resolveMemoryServiceForSession(
-        fns,
-        deviceAddr,
-      );
+      const useExtendedMemory =
+        supportsExtendedMemoryServices ??
+        (await this._resolveMemoryServiceForSession(fns, deviceAddr));
       const maxApduLengthValue =
         cachedMaxApduLength != null
           ? cachedMaxApduLength
@@ -1482,6 +1530,7 @@ export class KnxConnection extends EventEmitter {
     useExtendedMemory: boolean | null,
     maxApduLengthValue: number | null,
     onChunk?: (bytesJustRead: number) => void,
+    service: 'auto' | 'legacy' | 'extended' | 'user' = 'auto',
   ): Promise<Buffer> {
     const { waitResponse, nextSeq } = fns;
     const out = Buffer.alloc(length);
@@ -1502,27 +1551,26 @@ export class KnxConnection extends EventEmitter {
       // devices only answer the legacy service, so devices whose address
       // fits keep using it.
       //
-      // Gating reads on mask version too (mirroring WriteRelMem's
-      // mask-0x07B0-requires-extended write finding) was tried and
-      // reverted: forcing extended reads on a real HDL device turned a
-      // prompt zero-byte legacy refusal into a full 3s timeout with no
-      // response, and risked regressing devices whose legacy reads already
-      // work. Address-size heuristic only, pending further evidence.
-      const useExtended = wantAddr > 0xffff;
-      void useExtendedMemory; // resolved but not yet trusted for reads - see above
-      // Legacy A_Memory_Read packs its count into a 6-bit APCI field
-      // (`count & 0x3f`, max 63). Once a prior short response left `off` at
-      // a non-round offset, `n` could land at 64, which wraps to `0` — a
-      // request for literally zero bytes that the device correctly answers
-      // with nothing. Cap `n` to each service's real wire-format limit
-      // before building the request, not just after interpreting the
-      // response.
+      // Mask-version gating was tried and reverted after a real HDL device
+      // stopped answering extended reads. Keep low addresses on the legacy
+      // service unless the caller explicitly overrides it. For high addresses,
+      // a device explicitly known not to support extended memory can use the
+      // 20-bit UserMemory service instead.
+      const useUser =
+        service === 'user' ||
+        (service === 'auto' &&
+          useExtendedMemory === false &&
+          wantAddr > 0xffff &&
+          wantAddr <= 0x0fffff);
+      const useExtended =
+        service === 'extended' ||
+        (service === 'auto' && !useUser && wantAddr > 0xffff);
+      // Cap each request to the selected service's actual wire-format limit.
+      // Legacy uses a 6-bit count, UserMemory a 4-bit count, and extended a
+      // full byte.
       //
-      // Prefer the device's own PID_MAX_APDULENGTH-derived ceiling over the
-      // protocol's theoretical max when known — real devices can support
-      // meaningfully less. See `maxChunkFromApduLength()`. Falls back to
-      // the protocol-theoretical-max heuristic when the value is unknown.
-      const protocolMaxN = useExtended ? 255 : 63;
+      // Prefer the device's PID_MAX_APDULENGTH ceiling when available.
+      const protocolMaxN = useUser ? 15 : useExtended ? 255 : 63;
       const maxN =
         maxApduLengthValue != null
           ? Math.min(
@@ -1542,7 +1590,40 @@ export class KnxConnection extends EventEmitter {
       // hardware confirmed correctly refusing exactly this with a
       // zero-byte response (0xFFFA start, 63-byte count -> 0x10039 end)
       // rather than serving it.
-      if (!useExtended && wantAddr + n > 0x10000) n = 0x10000 - wantAddr;
+      if (
+        !useExtended &&
+        !useUser &&
+        wantAddr <= 0xffff &&
+        wantAddr + n > 0x10000
+      )
+        n = 0x10000 - wantAddr;
+      if (useUser) {
+        const apdu = apduUserMemoryRead(seq, n, wantAddr);
+        const respP = waitResponse(
+          'UserMemory_Response',
+          this.memoryResponseTimeoutMs,
+          (f) => parseUserMemoryResponse(f).address === wantAddr,
+        );
+        await this.sendCEMI(
+          buildCEMI(this.localAddr, deviceAddr, apdu, false, {
+            priority: 'system',
+          }),
+        );
+        const { address: gotAddr, data } = parseUserMemoryResponse(await respP);
+        if (gotAddr !== wantAddr)
+          throw new Error(
+            `UserMemory_Response address mismatch: requested 0x${wantAddr.toString(16)}, device answered 0x${gotAddr.toString(16)}`,
+          );
+        const gotLen = Math.min(data.length, n);
+        if (gotLen === 0)
+          throw new Error(
+            `UserMemory_Response returned zero bytes at 0x${wantAddr.toString(16)} (requested ${n})`,
+          );
+        data.copy(out, off, 0, gotLen);
+        onChunk?.(gotLen);
+        off += gotLen;
+        continue;
+      }
       if (useExtended) {
         const apdu = apduMemoryExtendedRead(seq, n, wantAddr);
         const respP = waitResponse(
@@ -2240,7 +2321,7 @@ export class KnxConnection extends EventEmitter {
     }
 
     await this.managementSession(deviceAddr, async (fns) => {
-      const { nextSeq, waitResponse } = fns;
+      const { nextSeq, waitResponse, waitTransportAck } = fns;
       // ETS's own MemoryExtended_Write chunk sizes top out at 228 bytes (as
       // much as fits, smaller only for a segment's tail remainder) - a
       // protocol-theoretical ceiling, not every device's real capacity.
@@ -2499,10 +2580,9 @@ export class KnxConnection extends EventEmitter {
       //     unreliable alone: a third mask-0x07B0 device (HDL) needs
       //     legacy, so mask does not predict this by itself.
       //
-      // The address-size heuristic (`useExtendedForThisChunk` below) is a
-      // hard floor under all four - an address that doesn't fit in 16 bits
-      // always needs extended regardless of what these signals say.
-      //
+      // Once the device is explicitly resolved as legacy, high addresses in
+      // the 20-bit range use A_UserMemory instead of being forced to the
+      // unsupported extended service.
       // `deviceMask`, once read (only step 4's branch does so - most apps
       // resolve earlier), is also reused independently below to gate the
       // mask-level Object 5 (PEI Program) Unload and Extended-Restart
@@ -2706,7 +2786,8 @@ export class KnxConnection extends EventEmitter {
           `PID_DEVICE_CONTROL: enabling Verify Mode ($04) before memory writes (write service resolved to ${useExtendedMemory === false ? 'legacy' : 'unresolved - defaulting to legacy'})`,
         );
         try {
-          await propWrite(0, 14, Buffer.from([0x04]));
+          const current = await propRead(0, 14);
+          await propWrite(0, 14, Buffer.from([(current?.[0] ?? 0) | 0x04]));
         } catch (_e) {
           logDebug('PID_DEVICE_CONTROL write failed (continuing)');
         }
@@ -2730,7 +2811,7 @@ export class KnxConnection extends EventEmitter {
       const lsmWrite = async (
         objIdx: number,
         event: number,
-        extraBytes: Buffer = Buffer.alloc(9),
+        extraBytes: Buffer = Buffer.alloc(0),
       ): Promise<void> => {
         await propWrite(
           objIdx,
@@ -2739,14 +2820,13 @@ export class KnxConnection extends EventEmitter {
         );
       };
       // LoadData's real wire shape: [event=03][SCF=0x0B][rsvd:2][size:2 BE]
-      // [combinedFullPar:1][fill:1][rsvd:2] - `combined` is set when the
-      // model declares both a "full" and a "par" RelSegment for the same
-      // object (only ever observed for the parameter object so far; every
-      // other object's real example had combined=0).
+      // [mode:1][fill:1][rsvd:2]. The mode byte comes from the product
+      // file's LdCtrlRelSegment.Mode attribute when present; it is not the
+      // same thing as having both full and partial procedures.
       const loadDataExtra = (
         size: number,
         fill: number,
-        combined: boolean,
+        loadMode: number,
       ): Buffer => {
         // Layout (9 bytes, after the leading event byte lsmWrite prepends):
         // [SCF=0x0B][rsvd:2][size:2 BE][mode:1][fill:1][rsvd:2] - verified
@@ -2756,7 +2836,7 @@ export class KnxConnection extends EventEmitter {
         const b = Buffer.alloc(9);
         b.writeUInt8(0x0b, 0);
         b.writeUInt16BE(size, 3);
-        b.writeUInt8(combined ? 1 : 0, 5);
+        b.writeUInt8(loadMode & 0xff, 5);
         b.writeUInt8(fill, 6);
         return b;
       };
@@ -2765,7 +2845,12 @@ export class KnxConnection extends EventEmitter {
       // lsmIdx, real devices only need ONE combined LoadData either way.
       const relSegByObj = new Map<
         number,
-        { size: number; fill: number; combined: boolean }
+        {
+          size: number;
+          fill: number;
+          loadMode: number;
+          hasExplicitLoadMode: boolean;
+        }
       >();
       for (const s of steps) {
         if (s.type !== 'RelSegment' || s.lsmIdx == null || s.size == null)
@@ -2774,7 +2859,16 @@ export class KnxConnection extends EventEmitter {
         relSegByObj.set(s.lsmIdx, {
           size: s.size,
           fill: s.fill ?? 0,
-          combined: !!existing, // a second RelSegment for the same object -> combined
+          loadMode:
+            s.loadMode ??
+            (existing?.hasExplicitLoadMode
+              ? existing.loadMode
+              : existing
+                ? 1
+                : 0),
+          hasExplicitLoadMode:
+            s.loadMode !== undefined ||
+            (existing?.hasExplicitLoadMode ?? false),
         });
       }
       let anyRelSegmentLoaded = false;
@@ -2955,7 +3049,7 @@ export class KnxConnection extends EventEmitter {
                 ? loadDataExtra(
                     relSeg.size,
                     relSeg.fill,
-                    mode === 'full' ? relSeg.combined : false,
+                    mode === 'full' ? relSeg.loadMode : 0,
                   )
                 : null,
               isParamObject: objIdx === 4,
@@ -3030,7 +3124,7 @@ export class KnxConnection extends EventEmitter {
           table: gaTable,
           offset: 0,
           presetBase: null,
-          loadDataPayload: loadDataExtra(gaTable.length, 0, mode === 'full'),
+          loadDataPayload: loadDataExtra(gaTable.length, 0, 0),
           isParamObject: false,
           verifyResponse: true, // an undeclared table has no XML step to read it from
         });
@@ -3042,7 +3136,7 @@ export class KnxConnection extends EventEmitter {
           table: assocTable,
           offset: 0,
           presetBase: null,
-          loadDataPayload: loadDataExtra(assocTable.length, 0, mode === 'full'),
+          loadDataPayload: loadDataExtra(assocTable.length, 0, 0),
           isParamObject: false,
           verifyResponse: true, // an undeclared table has no XML step to read it from
         });
@@ -3060,11 +3154,7 @@ export class KnxConnection extends EventEmitter {
           table: extra.groupObjectTable,
           offset: 0,
           presetBase: null,
-          loadDataPayload: loadDataExtra(
-            extra.groupObjectTable.length,
-            0,
-            mode === 'full',
-          ),
+          loadDataPayload: loadDataExtra(extra.groupObjectTable.length, 0, 0),
           isParamObject: false,
           verifyResponse: true, // an undeclared table has no XML step to read it from
         });
@@ -3501,29 +3591,51 @@ export class KnxConnection extends EventEmitter {
               }
               const seq = nextSeq();
               const addr = base + j.offset + off;
-              // A_Memory_Write only carries a 16-bit address - same problem
-              // as the read side (see readRegionInSession). A resolved
-              // relmem base above 0xFFFF must use A_MemoryExtended_Write, or
-              // the legacy service silently truncates to the wrong address.
-              // Also true even within 16 bits in at least one case (a
-              // captured real ETS Partial Download used extended
-              // exclusively at an in-range address) - see
-              // `useExtendedMemory`'s resolution above for the primary
-              // decision. `|| addr > 0xffff` is a hard floor applied
-              // regardless of that resolution - never `??`, so an explicit
-              // `false` (legacy) decision can't suppress extended for an
-              // address that genuinely doesn't fit in 16 bits.
+              // A_Memory_Write only carries a 16-bit address - same problem as
+              // the read side (see readRegionInSession). A resolved relmem
+              // base can land above 0xFFFF, in which case the legacy service
+              // silently truncates to the wrong (low) address and writes
+              // nothing meaningful to the real target. Originally this only
+              // switched to A_MemoryExtended_Write when the address itself
+              // didn't fit in 16 bits. Correction: a real captured ETS
+              // Partial Download against 1.1.9 (address 0x5F53, well within
+              // 16 bits) still used A_MemoryExtended_Write exclusively -
+              // confirmed via byte-level replay: a verbatim replay of ETS's
+              // own captured frames (all-extended) persisted correctly on
+              // real hardware, while koolenex's own reconstruction (legacy
+              // Memory_Write for this same address, otherwise byte-identical
+              // count/address/data) silently failed to persist, twice,
+              // reproducibly. Not a universal rule though - see
+              // `useExtendedMemory`'s own resolution above (🔴 speculative
+              // IsSecureEnabled-based guess, mask as fallback) for the
+              // primary decision. A resolved legacy device can still expose
+              // 20-bit logical addresses through A_UserMemory_*; do not
+              // silently truncate those addresses or force an unsupported
+              // A_MemoryExtended_* request.
+              const useUserForThisChunk =
+                useExtendedMemory === false &&
+                addr > 0xffff &&
+                addr <= 0x0fffff;
               const useExtendedForThisChunk =
-                (useExtendedMemory ?? false) || addr > 0xffff;
+                (useExtendedMemory ?? false) ||
+                (!useUserForThisChunk && addr > 0xffff);
               // Legacy A_Memory_Write packs its byte count into a 6-bit APCI
-              // field (max 63); extended allows MEM_CHUNK up to 228. The
-              // address-size heuristic can resolve a different service per
-              // chunk (e.g. a write straddling 0xFFFF), so a chunk sized for
-              // extended must be re-capped to 63 if it lands on legacy,
-              // mirroring the read-side protocolMaxN fix.
-              const stepSize = useExtendedForThisChunk
-                ? MEM_CHUNK
-                : Math.min(MEM_CHUNK, 63);
+              // field (max 63) - the extended service's own 1-byte count
+              // field allows MEM_CHUNK up to 228. The address-size fallback
+              // heuristic above can resolve a DIFFERENT service per chunk
+              // (e.g. a write straddling 0xFFFF), so a chunk sized for
+              // extended can't just be sent legacy as-is once it lands there
+              // - it must be re-capped to 63 for this specific chunk, mirroring
+              // the read-side protocolMaxN fix (2026-08-30). Not caught until
+              // 2026-09-01: the legacy write path's separate byte-encoding bug
+              // (see apduMemoryWrite's own doc comment, knx-cemi.ts) meant no
+              // real count was ever actually reaching the wire before now, so
+              // this 6-bit overflow had nothing to silently corrupt yet.
+              const stepSize = useUserForThisChunk
+                ? Math.min(MEM_CHUNK, 15)
+                : useExtendedForThisChunk
+                  ? MEM_CHUNK
+                  : Math.min(MEM_CHUNK, 63);
               // Bounded by the current window's own end, not just
               // `stepSize` - a pending-change-resolved range can (and
               // usually does) end well before a natural stepSize boundary;
@@ -3535,9 +3647,11 @@ export class KnxConnection extends EventEmitter {
                 win.offset + win.length,
               );
               const chunk = j.table.subarray(off, chunkEnd);
-              const apdu = useExtendedForThisChunk
-                ? apduMemoryExtendedWrite(seq, addr, chunk)
-                : apduMemoryWrite(seq, addr, chunk);
+              const apdu = useUserForThisChunk
+                ? apduUserMemoryWrite(seq, addr, chunk)
+                : useExtendedForThisChunk
+                  ? apduMemoryExtendedWrite(seq, addr, chunk)
+                  : apduMemoryWrite(seq, addr, chunk);
               const cemi = buildCEMI(this.localAddr, deviceAddr, apdu, false, {
                 priority: 'system',
               });
@@ -3549,7 +3663,7 @@ export class KnxConnection extends EventEmitter {
               // pace rather than a fixed delay. Not fatal if a chunk's
               // response never arrives (log and continue, same tolerance as
               // propWrite).
-              if (!j.verifyResponse) {
+              if (!j.verifyResponse && !useUserForThisChunk) {
                 // Declared Verify="false": no per-chunk confirmation is
                 // coming, so send and pace rather than wait it out.
                 await this.sendCEMI(cemi);
@@ -3566,15 +3680,25 @@ export class KnxConnection extends EventEmitter {
                 off = chunkEnd;
                 continue;
               }
-              const respP = waitResponse(
-                useExtendedForThisChunk
-                  ? 'MemoryExtended_Write_Response'
-                  : 'Memory_Response',
-                3000,
-              );
+              const respP = useUserForThisChunk
+                ? null
+                : waitResponse(
+                    useExtendedForThisChunk
+                      ? 'MemoryExtended_Write_Response'
+                      : 'Memory_Response',
+                    3000,
+                  );
+              // A_UserMemory_Write has no dedicated write response. With
+              // Verify Mode disabled a peer legitimately confirms only with
+              // T_ACK, so accept that transport acknowledgement instead of
+              // waiting three seconds per 15-byte chunk for an echo that may
+              // never be sent.
+              const transportAckP = useUserForThisChunk
+                ? waitTransportAck(seq, 1000)
+                : null;
               await this.sendCEMI(cemi);
               try {
-                await respP;
+                await (transportAckP ?? respP!);
               } catch (_e) {
                 logDebug(
                   `No write response for ObjIdx=${j.objIdx} offset=${off} (continuing)`,

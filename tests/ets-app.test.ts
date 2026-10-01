@@ -520,3 +520,32 @@ describe('buildAppIndex - load procedure steps keep the order the application de
     );
   });
 });
+
+describe('ets-app.ts: LdCtrlRelSegment Mode attribute', () => {
+  it('preserves numeric Mode separately from AppliesTo', () => {
+    const xml = `<?xml version="1.0" encoding="utf-8"?>
+<KNX>
+  <ManufacturerData>
+    <Manufacturer>
+      <ApplicationPrograms>
+        <ApplicationProgram Id="AP-8">
+          <Static>
+            <LoadProcedures>
+              <LoadProcedure MergeId="4">
+                <LdCtrlRelSegment LsmIdx="4" Size="34" Mode="0" Fill="255" AppliesTo="full,par" />
+              </LoadProcedure>
+            </LoadProcedures>
+          </Static>
+        </ApplicationProgram>
+      </ApplicationPrograms>
+    </Manufacturer>
+  </ManufacturerData>
+</KNX>`;
+    const idx = buildAppIndex(Buffer.from(xml, 'utf8'));
+    assert(idx, 'buildAppIndex should parse the synthetic app XML');
+    const step = idx!.loadProcedures.find((s) => s.type === 'RelSegment');
+    assert(step, 'a RelSegment step should be present');
+    assert.equal(step!.mode, 'full,par');
+    assert.equal(step!.loadMode, 0);
+  });
+});

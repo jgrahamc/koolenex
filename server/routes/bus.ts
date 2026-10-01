@@ -927,6 +927,9 @@ router.post(
         // bisecting a device's real safe read chunk size. Normal path uses
         // readMemory()'s default (12).
         chunkSize: z.number().int().min(1).max(255).optional(),
+        // Diagnostic override for a device whose logical table references
+        // use the 20-bit A_UserMemory_* service.
+        service: z.enum(['auto', 'legacy', 'extended', 'user']).default('auto'),
       })
       // Reads must not run past the top of the 24-bit extended address
       // space, or `address + off` would wrap.
@@ -936,12 +939,13 @@ router.post(
       }),
     'Memory read failed',
     async (b, body) => {
-      const { deviceAddress, address, length, chunkSize } = body;
+      const { deviceAddress, address, length, chunkSize, service } = body;
       const data = await b.readMemory(
         deviceAddress,
         address,
         length,
         chunkSize,
+        service,
       );
       return {
         deviceAddress,
@@ -2953,6 +2957,7 @@ export async function runVerifyDevice(
     parameterByteOrder,
     expectedHardwareType,
     hardwareTypeParams,
+    supportsExtendedMemoryServices,
   } = built;
 
   // Derive the read-back plan from the same artifacts the download would use.
@@ -3075,6 +3080,7 @@ export async function runVerifyDevice(
               : 0,
           }),
         cachedMaxApduLength,
+        supportsExtendedMemoryServices,
       )
     : [];
   for (let i = 0; i < plan.mem.length; i++) {
@@ -3254,6 +3260,7 @@ export async function runVerifyDevice(
       undefined,
       undefined,
       cachedMaxApduLength,
+      supportsExtendedMemoryServices,
     );
     const realLengths = gaAssocMem.map((r, i) => {
       const countBuf = countActuals[i];
@@ -3269,6 +3276,7 @@ export async function runVerifyDevice(
       undefined,
       undefined,
       cachedMaxApduLength,
+      supportsExtendedMemoryServices,
     );
     const coRows = db.all<ComObject>(
       'SELECT * FROM com_objects WHERE device_id=? ORDER BY object_number',
@@ -3358,6 +3366,7 @@ export async function runVerifyDevice(
       undefined,
       undefined,
       cachedMaxApduLength,
+      supportsExtendedMemoryServices,
     );
     const actual = actualObject3 ?? Buffer.alloc(0);
     // Object 3's own raw byte-level diff count (`flagsTotalBytes`/

@@ -77,6 +77,7 @@ three testbed devices only.
 | TSM pushbutton | Albrecht Jung | 1.1.200 | `MV-0705` | Production | Legacy | ETS download only — older app generation (`LoadProcedureStyle="ProductProcedure"`, §4.1d) |
 | Smoke alarm, part 234300 | Gira | 1.1.24 | — | Production | Legacy | ETS download only — no `LdCtrlWriteRelMem`/`Verify` attribute at all (§4.1d) |
 | `KNX IO 534 CV (4D)` RGBW controller | Weinzierl | 1.1.11 | — | Production | Legacy | ETS download only — falsified the `PID_MCB_TABLE` byte-5 candidate rule (§4.1) |
+| `KNX-SA41` 4-channel switch actuator | SATEL | — | `07B0` (System B) 🟢 | Test bench | UserMemory | koolenex writes — confirmed 20-bit table references and read-back (§4.1) |
 
 Mask versions confirmed via a live device-descriptor read against real hardware (§2.1) where
 noted, cross-checked against the KNX standard's own published mask-version table, which classifies
@@ -197,6 +198,10 @@ observed:
 | StartLoading | Begin a new load | Loading |
 | LoadData (+ 9 extra bytes, §4.2) | Declare what's about to be written — size, mode, fill value | Stays Loading |
 | LoadCompleted | Commit the load | Loaded |
+
+Unload, StartLoading, and LoadCompleted carry only their one-byte event value. LoadData carries
+the event plus its complete 9-byte descriptor. Some devices tolerate zero-padding on the control
+events; the SATEL device above required the declared one-byte width. 🟢
 
 Objects that need writing are unloaded first, in reverse index order (e.g. 4 then 3 then 2 then
 1), then loaded in a fixed order that is **not** simple ascending or descending index order
@@ -561,9 +566,9 @@ first.
 
 ### 4.1 Memory write services
 
-Two different lower-level services exist for writing raw memory content into a device: a
-**legacy** form (16-bit address) and an **extended** form (24-bit address, needed for memory
-locations above `0xFFFF`). **Real ETS used the extended form exclusively for every write
+Three lower-level services are relevant when writing raw memory content into a device: a
+**legacy** form (16-bit address), **UserMemory** (20-bit address), and an **extended** form
+(24-bit address). **Real ETS used the extended form exclusively for every write
 observed on this testbed** — including for addresses that fit easily in 16 bits, not just the
 ones that structurally require the 24-bit form. 🟢, confirmed across every Full and Partial
 Download captured, both devices.
@@ -795,6 +800,24 @@ first; if undefined, falls through unchanged to the `PID_MCB_TABLE`/`IsSecureEna
 above. Test coverage: `tests/knx-connection-write-service.test.ts` (protocol-level fake-device
 harness, one case per resolution-chain branch, plus a golden-capture replay against the real
 57,076-byte Zennio image — see `tests/fixtures/1140-zennio-real-blank-device-write-README.md`).
+
+**20-bit `A_UserMemory_*` support — 🟢 confirmed on SATEL KNX-SA41 hardware.** This device reports
+mask `0x07B0`, exposes table references above `0xFFFF`, and does not declare extended-memory
+support. It acknowledges `A_MemoryExtended_*` at the transport layer but does not return the
+corresponding application response; using that service therefore leaves the tables unchanged.
+The same reads and writes succeed with `A_UserMemory_Read`/`Response`/`Write`, whose payload packs
+a 4-bit byte count and 20-bit address into three bytes. The count is limited to 15 bytes per
+request. Write confirmation is the numbered transport acknowledgement; there is no separate
+UserMemory write-response APCI unless Verify Mode causes a read-style echo.
+
+This path was confirmed by writing and reading back three independently addressed tables (18,
+34, and 140 bytes), including exact content and checksum matches, and then exercising all four
+relay channels through their programmed group addresses. `downloadDevice()` now selects
+UserMemory when extended services are explicitly unsupported and the resolved address is in
+`0x10000..0xFFFFF`; addresses above the 20-bit range continue to require the extended service.
+Device verification uses the same app declaration, keeping low regions on the legacy service and
+selecting UserMemory only for high 20-bit regions.
+The diagnostic `/bus/read-memory` endpoint also accepts `service: "user"` for explicit probing.
 
 ### 4.1a Real per-device memory-chunk size ceiling (`PID_MAX_APDULENGTH`) 🟢
 
@@ -1109,15 +1132,10 @@ byte:    0     1-2      3-4         5      6      7-8
   doesn't appear to vary.
 - **size** — matches the object's real total write-segment size exactly, every time (e.g. 8178,
   98, 10, or 6 bytes, depending on the object). 🟢
-- **mode** — **one value means a Full Download, a different value means a Partial Download**,
-  confirmed for the parameter-memory object across one real Full and two real Partial Downloads
-  on the same device. 🟢 for that object. 🟢 **This field is object-4/5-specific, not merely
-  under-sampled for the others**: scanning every `RelSegment` step across all 49 real app models
-  cached in this project's own `data/apps/` found `lsmIdx` values of only 4 or 5 — never 1, 2, or
-  3, in any app, from any manufacturer. Objects 1/2/3's own tables are written entirely through the
-  separate mechanism §7.2 describes (outside any app-declared `RelSegment`/`LoadData` step at all),
-  which is consistent with a Full-vs-Partial `mode` distinction never applying to them in the first
-  place, rather than merely never having been captured doing so.
+- **mode** — comes from the numeric `LdCtrlRelSegment.Mode` attribute in the application program;
+  it is distinct from `AppliesTo="full,par"` and must not be inferred from duplicate full/partial
+  declarations. Earlier captures correlated its values with Full versus Partial Download, but the
+  SATEL application provides an explicit `Mode="0"` for the relevant declarations. 🟢
 - **fill** — the byte value the tool declares for filling any part of the segment it doesn't
   explicitly write (observed as one value for the parameter object, a different value for the
   others, both consistent with what's actually found on real device memory for genuinely

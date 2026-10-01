@@ -23,8 +23,10 @@ import {
   parseCEMI,
   buildCEMI,
   apduConnectedFull,
+  apduControl,
   apduGroup,
   APCI_EXT,
+  TPCI,
 } from '../server/knx-cemi.ts';
 import { KnxConnection } from '../server/knx-connection.ts';
 import type { DownloadStep } from '../server/knx-connection.ts';
@@ -109,14 +111,28 @@ class FakeWritableMemoryDevice extends KnxConnection {
       return Promise.resolve();
     }
 
+    if (fullApci === 0x3d5 /* PropertyValue_Read */) {
+      const objIdx = frame.apduData[0]!;
+      const propId = frame.apduData[1]!;
+      const value =
+        objIdx === 0 && propId === 56
+          ? Buffer.from([0x03, 0xe8])
+          : objIdx === 4 && propId === 13
+            ? Buffer.from('0004002510', 'hex')
+            : Buffer.from([0x00]);
+      const respApdu = apduConnectedFull(
+        0,
+        APCI_EXT.PropertyValue_Response,
+        Buffer.concat([Buffer.from([objIdx, propId, 0x10, 0x01]), value]),
+      );
+      const resp = parseCEMI(
+        buildCEMI(this.deviceAddr, this.localAddr, respApdu, false),
+      )!;
+      setImmediate(() => this._onCEMI(resp));
+      return Promise.resolve();
+    }
+
     if (fullApci === 0x3d7 /* PropertyValue_Write */) {
-      // This file doesn't model Load State (objIdx 5's Unload, PID_PROGRAM_
-      // VERSION write-back, etc.) like relmem-load-sequence.test.ts's
-      // LoadGatedFakeDevice does - it only cares about Memory_Write/
-      // MemoryExtended_Write landing at the right address. downloadDevice()
-      // waits for a real PropertyValue_Response to every PropertyValue_Write
-      // it sends (propWrite()'s 3s wait); ack generically here so an
-      // unrelated write doesn't inflate result.unconfirmedWrites.
       const objIdx = frame.apduData[0]!;
       const propId = frame.apduData[1]!;
       const data = frame.apduData.subarray(4);
@@ -170,6 +186,23 @@ class FakeWritableMemoryDevice extends KnxConnection {
         buildCEMI(this.deviceAddr, this.localAddr, respApdu, false),
       )!;
       setImmediate(() => this._onCEMI(resp));
+    } else if (frame.apciName === 'UserMemory_Write') {
+      const count = frame.apduData[0]! & 0x0f;
+      const address =
+        ((frame.apduData[0]! & 0xf0) << 12) |
+        (frame.apduData[1]! << 8) |
+        frame.apduData[2]!;
+      frame.apduData.subarray(3, 3 + count).copy(this.memory, address);
+      const seq = (frame.apdu[0]! >> 2) & 0x0f;
+      const ack = parseCEMI(
+        buildCEMI(
+          this.deviceAddr,
+          this.localAddr,
+          apduControl(TPCI.ACK, seq),
+          false,
+        ),
+      )!;
+      setImmediate(() => this._onCEMI(ack));
     }
     return Promise.resolve();
   }
@@ -178,26 +211,45 @@ class FakeWritableMemoryDevice extends KnxConnection {
     this.connected = false;
   }
 
-  /** Every Memory_Write/MemoryExtended_Write frame actually sent, decoded. */
-  writesSent(): Array<{ extended: boolean; address: number; count: number }> {
+  /** Every memory-write frame actually sent, decoded. */
+  writesSent(): Array<{
+    service: 'legacy' | 'extended' | 'user';
+    extended: boolean;
+    address: number;
+    count: number;
+  }> {
     return this.sent
       .map((c) => parseCEMI(c))
       .filter(
         (f): f is NonNullable<typeof f> =>
           !!f &&
           (f.apciName === 'Memory_Write' ||
-            f.apciName === 'MemoryExtended_Write'),
+            f.apciName === 'MemoryExtended_Write' ||
+            f.apciName === 'UserMemory_Write'),
       )
       .map((f) => {
         if (f.apciName === 'MemoryExtended_Write') {
           return {
+            service: 'extended' as const,
             extended: true,
             address:
               (f.apduData[1]! << 16) | (f.apduData[2]! << 8) | f.apduData[3]!,
             count: f.apduData[0]!,
           };
         }
+        if (f.apciName === 'UserMemory_Write') {
+          return {
+            service: 'user' as const,
+            extended: false,
+            address:
+              ((f.apduData[0]! & 0xf0) << 12) |
+              (f.apduData[1]! << 8) |
+              f.apduData[2]!,
+            count: f.apduData[0]! & 0x0f,
+          };
+        }
         return {
+          service: 'legacy' as const,
           extended: false,
           // extraBuf layout from apduMemoryWrite: [addrHi][addrLo][data...];
           // count lives in the header word's low 6 bits (see the sendCEMI
@@ -566,6 +618,56 @@ describe('WriteRelMem protocol-level test — 1.1.10 (real captured memory, base
       'BCU2 (non-System-B): address fits in 16 bits, so legacy Memory_Write',
     );
     assert.equal(sentWrites[0]!.address, 0x5f53);
+  });
+});
+
+describe('WriteRelMem protocol-level test — 20-bit A_UserMemory_Write', () => {
+  it('uses 15-byte UserMemory chunks when extended memory is explicitly unsupported', async () => {
+    const base = 0x10600;
+    const backing = Buffer.alloc(0x10700);
+    const payload = Buffer.from(Array.from({ length: 34 }, (_, i) => i + 1));
+    const dev = new FakeWritableMemoryDevice('1.1.1', backing);
+    const steps: DownloadStep[] = [
+      {
+        type: 'WriteRelMem',
+        objIdx: 4,
+        propId: 0,
+        size: payload.length,
+        offset: 0,
+      },
+    ];
+
+    const result = await dev.downloadDevice(
+      '1.1.1',
+      steps,
+      null,
+      null,
+      payload,
+      undefined,
+      {
+        resolvedBases: { 4: base },
+        supportsExtendedMemoryServices: false,
+      },
+    );
+
+    assert.deepEqual(
+      [...backing.subarray(base, base + payload.length)],
+      [...payload],
+    );
+    const writes = dev.writesSent();
+    assert.deepEqual(
+      writes.map(({ service, address, count }) => ({
+        service,
+        address,
+        count,
+      })),
+      [
+        { service: 'user', address: base, count: 15 },
+        { service: 'user', address: base + 15, count: 15 },
+        { service: 'user', address: base + 30, count: 4 },
+      ],
+    );
+    assert.deepEqual(result.unconfirmedDetails, []);
   });
 });
 

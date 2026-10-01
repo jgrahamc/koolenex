@@ -566,9 +566,18 @@ class KnxBusManager extends EventEmitter {
     address: number,
     length: number,
     chunkSize?: number,
+    service: 'auto' | 'legacy' | 'extended' | 'user' = 'auto',
   ): Promise<Buffer> {
     await this._ensureConnected();
-    return this.connection!.readMemory(deviceAddr, address, length, chunkSize);
+    return this.connection!.readMemory(
+      deviceAddr,
+      address,
+      length,
+      chunkSize,
+      undefined,
+      undefined,
+      service,
+    );
   }
 
   /**
@@ -601,6 +610,7 @@ class KnxBusManager extends EventEmitter {
     // See KnxConnection.readMemory()'s identical parameter for the real
     // evidence/doc comment.
     cachedMaxApduLength?: number | null,
+    supportsExtendedMemoryServices?: boolean,
   ): Promise<Buffer[]> {
     await this._ensureConnected();
     return this.connection!.readMemoryMany(
@@ -609,6 +619,7 @@ class KnxBusManager extends EventEmitter {
       chunkSize,
       onChunk,
       cachedMaxApduLength,
+      supportsExtendedMemoryServices,
     );
   }
 
