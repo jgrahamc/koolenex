@@ -1925,20 +1925,13 @@ export function buildAppIndex(buf: Buffer): AppIndex | null {
       }
     }
 
-    const mainItems = orderedDynamic ? serOrderedItems(orderedDynamic) : null;
-    // Index each ModuleDef's serialized item list by its ModuleDef id
-    // (orderedModDynamics' key, "{appId}_MD-x") so the 'module' recursion in
-    // walkItems can look one up by id. `modItemsList` (the flat form) still
-    // feeds the pass1/pass2 walks below.
-    const modItemsById: Record<string, DynItem[]> = {};
-    const modItemsList: DynItem[][] = [];
-    for (const [mdId, od] of Object.entries(orderedModDynamics)) {
-      const its = od ? serOrderedItems(od) : null;
-      if (its) {
-        modItemsById[mdId] = its;
-        modItemsList.push(its);
-      }
-    }
+    // Serialized once per program (see dynMainItems below), not per call.
+    // `modItemsById` is keyed by ModuleDef id ("{appId}_MD-x") so the
+    // 'module' recursion in walkItems can look one up by id;
+    // `modItemsList` (the flat form) feeds the pass1/pass2 walks below.
+    const mainItems = dynMainItems;
+    const modItemsById = dynModItemsById;
+    const modItemsList = Object.values(dynModItemsById);
     // Pass 1: evaluate conditions to collect active params, but don't collect corefs yet
     function walkPass1(items: DynItem[] | null) {
       if (!items) return;
@@ -2047,14 +2040,10 @@ export function buildAppIndex(buf: Buffer): AppIndex | null {
     }
 
     const dynTree = {
-      main: orderedDynamic ? { items: serOrderedItems(orderedDynamic) } : null,
-      moduleDefs: toArr(ap.ModuleDefs?.ModuleDef)
-        .map((md: XmlNode) => {
-          const mdId = attr(md, 'Id');
-          const ordDyn = orderedModDynamics[mdId];
-          return { id: mdId, items: ordDyn ? serOrderedItems(ordDyn) : [] };
-        })
-        .filter((m: { id: string; items: DynItem[] }) => m.items.length > 0),
+      main: dynMainItems ? { items: dynMainItems } : null,
+      moduleDefs: moduleDefIds
+        .map((mdId) => ({ id: mdId, items: dynModItemsById[mdId] ?? [] }))
+        .filter((m) => m.items.length > 0),
     };
 
     // chooseOwnerOf: paramRefId → the paramRefId of the nearest enclosing
@@ -2096,7 +2085,7 @@ export function buildAppIndex(buf: Buffer): AppIndex | null {
     // LoadStateMachine rather than an address and are handled by the
     // existing relSegData path, so only absolute ones are mapped here.
     const codeSegmentAddress: Record<string, number> = {};
-    for (const st of allStaticSections) {
+    for (const st of staticCodeSections) {
       for (const as_ of toArr(st.Code?.AbsoluteSegment)) {
         const id = attr(as_, 'Id');
         const addr = parseInt(attr(as_, 'Address'), 10);
@@ -2182,7 +2171,7 @@ export function buildAppIndex(buf: Buffer): AppIndex | null {
     // parameter defaults in this blob; individual Parameter.@Offset values may be 0
     // for all parameters in such devices.
     const relSegData: Record<number, string> = {};
-    for (const st of allStaticSections) {
+    for (const st of staticCodeSections) {
       for (const rs of toArr(st.Code?.RelativeSegment)) {
         const lsm = parseInt(attr(rs, 'LoadStateMachine'), 10);
         if (!lsm) continue;
@@ -2202,7 +2191,7 @@ export function buildAppIndex(buf: Buffer): AppIndex | null {
     // keyed by Address (decimal string). Used for devices with ProductProcedure/absolute
     // memory addressing (e.g. Zennio, older BCU2 devices).
     const absSegData: Record<number, { size: number; hex: string }> = {};
-    for (const st of allStaticSections) {
+    for (const st of staticCodeSections) {
       for (const as_ of toArr(st.Code?.AbsoluteSegment)) {
         const addr = parseInt(attr(as_, 'Address'), 10);
         const size = parseInt(attr(as_, 'Size'), 10) || 0;
@@ -2440,6 +2429,24 @@ export function buildAppIndex(buf: Buffer): AppIndex | null {
       loadProcedures.splice(0, loadProcedures.length, ...sorted);
     }
   }
+
+  // What the returned closures need from the parse trees, taken out up front
+  // so they never reference the trees themselves. All closures created in
+  // this function share one context, so a tree any of them references stays
+  // resident for as long as the AppIndex does - for a large program several
+  // times its XML size, which is what ran big projects out of memory.
+  const dynMainItems = orderedDynamic ? serOrderedItems(orderedDynamic) : null;
+  const dynModItemsById: Record<string, DynItem[]> = {};
+  for (const [mdId, od] of Object.entries(orderedModDynamics)) {
+    dynModItemsById[mdId] = serOrderedItems(od);
+    // findModDefs() closes over this map, so empty it rather than let it
+    // pin every ModuleDef's ordered tree in that shared context.
+    delete orderedModDynamics[mdId];
+  }
+  const moduleDefIds: string[] = toArr(ap.ModuleDefs?.ModuleDef).map(
+    (md: XmlNode) => attr(md, 'Id'),
+  );
+  const staticCodeSections = allStaticSections.map((st) => ({ Code: st.Code }));
 
   // See AppIndex.maxComObjectNumber's doc comment.
   const maxComObjectNumber = Object.values(coDefs).reduce(
